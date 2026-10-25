@@ -28,6 +28,7 @@ Validated on Apple Silicon macOS. This is a photo-movie editing slice; the full 
 - CI now runs a packaging smoke build on macOS (`app`) and Windows (`nsis`) for main pushes and manual runs, using `src-tauri/tauri.ci.conf.json` to disable updater signing. It also runs `cargo audit` and desktop `npm audit`.
 - `cargo audit` reports three `zip` extraction advisories (RUSTSEC-2026-0367/0368/0369) in `zip` 2.6.1 and the updater's 4.6.1. PixCut never calls `ZipArchive::extract`; it reads entries with `by_name` and writes with `ZipWriter`, so the advisories are documented and ignored in CI until upstream ships `zip >= 9`.
 - Verification: 34 TypeScript tests, 24 project-model tests, 8 native tests, and 3 FFmpeg tests pass; `actionlint` is clean on all workflows.
+- The first full GitHub dry run ([run 40214818313](https://github.com/Plain-Workshop/pixcut/actions/runs/40214818313)) passed on all four runners: macOS arm64, macOS x64 (cross-built on an arm runner), Windows x64, and Linux x86_64, after the version and test gates. Windows produced NSIS, MSI, and portable ZIP; Linux produced AppImage and deb; macOS produced DMG and updater tarball plus signature. Packaging-only failures found and fixed during the run: an extra `--` forwarded bundle flags to Cargo, empty Apple secrets requested a certificate import, an unsupported `macos-15-intel` label, a YAML alias GitHub rejects, and a case-sensitive Linux binary check.
 
 ## Open-source plan removal
 
