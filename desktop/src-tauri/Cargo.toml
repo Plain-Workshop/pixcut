@@ -1,6 +1,6 @@
 [package]
 name = "pixcut"
-version = "0.1.2"
+version = "0.1.3"
 description = "Offline-first PixCut desktop editor"
 authors = ["PixCut"]
 edition = "2021"
