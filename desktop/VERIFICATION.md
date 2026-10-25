@@ -43,6 +43,20 @@ Validated on Apple Silicon macOS. This is a photo-movie editing slice; the full 
 - Ignored FFmpeg test `plan_export_encodes_video_and_image_segments` mixes one image segment, one trimmed video segment, and a timed transparent text overlay; the output is H.264, exactly 1.00 s, and includes the audio mix when present.
 - Tests: 34 TypeScript, 24 project-model, 9 native, 4 FFmpeg. `tsc` and production build pass.
 
+## Usability pass: margins, audio delete, labels, blur, shortcuts, social elements, playhead
+
+- Home now has a 14 px top and left margin; the sidebar is a rounded card fixed to the viewport and only the main column scrolls. Verified at 1440×1000: sidebar `y=14`, height `986`.
+- Clicking an audio clip now clears the scene selection, so the scene delete button disappears. `Delete`/`Backspace` with an audio clip selected removes only the audio; the scene count stayed 3 in the regression check.
+- Scene actions (replace, duplicate, delete) only appear when a clip is explicitly selected; the active scene no longer acts as an implicit selection for destructive actions.
+- Status text is now **Saved**; the editor badge says **Local only** instead of the misleading **Offline** toggle.
+- Shortcut help and settings text increased to 10–12 px with larger keys and descriptions.
+- Blur fill now uses a 6× higher-resolution sample, high-quality smoothing, and an optional canvas blur; it no longer looks pixelated. The image-zoom slider accepts 100% in blur mode.
+- Expanded elements to 22 kinds: Subscribe, Like, Bell, Comment, Share, Play, Progress, Location, Music, Check, Cross, Ring, Cursor, Underline, plus the original shapes. Elements now look like other timeline clips, get a small cascade offset when added, and support pulse/float animations. Entry animations remain preview-accurate and are approximated in exports.
+- The vertical playhead is draggable across its full height (scrubber value changed from 0 to 1.67 s in the check).
+- Text, element, image-pan, audio-trim, scene-reorder, and playhead drags were exercised; all changed project state without console errors.
+- Not implemented: a second/third video track for picture-in-picture. It needs a multi-track compositor, multi-track export, and a track UI; the current model intentionally validates one visual track.
+- Tests: 34 TypeScript, 26 project-model, 10 native, 4 FFmpeg; `npm run ci` passes. Screenshots: `home-margins-chromium.png`, `social-elements-chromium.png`, `blur-fill-chromium.png`, `audio-delete-chromium.png`.
+
 ## Elements, photo motion, text lanes, transitions, audio trim, and MP4 import
 
 - Added shape/sticker element layers (`elements` on a scene) with rectangle, circle, triangle, star, sparkle, line, arrow, and heart shapes. Each has color, opacity, size, rotation, start/duration, and a fade/pop/slide entrance. Elements render below text, above the photo, drag on the canvas, appear in their own timeline lane, and are included in image and video export.

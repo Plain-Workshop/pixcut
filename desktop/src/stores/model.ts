@@ -24,7 +24,7 @@ export const setSceneSeconds = (scene: Scene, seconds: number, timebase: Timebas
   return { ...scene, durationTicks: ticks, fadeIn: Math.min(scene.fadeIn ?? 0, duration), fadeOut: Math.min(scene.fadeOut ?? 0, duration) };
 };
 export type TransitionType = 'none' | 'fade' | 'slide' | 'wipe' | 'zoom' | 'blur' | 'circle' | 'slide-up' | 'spin';
-export type ElementKind = 'rectangle' | 'ellipse' | 'triangle' | 'star' | 'line' | 'arrow' | 'heart' | 'sparkle';
+export type ElementKind = 'rectangle' | 'ellipse' | 'triangle' | 'star' | 'sparkle' | 'line' | 'arrow' | 'heart' | 'subscribe' | 'like' | 'bell' | 'comment' | 'share' | 'play' | 'progress' | 'location' | 'music' | 'check' | 'cross' | 'ring' | 'cursor' | 'underline';
 export type ElementLayer = {
   id: string;
   kind: ElementKind;
@@ -37,7 +37,7 @@ export type ElementLayer = {
   opacity: number;
   startTicks: number;
   durationTicks: number;
-  animation: 'none' | 'fade' | 'pop' | 'slide-up';
+  animation: 'none' | 'fade' | 'pop' | 'slide-up' | 'pulse' | 'float';
 };
 export type MotionType = 'none' | 'zoom-in' | 'zoom-out' | 'pan-left' | 'pan-right' | 'pan-up' | 'pan-down' | 'ken-burns';
 export type Transition = { type: TransitionType; duration: number };
@@ -448,7 +448,7 @@ function readElements(value: unknown, durationTicks: number): ElementLayer[] {
     const element = item as Partial<ElementLayer>;
     if (!element || typeof element.id !== 'string' || !element.id || ids.has(element.id)) throw new Error('Invalid element layer identity.');
     ids.add(element.id);
-    const kinds: ElementKind[] = ['rectangle', 'ellipse', 'triangle', 'star', 'line', 'arrow', 'heart', 'sparkle'];
+    const kinds: ElementKind[] = ['rectangle', 'ellipse', 'triangle', 'star', 'sparkle', 'line', 'arrow', 'heart', 'subscribe', 'like', 'bell', 'comment', 'share', 'play', 'progress', 'location', 'music', 'check', 'cross', 'ring', 'cursor', 'underline'];
     if (!kinds.includes(element.kind as ElementKind)) throw new Error('Invalid element layer kind.');
     for (const key of ['x', 'y', 'width', 'height'] as const) {
       const value = element[key];
@@ -462,7 +462,7 @@ function readElements(value: unknown, durationTicks: number): ElementLayer[] {
     if (!Number.isInteger(element.startTicks) || !Number.isInteger(element.durationTicks) || (element.startTicks as number) < 0 || (element.durationTicks as number) < 1) throw new Error('Invalid element layer timing.');
     const startTicks = Math.max(0, Math.min(element.startTicks as number, Math.max(0, durationTicks - 1)));
     const elementTicks = Math.max(1, Math.min(element.durationTicks as number, durationTicks - startTicks));
-    if (element.animation !== undefined && !['none', 'fade', 'pop', 'slide-up'].includes(element.animation)) throw new Error('Invalid element layer animation.');
+    if (element.animation !== undefined && !['none', 'fade', 'pop', 'slide-up', 'pulse', 'float'].includes(element.animation)) throw new Error('Invalid element layer animation.');
     return {
       id: element.id, kind: element.kind as ElementKind,
       x: element.x!, y: element.y!, width: element.width!, height: element.height!,

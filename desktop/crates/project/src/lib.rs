@@ -797,7 +797,7 @@ impl Project {
                     s.elements.iter().all(|element| {
                         ids.insert(element.id.clone())
                             && !element.id.is_empty()
-                            && ["rectangle", "ellipse", "triangle", "star", "line", "arrow", "heart", "sparkle"].contains(&element.kind.as_str())
+                            && ["rectangle", "ellipse", "triangle", "star", "sparkle", "line", "arrow", "heart", "subscribe", "like", "bell", "comment", "share", "play", "progress", "location", "music", "check", "cross", "ring", "cursor", "underline"].contains(&element.kind.as_str())
                             && element.x.is_finite() && (0.0..=1.0).contains(&element.x)
                             && element.y.is_finite() && (0.0..=1.0).contains(&element.y)
                             && element.width.is_finite() && (0.02..=1.0).contains(&element.width)
@@ -807,7 +807,7 @@ impl Project {
                             && element.opacity.is_finite() && (0.0..=100.0).contains(&element.opacity)
                             && element.duration_ticks > 0
                             && element.start_ticks + element.duration_ticks <= s.duration_ticks
-                            && ["", "none", "fade", "pop", "slide-up"].contains(&element.animation.as_str())
+                            && ["", "none", "fade", "pop", "slide-up", "pulse", "float"].contains(&element.animation.as_str())
                     })
                 };
                 let motion_ok = s.motion.as_deref().is_none_or(|motion| {

@@ -133,13 +133,20 @@ function noiseTile() {
 
 function blurredCover(ctx: CanvasRenderingContext2D, img: CanvasImageSource, sourceWidth: number, sourceHeight: number, w: number, h: number) {
   const small = document.createElement('canvas');
-  small.width = Math.max(16, Math.round(w / 18));
-  small.height = Math.max(16, Math.round(h / 18));
+  small.width = Math.max(32, Math.round(w / 6));
+  small.height = Math.max(32, Math.round(h / 6));
   const sctx = small.getContext('2d')!;
-  const scale = Math.max(small.width / sourceWidth, small.height / sourceHeight);
+  sctx.imageSmoothingEnabled = true;
+  sctx.imageSmoothingQuality = 'high';
+  const scale = Math.max(small.width / sourceWidth, small.height / sourceHeight) * 1.04;
   sctx.drawImage(img, (small.width - sourceWidth * scale) / 2, (small.height - sourceHeight * scale) / 2, sourceWidth * scale, sourceHeight * scale);
+  ctx.save();
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(small, 0, 0, small.width, small.height, 0, 0, w, h);
+  ctx.imageSmoothingQuality = 'high';
+  const soft = Math.max(2, Math.min(10, Math.min(w, h) * .004));
+  try { ctx.filter = `blur(${soft}px)`; } catch { /* canvas filter is optional */ }
+  ctx.drawImage(small, -soft, -soft, w + soft * 2, h + soft * 2);
+  ctx.restore();
   ctx.fillStyle = 'rgba(8, 10, 16, .42)';
   ctx.fillRect(0, 0, w, h);
 }
@@ -312,6 +319,41 @@ function drawStar(ctx: CanvasRenderingContext2D, points: number, outer: number, 
   ctx.fill();
 }
 
+function elementRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const radius = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  if (typeof ctx.roundRect === 'function') {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, radius);
+    ctx.fill();
+    return;
+  }
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function elementLabel(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxHeight: number, color = '#FFFFFF', x = 0) {
+  let size = Math.max(5, maxHeight * .42);
+  ctx.font = `700 ${size}px Inter, system-ui, sans-serif`;
+  while (ctx.measureText(text).width > maxWidth && size > 4) {
+    size -= .5;
+    ctx.font = `700 ${size}px Inter, system-ui, sans-serif`;
+  }
+  ctx.fillStyle = color;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x, 0);
+}
+
 function drawElementShape(ctx: CanvasRenderingContext2D, element: ElementLayer, w: number, h: number, alpha: number, scale: number, offsetY: number) {
   const bw = Math.max(2, element.width * w);
   const bh = Math.max(2, element.height * h);
@@ -322,6 +364,154 @@ function drawElementShape(ctx: CanvasRenderingContext2D, element: ElementLayer, 
   ctx.globalAlpha = alpha;
   ctx.fillStyle = element.color;
   switch (element.kind) {
+    case 'subscribe':
+      elementRoundRect(ctx, -bw / 2, -bh / 2, bw, bh, bh * .5);
+      elementLabel(ctx, 'SUBSCRIBE', bw * .82, bh);
+      break;
+    case 'like':
+      elementRoundRect(ctx, -bw / 2, -bh / 2, bw, bh, bh * .25);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.ellipse(-bw * .24, -bh * .02, bh * .12, bh * .17, -.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(-bw * .32, bh * .08, bh * .16, bh * .26);
+      elementLabel(ctx, 'LIKE', bw * .5, bh, '#FFFFFF', bw * .16);
+      break;
+    case 'bell': {
+      ctx.beginPath();
+      ctx.moveTo(-bw * .22, bh * .22);
+      ctx.quadraticCurveTo(-bw * .2, -bh * .32, 0, -bh * .36);
+      ctx.quadraticCurveTo(bw * .2, -bh * .32, bw * .22, bh * .22);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(0, bh * .32, Math.max(2, bh * .1), 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case 'comment':
+      elementRoundRect(ctx, -bw / 2, -bh / 2, bw, bh * .78, bh * .18);
+      ctx.beginPath();
+      ctx.moveTo(-bw * .12, bh * .28);
+      ctx.lineTo(-bw * .02, bh * .5);
+      ctx.lineTo(bw * .12, bh * .28);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#101214';
+      ctx.fillRect(-bw * .3, -bh * .16, bw * .6, Math.max(2, bh * .07));
+      ctx.fillRect(-bw * .3, bh * .02, bw * .42, Math.max(2, bh * .07));
+      break;
+    case 'share':
+      ctx.fillStyle = '#FFFFFF';
+      for (const [x, y, r] of [[-bw * .28, bh * .26, bh * .1], [bw * .28, 0, bh * .1], [-bw * .28, -bh * .26, bh * .1]] as const) {
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = Math.max(2, bh * .06);
+      ctx.beginPath();
+      ctx.moveTo(-bw * .2, -bh * .2);
+      ctx.lineTo(bw * .2, -bh * .04);
+      ctx.moveTo(-bw * .2, bh * .2);
+      ctx.lineTo(bw * .2, bh * .04);
+      ctx.stroke();
+      break;
+    case 'play':
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.min(bw, bh) * .48, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#101214';
+      ctx.beginPath();
+      ctx.moveTo(Math.min(bw, bh) * .14, -Math.min(bw, bh) * .2);
+      ctx.lineTo(Math.min(bw, bh) * .3, 0);
+      ctx.lineTo(Math.min(bw, bh) * .14, Math.min(bw, bh) * .2);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    case 'progress':
+      elementRoundRect(ctx, -bw / 2, -bh * .14, bw, bh * .28, bh * .14);
+      ctx.globalAlpha = alpha * .35;
+      ctx.fillStyle = '#FFFFFF';
+      elementRoundRect(ctx, -bw / 2, -bh * .14, bw, bh * .28, bh * .14);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = element.color;
+      elementRoundRect(ctx, -bw / 2, -bh * .14, bw * .66, bh * .28, bh * .14);
+      ctx.beginPath();
+      ctx.arc(bw * .16, 0, bh * .2, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case 'location':
+      ctx.beginPath();
+      ctx.arc(0, -bh * .12, Math.min(bw, bh) * .34, Math.PI, 0);
+      ctx.lineTo(0, bh * .42);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#101214';
+      ctx.beginPath();
+      ctx.arc(0, -bh * .12, Math.min(bw, bh) * .12, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case 'music':
+      ctx.beginPath();
+      ctx.ellipse(-bw * .2, bh * .26, bh * .14, bh * .1, -.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(bw * .26, bh * .16, bh * .14, bh * .1, -.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(bw * .24, -bh * .42, Math.max(2, bh * .06), bh * .58);
+      ctx.fillRect(-bw * .22, -bh * .32, Math.max(2, bh * .06), bh * .58);
+      ctx.beginPath();
+      ctx.moveTo(-bw * .22, -bh * .32);
+      ctx.lineTo(bw * .27, -bh * .44);
+      ctx.lineTo(bw * .27, -bh * .3);
+      ctx.lineTo(-bw * .22, -bh * .18);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    case 'check':
+      ctx.strokeStyle = element.color;
+      ctx.lineWidth = Math.max(3, bh * .14);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-bw * .3, 0);
+      ctx.lineTo(-bw * .06, bh * .24);
+      ctx.lineTo(bw * .32, -bh * .28);
+      ctx.stroke();
+      break;
+    case 'cross':
+      ctx.strokeStyle = element.color;
+      ctx.lineWidth = Math.max(3, bh * .14);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-bw * .28, -bh * .28);
+      ctx.lineTo(bw * .28, bh * .28);
+      ctx.moveTo(bw * .28, -bh * .28);
+      ctx.lineTo(-bw * .28, bh * .28);
+      ctx.stroke();
+      break;
+    case 'ring':
+      ctx.strokeStyle = element.color;
+      ctx.lineWidth = Math.max(2, Math.min(bw, bh) * .1);
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.min(bw, bh) * .4, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+    case 'cursor':
+      ctx.beginPath();
+      ctx.moveTo(-bw * .24, -bh * .38);
+      ctx.lineTo(bw * .3, bh * .04);
+      ctx.lineTo(0, bh * .08);
+      ctx.lineTo(bw * .14, bh * .4);
+      ctx.lineTo(bw * .02, bh * .44);
+      ctx.lineTo(-bw * .12, bh * .12);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    case 'underline':
+      elementRoundRect(ctx, -bw / 2, -bh * .12, bw, Math.max(3, bh * .24), bh * .12);
+      break;
     case 'rectangle':
       if (typeof ctx.roundRect === 'function') {
         ctx.beginPath();
@@ -393,8 +583,10 @@ function drawElements(ctx: CanvasRenderingContext2D, scene: Scene, w: number, h:
     const progress = clamp(local / .45, 0, 1);
     const eased = 1 - Math.pow(1 - progress, 3);
     const alpha = (element.opacity / 100) * (element.animation === 'fade' || element.animation === 'slide-up' ? eased : 1);
-    const scale = element.animation === 'pop' ? .6 + .4 * eased : 1;
-    const offsetY = element.animation === 'slide-up' ? (1 - eased) * h * .07 : 0;
+    let scale = element.animation === 'pop' ? .6 + .4 * eased : 1;
+    let offsetY = element.animation === 'slide-up' ? (1 - eased) * h * .07 : 0;
+    if (element.animation === 'pulse') scale *= 1 + Math.sin(local * 6) * .05;
+    if (element.animation === 'float') offsetY += Math.sin(local * 2.4) * h * .02;
     drawElementShape(ctx, element, w, h, alpha, scale, offsetY);
   }
 }
@@ -484,8 +676,10 @@ export async function drawElementOverlay(canvas: HTMLCanvasElement, scene: Scene
   const progress = clamp(local / .45, 0, 1);
   const eased = 1 - Math.pow(1 - progress, 3);
   const alpha = (element.opacity / 100) * (element.animation === 'fade' || element.animation === 'slide-up' ? eased : 1);
-  const scale = element.animation === 'pop' ? .6 + .4 * eased : 1;
-  const offsetY = element.animation === 'slide-up' ? (1 - eased) * h * .07 : 0;
+  let scale = element.animation === 'pop' ? .6 + .4 * eased : 1;
+  let offsetY = element.animation === 'slide-up' ? (1 - eased) * h * .07 : 0;
+  if (element.animation === 'pulse') scale *= 1 + Math.sin(local * 6) * .05;
+  if (element.animation === 'float') offsetY += Math.sin(local * 2.4) * h * .02;
   drawElementShape(ctx, element, w, h, alpha, scale, offsetY);
 }
 

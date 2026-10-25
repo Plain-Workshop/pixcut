@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
+  Bell,
   Circle,
   Ban,
   Blend,
@@ -24,7 +25,10 @@ import {
   Keyboard,
   Layers,
   Heart,
+  MapPin,
+  MessageCircle,
   Minus,
+  MousePointer2,
   LayoutTemplate,
   LoaderCircle,
   Magnet,
@@ -34,6 +38,7 @@ import {
   Pause,
   Pencil,
   Play,
+  PlayCircle,
   Plus,
   Redo2,
   RefreshCw,
@@ -45,11 +50,14 @@ import {
   SkipBack,
   Sparkles,
   Square,
+  Share2,
   Star,
+  ThumbsUp,
   Trash2,
   Triangle,
   Type,
   Undo2,
+  Youtube,
   Upload,
   WifiOff,
   X,
@@ -98,6 +106,20 @@ const EXPORT_QUALITY_CRF: Record<'draft' | 'standard' | 'high', number> = { draf
 const RELEASES_URL = 'https://github.com/Plain-Workshop/pixcut/releases/latest';
 const FFMPEG_INSTALL: Record<ShortcutPlatform, string> = { macos: 'brew install ffmpeg', windows: 'winget install Gyan.FFmpeg', linux: 'sudo apt install ffmpeg' };
 const ELEMENTS: { kind: ElementKind; label: string }[] = [
+  { kind: 'subscribe', label: 'Subscribe' },
+  { kind: 'like', label: 'Like' },
+  { kind: 'bell', label: 'Bell' },
+  { kind: 'comment', label: 'Comment' },
+  { kind: 'share', label: 'Share' },
+  { kind: 'play', label: 'Play' },
+  { kind: 'progress', label: 'Progress' },
+  { kind: 'location', label: 'Location' },
+  { kind: 'music', label: 'Music' },
+  { kind: 'check', label: 'Check' },
+  { kind: 'cross', label: 'Cross' },
+  { kind: 'ring', label: 'Ring' },
+  { kind: 'cursor', label: 'Cursor' },
+  { kind: 'underline', label: 'Underline' },
   { kind: 'rectangle', label: 'Rectangle' },
   { kind: 'ellipse', label: 'Circle' },
   { kind: 'triangle', label: 'Triangle' },
@@ -107,6 +129,12 @@ const ELEMENTS: { kind: ElementKind; label: string }[] = [
   { kind: 'arrow', label: 'Arrow' },
   { kind: 'heart', label: 'Heart' },
 ];
+const ELEMENT_COLOR_DEFAULTS: Partial<Record<ElementKind, string>> = {
+  subscribe: '#FF0033', like: '#0A66C2', bell: '#FFD166', comment: '#FFFFFF',
+  share: '#6BE7FF', play: '#FFFFFF', progress: '#FF7A9E', location: '#FF6B6B',
+  music: '#9D7CFF', check: '#7CF0B4', cross: '#FF7A9E', ring: '#9D7CFF',
+  cursor: '#FFFFFF', underline: '#9D7CFF',
+};
 const ELEMENT_COLORS = ['#9D7CFF', '#FF7A9E', '#FFD166', '#6BE7FF', '#7CF0B4', '#FFFFFF'];
 const TRANSITION_OPTIONS: { id: TransitionType; label: string; description: string }[] = [
   { id: 'none', label: 'Hard cut', description: 'No transition' },
@@ -122,6 +150,20 @@ const TRANSITION_OPTIONS: { id: TransitionType; label: string; description: stri
 
 function ElementGlyph({ kind, size = 18 }: { kind: ElementKind; size?: number }) {
   switch (kind) {
+    case 'subscribe': return <Youtube size={size} />;
+    case 'like': return <ThumbsUp size={size} />;
+    case 'bell': return <Bell size={size} />;
+    case 'comment': return <MessageCircle size={size} />;
+    case 'share': return <Share2 size={size} />;
+    case 'play': return <PlayCircle size={size} />;
+    case 'progress': return <Minus size={size} />;
+    case 'location': return <MapPin size={size} />;
+    case 'music': return <Music size={size} />;
+    case 'check': return <Check size={size} />;
+    case 'cross': return <X size={size} />;
+    case 'ring': return <Circle size={size} />;
+    case 'cursor': return <MousePointer2 size={size} />;
+    case 'underline': return <Minus size={size} />;
     case 'rectangle': return <Square size={size} />;
     case 'ellipse': return <Circle size={size} />;
     case 'triangle': return <Triangle size={size} />;
@@ -249,7 +291,7 @@ export default function App() {
   const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
   const [previewAudio, setPreviewAudio] = useState<AudioClip[] | null>(null);
   const [previewSize, setPreviewSize] = useState<{ width: number; height: number } | null>(null);
-  const [notice, setNotice] = useState(''), [error, setError] = useState(''), [exporter, setExporter] = useState(false), [exporting, setExporting] = useState(false), [exportProgress, setExportProgress] = useState(0), [status, setStatus] = useState('Saved locally');
+  const [notice, setNotice] = useState(''), [error, setError] = useState(''), [exporter, setExporter] = useState(false), [exporting, setExporting] = useState(false), [exportProgress, setExportProgress] = useState(0), [status, setStatus] = useState('Saved');
   const [exportSettings, setExportSettings] = useState({ name: '', version: 'v1', includeQuality: true, includePreset: true });
   const [cancellingExport, setCancellingExport] = useState(false);
   const exportCancelled = useRef(false);
@@ -343,6 +385,7 @@ export default function App() {
   const primaryScene = primarySelected ? selectedScenes.find(scene => scene.id === primarySelected) : undefined;
   const selectedScene = primaryScene ?? selectedScenes.at(-1) ?? active;
   const selectedCount = selectedScenes.length;
+  const hasSceneSelection = selectedIds.length > 0;
   const isSelected = (id: string) => selectedIds.includes(id);
   const previewTarget = previewScene ?? active;
   const selectedTextLayers = selectedScene ? sceneTextLayers(selectedScene) : [];
@@ -628,7 +671,7 @@ export default function App() {
           const next = await bridge.dispatch(current);
           latestProject.current = next.project;
           setSession(next);
-          setStatus('Saved locally');
+          setStatus('Saved');
         } catch (e) {
           success = false;
           sceneQueue.current = [];
@@ -989,6 +1032,14 @@ export default function App() {
   }
 
   function deleteSelected() {
+    if (!hasSceneSelection) {
+      if (selectedAudioId) {
+        const clip = audio.find(item => item.id === selectedAudioId);
+        if (clip) { removeAudio(clip.id); return; }
+      }
+      setNotice('Select a clip to delete.');
+      return;
+    }
     const targets = selectedScenes;
     if (!targets.length) return;
     const ids = targets.map(scene => scene.id);
@@ -1091,10 +1142,11 @@ export default function App() {
 
   function addElement(kind: ElementKind) {
     if (!selectedScene || !canEdit) { setNotice('Select a scene first.'); return; }
+    const count = selectedScene.elements?.length ?? 0;
     const element: ElementLayer = {
-      id: crypto.randomUUID(), kind, x: .5, y: .5, width: .3, height: .3,
-      rotation: 0, color: '#9D7CFF', opacity: 100,
-      startTicks: 0, durationTicks: selectedScene.durationTicks, animation: 'none',
+      id: crypto.randomUUID(), kind, x: .5 + (count % 3) * .035, y: .5 + (count % 2) * .035, width: .3, height: .3,
+      rotation: 0, color: ELEMENT_COLOR_DEFAULTS[kind] ?? '#9D7CFF', opacity: 100,
+      startTicks: 0, durationTicks: selectedScene.durationTicks, animation: kind === 'subscribe' || kind === 'like' ? 'pop' : 'none',
     };
     void updateSelection(replaceSceneElements(selectedScene, [...(selectedScene.elements ?? []), element]));
     setSelectedElementId(element.id);
@@ -1716,7 +1768,7 @@ export default function App() {
         });
       }
       const next = await bridge.dispatch({ type: 'add', scenes: added });
-      latestProject.current = next.project; setSession(next); setStatus('Saved locally');
+      latestProject.current = next.project; setSession(next); setStatus('Saved');
       const first = added[0]?.id ?? null; setSelectedIds(first ? [first] : []); setPrimarySelected(first); selectionAnchor.current = first;
       setPosition(totalDuration(next.project)); setScreen('editor');
       setNotice(`${added.length} video${added.length === 1 ? '' : 's'} added. Preview and timeline playback work; MP4 export for video is the next step.`);
@@ -1749,7 +1801,7 @@ export default function App() {
         await loadImage(image);
         added.push({ id: crypto.randomUUID(), startTicks: 0, sourceInTicks: 0, name: file.name, image, durationTicks: secondsToTicks(preferences.defaultSceneSeconds, project.timebase), title: '', subtitle: '', color: '#ffffff', fit: preferences.defaultFit });
       }
-      const next = await bridge.dispatch({ type: 'add', scenes: added }); latestProject.current = next.project; setSession(next); setStatus('Saved locally'); const first = added[0]?.id ?? null; setSelectedIds(first ? [first] : []); setPrimarySelected(first); selectionAnchor.current = first; setPosition(totalDuration(next.project)); setScreen('editor'); setNotice(`${added.length} image${added.length === 1 ? '' : 's'} added. Originals stay untouched.`);
+      const next = await bridge.dispatch({ type: 'add', scenes: added }); latestProject.current = next.project; setSession(next); setStatus('Saved'); const first = added[0]?.id ?? null; setSelectedIds(first ? [first] : []); setPrimarySelected(first); selectionAnchor.current = first; setPosition(totalDuration(next.project)); setScreen('editor'); setNotice(`${added.length} image${added.length === 1 ? '' : 's'} added. Originals stay untouched.`);
     } catch (e) { setError(messageFor(e)); } finally { setBusy(false); operation.current = false; if (mediaInput.current) mediaInput.current.value = ''; }
   }
 
@@ -1826,15 +1878,21 @@ export default function App() {
     void run({ type: 'audio', audio: project.audio.map(clip => clip.id === constrained.id ? constrained : clip) });
   }
 
+  function focusAudio(clip: AudioClip) {
+    setSelectedAudioId(clip.id);
+    setSelectedIds([]);
+    setPrimarySelected(null);
+    setSelectedElementId(null);
+    setTab('audio');
+  }
+
   function beginAudioMove(event: ReactPointerEvent<HTMLElement>, clip: AudioClip) {
     if (!canEdit || event.button !== 0 || !projectTicks) return;
     const track = (event.currentTarget as HTMLElement).closest<HTMLElement>('.audio-track');
     const width = track?.getBoundingClientRect().width ?? 0;
     if (!track || width <= 0) return;
-    event.preventDefault();
     event.stopPropagation();
-    setSelectedAudioId(clip.id);
-    setTab('audio');
+    focusAudio(clip);
     setPlaying(false);
     const startX = event.clientX;
     const initialStart = clip.startTicks;
@@ -1860,10 +1918,8 @@ export default function App() {
     const track = (event.currentTarget as HTMLElement).closest<HTMLElement>('.audio-track');
     const width = track?.getBoundingClientRect().width ?? 0;
     if (!track || width <= 0) return;
-    event.preventDefault();
     event.stopPropagation();
-    setSelectedAudioId(clip.id);
-    setTab('audio');
+    focusAudio(clip);
     setPlaying(false);
     const startX = event.clientX;
     const initialStart = clip.startTicks, initialDuration = clip.durationTicks, initialIn = clip.sourceInSeconds;
@@ -2201,6 +2257,26 @@ export default function App() {
     } finally { setExporting(false); setCancellingExport(false); }
   }
 
+  function beginPlayheadDrag(event: ReactPointerEvent<HTMLElement>) {
+    if (!duration) return;
+    const track = document.querySelector<HTMLElement>('.scene-track');
+    if (!track) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = track.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    setPlaying(false);
+    const update = (clientX: number) => scrubTo(Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * duration);
+    update(event.clientX);
+    const move = (moveEvent: PointerEvent) => update(moveEvent.clientX);
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
   function cancelExport() {
     exportCancelled.current = true;
     setCancellingExport(true);
@@ -2404,7 +2480,7 @@ export default function App() {
           {homeSection === 'home' && <section className="home-perks">
             <div><span className="perk-icon violet"><Zap size={17} /></span><strong>Simple</strong><small>Start creating in minutes</small></div>
             <div><span className="perk-icon blue"><Layers size={17} /></span><strong>Powerful</strong><small>Timing, titles, and color</small></div>
-            <div><span className="perk-icon pink"><WifiOff size={17} /></span><strong>Offline</strong><small>Edit without internet or account</small></div>
+            <div><span className="perk-icon pink"><WifiOff size={17} /></span><strong>On this device</strong><small>Edit without internet or account</small></div>
             <div><span className="perk-icon green"><Ban size={17} /></span><strong>No watermark</strong><small>Export beautiful videos, free</small></div>
           </section>}
         </main>
@@ -2469,7 +2545,7 @@ export default function App() {
                 const start = ticksToSeconds(clip.startTicks, project.timebase);
                 const length = ticksToSeconds(clip.durationTicks, project.timebase);
                 return <div className={`audio-list-item ${selectedAudio?.id === clip.id ? 'active' : ''}`} key={clip.id}>
-                  <button className="audio-list-select" onClick={() => setSelectedAudioId(clip.id)}><Music size={15} /><span><strong>{clip.name}</strong><small>{start.toFixed(1)} s · {length.toFixed(1)} s</small></span></button>
+                  <button className="audio-list-select" onClick={() => focusAudio(clip)}><Music size={15} /><span><strong>{clip.name}</strong><small>{start.toFixed(1)} s · {length.toFixed(1)} s</small></span></button>
                   <button className="icon-button" aria-label={`Remove ${clip.name}`} disabled={!canEdit} onClick={() => removeAudio(clip.id)}><Trash2 size={14} /></button>
                 </div>;
               })}</div> : <div className="library-empty music-empty">
@@ -2520,7 +2596,7 @@ export default function App() {
                 <label className="music-control"><span>Height <b>{Math.round(selectedElement.height * 100)}%</b></span><input type="range" min="2" max="100" step="1" value={Math.round(selectedElement.height * 100)} onChange={event => updateElement({ height: Number(event.target.value) / 100 })} /></label>
                 <label className="music-control"><span>Start <b>{ticksToSeconds(selectedElement.startTicks, project.timebase).toFixed(1)} s</b></span><input type="range" min="0" max={Math.max(0, ticksToSeconds(selectedScene.durationTicks - selectedElement.durationTicks, project.timebase))} step={secondsPerTick(project.timebase)} value={ticksToSeconds(selectedElement.startTicks, project.timebase)} onChange={event => updateElement({ startTicks: secondsToTicks(Number(event.target.value), project.timebase) })} /></label>
                 <label className="music-control"><span>Duration <b>{ticksToSeconds(selectedElement.durationTicks, project.timebase).toFixed(1)} s</b></span><input type="range" min={secondsPerTick(project.timebase)} max={Math.max(secondsPerTick(project.timebase), ticksToSeconds(selectedScene.durationTicks - selectedElement.startTicks, project.timebase))} step={secondsPerTick(project.timebase)} value={ticksToSeconds(selectedElement.durationTicks, project.timebase)} onChange={event => updateElement({ durationTicks: secondsToTicks(Number(event.target.value), project.timebase) })} /></label>
-                <label className="field">Animation<select value={selectedElement.animation} onChange={event => updateElement({ animation: event.target.value as ElementLayer['animation'] })}><option value="none">None</option><option value="fade">Fade in</option><option value="pop">Pop in</option><option value="slide-up">Slide up</option></select></label>
+                <label className="field">Animation<select value={selectedElement.animation} onChange={event => updateElement({ animation: event.target.value as ElementLayer['animation'] })}><option value="none">None</option><option value="fade">Fade in</option><option value="pop">Pop in</option><option value="slide-up">Slide up</option><option value="pulse">Pulse</option><option value="float">Float</option></select></label>
                 <p className="note"><Shapes size={13} /><span>Drag the element on the canvas. Elements render below text and above the photo.</span></p>
               </div>}
             </div>}
@@ -2534,7 +2610,7 @@ export default function App() {
             <div className="preview-heading">
               <span>PREVIEW</span>
               <div>
-                <span className="offline"><span />Offline</span>
+                <span className="offline"><span />Local only</span>
                 <button className="text-button" title={tip('view.safe_area', `Safe area ${safeArea ? 'on' : 'off'}`)} onClick={() => runCommandId('view.safe_area')}>Safe area {safeArea ? 'on' : 'off'}</button>
                 <select aria-label="Output format" value={activeFormat?.id ?? ''} disabled={!canEdit} onChange={event => setActiveFormatId(event.target.value)}>{project.formats.map(format => <option key={format.id} value={format.id}>{format.name} · {format.aspect}</option>)}</select>
                 <button className="format-manage-button" onClick={() => setModal('formats')}><Layers size={13} /> Formats <span>{project.formats.length}</span></button>
@@ -2598,7 +2674,7 @@ export default function App() {
             {selectedScene ? <fieldset disabled={!canEdit} className="inspector-fields">
               <SceneForm scene={resolveSceneForFormat(selectedScene, activeFormat)} timebase={project.timebase} update={updateSelection} onPreview={setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} flushRef={inspectorFlush} onReplaceImage={() => requestReplaceImage()} textLayerId={selectedTextLayerId} onSelectTextLayer={selectTextLayer} textStartTicks={textStartTicks} focusText={textFocus} framingActive={framingMode} onToggleFraming={() => { setFramingMode(value => !value); setEditingText(false); }} formatName={activeFormat?.name ?? 'Original'} formatCount={project.formats.length} onApplyFramingToAll={applyFramingToAllFormats} />
               <hr />
-              <div className="scene-actions"><button className="button" title="Replace this scene image and keep its timing, text, and looks" disabled={selectedCount !== 1} onClick={() => requestReplaceImage()}><RefreshCw size={14} /> Replace image</button><button className="button" title={tip('clip.duplicate', selectedCount > 1 ? `Duplicate ${selectedCount} clips` : 'Duplicate clip')} onClick={duplicateSelected}><Copy size={14} /> {selectedCount > 1 ? `Duplicate ${selectedCount}` : 'Duplicate'}</button><IconButton label={tip('clip.delete', selectedCount > 1 ? `Delete ${selectedCount} clips` : 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>
+              {hasSceneSelection && <div className="scene-actions"><button className="button" title="Replace this scene image and keep its timing, text, and looks" disabled={selectedCount !== 1} onClick={() => requestReplaceImage()}><RefreshCw size={14} /> Replace image</button><button className="button" title={tip('clip.duplicate', selectedCount > 1 ? `Duplicate ${selectedCount} clips` : 'Duplicate clip')} onClick={duplicateSelected}><Copy size={14} /> {selectedCount > 1 ? `Duplicate ${selectedCount}` : 'Duplicate'}</button><IconButton label={tip('clip.delete', selectedCount > 1 ? `Delete ${selectedCount} clips` : 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>}
             </fieldset> : <div className="inspector-empty"><Settings2 size={26} /><p>Select a scene to adjust its timing, framing, and text.</p></div>}
           </aside>
         </div>
@@ -2612,7 +2688,7 @@ export default function App() {
           </div>
           <div className="timeline-content" ref={timelineScroll}>
             <div className="timeline-inner" style={{ width: `${timelineZoom * 100}%` }}>
-            {duration > 0 && <div className="timeline-playhead" style={{ left: `calc(${timelineRatio * 100}% + ${148 - timelineRatio * 198}px)` }} aria-hidden="true"><span className="timeline-playhead-handle" /></div>}
+            {duration > 0 && <div className="timeline-playhead" style={{ left: `calc(${timelineRatio * 100}% + ${148 - timelineRatio * 198}px)` }} title="Drag playhead" onPointerDown={beginPlayheadDrag}><span className="timeline-playhead-handle" /></div>}
             <div className="timeline-ruler-row"><span>00:00</span><span>YOUR TIMELINE · {activeSize.width} × {activeSize.height}</span><span>{timecode(duration, project.timebase)}</span></div>
             <div className="timeline-scrub-row"><input className="scrubber" aria-label="Timeline playhead" type="range" min="0" max={Math.max(duration - frameSeconds, 0)} step={frameSeconds} value={position} disabled={!duration} onChange={e => scrubTo(Number(e.target.value))} /></div>
             <div className="timeline-row">
@@ -2680,7 +2756,7 @@ export default function App() {
                     className={`audio-clip ${selectedAudio?.id === clip.id ? 'selected' : ''}`}
                     style={{ left: `${left}%`, width: `${width}%` }}
                     title={`${clip.name} · drag to move · drag edges to trim`}
-                    onClick={() => setSelectedAudioId(clip.id)}
+                    onClick={() => focusAudio(clip)}
                     onPointerDown={event => beginAudioMove(event, clip)}
                   >
                     <span className="audio-trim left" title="Drag to trim the start" onPointerDown={event => beginAudioTrim(event, clip, 'left')} />
