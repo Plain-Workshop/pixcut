@@ -15,6 +15,22 @@ use std::{
 use tauri::{Emitter, Manager, State};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
+fn guard<T>(what: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(result) => result,
+        Err(payload) => {
+            let detail = payload
+                .downcast_ref::<&str>()
+                .map(|value| (*value).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown internal error".into());
+            Err(format!(
+                "PixCut recovered from an internal error while {what}: {detail}. Your work is still saved on this device."
+            ))
+        }
+    }
+}
+
 struct Editor {
     session: Mutex<Session>,
     exporting: AtomicBool,
@@ -493,15 +509,17 @@ fn dispatch(
     editor: State<Editor>,
     command: Command,
 ) -> Result<View, String> {
-    if editor.exporting.load(Ordering::SeqCst) {
-        return Err("Wait for the current export to finish.".into());
-    }
-    let mut current = editor.session.lock().map_err(|e| e.to_string())?;
-    let mut next = current.clone();
-    next.apply(command)?;
-    write_recovery(&app, &next.project)?;
-    *current = next;
-    Ok(current.view())
+    guard("editing the project", || {
+        if editor.exporting.load(Ordering::SeqCst) {
+            return Err("Wait for the current export to finish.".into());
+        }
+        let mut current = editor.session.lock().map_err(|e| e.to_string())?;
+        let mut next = current.clone();
+        next.apply(command)?;
+        write_recovery(&app, &next.project)?;
+        *current = next;
+        Ok(current.view())
+    })
 }
 fn safe_filename(name: &str) -> String {
     let cleaned: String = name
@@ -725,8 +743,10 @@ async fn export_movie(
     let destination = file.path().to_path_buf();
     tauri::async_runtime::spawn_blocking(move || {
         let progress_app = app.clone();
-        encode_movie(project, frames, durations, options, binary, destination, cancel, move |percent| {
-            let _ = progress_app.emit("export-progress", percent);
+        guard("encoding the video", || {
+            encode_movie(project, frames, durations, options, binary, destination, cancel, move |percent| {
+                let _ = progress_app.emit("export-progress", percent);
+            })
         })
     })
         .await
@@ -800,9 +820,11 @@ async fn export_variants(
             let filename = format!("{}.mp4", safe_filename(stem));
             let destination = directory.join(filename);
             let progress_app = app.clone();
-            encode_movie(project.clone(), job.frames, job.durations, job.options, binary.clone(), destination.clone(), Arc::clone(&cancel), move |percent| {
-                let overall = ((index as f64 + percent as f64 / 100.0) / total * 100.0).clamp(0.0, 99.0) as u8;
-                let _ = progress_app.emit("export-progress", overall);
+            guard("encoding a video", || {
+                encode_movie(project.clone(), job.frames, job.durations, job.options, binary.clone(), destination.clone(), Arc::clone(&cancel), move |percent| {
+                    let overall = ((index as f64 + percent as f64 / 100.0) / total * 100.0).clamp(0.0, 99.0) as u8;
+                    let _ = progress_app.emit("export-progress", overall);
+                })
             })?;
             written.push(destination.to_string_lossy().to_string());
         }
@@ -1151,9 +1173,11 @@ async fn export_plan_variants(
             let filename = format!("{}.mp4", safe_filename(stem));
             let destination = directory.join(filename);
             let progress_app = app.clone();
-            encode_plan(&project, plan, binary.clone(), destination.clone(), Arc::clone(&cancel), move |percent| {
-                let overall = ((index as f64 + percent as f64 / 100.0) / total * 100.0).clamp(0.0, 99.0) as u8;
-                let _ = progress_app.emit("export-progress", overall);
+            guard("encoding a video", || {
+                encode_plan(&project, plan, binary.clone(), destination.clone(), Arc::clone(&cancel), move |percent| {
+                    let overall = ((index as f64 + percent as f64 / 100.0) / total * 100.0).clamp(0.0, 99.0) as u8;
+                    let _ = progress_app.emit("export-progress", overall);
+                })
             })?;
             written.push(destination.to_string_lossy().to_string());
         }
@@ -1548,6 +1572,14 @@ mod integration_tests {
         assert!(encode_movie(p, vec!["invalid".into(); 2], vec![15, 15], export_options(), "ffmpeg".into(), path.clone(), Arc::new(AtomicBool::new(false)), |_| {}).is_err());
         assert_eq!(fs::read(&path).unwrap(), b"original movie");
     }
+    #[test]
+    fn guard_turns_a_panic_into_a_friendly_error() {
+        let error = guard("testing", || -> Result<(), String> { panic!("boom") }).unwrap_err();
+        assert!(error.contains("recovered"), "{error}");
+        assert!(error.contains("boom"), "{error}");
+        assert!(error.contains("still saved"), "{error}");
+    }
+
     #[test]
     fn cancelled_export_writes_nothing() {
         let temp = tempfile::tempdir().unwrap();

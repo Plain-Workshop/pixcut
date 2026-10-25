@@ -421,6 +421,7 @@ export default function App() {
   function diagnostics() {
     return [
       `PixCut Desktop ${appVersion}`,
+      `Build: ${__BUILD_SHA__.slice(0, 7)} · ${__BUILD_DATE__}`,
       `Runtime: ${bridge.native ? 'native Tauri' : 'browser preview'}`,
       `Platform: ${platform}`,
       `Project schema: 7`,

@@ -45,6 +45,7 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       release: ${{ steps.version.outputs.release }}
       sign: ${{ steps.version.outputs.sign }}
+      date: ${{ steps.version.outputs.date }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -83,6 +84,7 @@ jobs:
             echo "tag=v$version"
             echo "release=$release"
             echo "sign=$sign"
+            echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } >> "$GITHUB_OUTPUT"
           echo "Building PixCut $version (release: $release, sign: $sign, ref: $GITHUB_REF)"
 
@@ -178,6 +180,8 @@ jobs:
         if: needs.prepare.outputs.sign == 'true'
         working-directory: desktop
         env:
+          VITE_BUILD_SHA: ${{ github.sha }}
+          VITE_BUILD_DATE: ${{ needs.prepare.outputs.date }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -194,6 +198,8 @@ jobs:
         if: needs.prepare.outputs.sign != 'true'
         working-directory: desktop
         env:
+          VITE_BUILD_SHA: ${{ github.sha }}
+          VITE_BUILD_DATE: ${{ needs.prepare.outputs.date }}
           # Do not expose empty Apple variables: Tauri treats their presence as
           # a request to import a certificate and fails before compiling.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -259,6 +265,8 @@ jobs:
         if: needs.prepare.outputs.sign == 'true'
         shell: bash
         env:
+          VITE_BUILD_SHA: ${{ github.sha }}
+          VITE_BUILD_DATE: ${{ needs.prepare.outputs.date }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
@@ -285,6 +293,8 @@ jobs:
         if: needs.prepare.outputs.sign != 'true'
         working-directory: desktop
         env:
+          VITE_BUILD_SHA: ${{ github.sha }}
+          VITE_BUILD_DATE: ${{ needs.prepare.outputs.date }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri -- build --bundles nsis,msi
@@ -351,6 +361,8 @@ jobs:
       - name: Build bundle
         working-directory: desktop
         env:
+          VITE_BUILD_SHA: ${{ github.sha }}
+          VITE_BUILD_DATE: ${{ needs.prepare.outputs.date }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri -- build --bundles appimage,deb

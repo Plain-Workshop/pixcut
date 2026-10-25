@@ -98,4 +98,6 @@ jobs:
           workspaces: desktop -> desktop/target
       - run: npm ci
       - name: Bundle without updater signing
+        env:
+          VITE_BUILD_SHA: ${{ github.sha }}
         run: npm run tauri -- build --debug --bundles ${{ matrix.bundles }} --config src-tauri/tauri.ci.conf.json
