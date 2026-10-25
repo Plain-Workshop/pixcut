@@ -131,13 +131,13 @@ function noiseTile() {
   return tile;
 }
 
-function blurredCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, w: number, h: number) {
+function blurredCover(ctx: CanvasRenderingContext2D, img: CanvasImageSource, sourceWidth: number, sourceHeight: number, w: number, h: number) {
   const small = document.createElement('canvas');
   small.width = Math.max(16, Math.round(w / 18));
   small.height = Math.max(16, Math.round(h / 18));
   const sctx = small.getContext('2d')!;
-  const scale = Math.max(small.width / img.width, small.height / img.height);
-  sctx.drawImage(img, (small.width - img.width * scale) / 2, (small.height - img.height * scale) / 2, img.width * scale, img.height * scale);
+  const scale = Math.max(small.width / sourceWidth, small.height / sourceHeight);
+  sctx.drawImage(img, (small.width - sourceWidth * scale) / 2, (small.height - sourceHeight * scale) / 2, sourceWidth * scale, sourceHeight * scale);
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(small, 0, 0, small.width, small.height, 0, 0, w, h);
   ctx.fillStyle = 'rgba(8, 10, 16, .42)';
@@ -299,7 +299,7 @@ async function drawTextLayer(ctx: CanvasRenderingContext2D, layer: TextLayer, w:
   ctx.restore();
 }
 
-export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect: Project['aspect'], quality: 'preview' | 'thumb' | 'export' = 'export', localSeconds = 0, timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }) {
+export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect: Project['aspect'], quality: 'preview' | 'thumb' | 'export' = 'export', localSeconds = 0, timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }, videoFrame?: HTMLVideoElement | null) {
   const [fullWidth, fullHeight] = size ? [size.width, size.height] : dimensions(aspect);
   const limit = quality === 'preview' ? 1280 : quality === 'thumb' ? 480 : Math.max(fullWidth, fullHeight);
   const scale = Math.min(1, limit / Math.max(fullWidth, fullHeight));
@@ -308,7 +308,12 @@ export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect:
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-  const img = await loadImage(scene.image);
+  const usingVideo = Boolean(videoFrame && videoFrame.readyState >= 2 && videoFrame.videoWidth > 0);
+  const img: CanvasImageSource = usingVideo
+    ? videoFrame!
+    : await loadImage(scene.mediaKind === 'video' ? (scene.videoPoster ?? scene.image) : scene.image);
+  const sourceWidth = usingVideo ? videoFrame!.videoWidth : (img as HTMLImageElement).width;
+  const sourceHeight = usingVideo ? videoFrame!.videoHeight : (img as HTMLImageElement).height;
   ctx.fillStyle = scene.framingBackground ?? '#000000';
   ctx.fillRect(0, 0, w, h);
   const zoom = Math.max(1, Math.min(4, scene.imageZoom ?? 1));
@@ -316,15 +321,15 @@ export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect:
   const panY = Math.max(-1, Math.min(1, scene.imageY ?? 0));
   let imageRect = { x: 0, y: 0, w, h };
   if (scene.fit === 'blur') {
-    blurredCover(ctx, img, w, h);
-    const containScale = Math.min(w / img.width, h / img.height) * zoom;
-    const dw = img.width * containScale, dh = img.height * containScale;
+    blurredCover(ctx, img, sourceWidth, sourceHeight, w, h);
+    const containScale = Math.min(w / sourceWidth, h / sourceHeight) * zoom;
+    const dw = sourceWidth * containScale, dh = sourceHeight * containScale;
     const overflowX = Math.max(0, dw - w) / 2, overflowY = Math.max(0, dh - h) / 2;
     imageRect = { x: (w - dw) / 2 - panX * overflowX, y: (h - dh) / 2 - panY * overflowY, w: dw, h: dh };
     ctx.drawImage(img, imageRect.x, imageRect.y, dw, dh);
   } else {
-    const fitScale = (scene.fit === 'cover' ? Math.max : Math.min)(w / img.width, h / img.height) * zoom;
-    const dw = img.width * fitScale, dh = img.height * fitScale;
+    const fitScale = (scene.fit === 'cover' ? Math.max : Math.min)(w / sourceWidth, h / sourceHeight) * zoom;
+    const dw = sourceWidth * fitScale, dh = sourceHeight * fitScale;
     const overflowX = Math.max(0, dw - w) / 2, overflowY = Math.max(0, dh - h) / 2;
     imageRect = { x: (w - dw) / 2 - panX * overflowX, y: (h - dh) / 2 - panY * overflowY, w: dw, h: dh };
     ctx.drawImage(img, imageRect.x, imageRect.y, dw, dh);

@@ -234,6 +234,11 @@ describe('project commands and playback', () => {
     expect(() => validateProject({ ...project, audio: [{ ...clip, durationTicks: 200 }] })).toThrow(/audio/i);
     expect(() => validateProject({ ...project, audio: [{ ...clip, sourceInSeconds: 1.5, durationTicks: 60 }] })).toThrow(/trim/i);
     expect(() => validateProject({ ...project, audio: [clip, clip] })).toThrow(/Duplicate/i);
+    const videoProject = edit(emptyProject(), { type: 'add', scenes: [scene('video')] });
+    const videoClip = videoProject.tracks[0].clips[0];
+    const video = { ...videoClip, image: 'data:video/mp4;base64,AAAA', mediaKind: 'video' as const, videoPoster: 'data:image/jpeg;base64,AAAA' };
+    expect(validateProject({ ...videoProject, tracks: [{ ...videoProject.tracks[0], clips: [video] }] }).tracks[0].clips[0].mediaKind).toBe('video');
+    expect(() => validateProject({ ...videoProject, tracks: [{ ...videoProject.tracks[0], clips: [{ ...video, image: 'data:image/png;base64,AAAA' }] }] })).toThrow(/invalid/i);
     expect(emptyProject('Film', '16:9', 24).timebase).toEqual({ numerator: 1, denominator: 24 });
     expect(frameRate(emptyProject('Smooth', '16:9', 60).timebase)).toBe(60);
     expect(emptyProject('Fallback', '16:9', 47).timebase).toEqual({ numerator: 1, denominator: 30 });

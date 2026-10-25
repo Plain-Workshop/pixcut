@@ -61,6 +61,7 @@ import { ShortcutSettings } from '../components/shortcuts/ShortcutSettings';
 import * as bridge from './bridge';
 import { MAX_AUDIO_FILE_BYTES, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type TransitionType, type SceneFormatOverride, type FormatVariant } from '../stores/model';
 import { drawScene, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
+import { probeVideo, videoFileData } from '../components/preview/video';
 import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers, sceneTextTitle } from '../components/text/layers';
 import { clampWeight, fontOption } from '../components/text/fonts';
 import { FILTERS } from '../components/preview/filters';
@@ -222,6 +223,7 @@ export default function App() {
   const [customFormatDraft, setCustomFormatDraft] = useState<{ name: string; width: number; height: number; fps: number; quality: 'draft' | 'standard' | 'high' }>({ name: '', width: 1080, height: 1080, fps: 30, quality: 'standard' });
   const [newCustomFormats, setNewCustomFormats] = useState<FormatVariant[]>([]);
   const [newProjectFps, setNewProjectFps] = useState(30);
+  const [videoTick, setVideoTick] = useState(0);
   const [name, setName] = useState('Untitled story');
   const [editingText, setEditingText] = useState(false), [safeArea, setSafeArea] = useState(false);
   const [textDraft, setTextDraft] = useState({ title: '', subtitle: '' });
@@ -282,13 +284,14 @@ export default function App() {
   }, [timelineZoom]);
 
   const pending = useRef<Promise<boolean>>(Promise.resolve(true)), latestProject = useRef(INITIAL.project);
-  const mediaInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null), replaceInput = useRef<HTMLInputElement>(null), audioInput = useRef<HTMLInputElement>(null), preview = useRef<HTMLCanvasElement>(null), audioElements = useRef<Map<string, HTMLAudioElement>>(new Map()), previewArea = useRef<HTMLDivElement>(null), previewStage = useRef<HTMLDivElement>(null), operation = useRef(false);
+  const mediaInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null), replaceInput = useRef<HTMLInputElement>(null), audioInput = useRef<HTMLInputElement>(null), videoInput = useRef<HTMLInputElement>(null), sceneVideo = useRef<HTMLVideoElement>(null), preview = useRef<HTMLCanvasElement>(null), audioElements = useRef<Map<string, HTMLAudioElement>>(new Map()), previewArea = useRef<HTMLDivElement>(null), previewStage = useRef<HTMLDivElement>(null), operation = useRef(false);
   const replaceTargetId = useRef<string | null>(null), inspectorFlush = useRef<() => void>(() => {}), audioDraftRef = useRef<AudioClip | null>(null), audioLaneRef = useRef(0);
   const sceneQueue = useRef<Command[]>([]), offscreen = useRef<HTMLCanvasElement | null>(null), timelineScroll = useRef<HTMLDivElement>(null);
   const positionRef = useRef(0), closeModalRef = useRef<() => void>(() => {}), commandRef = useRef<(id: string) => void>(() => {});
   const selectionAnchor = useRef<string | null>(null), reorderRef = useRef<string | null>(null);
   const project = session.project, duration = totalDuration(project);
   const scenes = projectScenes(project);
+  const hasVideoScenes = scenes.some(scene => scene.mediaKind === 'video');
   const activeFormat = project.formats.find(format => format.id === activeFormatId) ?? project.formats[0];
   const activeSize = formatSize(activeFormat);
   const displayAspect = project.aspect;
@@ -311,6 +314,7 @@ export default function App() {
   const selectedTextLayers = selectedScene ? sceneTextLayers(selectedScene) : [];
   const selectedTextLayer = selectedTextLayers.find(layer => layer.id === selectedTextLayerId) ?? selectedTextLayers[0] ?? null;
   const previewLocalSeconds = previewTarget && active && previewTarget.id === active.id ? Math.max(0, position - activeStart) : 0;
+  const videoScene = previewTarget?.mediaKind === 'video' ? previewTarget : null;
   const textBox = selectedTextLayer ? textBoxLayout(selectedTextLayer, displayAspect, activeSize) : null;
   const selectedTextVisible = selectedTextLayer ? layerVisibleAt(selectedTextLayer, previewLocalSeconds, project.timebase) : false;
   const textStartTicks = selectedScene ? Math.min(Math.max(0, secondsToTicks(position - ticksToSeconds(selectedScene.startTicks, project.timebase), project.timebase)), Math.max(0, selectedScene.durationTicks - 1)) : 0;
@@ -624,13 +628,45 @@ export default function App() {
   }, [playing, duration, playDirection]);
 
   useEffect(() => {
+    const element = sceneVideo.current;
+    if (!element) return;
+    if (!videoScene) {
+      element.pause();
+      if (element.getAttribute('src')) { element.removeAttribute('src'); element.load(); }
+      return;
+    }
+    if (element.dataset.sceneId !== videoScene.id) {
+      element.dataset.sceneId = videoScene.id;
+      element.src = videoScene.image;
+      element.load();
+    }
+  }, [videoScene?.id, videoScene?.image]);
+
+  useEffect(() => {
+    const element = sceneVideo.current;
+    if (!element || !videoScene) return;
+    const sourceIn = ticksToSeconds(videoScene.sourceInTicks ?? 0, project.timebase);
+    const fallback = sourceIn + ticksToSeconds(videoScene.durationTicks, project.timebase);
+    const end = Number.isFinite(element.duration) && element.duration > 0 ? element.duration : fallback;
+    const target = Math.max(0, Math.min(sourceIn + previewLocalSeconds, end - 0.04));
+    if (element.readyState >= 2 && Math.abs(element.currentTime - target) > 0.12) element.currentTime = target;
+  }, [previewLocalSeconds, videoScene?.id, project.timebase]);
+
+  useEffect(() => {
+    const element = sceneVideo.current;
+    if (!element || !videoScene) return;
+    if (playing && playDirection > 0) element.play().catch(() => { /* the poster stays visible */ });
+    else element.pause();
+  }, [playing, playDirection, videoScene?.id]);
+
+  useEffect(() => {
     if (!previewTarget || !preview.current) return;
     if (!offscreen.current) offscreen.current = document.createElement('canvas');
     const layer = offscreen.current; let cancelled = false;
-    const paint = previewTransition && resolvedNextScene ? drawTransition(layer, sceneForPreview!, resolvedNextScene, previewTransition.type, displayAspect, 'preview', previewTransition.progress, previewLocalSeconds, 0, project.timebase, activeSize) : drawScene(layer, sceneForPreview!, displayAspect, 'preview', previewLocalSeconds, project.timebase, activeSize);
+    const paint = previewTransition && resolvedNextScene ? drawTransition(layer, sceneForPreview!, resolvedNextScene, previewTransition.type, displayAspect, 'preview', previewTransition.progress, previewLocalSeconds, 0, project.timebase, activeSize) : drawScene(layer, sceneForPreview!, displayAspect, 'preview', previewLocalSeconds, project.timebase, activeSize, !previewTransition && videoScene ? sceneVideo.current : null);
     paint.then(() => { if (!cancelled && preview.current) { preview.current.width = layer.width; preview.current.height = layer.height; preview.current.getContext('2d')!.drawImage(layer, 0, 0); } }).catch(e => setError(messageFor(e)));
     return () => { cancelled = true; };
-  }, [previewTarget, previewLocalSeconds, displayAspect, project.timebase, screen, activeFormat?.id, framingStaged, previewTransition?.type, previewTransition?.progress, previewTransition?.next]);
+  }, [previewTarget, previewLocalSeconds, displayAspect, project.timebase, screen, activeFormat?.id, framingStaged, previewTransition?.type, previewTransition?.progress, previewTransition?.next, videoTick, videoScene?.id]);
 
   useEffect(() => {
     const area = previewArea.current;
@@ -1545,6 +1581,48 @@ export default function App() {
     mediaInput.current?.click();
   }
 
+  async function chooseVideo() {
+    if (!canEdit) return;
+    if (bridge.native) {
+      try {
+        const picked = await bridge.pickMedia('video');
+        if (picked?.length) await importVideos(picked.map(fileFromPicked));
+      } catch (e) { setError(messageFor(e)); }
+      return;
+    }
+    videoInput.current?.click();
+  }
+
+  async function importVideos(files: FileList | File[] | null) {
+    if (!files?.length || operation.current) return;
+    setPlaying(false); setBusy(true); operation.current = true;
+    try {
+      const added: Scene[] = [];
+      let videoBytes = scenes.filter(scene => scene.mediaKind === 'video').reduce((sum, scene) => sum + scene.image.length, 0);
+      if (files.length + scenes.length > 100) throw new Error('Add up to 100 clips per project.');
+      for (const file of Array.from(files)) {
+        if (file.size > 50 * 1024 * 1024) throw new Error(`“${file.name}” is larger than 50 MB. Choose a shorter clip.`);
+        const data = await videoFileData(file);
+        videoBytes += data.length;
+        if (videoBytes > 140_000_000) throw new Error('This project supports up to about 100 MB of video. Remove a clip or use a shorter one.');
+        const probe = await probeVideo(data);
+        const seconds = Math.min(30, Math.max(0.5, probe.duration));
+        added.push({
+          id: crypto.randomUUID(), startTicks: 0, sourceInTicks: 0, name: file.name, image: data,
+          mediaKind: 'video', videoPoster: probe.poster,
+          durationTicks: secondsToTicks(seconds, project.timebase), title: '', subtitle: '',
+          color: '#ffffff', fit: preferences.defaultFit, transition: null,
+        });
+      }
+      const next = await bridge.dispatch({ type: 'add', scenes: added });
+      latestProject.current = next.project; setSession(next); setStatus('Saved locally');
+      const first = added[0]?.id ?? null; setSelectedIds(first ? [first] : []); setPrimarySelected(first); selectionAnchor.current = first;
+      setPosition(totalDuration(next.project)); setScreen('editor');
+      setNotice(`${added.length} video${added.length === 1 ? '' : 's'} added. Preview and timeline playback work; MP4 export for video is the next step.`);
+    } catch (e) { setError(messageFor(e)); }
+    finally { setBusy(false); operation.current = false; if (videoInput.current) videoInput.current.value = ''; }
+  }
+
   async function chooseAudio() {
     if (!canEdit) return;
     if (bridge.native) {
@@ -1866,6 +1944,10 @@ export default function App() {
   async function exportVideo() {
     const selectedFormats = project.formats.filter(format => exportFormatIds.includes(format.id));
     if (!selectedFormats.length) { setError('Choose at least one output format.'); return; }
+    if (scenes.some(scene => scene.mediaKind === 'video')) {
+      setError('Video clips can be previewed and edited, but MP4 export for video is the next media-engine step. Remove the video clips to export this project.');
+      return;
+    }
     exportCancelled.current = false; setCancellingExport(false);
     setExporting(true); setExportProgress(1); setPlaying(false); setError('');
     try {
@@ -2023,6 +2105,7 @@ export default function App() {
   return (
     <div className={`app ${screen} theme-${preferences.theme} ${preferences.compact ? 'compact' : ''} ${preferences.reduceMotion ? 'reduce-motion' : ''}`}>
       <input ref={mediaInput} type="file" hidden multiple accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" onChange={e => void importFiles(e.target.files)} />
+      <input ref={videoInput} type="file" hidden multiple accept="video/mp4,video/webm,video/quicktime,video/x-m4v,.mp4,.webm,.mov,.m4v" onChange={e => void importVideos(e.target.files)} />
       <input ref={replaceInput} type="file" hidden accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" onChange={e => { const file = e.target.files?.[0]; const id = replaceTargetId.current; e.target.value = ''; if (file && id) void replaceImageForScene(id, file); }} />
       <input ref={audioInput} type="file" hidden accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,.mp3,.wav,.m4a,.aac,.ogg,.oga,.webm" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void importAudio(file); }} />
       {audio.map(clip => <audio key={clip.id} src={clip.data} preload="metadata" hidden ref={element => { if (element) audioElements.current.set(clip.id, element); else audioElements.current.delete(clip.id); }} />)}
@@ -2185,9 +2268,10 @@ export default function App() {
             {tab === 'media' ? <>
               <label className="search-field"><Search size={14} /><input aria-label="Search project media" placeholder="Search media…" value={mediaQuery} onChange={e => setMediaQuery(e.target.value)} /></label>
               <button className="import-button" title={tip('project.import', 'Import media')} disabled={!canEdit} onClick={() => void chooseImages()}><Upload size={16} /> Import images <span>+</span></button>
+              <button className="replace-image-button" title="Import an MP4, MOV, or M4V clip" disabled={!canEdit} onClick={() => void chooseVideo()}><Film size={13} /> Import video</button>
               <button className="replace-image-button" title={selectedCount === 1 ? 'Replace the selected scene image and keep its timing, text, and looks' : 'Select one scene to replace its image'} disabled={!canEdit || selectedCount !== 1} onClick={() => requestReplaceImage()}><RefreshCw size={13} /> Replace selected image</button>
               <div className="library-label">PROJECT MEDIA <span>JPEG · PNG · WEBP</span></div>
-              <div className={`media-grid ${dropTarget === 'media-grid' ? 'drop-target' : ''}`} onDragOver={event => dragOverTarget(event, 'media-grid')} onDragLeave={() => setDropTarget(current => current === 'media-grid' ? null : current)} onDrop={dropIntoMedia}>{filteredScenes.map(scene => <button key={scene.id} className={`media-tile ${isSelected(scene.id) ? 'selected' : ''} ${dropTarget === scene.id ? 'drop-target' : ''}`} onClick={event => selectScene(scene, event)} onDragOver={event => dragOverTarget(event, scene.id)} onDragLeave={() => setDropTarget(current => current === scene.id ? null : current)} onDrop={event => void dropReplacement(event, scene)}><div><img src={scene.image} alt={scene.name} /><span>{sceneSeconds(scene, project.timebase).toFixed(1)}s</span></div><span className="media-name">{scene.name}</span><small>SCENE {String(scenes.indexOf(scene) + 1).padStart(2, '0')}</small></button>)}</div>
+              <div className={`media-grid ${dropTarget === 'media-grid' ? 'drop-target' : ''}`} onDragOver={event => dragOverTarget(event, 'media-grid')} onDragLeave={() => setDropTarget(current => current === 'media-grid' ? null : current)} onDrop={dropIntoMedia}>{filteredScenes.map(scene => <button key={scene.id} className={`media-tile ${isSelected(scene.id) ? 'selected' : ''} ${dropTarget === scene.id ? 'drop-target' : ''}`} onClick={event => selectScene(scene, event)} onDragOver={event => dragOverTarget(event, scene.id)} onDragLeave={() => setDropTarget(current => current === scene.id ? null : current)} onDrop={event => void dropReplacement(event, scene)}><div><img src={scene.mediaKind === 'video' ? (scene.videoPoster ?? scene.image) : scene.image} alt={scene.name} /><span>{scene.mediaKind === 'video' ? 'VIDEO · ' : ''}{sceneSeconds(scene, project.timebase).toFixed(1)}s</span></div><span className="media-name">{scene.name}</span><small>SCENE {String(scenes.indexOf(scene) + 1).padStart(2, '0')}</small></button>)}</div>
               {!scenes.length && <div className="library-empty"><ImagePlus size={34} /><strong>A story starts with a photo.</strong><p>Import images from your device.<br />Nothing gets uploaded.</p></div>}
               {scenes.length > 0 && !filteredScenes.length && <div className="library-empty"><Search size={30} /><strong>No matching media.</strong><p>Try a different name, or clear the search.</p></div>}
             </> : tab === 'text' ? <div className="text-presets">
@@ -2257,6 +2341,7 @@ export default function App() {
             <div className="preview-area" ref={previewArea}>
               {previewTarget ? <div className="preview-stage" ref={previewStage} style={previewSize ? { width: previewSize.width, height: previewSize.height } : undefined}>
                 <canvas ref={preview} className="preview-canvas" aria-label={`Preview: ${sceneTextTitle(previewTarget) || previewTarget.name}`} />
+                <video ref={sceneVideo} className="scene-video" muted playsInline preload="auto" aria-hidden="true" onLoadedData={() => setVideoTick(value => value + 1)} onSeeked={() => setVideoTick(value => value + 1)} />
                 {selectedScene && framingMode && canEdit && <div className="image-framing-overlay" onPointerDown={beginImagePan} title="Drag to choose the visible part of the image">
                   <span className="framing-grid" aria-hidden="true" />
                   <span className="framing-hint">Drag to reposition · adjust zoom and letterbox in the inspector</span>
@@ -2339,8 +2424,9 @@ export default function App() {
                 const fadeIn = Math.min(displayDuration, Math.max(0, display.fadeIn ?? 0));
                 const fadeOut = Math.min(displayDuration, Math.max(0, display.fadeOut ?? 0));
                 return <button key={scene.id} draggable={canEdit} className={`timeline-clip ${isSelected(scene.id) ? 'selected' : ''} ${selectedScene?.id === scene.id ? 'primary' : ''} ${active?.id === scene.id ? 'current' : ''} ${dropTarget === scene.id ? 'drop-target' : ''} ${reorderId === scene.id ? 'dragging' : ''}`} style={{ flexGrow: scene.durationTicks }} onClick={event => selectScene(scene, event)} onDragStart={event => beginReorder(event, scene)} onDragEnd={endReorder} onDragOver={event => dragOverScene(event, scene.id)} onDragLeave={() => setDropTarget(current => current === scene.id ? null : current)} onDrop={event => dropScene(event, scene)} onContextMenu={event => { event.preventDefault(); if (!selectedIds.includes(scene.id)) { setSelectedIds([scene.id]); setPrimarySelected(scene.id); selectionAnchor.current = scene.id; } setPlaying(false); setContextMenu({ x: event.clientX, y: event.clientY }); }}>
-                  <span className="timeline-filmstrip" style={{ backgroundImage: `url(${scene.image})` }} aria-hidden="true" />
+                  <span className="timeline-filmstrip" style={{ backgroundImage: `url(${scene.mediaKind === 'video' ? (scene.videoPoster ?? scene.image) : scene.image})` }} aria-hidden="true" />
                   <div><span>{String(i + 1).padStart(2, '0')} <b>{scene.name}</b></span><small>{sceneSeconds(scene, project.timebase).toFixed(1)}s</small></div>
+                  {scene.mediaKind === 'video' && <span className="clip-media-badge"><Film size={9} /> VIDEO</span>}
                   {sceneTextTitle(scene) && <span className="clip-title"><Type size={10} />{sceneTextTitle(scene)}</span>}
                   {scene.transition && <span className="clip-transition" title={`${TRANSITION_OPTIONS.find(option => option.id === scene.transition?.type)?.label ?? 'Transition'} · ${scene.transition.duration.toFixed(1)} s`}><Sparkles size={9} />{scene.transition.duration.toFixed(1)}s</span>}
                   <span className="fade-shade in" style={{ width: `${(fadeIn / displayDuration) * 100}%` }} aria-hidden="true" />
@@ -2615,8 +2701,8 @@ export default function App() {
             <div className="export-filename"><span>FILES</span>{project.formats.filter(format => exportFormatIds.includes(format.id)).map(format => <strong key={format.id}>{exportFilename(format, exportFormatIds.length > 1)}</strong>)}{exportFormatIds.length === 0 && <strong className="warning">Choose at least one format</strong>}</div>
           </div>
           <div className="export-summary"><span>Format<strong>MP4 · H.264</strong></span><span>Outputs<strong>{exportFormatIds.length} format{exportFormatIds.length === 1 ? '' : 's'}</strong></span><span>Duration<strong>{duration.toFixed(1)} seconds</strong></span><span>Audio<strong>{project.audio.length ? `${project.audio.length} clip${project.audio.length === 1 ? '' : 's'}` : 'No audio'}</strong></span><span>Branding<strong className="accent"><Check size={15} /> No watermark</strong></span><span>Local<strong><WifiOff size={14} /> No account needed</strong></span></div>
-          <div className="note"><HardDrive size={17} /><span>{bridge.native ? exporter ? 'Rendered locally using your installed FFmpeg, including timed text, transitions, and mixed audio.' : <>FFmpeg was not found. Install it with <code>{FFMPEG_INSTALL[platform]}</code>, then restart PixCut to enable MP4 export.</> : 'MP4 export runs in the native desktop app. This browser preview supports editing and saving projects.'}</span></div>
-          <button className="button primary export-confirm" disabled={!exporter || exporting || busy} onClick={() => void exportVideo()}>{exporting ? <LoaderCircle size={17} className="spin" /> : <Download size={17} />} {exporting ? 'Rendering your story…' : 'Choose destination & export'}</button>
+          <div className="note"><HardDrive size={17} /><span>{hasVideoScenes ? 'This project contains video clips. Video export is the next media-engine step; image-only projects can export now.' : bridge.native ? exporter ? 'Rendered locally using your installed FFmpeg, including timed text, transitions, and mixed audio.' : <>FFmpeg was not found. Install it with <code>{FFMPEG_INSTALL[platform]}</code>, then restart PixCut to enable MP4 export.</> : 'MP4 export runs in the native desktop app. This browser preview supports editing and saving projects.'}</span></div>
+          <button className="button primary export-confirm" disabled={!exporter || exporting || busy || hasVideoScenes} onClick={() => void exportVideo()}>{exporting ? <LoaderCircle size={17} className="spin" /> : <Download size={17} />} {exporting ? 'Rendering your story…' : 'Choose destination & export'}</button>
           {exporting && <div className="export-progress"><div><span style={{ width: `${Math.max(3, exportProgress)}%` }} /></div><span>{exportProgress}%</span></div>}
           {exporting && <div className="export-cancel-row"><button className="button subtle" onClick={cancelExport} disabled={cancellingExport}>{cancellingExport ? 'Cancelling…' : 'Cancel export'}</button></div>}
           {exporting && <p className="export-wait">Keep PixCut open until rendering finishes. Longer stories take more time.</p>}

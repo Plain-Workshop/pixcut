@@ -150,6 +150,10 @@ pub struct Scene {
     pub id: String,
     pub name: String,
     pub image: std::sync::Arc<str>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_poster: Option<String>,
     #[serde(default)]
     pub start_ticks: u64,
     #[serde(default)]
@@ -1231,6 +1235,8 @@ mod tests {
     use super::*;
     fn scene() -> Scene {
         Scene {
+            media_kind: None,
+            video_poster: None,
             id: "one".into(),
             name: "Test".into(),
             image: "data:image/png;base64,AA==".into(),

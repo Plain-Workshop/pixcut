@@ -30,6 +30,17 @@ Validated on Apple Silicon macOS. This is a photo-movie editing slice; the full 
 - Verification: 34 TypeScript tests, 24 project-model tests, 8 native tests, and 3 FFmpeg tests pass; `actionlint` is clean on all workflows.
 - The first full GitHub dry run ([run 40214818313](https://github.com/Plain-Workshop/pixcut/actions/runs/40214818313)) passed on all four runners: macOS arm64, macOS x64 (cross-built on an arm runner), Windows x64, and Linux x86_64, after the version and test gates. Windows produced NSIS, MSI, and portable ZIP; Linux produced AppImage and deb; macOS produced DMG and updater tarball plus signature. Packaging-only failures found and fixed during the run: an extra `--` forwarded bundle flags to Cargo, empty Apple secrets requested a certificate import, an unsupported `macos-15-intel` label, a YAML alias GitHub rejects, and a case-sensitive Linux binary check.
 
+## Video import and preview (media-engine slice 1)
+
+- Added optional `mediaKind` and `videoPoster` fields to the scene model in both TypeScript and Rust, serialized only when present so existing projects stay compatible.
+- Import accepts MP4, MOV, and M4V up to 50 MB in the native app; the browser preview also accepts WebM. The app reads the file, decodes metadata, captures a 480 px JPEG poster, and adds a video scene with a clamped 0.5–30 s duration.
+- The preview uses a hidden `<video>` element, keeps it within 120 ms of the playhead, pauses on scrub, and draws the current frame into the existing canvas compositor so text layers, framing, and color grading still apply.
+- Media tiles and timeline clips show the poster frame with a **VIDEO** badge; library thumbnails use the poster through the existing `drawScene` path.
+- Native persistence stores video bytes in the content-addressed asset store (`assets/<sha>.mp4`) and hydrates them back to data URLs; the `.pixcut` bundle already handles the same MIME types. A new roundtrip test covers it.
+- Export for video projects is deliberately blocked with a clear message until the FFmpeg scene pipeline lands. Image-only projects export exactly as before.
+- Verification: imported a 2 s VP9 WebM through the browser preview; the poster rendered, the timeline showed `VIDEO`, the recovery record contained `mediaKind: 'video'` and a JPEG poster, and there were no console errors. Screenshot: `output/playwright/video-import-chromium.png`.
+- Tests: 34 TypeScript, 24 project-model, 9 native, 3 FFmpeg. `tsc` and production build pass.
+
 ## Open-source plan removal
 
 - Removed the legacy paid portal (customer and admin builds) from the workspace. It was untracked build output from the old Free / Pro monthly / Pro annual / Perpetual plans, including license activation, device slots, Stripe checkout and subscription management. It is recoverable from the macOS Trash.

@@ -76,6 +76,9 @@ fn asset_extension(mime: &str) -> Option<&'static str> {
         "audio/aac" => Some("aac"),
         "audio/ogg" => Some("ogg"),
         "audio/webm" => Some("webm"),
+        "video/mp4" => Some("mp4"),
+        "video/x-m4v" => Some("m4v"),
+        "video/quicktime" => Some("mov"),
         _ => None,
     }
 }
@@ -296,6 +299,9 @@ fn extension_mime(extension: &str) -> Option<&'static str> {
         "aac" => Some("audio/aac"),
         "ogg" => Some("audio/ogg"),
         "webm" => Some("audio/webm"),
+        "mp4" => Some("video/mp4"),
+        "m4v" => Some("video/x-m4v"),
+        "mov" => Some("video/quicktime"),
         _ => None,
     }
 }
@@ -600,7 +606,7 @@ async fn pick_media(kind: String) -> Result<Vec<PickedMedia>, String> {
     let (label, extensions) = match kind.as_str() {
         "image" => ("Images", vec!["png", "jpg", "jpeg", "webp"]),
         "audio" => ("Audio", vec!["mp3", "wav", "m4a", "aac", "ogg", "oga", "webm"]),
-        "video" => ("Videos", vec!["mp4", "m4v", "mov", "webm"]),
+        "video" => ("Videos", vec!["mp4", "m4v", "mov"]),
         _ => return Err("Unknown media type.".into()),
     };
     let Some(files) = rfd::AsyncFileDialog::new()
@@ -633,6 +639,12 @@ async fn pick_media(kind: String) -> Result<Vec<PickedMedia>, String> {
             "mov" => "video/quicktime",
             _ => continue,
         };
+        if kind == "video" {
+            let size = fs::metadata(&path).map_err(|error| error.to_string())?.len();
+            if size > 50 * 1024 * 1024 {
+                return Err(format!("“{}” is larger than 50 MB. Choose a shorter clip.", file.file_name()));
+            }
+        }
         let bytes = fs::read(&path).map_err(|error| format!("Could not read {}: {error}", path.display()))?;
         picked.push(PickedMedia {
             name: file.file_name(),
@@ -1082,6 +1094,8 @@ mod integration_tests {
             .iter()
             .enumerate()
             .map(|(i, frame)| pixcut_project::Scene {
+                media_kind: None,
+                video_poster: None,
                 id: i.to_string(),
                 name: "Fixture".into(),
                 image: frame.as_str().into(),
@@ -1200,6 +1214,19 @@ mod integration_tests {
         .unwrap_err();
         assert!(error.contains("cancelled"), "{error}");
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn video_assets_roundtrip_through_the_local_store() {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut p, _) = fixture_project();
+        p.tracks[0].clips[0].image = "data:video/mp4;base64,AAAA".into();
+        p.tracks[0].clips[0].media_kind = Some("video".into());
+        persist_project(temp.path(), &mut p).unwrap();
+        assert!(p.tracks[0].clips[0].image.starts_with("pixcut-asset:"));
+        hydrate_project(temp.path(), &mut p).unwrap();
+        assert_eq!(p.tracks[0].clips[0].image.as_ref(), "data:video/mp4;base64,AAAA");
+        assert_eq!(p.tracks[0].clips[0].media_kind.as_deref(), Some("video"));
     }
 
     #[test]
