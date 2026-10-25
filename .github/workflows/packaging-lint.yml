@@ -5,14 +5,21 @@ name: Packaging lint
 on:
   push:
     branches: [main]
-    paths: &paths
+    paths:
       - ".github/workflows/**"
       - "desktop/scripts/**"
       - "desktop/src-tauri/tauri.conf.json"
+      - "desktop/src-tauri/tauri.ci.conf.json"
       - "desktop/src-tauri/capabilities/**"
       - "desktop/package.json"
   pull_request:
-    paths: *paths
+    paths:
+      - ".github/workflows/**"
+      - "desktop/scripts/**"
+      - "desktop/src-tauri/tauri.conf.json"
+      - "desktop/src-tauri/tauri.ci.conf.json"
+      - "desktop/src-tauri/capabilities/**"
+      - "desktop/package.json"
   workflow_dispatch:
 
 permissions:

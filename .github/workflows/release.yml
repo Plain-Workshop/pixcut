@@ -116,7 +116,7 @@ jobs:
       matrix:
         include:
           - { label: aarch64, runner: macos-15, target: aarch64-apple-darwin }
-          - { label: x64, runner: macos-15-intel, target: x86_64-apple-darwin }
+          - { label: x64, runner: macos-15, target: x86_64-apple-darwin }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
