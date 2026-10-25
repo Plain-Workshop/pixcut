@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// Vite config runs in Node; avoid pulling @types/node into the app tsconfig.
+declare const process: { env: Record<string, string | undefined> };
+
 const buildSha = process.env.VITE_BUILD_SHA || 'dev';
 const buildDate = process.env.VITE_BUILD_DATE || new Date().toISOString();
 
