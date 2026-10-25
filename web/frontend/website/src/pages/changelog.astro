@@ -1,0 +1,110 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+
+const releases = [
+  {
+    version: '1.1.0-beta.2',
+    channel: 'Beta',
+    date: 'October 24, 2026',
+    summary: 'Batch social versions, new safe-area guides and open-source templates.',
+    sections: [
+      { title: 'Added', items: ['Batch export for 16:9, 9:16 and 1:1 versions', 'Per-platform safe-area guides', 'Three motion templates', 'Optional local/BYOK AI settings'] },
+      { title: 'Changed', items: ['Faster timeline scrubbing on long projects', 'Clearer update and source-build instructions', 'Reduced installer size on Windows'] },
+      { title: 'Fixed', items: ['Export no longer stalls when the destination folder is read-only', 'Caption timing drift after reordering scenes', 'Crash when reopening a project with a missing font'] },
+    ],
+    known: ['Video outpainting is not available in the beta channel yet.'],
+  },
+  {
+    version: '1.0.0',
+    channel: 'Stable',
+    date: 'October 20, 2026',
+    summary: 'First stable release for Windows, macOS and Linux.',
+    sections: [
+      { title: 'Highlights', items: ['Timeline editing with frame-accurate trimming', 'Titles, captions and overlays edited on the canvas', 'Music with waveform and beat markers', '1080p H.264 export without a watermark', 'Bundled templates with clear media requirements'] },
+      { title: 'Fixed', items: ['Recovery snapshot now restores the last committed edit', 'Portrait preview no longer crops the safe area', 'Installer correctly registers the pixcut:// protocol on macOS'] },
+    ],
+    known: ['Video tracks beyond the primary scene track are planned for a later release.', 'Multi-line subtitle fitting is limited to one line in 1.0.'],
+  },
+  {
+    version: '0.9.0',
+    channel: 'Beta',
+    date: 'September 28, 2026',
+    summary: 'Release candidate: local projects, portable saves and export polish.',
+    sections: [
+      { title: 'Added', items: ['Portable project files with embedded media', 'Recovery snapshots', 'Export presets for landscape, portrait and square'] },
+      { title: 'Fixed', items: ['Audio pop at scene boundaries', 'Undo history lost after autosave'] },
+    ],
+    known: [],
+  },
+];
+---
+
+<BaseLayout title="Changelog — PixCut" description="PixCut release notes: new features, fixes, known issues and beta channel changes.">
+  <section class="page-hero">
+    <div class="container">
+      <span class="eyebrow">Changelog</span>
+      <h1>What changed,<br /><span class="gradient-text">and when</span></h1>
+      <p class="lede">Every release, with the fixes and the rough edges we know about. Beta notes are clearly separated from stable.</p>
+      <div class="release-meta" style="margin-top:1.5rem;">
+        <a class="chip active" href="#stable">Stable</a>
+        <a class="chip" href="#beta">Beta</a>
+        <a class="chip" href="/download">Download latest</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:2.4rem;">
+    <div class="container" style="max-width:880px;">
+      <div class="timeline release-timeline">
+        {releases.map((release) => (
+          <article class="timeline-item release-item" id={release.channel === 'Stable' ? 'stable' : 'beta'}>
+            <span class={`timeline-marker ${release.channel === 'Stable' ? '' : 'warn'}`}></span>
+            <div class="release-body">
+              <div class="timeline-head">
+                <div>
+                  <div class="release-version">
+                    <strong>{release.version}</strong>
+                    <span class={`pill ${release.channel === 'Stable' ? 'pill-green' : 'pill-neutral'}`}>{release.channel}</span>
+                  </div>
+                  <span class="small muted">{release.date}</span>
+                </div>
+                <a class="btn btn-secondary btn-sm" href="/download"><Icon name="download" size={15} /> Download</a>
+              </div>
+              <p class="release-summary">{release.summary}</p>
+              <div class="release-grid">
+                {release.sections.map((section) => (
+                  <div>
+                    <h4>{section.title}</h4>
+                    <ul class="release-list">
+                      {section.items.map((item) => <li><Icon name="check" size={14} /> {item}</li>)}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+              {release.known.length > 0 && (
+                <div class="release-known">
+                  <strong><Icon name="shield" size={15} /> Known issues</strong>
+                  <ul>{release.known.map((item) => <li>{item}</li>)}</ul>
+                </div>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container">
+      <div class="cta-band">
+        <div>
+          <span class="eyebrow">Stay current</span>
+          <h2>Get the latest build.</h2>
+          <p>Stable is recommended. The beta channel is opt-in and can be switched back at any time.</p>
+        </div>
+        <a class="btn btn-primary" href="/download"><Icon name="download" size={18} /> Download</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

@@ -1,0 +1,72 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+import { ISSUES_URL } from '../lib/site';
+const updated = 'October 24, 2026';
+
+const commitments = [
+  { icon: 'check', title: 'Keyboard first', copy: 'Every timeline action has a keyboard path. Focus order follows the visual layout and is visible at all times.' },
+  { icon: 'text', title: 'Readable by default', copy: 'Body text targets WCAG 2.2 AA contrast in both dark and light themes. Text can scale with the system setting.' },
+  { icon: 'users', title: 'Not colour alone', copy: 'Status uses text and icons as well as colour, so errors and states remain understandable without colour vision.' },
+  { icon: 'zap', title: 'Motion respects settings', copy: 'Reveal animations, autoplay previews and transitions are reduced or removed when reduced-motion is enabled.' },
+];
+---
+
+<BaseLayout title="Accessibility — PixCut" description="PixCut accessibility statement: our targets, what works today, known gaps and how to report a barrier.">
+  <section class="page-hero">
+    <div class="container">
+      <span class="eyebrow">Accessibility</span>
+      <h1>Accessibility statement</h1>
+      <p class="lede">We want PixCut to be usable by people with different abilities, devices and input methods. This page states where we are and what is still missing.</p>
+      <p class="small muted">Last updated {updated}</p>
+    </div>
+  </section>
+
+  <div class="container">
+    <article class="prose">
+      <div class="card" style="margin:1.5rem 0 2rem;">
+        <span class="pill pill-green"><span class="status-dot"></span> Target: WCAG 2.2 AA</span>
+        <p style="margin:.8rem 0 0;">The static website aims for WCAG 2.2 AA. The desktop editor is assessed against the same criteria where the platform toolkit allows it.</p>
+      </div>
+
+      <h2>Our commitments</h2>
+      <div class="grid cols-2" style="margin:1.2rem 0 2rem;">
+        {commitments.map((item) => (
+          <div class="card">
+            <span class="icon-badge"><Icon name={item.icon} size={20} /></span>
+            <h3>{item.title}</h3>
+            <p>{item.copy}</p>
+          </div>
+        ))}
+      </div>
+
+      <h2>What works today</h2>
+      <ul>
+        <li>The website can be navigated entirely by keyboard, with a skip link and visible focus rings.</li>
+        <li>Both dark and light themes use semantic colour tokens checked for contrast.</li>
+        <li>Forms have persistent labels, inline validation messages and live status announcements.</li>
+        <li>Images carry alternative text; decorative images are hidden from assistive technology.</li>
+        <li>The AI before/after comparison exposes a native range control with a textual label.</li>
+        <li>Reduced-motion preferences disable reveal animations and smooth scrolling.</li>
+      </ul>
+
+      <h2>Known gaps</h2>
+      <ul>
+        <li>The desktop timeline is currently optimised for pointer and keyboard; screen-reader narration of clip positions is limited.</li>
+        <li>Some template previews use imagery without long descriptions; the template metadata provides the equivalent information.</li>
+        <li>Video tutorials do not yet all have captions or transcripts. We are adding them progressively.</li>
+
+      </ul>
+
+      <h2>Assistive technology</h2>
+      <p>The website is tested with recent versions of VoiceOver on macOS, NVDA on Windows and keyboard-only navigation. If you use a combination we have not tested, we would like to hear about it.</p>
+
+      <h2>Report a barrier</h2>
+      <p>Open a GitHub issue with the page or screen, what you expected, and what happened. Include your browser or OS and any assistive technology you use. Issues labelled for accessibility are reviewed together; this is a volunteer project, so there is no guaranteed response time.</p>
+      <p><a class="btn btn-secondary" href={`${ISSUES_URL}?q=label%3Aaccessibility`} rel="noreferrer">Open an accessibility issue <Icon name="external" size={14} /></a></p>
+
+      <h2>Enforcement</h2>
+      <p>If you are not satisfied with our response, you can contact your national accessibility enforcement body or, for EU consumers, the relevant supervisory authority.</p>
+    </article>
+  </div>
+</BaseLayout>

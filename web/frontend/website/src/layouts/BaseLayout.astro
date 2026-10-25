@@ -1,0 +1,184 @@
+---
+import '../styles/global.css';
+import { GITHUB_URL } from '../lib/site';
+
+export interface Props {
+  title?: string;
+  description?: string;
+  lang?: string;
+  image?: string;
+}
+const {
+  title = 'PixCut — Create amazing videos, easily',
+  description = 'A simple, powerful video editor for everyone. Edit, add music, add effects and more — without a watermark. No account required. Works offline.',
+  lang = 'en',
+  image = '/images/hero.jpg',
+} = Astro.props;
+const pathname = Astro.url.pathname;
+const canonical = new URL(pathname, Astro.site ?? 'https://plain-workshop.github.io').toString();
+const nav = [
+  { href: '/features', label: 'Features' },
+  { href: '/templates', label: 'Templates' },
+  { href: '/download', label: 'Download' },
+  { href: '/docs', label: 'Docs' },
+  { href: '/contribute', label: 'Contribute' },
+  { href: '/roadmap', label: 'Roadmap' },
+];
+const active = (href: string) => pathname === href || (href !== '/' && pathname.startsWith(href));
+---
+
+<!doctype html>
+<html lang={lang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#08050f" />
+    <title>{title}</title>
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/brand/pixcut-symbol.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={new URL(image, Astro.site ?? 'https://plain-workshop.github.io').toString()} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script is:inline>
+      (() => {
+        try {
+          const saved = localStorage.getItem('pixcut-theme');
+          if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+        } catch {}
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="container nav">
+        <a class="brand" href="/" aria-label="PixCut home">
+          <img src="/brand/pixcut-logo.svg" alt="PixCut" width="196" height="47" />
+        </a>
+
+        <nav class="nav-links" id="site-nav" aria-label="Primary">
+          {nav.map((item) => (
+            <a href={item.href} class={active(item.href) ? 'active' : ''}>{item.label}</a>
+          ))}
+        </nav>
+
+        <div class="nav-actions">
+          <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle color theme">
+            <svg class="theme-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.8 6.8 0 0 0 9.8 9.8Z"/></svg>
+            <svg class="theme-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+          </button>
+          <a class="btn btn-primary btn-sm nav-cta" href="/download">Download Free</a>
+          <button class="icon-btn menu-btn" id="menu-toggle" type="button" aria-label="Open navigation" aria-controls="site-nav" aria-expanded="false">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+    <button class="nav-scrim" id="nav-scrim" type="button" aria-label="Close navigation" tabindex="-1"></button>
+
+    <main id="main">
+      <slot />
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <div class="footer-grid">
+          <div class="footer-brand">
+            <a class="brand" href="/" aria-label="PixCut home">
+              <img src="/brand/pixcut-logo.svg" alt="PixCut" width="196" height="47" />
+            </a>
+            <p>Open-source, local-first video editing. No watermark, no account, no cloud required.</p>
+            <div class="socials" aria-label="Project links">
+              <a href={GITHUB_URL} aria-label="GitHub" rel="noreferrer"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .7a11.3 11.3 0 0 0-3.6 22c.6.1.8-.3.8-.6v-2.1c-3.4.7-4.1-1.6-4.1-1.6-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.4 11.4 0 0 1 6 0C17.4 4.3 18.4 4.6 18.4 4.6c.6 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.1v3.1c0 .3.2.7.8.6A11.3 11.3 0 0 0 12 .7Z"/></svg></a>
+              <a href={`${GITHUB_URL}/discussions`} aria-label="Discussions" rel="noreferrer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H8l-5 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z"/><path d="M8 11h8M8 15h5"/></svg></a>
+            </div>
+          </div>
+          <div class="footer-col">
+            <h4>Product</h4>
+            <a href="/features">Features</a>
+            <a href="/templates">Templates</a>
+            <a href="/download">Download</a>
+            <a href="/roadmap">Roadmap</a>
+          </div>
+          <div class="footer-col">
+            <h4>Project</h4>
+            <a href="/docs">Docs</a>
+            <a href="/changelog">Changelog</a>
+            <a href="/contribute">Contribute</a>
+            <a href="/license">License</a>
+            <a href={GITHUB_URL} rel="noreferrer">GitHub</a>
+          </div>
+          <div class="footer-col">
+            <h4>Community</h4>
+            <a href={`${GITHUB_URL}/issues`} rel="noreferrer">Issues</a>
+            <a href={`${GITHUB_URL}/discussions`} rel="noreferrer">Discussions</a>
+            <a href="/support">Support</a>
+            <a href="/accessibility">Accessibility</a>
+          </div>
+          <div class="footer-col">
+            <h4>Legal</h4>
+            <a href="/license">License</a>
+            <a href="/privacy">Privacy</a>
+            <a href={`${GITHUB_URL}/security/policy`} rel="noreferrer">Security</a>
+            <a href="/about">About</a>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <span>© 2026 PixCut contributors. Code under MIT OR Apache-2.0.</span>
+        </div>
+      </div>
+    </footer>
+
+    <script is:inline>
+      (() => {
+        const root = document.documentElement;
+        const themeBtn = document.getElementById('theme-toggle');
+        themeBtn?.addEventListener('click', () => {
+          const next = root.dataset.theme === 'light' ? 'dark' : 'light';
+          root.dataset.theme = next;
+          try { localStorage.setItem('pixcut-theme', next); } catch {}
+        });
+
+        const menuBtn = document.getElementById('menu-toggle');
+        const nav = document.getElementById('site-nav');
+        const scrim = document.getElementById('nav-scrim');
+        const setMenu = (open) => {
+          nav?.classList.toggle('open', open);
+          scrim?.classList.toggle('open', open);
+          menuBtn?.setAttribute('aria-expanded', String(open));
+          menuBtn?.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+        };
+        menuBtn?.addEventListener('click', () => {
+          setMenu(!nav?.classList.contains('open'));
+        });
+        scrim?.addEventListener('click', () => setMenu(false));
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape' && nav?.classList.contains('open')) {
+            setMenu(false);
+            menuBtn?.focus();
+          }
+        });
+        nav?.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => setMenu(false)));
+
+        const reveal = document.querySelectorAll('[data-reveal]');
+        if ('IntersectionObserver' in window && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting) {
+                entry.target.classList.add('revealed');
+                observer.unobserve(entry.target);
+              }
+            });
+          }, { threshold: 0.12 });
+          reveal.forEach((el) => observer.observe(el));
+        } else {
+          reveal.forEach((el) => el.classList.add('revealed'));
+        }
+      })();
+    </script>
+  </body>
+</html>

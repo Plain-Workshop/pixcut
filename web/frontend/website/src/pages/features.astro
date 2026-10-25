@@ -1,0 +1,135 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+
+const rows = [
+  {
+    id: 'editing',
+    eyebrow: 'Editing',
+    title: 'A timeline that feels obvious',
+    copy: 'Drop in clips, trim the edges, reorder scenes and add transitions without hunting through menus. The preview and timeline move together, so you always know what you are editing.',
+    points: ['Drag-and-drop multi-clip timeline', 'Frame-accurate trimming and splitting', 'Scene reordering, duplication and undo', 'Landscape, portrait and square canvases'],
+    image: '/images/hero.jpg',
+    alt: 'Alpine lake with a wooden boat',
+    reverse: false,
+  },
+  {
+    id: 'text',
+    eyebrow: 'Text & overlays',
+    title: 'Titles that look designed, not typed',
+    copy: 'Add bold titles, captions, lower thirds and callouts with editable fonts and colors. Edit text directly on the canvas, then adjust timing in the timeline.',
+    points: ['Direct on-canvas text editing', 'Animated captions and subtitles', 'Shapes, stickers and callouts', 'Readability and safe-area checks'],
+    image: '/images/vlog.jpg',
+    alt: 'Travel creator filming hot air balloons',
+    reverse: true,
+  },
+  {
+    id: 'audio',
+    eyebrow: 'Audio',
+    title: 'Music that lands on the beat',
+    copy: 'Add a track, see the waveform and let PixCut suggest cuts that follow the rhythm. Duck music under voiceover and export a balanced mix without an audio engineering degree.',
+    points: ['Waveforms and beat detection', 'Voiceover and music tracks', 'Automatic ducking suggestions', 'Local audio, no upload'],
+    image: '/images/family.jpg',
+    alt: 'Friends watching the sunset together',
+    reverse: false,
+  },
+  {
+    id: 'social',
+    eyebrow: 'Social versions',
+    title: 'One story, every aspect ratio',
+    copy: 'Create a 16:9 YouTube cut, then duplicate it as 9:16 for Shorts and 1:1 for feed posts. Reframe with safe-area guides and export each version in a batch.',
+    points: ['16:9, 9:16, 1:1 and 4:5', 'Per-platform safe-area guides', 'Duplicate linked versions', 'Batch export for social'],
+    image: '/images/travel.jpg',
+    alt: 'Boat on a turquoise lake',
+    reverse: true,
+  },
+  {
+    id: 'polish',
+    eyebrow: 'Polish',
+    title: 'Smart checks before you export',
+    copy: 'PixCut reviews text placement, scene duration, transitions and collisions, then suggests fixes you can preview and apply. You stay in control of every change.',
+    points: ['Text and overlay collision checks', 'Scene pacing suggestions', 'Transition recommendations', 'Preview before applying fixes'],
+    image: '/images/why.jpg',
+    alt: 'Mountains at golden hour',
+    reverse: false,
+  },
+  {
+    id: 'export',
+    eyebrow: 'Export',
+    title: 'Export without a watermark',
+    copy: 'Render H.264 MP4 files up to 4K. Choose the destination, frame rate and quality, and keep your originals untouched. No queue, no cloud, no surprise branding.',
+    points: ['H.264 MP4 at 30 fps', '720p, 1080p, 1440p and 4K output', 'No watermark or PixCut outro', 'Resumable local exports'],
+    image: '/images/business.jpg',
+    alt: 'City skyline at dusk',
+    reverse: true,
+  },
+];
+
+const categories = [
+  { label: 'Editing', id: 'editing' },
+  { label: 'Text & overlays', id: 'text' },
+  { label: 'Audio', id: 'audio' },
+  { label: 'Social versions', id: 'social' },
+  { label: 'Polish', id: 'polish' },
+  { label: 'Export', id: 'export' },
+  { label: 'Templates', id: 'templates' },
+  { label: 'Performance', id: 'performance' },
+];
+---
+
+<BaseLayout title="Features — PixCut" description="Editing, text, audio, social versions, polish and export tools in PixCut.">
+  <section class="page-hero">
+    <div class="container">
+      <span class="eyebrow">Features</span>
+      <h1>Everything you need.<br /><span class="gradient-text">Nothing you don't.</span></h1>
+      <p class="lede">PixCut keeps the editing flow simple: preview and timeline together, text you can touch, and export that respects your work. Explore what is inside.</p>
+      <div class="filter-bar" style="margin-top:2rem;margin-bottom:0;">
+        {categories.map((category) => <a class="chip" href={`#${category.id}`}>{category.label}</a>)}
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:2rem;">
+    <div class="container">
+      {rows.map((row) => (
+        <article class={`feature-row ${row.reverse ? 'reverse' : ''}`} id={row.id}>
+          <div class="feature-visual">
+            <img src={row.image} alt={row.alt} loading="lazy" width="900" height="700" />
+          </div>
+          <div class="feature-copy">
+            <span class="eyebrow">{row.eyebrow}</span>
+            <h2>{row.title}</h2>
+            <p>{row.copy}</p>
+            <ul class="feature-list">
+              {row.points.map((point) => <li><Icon name="check" size={16} /> {point}</li>)}
+            </ul>
+          </div>
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container">
+      <div class="section-head center">
+        <span class="eyebrow">Also included</span>
+        <h2 class="section-title">The practical details</h2>
+        <p class="section-copy">Small things that make a daily editor feel good.</p>
+      </div>
+      <div class="grid cols-3">
+        <div class="card" id="templates"><span class="icon-badge"><Icon name="layers" size={21} /></span><h3>Templates</h3><p>Bundled, editable templates with clear media requirements and licenses.</p></div>
+        <div class="card" id="performance"><span class="icon-badge blue"><Icon name="zap" size={21} /></span><h3>Performance</h3><p>A responsive preview and timeline at 1366×768 and above, with proxy-friendly scrubbing.</p></div>
+        <div class="card" id="privacy"><span class="icon-badge green"><Icon name="lock" size={21} /></span><h3>Privacy</h3><p>Projects and media stay local. Optional AI is off by default and always asks first.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="cta-band">
+        <div><span class="eyebrow">Try it yourself</span><h2>Your first video is a download away.</h2><p>Open source, no account, no watermark.</p></div>
+        <a class="btn btn-primary" href="/download"><Icon name="download" size={18} /> Download Free</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

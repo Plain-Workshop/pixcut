@@ -1,0 +1,173 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+import { templates as catalog } from '../data/templates';
+import { GITHUB_URL, RELEASES_URL, CONTRIBUTING_URL, LICENSE_LABEL } from '../lib/site';
+
+const features = [
+  { icon: 'timeline', title: 'Timeline editing', copy: 'Trim, reorder and preview scenes on a timeline that stays out of your way.', tone: '' },
+  { icon: 'text', title: 'Titles and captions', copy: 'Edit text directly on the canvas, with safe-area and readability checks.', tone: 'blue' },
+  { icon: 'filters', title: 'Filters and effects', copy: 'Give every scene a distinct look with local filters and transitions.', tone: 'orange' },
+  { icon: 'export', title: 'Local MP4 export', copy: 'Export H.264 files without a watermark. Your media never leaves your machine.', tone: 'green' },
+];
+
+const principles = [
+  ['Local-first', 'Projects, media and exports stay on your device. No account, no cloud requirement.'],
+  ['Open source', `The editor is developed in public under ${LICENSE_LABEL}. Inspect it, fork it, improve it.`],
+  ['No lock-in', 'Portable JSON projects with embedded media. Your work remains readable and yours.'],
+  ['Optional AI', 'Cloud AI is off by default. Use your own provider key or keep everything local.'],
+];
+
+const templates = catalog.slice(0, 4);
+---
+
+<BaseLayout
+  title="PixCut — open-source video editing, built for the desktop"
+  description="PixCut is an open-source, local-first video editor. Edit offline, export without a watermark, and keep your media on your machine."
+>
+  <section class="hero">
+    <div class="container hero-grid">
+      <div class="hero-copy">
+        <span class="pill"><span class="badge-new">Open source</span> MIT OR Apache-2.0 · local-first</span>
+        <h1>Edit video on your terms.<br /><span class="gradient-text">Own the tools.</span></h1>
+        <p class="lede">PixCut is an open-source desktop video editor. Fast timeline editing, titles, filters and local MP4 export — no account, no watermark, no cloud required.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href={RELEASES_URL}><Icon name="download" size={18} /> Download</a>
+          <a class="btn btn-secondary" href={GITHUB_URL} rel="noreferrer"><Icon name="github" size={18} /> Star on GitHub</a>
+        </div>
+        <div class="hero-checks">
+          <span><Icon name="check" size={15} /> Works offline</span>
+          <span><Icon name="check" size={15} /> No watermark</span>
+          <span><Icon name="check" size={15} /> No account</span>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <div class="editor-frame">
+          <img src="/images/editor-preview.png" alt="PixCut editor with timeline, preview and inspector" width="1200" height="760" />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container">
+      <div class="section-head center">
+        <span class="eyebrow">Why PixCut</span>
+        <h2 class="section-title">Built like a tool you can keep</h2>
+        <p class="section-copy">A focused editor, an open codebase, and no service holding your projects hostage.</p>
+      </div>
+      <div class="grid cols-4">
+        {principles.map(([title, copy]) => (
+          <article class="card">
+            <span class="icon-badge"><Icon name="check" size={20} /></span>
+            <h3>{title}</h3>
+            <p>{copy}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">Editor</span>
+        <h2 class="section-title">The essentials, done properly</h2>
+        <p class="section-copy">Enough power for real projects without a subscription maze.</p>
+      </div>
+      <div class="grid cols-2">
+        {features.map((feature) => (
+          <article class="card feature-card">
+            <span class={`icon-badge ${feature.tone}`}><Icon name={feature.icon} size={21} /></span>
+            <div>
+              <h3>{feature.title}</h3>
+              <p>{feature.copy}</p>
+            </div>
+          </article>
+        ))}
+      </div>
+      <p style="margin-top:1.4rem;"><a class="link-arrow" href="/features">Explore every feature <Icon name="arrow" size={14} /></a></p>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container split">
+      <div>
+        <span class="eyebrow">Local-first by design</span>
+        <h2 class="section-title">Your media stays where it belongs</h2>
+        <p class="section-copy">Import media, edit and export without an upload step. Projects are portable JSON files with embedded media, so backups and migrations are simple.</p>
+        <ul class="feature-list">
+          <li><Icon name="check" size={16} /> No account or sign-in</li>
+          <li><Icon name="check" size={16} /> No telemetry in the editor</li>
+          <li><Icon name="check" size={16} /> Optional AI is explicit and opt-in</li>
+          <li><Icon name="check" size={16} /> Build from source whenever you want</li>
+        </ul>
+        <div class="hero-actions" style="margin-top:1.4rem;">
+          <a class="btn btn-secondary" href="/docs"><Icon name="book" size={16} /> Read the docs</a>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <img src="/images/why.jpg" alt="A quiet mountain landscape" width="900" height="700" style="border-radius:18px;" />
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Templates</span>
+          <h2 class="section-title">Start with a story</h2>
+          <p class="section-copy">Editable starting points for travel, family, work and social.</p>
+        </div>
+        <a class="link-arrow" href="/templates">Browse templates <Icon name="arrow" size={14} /></a>
+      </div>
+      <div class="template-grid">
+        {templates.map((template) => (
+          <a class="template-card" href="/templates">
+            <img src={template.image} alt={template.name} loading="lazy" width="480" height="320" />
+            <div class="template-info">
+              <strong>{template.name}</strong>
+              <span>{template.category} · {template.format} · {template.duration}s</span>
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container split">
+      <div class="hero-visual">
+        <img src="/images/product.jpg" alt="A product photographed on a clean background" width="900" height="700" style="border-radius:18px;" />
+      </div>
+      <div>
+        <span class="eyebrow">Open development</span>
+        <h2 class="section-title">Built in public, with you</h2>
+        <p class="section-copy">PixCut is a community project. Issues, design discussions and pull requests happen on GitHub. The roadmap is public and contributors are credited.</p>
+        <div class="grid cols-2" style="gap:0.8rem;">
+          <a class="card" href={GITHUB_URL} rel="noreferrer"><span class="icon-badge"><Icon name="github" size={17} /></span><div><strong>GitHub</strong><span>Source and releases</span></div></a>
+          <a class="card" href={CONTRIBUTING_URL} rel="noreferrer"><span class="icon-badge"><Icon name="users" size={17} /></span><div><strong>Contribute</strong><span>Start with a good issue</span></div></a>
+          <a class="card" href="/roadmap"><span class="icon-badge"><Icon name="trending" size={17} /></span><div><strong>Roadmap</strong><span>What comes next</span></div></a>
+          <a class="card" href="/license"><span class="icon-badge"><Icon name="shield" size={17} /></span><div><strong>License</strong><span>{LICENSE_LABEL}</span></div></a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="cta-band">
+        <div>
+          <span class="eyebrow">Get started</span>
+          <h2>Download PixCut. Keep the source.</h2>
+          <p>Free, open source and local-first. Build it yourself or grab a release.</p>
+        </div>
+        <div class="page-actions">
+          <a class="btn btn-primary" href={RELEASES_URL}><Icon name="download" size={17} /> Download latest</a>
+          <a class="btn btn-secondary" href={GITHUB_URL} rel="noreferrer"><Icon name="github" size={17} /> View source</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

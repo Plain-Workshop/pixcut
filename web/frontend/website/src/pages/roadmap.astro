@@ -1,0 +1,74 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+import { GITHUB_URL, ISSUES_URL } from '../lib/site';
+
+const now = [
+  ['Timeline editing', 'Trim, reorder and preview scenes on one visual track.', 'shipped'],
+  ['Titles and captions', 'On-canvas text editing, styles and safe-area checks.', 'shipped'],
+  ['Audio lanes', 'Multiple audio clips, fades and a mixed AAC export.', 'shipped'],
+  ['Local MP4 export', 'H.264 export with configurable resolution and quality.', 'shipped'],
+  ['Template gallery', 'Editable starter projects for common formats.', 'shipped'],
+];
+const next = [
+  ['Video-file import', 'Import real video clips and decode them on the timeline.', 'planned'],
+  ['Multi-track editing', 'Overlay video, gaps, trim handles and speed curves.', 'planned'],
+  ['Native media engine', 'Replace the still-image compositor with a proper preview/export pipeline.', 'planned'],
+  ['Signed installers', 'Notarized macOS and signed Windows builds from CI.', 'planned'],
+  ['Bundled codec review', 'Ship a license-vetted FFmpeg configuration or platform encoders.', 'planned'],
+];
+const later = [
+  ['Keyframes and motion', 'Transform, scale and opacity animation.', 'exploring'],
+  ['More export formats', 'WebM, ProRes and platform presets.', 'exploring'],
+  ['Plugin API', 'Community effects and integrations.', 'exploring'],
+  ['Accessibility pass', 'Screen-reader and keyboard workflows across the editor.', 'exploring'],
+];
+const tone: Record<string, string> = { shipped: 'pill-ok', planned: 'pill-warn', exploring: 'pill-neutral' };
+---
+
+<BaseLayout title="Roadmap — PixCut" description="The public PixCut roadmap: what is shipped, what comes next and what is still being explored.">
+  <section class="page-hero center">
+    <div class="container">
+      <span class="eyebrow">Roadmap</span>
+      <h1>Built in public.<br /><span class="gradient-text">Planned honestly.</span></h1>
+      <p class="lede">This is a living plan, not a promise of dates. Priorities change with contributors and real usage.</p>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:2.4rem;">
+    <div class="container">
+      <div class="stack" style="gap:2rem;">
+        <div>
+          <div class="card-head"><div><h2><Icon name="check" size={18} /> Shipped</h2><p class="card-sub">Available in the current open-source build.</p></div><span class="pill pill-ok">Now</span></div>
+          <div class="grid cols-2">
+            {now.map(([title, copy, status]) => <article class="card"><h3>{title}</h3><p>{copy}</p><span class={`pill ${tone[status]}`}>{status}</span></article>)}
+          </div>
+        </div>
+        <div>
+          <div class="card-head"><div><h2><Icon name="trending" size={18} /> Next</h2><p class="card-sub">Actively wanted; order depends on contributors.</p></div><span class="pill pill-warn">Next</span></div>
+          <div class="grid cols-2">
+            {next.map(([title, copy, status]) => <article class="card"><h3>{title}</h3><p>{copy}</p><span class={`pill ${tone[status]}`}>{status}</span></article>)}
+          </div>
+        </div>
+        <div>
+          <div class="card-head"><div><h2><Icon name="sparkles" size={18} /> Exploring</h2><p class="card-sub">Ideas under discussion; not committed.</p></div><span class="pill pill-neutral">Later</span></div>
+          <div class="grid cols-2">
+            {later.map(([title, copy, status]) => <article class="card"><h3>{title}</h3><p>{copy}</p><span class={`pill ${tone[status]}`}>{status}</span></article>)}
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container center">
+      <span class="eyebrow">Change the order</span>
+      <h2 class="section-title">Tell us what matters</h2>
+      <p class="section-copy">Open an issue with the use case, or comment on an existing roadmap item. Concrete workflows beat vote counts.</p>
+      <div class="hero-actions" style="justify-content:center;margin-top:1.4rem;">
+        <a class="btn btn-primary" href={ISSUES_URL} rel="noreferrer"><Icon name="chat" size={17} /> Open an issue</a>
+        <a class="btn btn-secondary" href={GITHUB_URL} rel="noreferrer"><Icon name="github" size={17} /> GitHub</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

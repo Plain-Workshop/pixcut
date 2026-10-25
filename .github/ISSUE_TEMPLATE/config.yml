@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and workflows
+    url: https://github.com/Plain-Workshop/pixcut/discussions
+    about: Ask the community instead of opening an issue.
+  - name: Security report
+    url: https://github.com/Plain-Workshop/pixcut/security/policy
+    about: Report vulnerabilities privately.

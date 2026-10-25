@@ -1,0 +1,279 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+import { templates, categories } from '../data/templates';
+---
+
+<BaseLayout title="Templates — PixCut" description="Ready-made PixCut templates for travel, family, birthdays, business, social and weddings. Filter by category, format and license.">
+  <section class="page-hero">
+    <div class="container">
+      <span class="eyebrow">Templates</span>
+      <h1>Start with a story.<br /><span class="gradient-text">Make it yours.</span></h1>
+      <p class="lede">Beautiful, editable templates for every occasion. Add your photos or clips, change the text and export. Every template lists its media requirements and license before you start.</p>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:2.2rem;">
+    <div class="container">
+      <div class="catalog-toolbar">
+        <div class="catalog-search">
+          <Icon name="sparkles" size={17} />
+          <input class="input" id="template-search" type="search" placeholder="Search templates, occasions, formats..." aria-label="Search templates" />
+        </div>
+        <select class="select" id="template-format" aria-label="Filter by format">
+          <option value="all">All formats</option>
+          <option value="16:9">16:9 landscape</option>
+          <option value="9:16">9:16 vertical</option>
+          <option value="1:1">1:1 square</option>
+          <option value="4:5">4:5 portrait</option>
+        </select>
+        <select class="select" id="template-sort" aria-label="Sort templates">
+          <option value="popular">Most popular</option>
+          <option value="duration">Shortest first</option>
+          <option value="name">A–Z</option>
+        </select>
+      </div>
+
+      <div class="filter-bar" id="template-categories" role="group" aria-label="Template categories">
+        {categories.map((category) => (
+          <button class={`chip ${category === 'All' ? 'active' : ''}`} type="button" data-category={category} aria-pressed={category === 'All'}>{category}</button>
+        ))}
+      </div>
+
+      <p class="small muted" id="template-count" aria-live="polite">{templates.length} templates</p>
+
+      <div class="template-grid" id="template-grid">
+        {templates.map((template) => (
+          <button
+            class="template-card"
+            type="button"
+            data-id={template.id}
+            data-category={template.category}
+            data-format={template.format}
+            data-free={String(template.free)}
+            data-duration={template.duration}
+            data-name={template.name}
+            data-popularity={template.popularity}
+            aria-label={`Open ${template.name} template details`}
+          >
+            <div class="template-thumb">
+              <img src={template.image} alt={`${template.name} template preview`} loading="lazy" width="900" height="700" />
+              <span class="template-tag">Open</span>
+              <span class="template-format">{template.format} · {template.duration}s</span>
+            </div>
+            <div class="template-meta">
+              <strong>{template.name}</strong>
+              <span>{template.category} · {template.scenes} scenes</span>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      <div class="empty-state" id="template-empty" hidden>
+        <span class="icon-badge"><Icon name="sparkles" size={20} /></span>
+        <h3 style="margin:.8rem 0 .3rem;">No templates match those filters</h3>
+        <p>Try another category, format or search term.</p>
+        <button class="btn btn-secondary" type="button" id="template-reset">Clear filters</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container split">
+      <div>
+        <span class="eyebrow">How templates work</span>
+        <h2 class="section-title">Pick a starting point. Keep your voice.</h2>
+        <p class="section-copy">Every template is a normal PixCut project: editable scenes, text, music and effects. Every template is free to use, edit and share under its listed content license.</p>
+        <ul class="feature-list" style="margin-top:1.4rem;">
+          <li><Icon name="check" size={16} /> All templates open in the desktop app</li>
+          <li><Icon name="check" size={16} /> Every template exports without a watermark</li>
+          <li><Icon name="check" size={16} /> Media requirements and license shown up front</li>
+          <li><Icon name="check" size={16} /> Templates are plain projects, not locked downloads</li>
+        </ul>
+      </div>
+      <div class="card">
+        <span class="icon-badge green"><Icon name="download" size={21} /></span>
+        <h3>Open a template in PixCut</h3>
+        <p style="margin-bottom:1rem;">Install PixCut first, then choose a template and press <strong>Open in PixCut</strong>. If the app is not installed, download it below.</p>
+        <a class="btn btn-primary btn-block" href="/download"><Icon name="download" size={17} /> Download PixCut</a>
+        <p class="form-note" style="margin-top:.7rem;">Your browser may ask to open PixCut. If nothing happens, install the app first.</p>
+      </div>
+    </div>
+  </section>
+
+  <dialog class="template-dialog" id="template-dialog" aria-labelledby="template-dialog-title">
+    <div class="template-dialog-head">
+      <div>
+        <span class="pill" id="template-dialog-category">Travel</span>
+        <h2 id="template-dialog-title">Template name</h2>
+      </div>
+      <button class="icon-btn" type="button" id="template-close" aria-label="Close template details">
+        <Icon name="close" size={18} />
+      </button>
+    </div>
+    <img class="template-dialog-image" id="template-dialog-image" src="" alt="" />
+    <p id="template-dialog-description" class="muted"></p>
+    <div class="template-dialog-grid" id="template-dialog-meta"></div>
+    <div class="template-dialog-actions">
+      <a class="btn btn-primary" id="template-open" href="#"><Icon name="play" size={17} /> Open in PixCut</a>
+      <a class="btn btn-secondary" href="/download"><Icon name="download" size={17} /> Download app</a>
+    </div>
+    <p id="template-launch-status" class="form-note" role="status" hidden></p>
+    <p class="form-note">Opening a template requires a recent PixCut build. All templates are free.</p>
+  </dialog>
+
+  <script type="application/json" id="template-json" set:html={JSON.stringify(templates)}></script>
+
+  <script>
+    const dataEl = document.getElementById('template-json');
+    const templates = dataEl ? JSON.parse(dataEl.textContent || '[]') : [];
+    const grid = document.getElementById('template-grid');
+    const cards = Array.from(document.querySelectorAll<HTMLButtonElement>('.template-card'));
+    const search = document.getElementById('template-search') as HTMLInputElement | null;
+    const format = document.getElementById('template-format') as HTMLSelectElement | null;
+    const sort = document.getElementById('template-sort') as HTMLSelectElement | null;
+    const categories = document.getElementById('template-categories');
+    const count = document.getElementById('template-count');
+    const empty = document.getElementById('template-empty');
+    let activeCategory = 'All';
+
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get('category');
+    if (requested) {
+      const match = Array.from(categories?.querySelectorAll<HTMLButtonElement>('.chip') ?? []).find(
+        (chip) => chip.dataset.category?.toLowerCase() === requested.toLowerCase(),
+      );
+      if (match) {
+        activeCategory = match.dataset.category || 'All';
+        categories?.querySelectorAll('.chip').forEach((chip) => { chip.classList.remove('active'); chip.setAttribute('aria-pressed', 'false'); });
+        match.classList.add('active');
+        match.setAttribute('aria-pressed', 'true');
+      }
+    }
+    if (search && params.get('q')) search.value = params.get('q') || '';
+    if (format && params.get('format')) format.value = params.get('format') || 'all';
+    if (sort && params.get('sort')) sort.value = params.get('sort') || 'popular';
+
+    function syncUrl() {
+      const next = new URLSearchParams();
+      if (activeCategory !== 'All') next.set('category', activeCategory);
+      if (format && format.value !== 'all') next.set('format', format.value);
+      if (search && search.value.trim()) next.set('q', search.value.trim());
+      if (sort && sort.value !== 'popular') next.set('sort', sort.value);
+      const selected = new URLSearchParams(window.location.search).get('template');
+      if (selected) next.set('template', selected);
+      const qs = next.toString();
+      window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+    }
+
+    function applyFilters() {
+      const query = (search?.value || '').trim().toLowerCase();
+      const formatValue = format?.value || 'all';
+      let visible = 0;
+      cards.forEach((card) => {
+        const matchesCategory = activeCategory === 'All' || card.dataset.category === activeCategory;
+        const matchesQuery = !query || (card.dataset.name || '').toLowerCase().includes(query) || (card.dataset.category || '').toLowerCase().includes(query);
+        const matchesFormat = formatValue === 'all' || card.dataset.format === formatValue;
+        const show = matchesCategory && matchesQuery && matchesFormat;
+        card.hidden = !show;
+        if (show) visible += 1;
+      });
+      if (count) count.textContent = `${visible} template${visible === 1 ? '' : 's'}`;
+      if (empty) empty.hidden = visible !== 0;
+      syncUrl();
+    }
+
+    function applySort() {
+      if (!grid || !sort) return;
+      const mode = sort.value;
+      const sorted = [...cards].sort((a, b) => {
+        if (mode === 'duration') return Number(a.dataset.duration) - Number(b.dataset.duration);
+        if (mode === 'name') return String(a.dataset.name).localeCompare(String(b.dataset.name));
+        return Number(b.dataset.popularity) - Number(a.dataset.popularity);
+      });
+      sorted.forEach((card) => grid.appendChild(card));
+    }
+
+    categories?.addEventListener('click', (event) => {
+      const target = (event.target as HTMLElement).closest<HTMLButtonElement>('.chip');
+      if (!target) return;
+      activeCategory = target.dataset.category || 'All';
+      categories.querySelectorAll('.chip').forEach((chip) => { chip.classList.remove('active'); chip.setAttribute('aria-pressed', 'false'); });
+      target.classList.add('active');
+      target.setAttribute('aria-pressed', 'true');
+      applyFilters();
+    });
+    document.getElementById('template-reset')?.addEventListener('click', () => {
+      activeCategory = 'All';
+      if (search) search.value = '';
+      if (format) format.value = 'all';
+      if (sort) sort.value = 'popular';
+      categories?.querySelectorAll<HTMLButtonElement>('.chip').forEach(chip => {
+        const selected = chip.dataset.category === 'All';
+        chip.classList.toggle('active', selected);
+        chip.setAttribute('aria-pressed', String(selected));
+      });
+      applySort(); applyFilters(); search?.focus();
+    });
+    search?.addEventListener('input', applyFilters);
+    format?.addEventListener('change', applyFilters);
+    sort?.addEventListener('change', () => { applySort(); applyFilters(); });
+    applySort();
+    applyFilters();
+
+    const dialog = document.getElementById('template-dialog') as HTMLDialogElement | null;
+    const dialogTitle = document.getElementById('template-dialog-title');
+    const dialogCategory = document.getElementById('template-dialog-category');
+    const dialogImage = document.getElementById('template-dialog-image') as HTMLImageElement | null;
+    const dialogDescription = document.getElementById('template-dialog-description');
+    const dialogMeta = document.getElementById('template-dialog-meta');
+    const dialogOpen = document.getElementById('template-open') as HTMLAnchorElement | null;
+    const closeButton = document.getElementById('template-close');
+
+    function openTemplate(id: string) {
+      const template = templates.find((item: any) => item.id === id);
+      if (!template || !dialog) return;
+      if (dialogTitle) dialogTitle.textContent = template.name;
+      if (dialogCategory) dialogCategory.textContent = `${template.category} · Open`;
+      if (dialogImage) {
+        dialogImage.src = template.image;
+        dialogImage.alt = `${template.name} template preview`;
+      }
+      if (dialogDescription) dialogDescription.textContent = template.description;
+      if (dialogMeta) {
+        dialogMeta.innerHTML = `
+          <div><span>Format</span><strong>${template.format} · ${template.duration}s</strong></div>
+          <div><span>Scenes</span><strong>${template.scenes}</strong></div>
+          <div><span>Editable</span><strong>${template.editable.join(', ')}</strong></div>
+          <div><span>Media</span><strong>${template.media}</strong></div>
+          <div><span>Languages</span><strong>${template.languages.join(', ')}</strong></div>
+          <div><span>License</span><strong>${template.license}</strong></div>
+          <div><span>Version</span><strong>${template.version}</strong></div>
+          <div><span>Price</span><strong>Open</strong></div>`;
+      }
+      if (dialogOpen) dialogOpen.href = `pixcut://template/${template.id}`;
+      const url = new URL(window.location.href);
+      url.searchParams.set('template', id);
+      window.history.replaceState(null, '', url);
+      const launchStatus = document.getElementById('template-launch-status');
+      if (launchStatus) launchStatus.hidden = true;
+      dialog.showModal();
+    }
+
+    cards.forEach((card) => card.addEventListener('click', () => openTemplate(String(card.dataset.id))));
+    const requestedTemplate = params.get('template');
+    if (requestedTemplate) openTemplate(requestedTemplate);
+    dialogOpen?.addEventListener('click', () => {
+      const status = document.getElementById('template-launch-status');
+      if (status) { status.hidden = false; status.textContent = 'Your browser may ask to open PixCut. If nothing opens, use Download app above, install PixCut, then try again.'; }
+    });
+    dialog?.addEventListener('close', () => {
+      const url = new URL(window.location.href); url.searchParams.delete('template');
+      window.history.replaceState(null, '', url);
+    });
+    closeButton?.addEventListener('click', () => dialog?.close());
+    dialog?.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+  </script>
+</BaseLayout>

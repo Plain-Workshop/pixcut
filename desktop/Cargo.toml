@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+  "src-tauri",
+  "crates/core",
+  "crates/project",
+  "crates/timeline",
+  "crates/media",
+  "crates/preview",
+  "crates/render",
+  "crates/effects",
+  "crates/audio",
+  "crates/templates",
+  "crates/ai-optional",
+]

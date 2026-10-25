@@ -1,0 +1,111 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+import { GITHUB_URL } from '../lib/site';
+
+const features = [
+  { title: 'Image Extend', copy: 'Extend a photo beyond its frame with a larger canvas.', icon: 'photo' },
+  { title: 'Text to Image', copy: 'Generate a still image from a written prompt.', icon: 'sparkles' },
+  { title: 'Image to Video', copy: 'Animate a still into a short clip.', icon: 'play' },
+  { title: 'Captions & Translation', copy: 'Transcribe speech and translate captions.', icon: 'captions' },
+  { title: 'Video Outpainting', copy: 'Reframe or expand the edges of a clip.', icon: 'crop' },
+  { title: 'Background Removal', copy: 'Create a clean subject cutout for overlays.', icon: 'scissors' },
+];
+
+const modes = [
+  { name: 'Local model', where: 'Your machine', privacy: 'Nothing leaves the device', setup: 'Install a supported local runtime', tone: 'pill-ok' },
+  { name: 'Bring your own key', where: 'Your provider account', privacy: 'You control the provider and its retention', setup: 'Paste an API key in settings', tone: 'pill-accent' },
+  { name: 'Not included', where: 'No hosted PixCut service', privacy: 'The open-source build has no PixCut account', setup: 'Use local or BYOK', tone: 'pill-neutral' },
+];
+---
+
+<BaseLayout title="AI options — PixCut" description="Optional AI in PixCut: local models or your own provider key. Off by default, no PixCut account, no hidden credits.">
+  <section class="page-hero">
+    <div class="container">
+      <span class="eyebrow">AI</span>
+      <h1>Optional AI.<br /><span class="gradient-text">On your terms.</span></h1>
+      <p class="lede">AI features are off by default. The open-source build has no hosted PixCut service: run a local model or connect your own provider account.</p>
+      <div class="hero-actions" style="margin-top:1.5rem;">
+        <a class="btn btn-primary" href="/download"><Icon name="download" size={17} /> Download PixCut</a>
+        <a class="btn btn-secondary" href="/roadmap"><Icon name="trending" size={17} /> See the roadmap</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:2.4rem;">
+    <div class="container">
+      <div class="grid cols-3">
+        {features.map((feature) => (
+          <article class="card feature-card">
+            <span class="icon-badge"><Icon name={feature.icon} size={21} /></span>
+            <div><h3>{feature.title}</h3><p>{feature.copy}</p></div>
+          </article>
+        ))}
+      </div>
+      <div class="notice" style="margin-top:1.2rem;">
+        <Icon name="alert" size={16} />
+        <span>Provider adapters are still under active development. The current build documents the intended flow; check the roadmap for what is wired up.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="compare">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">Providers</span>
+        <h2 class="section-title">No hidden credits</h2>
+        <p class="section-copy">You choose where inference runs. PixCut never silently uploads media or bills you through an app account.</p>
+      </div>
+      <div class="table-wrap" tabindex="0">
+        <table>
+          <thead><tr><th>Mode</th><th>Runs on</th><th>Privacy</th><th>Setup</th></tr></thead>
+          <tbody>
+            {modes.map((mode) => (
+              <tr>
+                <td><span class={`pill ${mode.tone}`}>{mode.name}</span></td>
+                <td>{mode.where}</td>
+                <td>{mode.privacy}</td>
+                <td>{mode.setup}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p class="small muted" style="margin-top:.9rem;">Hosted PixCut AI is not part of the open-source project. If you use a third-party provider, its pricing, retention and training terms apply.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container split">
+      <div>
+        <span class="eyebrow">Privacy</span>
+        <h2 class="section-title">Nothing uploads without consent</h2>
+        <ul class="feature-list">
+          <li><Icon name="check" size={16} /> AI is off until you enable a provider</li>
+          <li><Icon name="check" size={16} /> The consent dialog shows exactly what will be sent</li>
+          <li><Icon name="check" size={16} /> Provider keys are stored locally, not on a PixCut server</li>
+          <li><Icon name="check" size={16} /> Local models keep the selected media on your machine</li>
+          <li><Icon name="check" size={16} /> No usage telemetry in the editor</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>What about a hosted PixCut service?</h3>
+        <p>It is not part of this project. The open-source build has no hosted account, credits or PixCut-operated inference service.</p>
+        <p class="small muted">If someone builds a hosted service on top of PixCut, it is their responsibility to explain pricing, data processing and retention.</p>
+        <a class="link-arrow" href={GITHUB_URL} rel="noreferrer">View the source <Icon name="external" size={13} /></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container center">
+      <span class="eyebrow">Contribute</span>
+      <h2 class="section-title">Help build provider adapters</h2>
+      <p class="section-copy">Local runtimes and BYOK adapters are a good entry point for contributors. Open an issue with the provider you want to support.</p>
+      <div class="hero-actions" style="justify-content:center;margin-top:1.4rem;">
+        <a class="btn btn-primary" href={`${GITHUB_URL}/issues`} rel="noreferrer"><Icon name="chat" size={17} /> Discuss an adapter</a>
+        <a class="btn btn-secondary" href="/contribute"><Icon name="github" size={17} /> Contribute</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
