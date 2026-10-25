@@ -46,10 +46,22 @@ jobs:
       release: ${{ steps.version.outputs.release }}
       sign: ${{ steps.version.outputs.sign }}
       date: ${{ steps.version.outputs.date }}
+      skip: ${{ steps.existing.outputs.skip }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - id: existing
+        name: Skip rebuilds for an existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "A release for $GITHUB_REF_NAME already exists; skipping the rebuild."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -91,6 +103,7 @@ jobs:
   verify:
     name: Verify before packaging
     needs: prepare
+    if: needs.prepare.outputs.skip != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -124,6 +137,7 @@ jobs:
   macos:
     name: macOS ${{ matrix.label }}
     needs: [prepare, verify]
+    if: needs.prepare.outputs.skip != 'true'
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -247,6 +261,7 @@ jobs:
   windows:
     name: Windows x64
     needs: [prepare, verify]
+    if: needs.prepare.outputs.skip != 'true'
     timeout-minutes: 90
     runs-on: windows-latest
     steps:
@@ -332,6 +347,7 @@ jobs:
   linux:
     name: Linux x86_64
     needs: [prepare, verify]
+    if: needs.prepare.outputs.skip != 'true'
     timeout-minutes: 90
     runs-on: ubuntu-22.04
     steps:
@@ -394,7 +410,7 @@ jobs:
   publish:
     name: Draft GitHub Release
     needs: [prepare, verify, macos, windows, linux]
-    if: needs.prepare.outputs.release == 'true'
+    if: needs.prepare.outputs.release == 'true' && needs.prepare.outputs.skip != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
