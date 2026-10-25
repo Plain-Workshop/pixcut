@@ -43,6 +43,18 @@ Validated on Apple Silicon macOS. This is a photo-movie editing slice; the full 
 - Ignored FFmpeg test `plan_export_encodes_video_and_image_segments` mixes one image segment, one trimmed video segment, and a timed transparent text overlay; the output is H.264, exactly 1.00 s, and includes the audio mix when present.
 - Tests: 34 TypeScript, 24 project-model, 9 native, 4 FFmpeg. `tsc` and production build pass.
 
+## Elements, photo motion, text lanes, transitions, audio trim, and MP4 import
+
+- Added shape/sticker element layers (`elements` on a scene) with rectangle, circle, triangle, star, sparkle, line, arrow, and heart shapes. Each has color, opacity, size, rotation, start/duration, and a fade/pop/slide entrance. Elements render below text, above the photo, drag on the canvas, appear in their own timeline lane, and are included in image and video export.
+- Added photo motion: zoom in/out, pan in four directions, and Ken Burns with an amount slider. Image exports split the scene at 0.5 s intervals so the motion is baked into the MP4; video clips skip photo motion for now.
+- The text timeline now renders one chip per layer at its actual start and duration, stacked into lanes when layers overlap, instead of one chip per whole scene.
+- Added four transitions: Soft blur, Circle, Slide up, and Spin, alongside Crossfade, Slide, Wipe, and Zoom.
+- Audio trim handles are always visible and wider, with tooltips; the Audio panel keeps numeric start/trim-in/duration sliders. Verified a drag changed a 3.0 s clip to 2.0 s.
+- The home sidebar is fixed to the viewport; only the main content column scrolls.
+- Fixed MP4/MOV import: the Rust validator accepted only image data URLs, so a valid video scene failed with “Invalid scene, image, or duration.” It now accepts `video/mp4`, `video/quicktime`, `video/x-m4v`, and `video/webm`, validates the poster, and raises the media budget to 140 MB. A Rust test covers a video payload and rejects a mismatched kind. A browser check imported a 2 s H.264 MP4 without an error banner.
+- Split now clips element timings on both halves, and element timings are clamped when a scene gets shorter.
+- Verification: 34 TypeScript, 26 project-model, 10 native, 4 FFmpeg tests; `tsc`, production build, and `npm run ci` pass. Screenshots: `elements-panel-chromium.png`, `element-star-chromium.png`, `motion-zoom-chromium.png`, `final-editor-chromium.png`.
+
 ## Engineering guardrails and the first live release
 
 - Added `AGENTS.md` with architecture, commands, and the rules that matter: never crash, stay offline, no paid tiers, schema migrations in both models, preview/export parity, tests and screenshots, release safety.

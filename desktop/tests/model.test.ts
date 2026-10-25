@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { edit, emptyProject, frameRate, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, validateProject, type AudioClip, type Project, type Scene, type TextLayer } from '../src/stores/model';
+import { edit, emptyProject, frameRate, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, validateProject, type AudioClip, type ElementLayer, type Project, type Scene, type TextLayer } from '../src/stores/model';
 import { resolveSceneForFormat } from '../src/stores/formats';
 const scene = (id: string, duration = 4): Scene => ({ id, startTicks: 0, sourceInTicks: 0, name: 'Photo', image: 'data:image/png;base64,AA==', durationTicks: Math.round(duration * 30), title: '', subtitle: '', color: '#ffffff', fit: 'cover' });
 const clips = (project: Project) => projectScenes(project);
@@ -164,7 +164,7 @@ describe('project commands and playback', () => {
     expect(clips(withTransition)[0].transition).toEqual({ type: 'fade', duration: .6 });
     const clamped = edit(p, { type: 'update', scene: { ...first, transition: { type: 'zoom', duration: 8 } } });
     expect(clips(clamped)[0].transition).toEqual({ type: 'zoom', duration: 2 });
-    expect(() => edit(p, { type: 'update', scene: { ...first, transition: { type: 'spin' as 'fade', duration: .5 } } })).toThrow(/transition/i);
+    expect(() => edit(p, { type: 'update', scene: { ...first, transition: { type: 'bogus' as 'fade', duration: .5 } } })).toThrow(/transition/i);
     const layer = { ...first.textLayers![0], animation: 'slide-up' as const, animationDuration: 1.2 };
     const animated = edit(p, { type: 'update', scene: { ...first, textLayers: [layer] } });
     expect(clips(animated)[0].textLayers![0]).toMatchObject({ animation: 'slide-up', animationDuration: 1.2 });
@@ -234,6 +234,15 @@ describe('project commands and playback', () => {
     expect(() => validateProject({ ...project, audio: [{ ...clip, durationTicks: 200 }] })).toThrow(/audio/i);
     expect(() => validateProject({ ...project, audio: [{ ...clip, sourceInSeconds: 1.5, durationTicks: 60 }] })).toThrow(/trim/i);
     expect(() => validateProject({ ...project, audio: [clip, clip] })).toThrow(/Duplicate/i);
+    const elementProject = edit(emptyProject(), { type: 'add', scenes: [scene('elements')] });
+    const elementClip = elementProject.tracks[0].clips[0];
+    const element: ElementLayer = { id: 'el', kind: 'star', x: .5, y: .5, width: .3, height: .3, rotation: 0, color: '#9D7CFF', opacity: 100, startTicks: 0, durationTicks: elementClip.durationTicks, animation: 'none' };
+    const withElement = validateProject({ ...elementProject, tracks: [{ ...elementProject.tracks[0], clips: [{ ...elementClip, elements: [element] }] }] });
+    expect(withElement.tracks[0].clips[0].elements?.[0].kind).toBe('star');
+    const splitElements = edit(withElement, { type: 'split', id: elementClip.id, atTicks: Math.floor(elementClip.durationTicks / 2), newId: 'el-split' });
+    expect(splitElements.tracks[0].clips).toHaveLength(2);
+    expect(splitElements.tracks[0].clips[0].elements?.[0].durationTicks).toBeLessThanOrEqual(splitElements.tracks[0].clips[0].durationTicks);
+    expect(() => validateProject({ ...withElement, tracks: [{ ...withElement.tracks[0], clips: [{ ...withElement.tracks[0].clips[0], elements: [{ ...element, kind: 'bogus' as 'star' }] }] }] })).toThrow(/element/i);
     const videoProject = edit(emptyProject(), { type: 'add', scenes: [scene('video')] });
     const videoClip = videoProject.tracks[0].clips[0];
     const video = { ...videoClip, image: 'data:video/mp4;base64,AAAA', mediaKind: 'video' as const, videoPoster: 'data:image/jpeg;base64,AAAA' };

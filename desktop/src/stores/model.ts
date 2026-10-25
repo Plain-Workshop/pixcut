@@ -23,7 +23,23 @@ export const setSceneSeconds = (scene: Scene, seconds: number, timebase: Timebas
   const duration = ticksToSeconds(ticks, timebase);
   return { ...scene, durationTicks: ticks, fadeIn: Math.min(scene.fadeIn ?? 0, duration), fadeOut: Math.min(scene.fadeOut ?? 0, duration) };
 };
-export type TransitionType = 'none' | 'fade' | 'slide' | 'wipe' | 'zoom';
+export type TransitionType = 'none' | 'fade' | 'slide' | 'wipe' | 'zoom' | 'blur' | 'circle' | 'slide-up' | 'spin';
+export type ElementKind = 'rectangle' | 'ellipse' | 'triangle' | 'star' | 'line' | 'arrow' | 'heart' | 'sparkle';
+export type ElementLayer = {
+  id: string;
+  kind: ElementKind;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  color: string;
+  opacity: number;
+  startTicks: number;
+  durationTicks: number;
+  animation: 'none' | 'fade' | 'pop' | 'slide-up';
+};
+export type MotionType = 'none' | 'zoom-in' | 'zoom-out' | 'pan-left' | 'pan-right' | 'pan-up' | 'pan-down' | 'ken-burns';
 export type Transition = { type: TransitionType; duration: number };
 export type TextAnimation = 'none' | 'fade' | 'slide-up' | 'slide-left' | 'pop';
 export type SceneFormatOverride = { imageX?: number; imageY?: number; imageZoom?: number; fit?: Scene['fit']; framingBackground?: string };
@@ -81,6 +97,9 @@ export type Scene = {
   image: string;
   mediaKind?: 'video';
   videoPoster?: string;
+  motion?: MotionType;
+  motionAmount?: number;
+  elements?: ElementLayer[];
   title: string;
   subtitle: string;
   textLayers?: TextLayer[];
@@ -300,7 +319,7 @@ function readTransition(value: unknown, durationTicks: number, timebase: Timebas
   if (value === undefined || value === null) return null;
   if (!value || typeof value !== 'object') throw new Error('Invalid transition.');
   const transition = value as Partial<Transition>;
-  if (!['none', 'fade', 'slide', 'wipe', 'zoom'].includes(transition.type ?? '')) throw new Error('Invalid transition type.');
+  if (!['none', 'fade', 'slide', 'wipe', 'zoom', 'blur', 'circle', 'slide-up', 'spin'].includes(transition.type ?? '')) throw new Error('Invalid transition type.');
   if (transition.type === 'none') return null;
   const duration = transition.duration ?? .6;
   if (typeof duration !== 'number' || !Number.isFinite(duration)) throw new Error('Invalid transition duration.');
@@ -421,6 +440,39 @@ function readTimebase(value: unknown): Timebase {
   }
   return { numerator: timebase.numerator, denominator: timebase.denominator };
 }
+function readElements(value: unknown, durationTicks: number): ElementLayer[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 12) throw new Error('Invalid element layer data.');
+  const ids = new Set<string>();
+  return value.map(item => {
+    const element = item as Partial<ElementLayer>;
+    if (!element || typeof element.id !== 'string' || !element.id || ids.has(element.id)) throw new Error('Invalid element layer identity.');
+    ids.add(element.id);
+    const kinds: ElementKind[] = ['rectangle', 'ellipse', 'triangle', 'star', 'line', 'arrow', 'heart', 'sparkle'];
+    if (!kinds.includes(element.kind as ElementKind)) throw new Error('Invalid element layer kind.');
+    for (const key of ['x', 'y', 'width', 'height'] as const) {
+      const value = element[key];
+      if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('Invalid element layer geometry.');
+    }
+    if (element.x! < 0 || element.x! > 1 || element.y! < 0 || element.y! > 1) throw new Error('Invalid element layer position.');
+    if (element.width! < .02 || element.width! > 1 || element.height! < .02 || element.height! > 1) throw new Error('Invalid element layer size.');
+    if (typeof element.rotation !== 'number' || !Number.isFinite(element.rotation) || element.rotation < -180 || element.rotation > 180) throw new Error('Invalid element layer rotation.');
+    if (typeof element.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(element.color)) throw new Error('Invalid element layer color.');
+    if (typeof element.opacity !== 'number' || !Number.isFinite(element.opacity) || element.opacity < 0 || element.opacity > 100) throw new Error('Invalid element layer opacity.');
+    if (!Number.isInteger(element.startTicks) || !Number.isInteger(element.durationTicks) || (element.startTicks as number) < 0 || (element.durationTicks as number) < 1) throw new Error('Invalid element layer timing.');
+    const startTicks = Math.max(0, Math.min(element.startTicks as number, Math.max(0, durationTicks - 1)));
+    const elementTicks = Math.max(1, Math.min(element.durationTicks as number, durationTicks - startTicks));
+    if (element.animation !== undefined && !['none', 'fade', 'pop', 'slide-up'].includes(element.animation)) throw new Error('Invalid element layer animation.');
+    return {
+      id: element.id, kind: element.kind as ElementKind,
+      x: element.x!, y: element.y!, width: element.width!, height: element.height!,
+      rotation: element.rotation, color: element.color, opacity: element.opacity,
+      startTicks, durationTicks: elementTicks,
+      animation: element.animation ?? 'fade',
+    };
+  });
+}
+
 export function validateProject(value: unknown): Project {
   if (!value || typeof value !== 'object') throw new Error('This is not a PixCut project.');
   const p = value as ProjectInput;
@@ -441,13 +493,14 @@ export function validateProject(value: unknown): Project {
       const sourceInTicks = candidate.sourceInTicks ?? 0;
       if (!Number.isInteger(startTicks) || startTicks < 0 || !Number.isInteger(sourceInTicks) || sourceInTicks < 0) throw new Error('A clip contains invalid source timing.');
       const duration = ticksToSeconds(ticks as number, timebase);
-      if (!s || typeof s.id !== 'string' || clipIds.has(s.id) || typeof s.name !== 'string' || typeof s.image !== 'string' || (s.mediaKind === 'video' ? !VIDEO_DATA.test(s.image) : (!IMAGE_DATA.test(s.image) && !ASSET_REF.test(s.image))) || (s.mediaKind !== undefined && s.mediaKind !== 'video') || (s.videoPoster !== undefined && (typeof s.videoPoster !== 'string' || !IMAGE_DATA.test(s.videoPoster))) || typeof s.title !== 'string' || s.title.length > 120 || typeof s.subtitle !== 'string' || s.subtitle.length > 200 || !/^#[0-9a-fA-F]{6}$/.test(s.color) || !['cover', 'contain', 'blur'].includes(s.fit) || !optionalNumber(s.imageX, -1, 1) || !optionalNumber(s.imageY, -1, 1) || !optionalNumber(s.imageZoom, 1, 4) || !optionalColor(s.framingBackground) || !optionalNumber(s.brightness, 0, 2.5) || !optionalNumber(s.contrast, 0, 2.5) || !optionalNumber(s.saturation, 0, 2.5) || !optionalNumber(s.exposure, -3, 3) || !optionalNumber(s.highlights, -1, 1) || !optionalNumber(s.shadows, -1, 1) || !optionalNumber(s.temperature, -1, 1) || !optionalNumber(s.tint, -1, 1) || !optionalFilter(s.filter) || !optionalNumber(s.filterIntensity, 0, 100) || !optionalNumber(s.speed, 0.25, 4) || (s.pitch !== undefined && typeof s.pitch !== 'boolean') || !optionalNumber(s.fadeIn, 0, duration) || !optionalNumber(s.fadeOut, 0, duration) || (s.textBackdropEnabled !== undefined && typeof s.textBackdropEnabled !== 'boolean') || !optionalColor(s.textBackdropColor) || !optionalNumber(s.textBackdropOpacity, 0, 100) || !optionalNumber(s.textBackdropBlur, 0, 60) || !optionalNumber(s.textBackdropPadding, 0, 80) || !optionalNumber(s.textBackdropRadius, 0, 60) || !optionalNumber(s.textBackdropNoise, 0, 100) || !optionalColor(s.textStrokeColor) || !optionalNumber(s.textStrokeWidth, 0, 12) || (s.textOutlineEnabled !== undefined && typeof s.textOutlineEnabled !== 'boolean') || !optionalColor(s.textShadowColor) || !optionalNumber(s.textShadowBlur, 0, 60) || !optionalNumber(s.textShadowOffsetX, -40, 40) || !optionalNumber(s.textShadowOffsetY, -40, 40) || (s.textShadowEnabled !== undefined && typeof s.textShadowEnabled !== 'boolean') || !optionalNumber(s.textShadowIntensity, 0, 100) || (s.textGlowEnabled !== undefined && typeof s.textGlowEnabled !== 'boolean') || !optionalColor(s.textGlowColor) || !optionalNumber(s.textGlowBlur, 0, 80) || !optionalNumber(s.textGlowIntensity, 0, 100) || !optionalNumber(s.textX, 0, 1) || !optionalNumber(s.textY, 0, 1) || !optionalNumber(s.textWidth, 0.05, 1) || (s.textAlign !== undefined && !['left', 'center', 'right'].includes(s.textAlign)) || (s.textFont !== undefined && (typeof s.textFont !== 'string' || s.textFont.length > 60)) || !optionalNumber(s.textFontWeight, 100, 900) || (s.textFontStyle !== undefined && !['normal', 'italic'].includes(s.textFontStyle)) || !optionalNumber(s.textSize, 0.01, 0.5) || !optionalNumber(s.textLineHeight, 0.5, 3) || !optionalNumber(s.textLetterSpacing, -0.05, 0.2) || !optionalNumber(s.textRotation, -180, 180) || !optionalNumber(s.textOpacity, 0, 100) || !optionalNumber(s.textSubtitleScale, 0.2, 1)) throw new Error('A scene contains invalid image, timing, title, color, or text layout data.');
+      if (!s || typeof s.id !== 'string' || clipIds.has(s.id) || typeof s.name !== 'string' || typeof s.image !== 'string' || (s.mediaKind === 'video' ? !VIDEO_DATA.test(s.image) : (!IMAGE_DATA.test(s.image) && !ASSET_REF.test(s.image))) || (s.mediaKind !== undefined && s.mediaKind !== 'video') || (s.videoPoster !== undefined && (typeof s.videoPoster !== 'string' || !IMAGE_DATA.test(s.videoPoster))) || (s.motion !== undefined && !['none', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'ken-burns'].includes(s.motion)) || !optionalNumber(s.motionAmount, 0, .6) || typeof s.title !== 'string' || s.title.length > 120 || typeof s.subtitle !== 'string' || s.subtitle.length > 200 || !/^#[0-9a-fA-F]{6}$/.test(s.color) || !['cover', 'contain', 'blur'].includes(s.fit) || !optionalNumber(s.imageX, -1, 1) || !optionalNumber(s.imageY, -1, 1) || !optionalNumber(s.imageZoom, 1, 4) || !optionalColor(s.framingBackground) || !optionalNumber(s.brightness, 0, 2.5) || !optionalNumber(s.contrast, 0, 2.5) || !optionalNumber(s.saturation, 0, 2.5) || !optionalNumber(s.exposure, -3, 3) || !optionalNumber(s.highlights, -1, 1) || !optionalNumber(s.shadows, -1, 1) || !optionalNumber(s.temperature, -1, 1) || !optionalNumber(s.tint, -1, 1) || !optionalFilter(s.filter) || !optionalNumber(s.filterIntensity, 0, 100) || !optionalNumber(s.speed, 0.25, 4) || (s.pitch !== undefined && typeof s.pitch !== 'boolean') || !optionalNumber(s.fadeIn, 0, duration) || !optionalNumber(s.fadeOut, 0, duration) || (s.textBackdropEnabled !== undefined && typeof s.textBackdropEnabled !== 'boolean') || !optionalColor(s.textBackdropColor) || !optionalNumber(s.textBackdropOpacity, 0, 100) || !optionalNumber(s.textBackdropBlur, 0, 60) || !optionalNumber(s.textBackdropPadding, 0, 80) || !optionalNumber(s.textBackdropRadius, 0, 60) || !optionalNumber(s.textBackdropNoise, 0, 100) || !optionalColor(s.textStrokeColor) || !optionalNumber(s.textStrokeWidth, 0, 12) || (s.textOutlineEnabled !== undefined && typeof s.textOutlineEnabled !== 'boolean') || !optionalColor(s.textShadowColor) || !optionalNumber(s.textShadowBlur, 0, 60) || !optionalNumber(s.textShadowOffsetX, -40, 40) || !optionalNumber(s.textShadowOffsetY, -40, 40) || (s.textShadowEnabled !== undefined && typeof s.textShadowEnabled !== 'boolean') || !optionalNumber(s.textShadowIntensity, 0, 100) || (s.textGlowEnabled !== undefined && typeof s.textGlowEnabled !== 'boolean') || !optionalColor(s.textGlowColor) || !optionalNumber(s.textGlowBlur, 0, 80) || !optionalNumber(s.textGlowIntensity, 0, 100) || !optionalNumber(s.textX, 0, 1) || !optionalNumber(s.textY, 0, 1) || !optionalNumber(s.textWidth, 0.05, 1) || (s.textAlign !== undefined && !['left', 'center', 'right'].includes(s.textAlign)) || (s.textFont !== undefined && (typeof s.textFont !== 'string' || s.textFont.length > 60)) || !optionalNumber(s.textFontWeight, 100, 900) || (s.textFontStyle !== undefined && !['normal', 'italic'].includes(s.textFontStyle)) || !optionalNumber(s.textSize, 0.01, 0.5) || !optionalNumber(s.textLineHeight, 0.5, 3) || !optionalNumber(s.textLetterSpacing, -0.05, 0.2) || !optionalNumber(s.textRotation, -180, 180) || !optionalNumber(s.textOpacity, 0, 100) || !optionalNumber(s.textSubtitleScale, 0.2, 1)) throw new Error('A scene contains invalid image, timing, title, color, or text layout data.');
       delete s.duration;
       s.durationTicks = ticks as number;
       s.startTicks = startTicks;
       s.sourceInTicks = sourceInTicks;
       const layers = readTextLayers(s.textLayers, { ...s, durationTicks: ticks as number, startTicks, sourceInTicks } as Scene, ticks as number);
       s.textLayers = layers;
+      s.elements = readElements(s.elements, ticks as number);
       s.transition = readTransition(s.transition, ticks as number, timebase);
       s.title = layers[0]?.title ?? '';
       s.subtitle = layers[0]?.subtitle ?? '';
@@ -496,6 +549,9 @@ const SCENE_PATCH_FIELDS = [
   { key: 'title', value: (scene: Scene) => scene.title },
   { key: 'subtitle', value: (scene: Scene) => scene.subtitle },
   { key: 'textLayers', value: (scene: Scene) => JSON.stringify(scene.textLayers ?? []) },
+  { key: 'elements', value: (scene: Scene) => JSON.stringify(scene.elements ?? []) },
+  { key: 'motion', value: (scene: Scene) => scene.motion ?? 'none' },
+  { key: 'motionAmount', value: (scene: Scene) => scene.motionAmount ?? .2 },
   { key: 'transition', value: (scene: Scene) => JSON.stringify(scene.transition ?? null) },
   { key: 'color', value: (scene: Scene) => scene.color },
   { key: 'fit', value: (scene: Scene) => scene.fit },
@@ -557,9 +613,18 @@ export function scenePatch(base: Scene, next: Scene): Partial<Scene> {
   for (const field of SCENE_PATCH_FIELDS) {
     const before = field.value(base);
     const after = field.value(next);
-    if (before !== after) (patch as Record<string, unknown>)[field.key] = field.key === 'textLayers' ? structuredClone(next.textLayers ?? []) : field.key === 'transition' ? structuredClone(next.transition ?? null) : after;
+    if (before !== after) (patch as Record<string, unknown>)[field.key] = field.key === 'textLayers' ? structuredClone(next.textLayers ?? []) : field.key === 'elements' ? structuredClone(next.elements ?? []) : field.key === 'transition' ? structuredClone(next.transition ?? null) : after;
   }
   return patch;
+}
+function splitElements(elements: ElementLayer[], atTicks: number) {
+  const left: ElementLayer[] = [], right: ElementLayer[] = [];
+  for (const element of elements) {
+    const end = element.startTicks + element.durationTicks;
+    if (element.startTicks < atTicks) left.push({ ...element, durationTicks: Math.max(1, Math.min(element.durationTicks, atTicks - element.startTicks)) });
+    if (end > atTicks) right.push({ ...element, startTicks: Math.max(0, element.startTicks - atTicks), durationTicks: Math.max(1, end - Math.max(element.startTicks, atTicks)) });
+  }
+  return { left, right };
 }
 function splitTextLayers(layers: TextLayer[], atTicks: number) {
   const left = layers
@@ -610,8 +675,9 @@ export function edit(project: Project, command: Exclude<Command, { type: 'undo' 
       const leftSeconds = ticksToSeconds(command.atTicks, p.timebase);
       const rightSeconds = ticksToSeconds(scene.durationTicks - command.atTicks, p.timebase);
       const layers = splitTextLayers(scene.textLayers ?? [], command.atTicks);
-      const left = { ...scene, durationTicks: command.atTicks, fadeIn: Math.min(scene.fadeIn ?? 0, leftSeconds), fadeOut: 0, textLayers: layers.left, title: layers.left[0]?.title ?? '', subtitle: layers.left[0]?.subtitle ?? '' };
-      const right = { ...scene, id: command.newId, startTicks: scene.startTicks + command.atTicks, sourceInTicks: scene.sourceInTicks + command.atTicks, durationTicks: scene.durationTicks - command.atTicks, fadeIn: 0, fadeOut: Math.min(scene.fadeOut ?? 0, rightSeconds), textLayers: layers.right, title: layers.right[0]?.title ?? '', subtitle: layers.right[0]?.subtitle ?? '' };
+      const elements = splitElements(scene.elements ?? [], command.atTicks);
+      const left = { ...scene, durationTicks: command.atTicks, fadeIn: Math.min(scene.fadeIn ?? 0, leftSeconds), fadeOut: 0, textLayers: layers.left, elements: elements.left, title: layers.left[0]?.title ?? '', subtitle: layers.left[0]?.subtitle ?? '' };
+      const right = { ...scene, id: command.newId, startTicks: scene.startTicks + command.atTicks, sourceInTicks: scene.sourceInTicks + command.atTicks, durationTicks: scene.durationTicks - command.atTicks, fadeIn: 0, fadeOut: Math.min(scene.fadeOut ?? 0, rightSeconds), textLayers: layers.right, elements: elements.right, title: layers.right[0]?.title ?? '', subtitle: layers.right[0]?.subtitle ?? '' };
       clips.splice(index, 1, left, right);
       break;
     }

@@ -146,6 +146,35 @@ impl Default for TextLayer {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct ElementLayer {
+    pub id: String,
+    pub kind: String,
+    #[serde(default)]
+    pub x: f64,
+    #[serde(default)]
+    pub y: f64,
+    #[serde(default)]
+    pub width: f64,
+    #[serde(default)]
+    pub height: f64,
+    #[serde(default)]
+    pub rotation: f64,
+    #[serde(default = "default_white")]
+    pub color: String,
+    #[serde(default = "default_hundred")]
+    pub opacity: f64,
+    #[serde(default)]
+    pub start_ticks: u64,
+    #[serde(default)]
+    pub duration_ticks: u64,
+    #[serde(default)]
+    pub animation: String,
+}
+fn default_hundred() -> f64 {
+    100.0
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Scene {
     pub id: String,
     pub name: String,
@@ -154,6 +183,12 @@ pub struct Scene {
     pub media_kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video_poster: Option<String>,
+    #[serde(default)]
+    pub elements: Vec<ElementLayer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion_amount: Option<f64>,
     #[serde(default)]
     pub start_ticks: u64,
     #[serde(default)]
@@ -274,12 +309,25 @@ pub struct Scene {
     pub text_subtitle_scale: f64,
 }
 impl Scene {
+    fn normalize_elements(&mut self) {
+        let total = self.duration_ticks.max(1);
+        for element in &mut self.elements {
+            if element.start_ticks >= total {
+                element.start_ticks = total.saturating_sub(1);
+            }
+            element.duration_ticks = element
+                .duration_ticks
+                .min(total.saturating_sub(element.start_ticks))
+                .max(1);
+        }
+    }
+
     fn normalize_transition(&mut self, timebase: &Timebase) -> Result<(), String> {
         let Some(transition) = self.transition.take() else { return Ok(()) };
         if transition.kind == "none" {
             return Ok(());
         }
-        if !["fade", "slide", "wipe", "zoom"].contains(&transition.kind.as_str())
+        if !["fade", "slide", "wipe", "zoom", "blur", "circle", "slide-up", "spin"].contains(&transition.kind.as_str())
             || !transition.duration.is_finite()
         {
             return Err("Invalid transition.".into());
@@ -718,14 +766,53 @@ impl Project {
                 }
                 s.start_ticks = cursor;
                 cursor += s.duration_ticks;
-                let image_ok = is_asset_ref(&s.image)
-                    || [
-                        "data:image/png;base64,",
-                        "data:image/jpeg;base64,",
-                        "data:image/webp;base64,",
-                    ]
-                    .iter()
-                    .any(|prefix| s.image.starts_with(prefix));
+                let is_video = s.media_kind.as_deref() == Some("video");
+                let media_ok = is_asset_ref(&s.image)
+                    || if is_video {
+                        [
+                            "data:video/mp4;base64,",
+                            "data:video/quicktime;base64,",
+                            "data:video/x-m4v;base64,",
+                            "data:video/webm;base64,",
+                        ]
+                        .iter()
+                        .any(|prefix| s.image.starts_with(prefix))
+                    } else {
+                        [
+                            "data:image/png;base64,",
+                            "data:image/jpeg;base64,",
+                            "data:image/webp;base64,",
+                        ]
+                        .iter()
+                        .any(|prefix| s.image.starts_with(prefix))
+                    };
+                let poster_ok = s.video_poster.as_deref().is_none_or(|poster| {
+                    poster.starts_with("data:image/jpeg;base64,")
+                        || poster.starts_with("data:image/png;base64,")
+                });
+                let kind_ok = s.media_kind.as_deref().is_none_or(|kind| kind == "video");
+                s.normalize_elements();
+                let elements_ok = s.elements.len() <= 12 && {
+                    let mut ids = std::collections::HashSet::new();
+                    s.elements.iter().all(|element| {
+                        ids.insert(element.id.clone())
+                            && !element.id.is_empty()
+                            && ["rectangle", "ellipse", "triangle", "star", "line", "arrow", "heart", "sparkle"].contains(&element.kind.as_str())
+                            && element.x.is_finite() && (0.0..=1.0).contains(&element.x)
+                            && element.y.is_finite() && (0.0..=1.0).contains(&element.y)
+                            && element.width.is_finite() && (0.02..=1.0).contains(&element.width)
+                            && element.height.is_finite() && (0.02..=1.0).contains(&element.height)
+                            && element.rotation.is_finite() && (-180.0..=180.0).contains(&element.rotation)
+                            && is_hex_color(&element.color)
+                            && element.opacity.is_finite() && (0.0..=100.0).contains(&element.opacity)
+                            && element.duration_ticks > 0
+                            && element.start_ticks + element.duration_ticks <= s.duration_ticks
+                            && ["", "none", "fade", "pop", "slide-up"].contains(&element.animation.as_str())
+                    })
+                };
+                let motion_ok = s.motion.as_deref().is_none_or(|motion| {
+                    ["none", "zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down", "ken-burns"].contains(&motion)
+                }) && s.motion_amount.is_none_or(|amount| amount.is_finite() && (0.0..=0.6).contains(&amount));
                 if !clip_ids.insert(s.id.clone())
                     || s.id.is_empty()
                     || s.title.chars().count() > 120
@@ -817,7 +904,11 @@ impl Project {
                     || !(0.0..=100.0).contains(&s.text_opacity)
                     || !s.text_subtitle_scale.is_finite()
                     || !(0.2..=1.0).contains(&s.text_subtitle_scale)
-                    || !image_ok
+                    || !media_ok
+                    || !poster_ok
+                    || !kind_ok
+                    || !elements_ok
+                    || !motion_ok
                 {
                     return Err("Invalid scene, image, or duration.".into());
                 }
@@ -829,8 +920,8 @@ impl Project {
         if visual_count != 1 {
             return Err("A project needs exactly one visual track in this build.".into());
         }
-        if bytes > 90_000_000 {
-            return Err("Project exceeds the 64 MB image budget.".into());
+        if bytes > 140_000_000 {
+            return Err("Project exceeds the 100 MB media budget.".into());
         }
         let total_ticks = tracks
             .iter()
@@ -964,6 +1055,26 @@ pub fn normalize_starts(clips: &mut [Scene]) {
         cursor += clip.duration_ticks;
     }
 }
+fn split_elements(elements: &[ElementLayer], at_ticks: u64) -> (Vec<ElementLayer>, Vec<ElementLayer>) {
+    let mut left = Vec::new();
+    let mut right = Vec::new();
+    for element in elements {
+        let end = element.start_ticks + element.duration_ticks;
+        if element.start_ticks < at_ticks {
+            let mut copy = element.clone();
+            copy.duration_ticks = (at_ticks - element.start_ticks).min(element.duration_ticks).max(1);
+            left.push(copy);
+        }
+        if end > at_ticks {
+            let mut copy = element.clone();
+            copy.start_ticks = element.start_ticks.saturating_sub(at_ticks);
+            copy.duration_ticks = (end - element.start_ticks.max(at_ticks)).max(1);
+            right.push(copy);
+        }
+    }
+    (left, right)
+}
+
 fn split_text_layers(layers: &[TextLayer], at: u64) -> (Vec<TextLayer>, Vec<TextLayer>) {
     let left = layers
         .iter()
@@ -1140,12 +1251,14 @@ impl Session {
                     let left_seconds = timebase.ticks_to_seconds(at_ticks);
                     let right_seconds = timebase.ticks_to_seconds(remaining_ticks);
                     let (left_layers, right_layers) = split_text_layers(&scene.text_layers, at_ticks);
+                    let (left_elements, right_elements) = split_elements(&scene.elements, at_ticks);
                     let mut left = scene.clone();
                     left.duration_ticks = at_ticks;
                     left.legacy_duration = None;
                     left.fade_in = left.fade_in.min(left_seconds);
                     left.fade_out = 0.0;
                     left.text_layers = left_layers;
+                    left.elements = left_elements;
                     left.title = left.text_layers.first().map(|layer| layer.title.clone()).unwrap_or_default();
                     left.subtitle = left.text_layers.first().map(|layer| layer.subtitle.clone()).unwrap_or_default();
                     let mut right = scene;
@@ -1157,6 +1270,7 @@ impl Session {
                     right.fade_in = 0.0;
                     right.fade_out = right.fade_out.min(right_seconds);
                     right.text_layers = right_layers;
+                    right.elements = right_elements;
                     right.title = right.text_layers.first().map(|layer| layer.title.clone()).unwrap_or_default();
                     right.subtitle = right.text_layers.first().map(|layer| layer.subtitle.clone()).unwrap_or_default();
                     clips.splice(i..=i, [left, right]);
@@ -1237,6 +1351,9 @@ mod tests {
         Scene {
             media_kind: None,
             video_poster: None,
+            elements: vec![],
+            motion: None,
+            motion_amount: None,
             id: "one".into(),
             name: "Test".into(),
             image: "data:image/png;base64,AA==".into(),
@@ -1404,7 +1521,7 @@ mod tests {
         clip.transition = Some(Transition { kind: "zoom".into(), duration: 8.0 });
         s.apply(Command::Update { scene: clip.clone() }).unwrap();
         assert_eq!(s.project.visual_clips()[0].transition.as_ref().unwrap().duration, 2.0);
-        clip.transition = Some(Transition { kind: "spin".into(), duration: 0.5 });
+        clip.transition = Some(Transition { kind: "bogus".into(), duration: 0.5 });
         assert!(s.apply(Command::Update { scene: clip }).is_err());
         let mut animated = s.project.visual_clips()[0].clone();
         animated.text_layers[0].animation = "slide-up".into();
@@ -1464,6 +1581,44 @@ mod tests {
         assert!(serialized.get("music").is_none());
         assert_eq!(serialized["audio"][0]["name"], "Bed.mp3");
     }
+    #[test]
+    fn validates_element_layers() {
+        let mut p = Project::default();
+        let mut clip = scene();
+        clip.elements.push(ElementLayer {
+            id: "element".into(),
+            kind: "star".into(),
+            x: 0.5,
+            y: 0.5,
+            width: 0.3,
+            height: 0.3,
+            rotation: 0.0,
+            color: "#9D7CFF".into(),
+            opacity: 100.0,
+            start_ticks: 0,
+            duration_ticks: clip.duration_ticks,
+            animation: "none".into(),
+        });
+        p.tracks[0].clips.push(clip);
+        p.validate().unwrap();
+        p.tracks[0].clips[0].elements[0].kind = "bogus".into();
+        assert!(p.validate().is_err());
+    }
+
+    #[test]
+    fn accepts_video_scene_payloads_and_rejects_mismatched_kinds() {
+        let mut p = Project::default();
+        let mut clip = scene();
+        clip.image = "data:video/mp4;base64,AAAA".into();
+        clip.media_kind = Some("video".into());
+        clip.video_poster = Some("data:image/jpeg;base64,AAAA".into());
+        p.tracks[0].clips.push(clip.clone());
+        p.validate().unwrap();
+        clip.image = "data:image/png;base64,AAAA".into();
+        p.tracks[0].clips[0] = clip;
+        assert!(p.validate().is_err());
+    }
+
     #[test]
     fn accepts_local_asset_references() {
         let mut p = Project::default();

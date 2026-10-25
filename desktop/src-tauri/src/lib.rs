@@ -1471,6 +1471,9 @@ mod integration_tests {
             .map(|(i, frame)| pixcut_project::Scene {
                 media_kind: None,
                 video_poster: None,
+                elements: vec![],
+                motion: None,
+                motion_amount: None,
                 id: i.to_string(),
                 name: "Fixture".into(),
                 image: frame.as_str().into(),

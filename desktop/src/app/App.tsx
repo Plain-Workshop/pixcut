@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
+  Circle,
   Ban,
   Blend,
   Check,
@@ -22,6 +23,8 @@ import {
   Info,
   Keyboard,
   Layers,
+  Heart,
+  Minus,
   LayoutTemplate,
   LoaderCircle,
   Magnet,
@@ -41,8 +44,10 @@ import {
   Shapes,
   SkipBack,
   Sparkles,
+  Square,
   Star,
   Trash2,
+  Triangle,
   Type,
   Undo2,
   Upload,
@@ -59,8 +64,8 @@ import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import { ShortcutSettings } from '../components/shortcuts/ShortcutSettings';
 import * as bridge from './bridge';
-import { MAX_AUDIO_FILE_BYTES, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type TransitionType, type SceneFormatOverride, type FormatVariant } from '../stores/model';
-import { drawScene, drawTextOverlay, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
+import { MAX_AUDIO_FILE_BYTES, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type TransitionType, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
+import { drawElementOverlay, drawScene, drawTextOverlay, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
 import { probeVideo, videoFileData } from '../components/preview/video';
 import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers, sceneTextTitle } from '../components/text/layers';
 import { clampWeight, fontOption } from '../components/text/fonts';
@@ -92,13 +97,41 @@ const TEMPLATE_CATEGORIES = ['All', 'Travel', 'Family', 'Birthday', 'Product', '
 const EXPORT_QUALITY_CRF: Record<'draft' | 'standard' | 'high', number> = { draft: 28, standard: 23, high: 18 };
 const RELEASES_URL = 'https://github.com/Plain-Workshop/pixcut/releases/latest';
 const FFMPEG_INSTALL: Record<ShortcutPlatform, string> = { macos: 'brew install ffmpeg', windows: 'winget install Gyan.FFmpeg', linux: 'sudo apt install ffmpeg' };
+const ELEMENTS: { kind: ElementKind; label: string }[] = [
+  { kind: 'rectangle', label: 'Rectangle' },
+  { kind: 'ellipse', label: 'Circle' },
+  { kind: 'triangle', label: 'Triangle' },
+  { kind: 'star', label: 'Star' },
+  { kind: 'sparkle', label: 'Sparkle' },
+  { kind: 'line', label: 'Line' },
+  { kind: 'arrow', label: 'Arrow' },
+  { kind: 'heart', label: 'Heart' },
+];
+const ELEMENT_COLORS = ['#9D7CFF', '#FF7A9E', '#FFD166', '#6BE7FF', '#7CF0B4', '#FFFFFF'];
 const TRANSITION_OPTIONS: { id: TransitionType; label: string; description: string }[] = [
   { id: 'none', label: 'Hard cut', description: 'No transition' },
   { id: 'fade', label: 'Crossfade', description: 'Smooth dissolve' },
   { id: 'slide', label: 'Slide', description: 'Push to next' },
   { id: 'wipe', label: 'Wipe', description: 'Reveal across' },
   { id: 'zoom', label: 'Zoom', description: 'Push and blend' },
+  { id: 'blur', label: 'Soft blur', description: 'Defocus dissolve' },
+  { id: 'circle', label: 'Circle', description: 'Reveal from center' },
+  { id: 'slide-up', label: 'Slide up', description: 'Push upward' },
+  { id: 'spin', label: 'Spin', description: 'Rotate and fade' },
 ];
+
+function ElementGlyph({ kind, size = 18 }: { kind: ElementKind; size?: number }) {
+  switch (kind) {
+    case 'rectangle': return <Square size={size} />;
+    case 'ellipse': return <Circle size={size} />;
+    case 'triangle': return <Triangle size={size} />;
+    case 'star': return <Star size={size} />;
+    case 'sparkle': return <Sparkles size={size} />;
+    case 'line': return <Minus size={size} />;
+    case 'arrow': return <ArrowRight size={size} />;
+    case 'heart': return <Heart size={size} />;
+  }
+}
 
 function sortProjects(items: ProjectSummary[]) {
   return [...items].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -223,6 +256,7 @@ export default function App() {
   const [customFormatDraft, setCustomFormatDraft] = useState<{ name: string; width: number; height: number; fps: number; quality: 'draft' | 'standard' | 'high' }>({ name: '', width: 1080, height: 1080, fps: 30, quality: 'standard' });
   const [newCustomFormats, setNewCustomFormats] = useState<FormatVariant[]>([]);
   const [newProjectFps, setNewProjectFps] = useState(30);
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [videoTick, setVideoTick] = useState(0);
   const [name, setName] = useState('Untitled story');
   const [editingText, setEditingText] = useState(false), [safeArea, setSafeArea] = useState(false);
@@ -246,7 +280,7 @@ export default function App() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [fadeDrag, setFadeDrag] = useState<{ sceneId: string; side: 'in' | 'out'; value: number } | null>(null);
   const [layout, setLayout] = useState(() => { try { return JSON.parse(localStorage.getItem('pixcut-layout') || '{}'); } catch { return {}; } });
-  const libraryWidth = layout.libraryWidth ?? 280, inspectorWidth = layout.inspectorWidth ?? 288, timelineHeight = layout.timelineHeight ?? 282;
+  const libraryWidth = layout.libraryWidth ?? 280, inspectorWidth = layout.inspectorWidth ?? 288, timelineHeight = layout.timelineHeight ?? 340;
   const timelineZoom = Math.min(6, Math.max(1, Number(layout.timelineZoom) || 1));
 
   function beginResize(kind: 'library' | 'inspector' | 'timeline', start: number, coord: number) {
@@ -313,6 +347,7 @@ export default function App() {
   const previewTarget = previewScene ?? active;
   const selectedTextLayers = selectedScene ? sceneTextLayers(selectedScene) : [];
   const selectedTextLayer = selectedTextLayers.find(layer => layer.id === selectedTextLayerId) ?? selectedTextLayers[0] ?? null;
+  const selectedElement = selectedScene?.elements?.find(element => element.id === selectedElementId) ?? null;
   const previewLocalSeconds = previewTarget && active && previewTarget.id === active.id ? Math.max(0, position - activeStart) : 0;
   const videoScene = previewTarget?.mediaKind === 'video' ? previewTarget : null;
   const textBox = selectedTextLayer ? textBoxLayout(selectedTextLayer, displayAspect, activeSize) : null;
@@ -1048,6 +1083,71 @@ export default function App() {
 
   function replaceSceneTextLayers(scene: Scene, layers: TextLayer[]): Scene {
     return { ...scene, textLayers: layers, title: layers[0]?.title ?? '', subtitle: layers[0]?.subtitle ?? '' };
+  }
+
+  function replaceSceneElements(scene: Scene, elements: ElementLayer[]): Scene {
+    return { ...scene, elements };
+  }
+
+  function addElement(kind: ElementKind) {
+    if (!selectedScene || !canEdit) { setNotice('Select a scene first.'); return; }
+    const element: ElementLayer = {
+      id: crypto.randomUUID(), kind, x: .5, y: .5, width: .3, height: .3,
+      rotation: 0, color: '#9D7CFF', opacity: 100,
+      startTicks: 0, durationTicks: selectedScene.durationTicks, animation: 'none',
+    };
+    void updateSelection(replaceSceneElements(selectedScene, [...(selectedScene.elements ?? []), element]));
+    setSelectedElementId(element.id);
+    setTab('elements');
+    setNotice('Element added. Drag it on the canvas or adjust it here.');
+  }
+
+  function updateElement(patch: Partial<ElementLayer>) {
+    if (!selectedScene || !selectedElement || !canEdit) return;
+    const elements = (selectedScene.elements ?? []).map(element => element.id === selectedElement.id ? { ...element, ...patch } : element);
+    void updateSelection(replaceSceneElements(selectedScene, elements));
+  }
+
+  function removeElement(id: string) {
+    if (!selectedScene || !canEdit) return;
+    void updateSelection(replaceSceneElements(selectedScene, (selectedScene.elements ?? []).filter(element => element.id !== id)));
+    setSelectedElementId(null);
+    setNotice('Element removed.');
+  }
+
+  function beginElementMove(event: ReactPointerEvent<HTMLElement>) {
+    const scene = selectedScene;
+    const element = selectedElement;
+    if (!scene || !element || !canEdit || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    inspectorFlush.current();
+    const stage = previewStage.current?.getBoundingClientRect();
+    if (!stage || stage.width <= 0 || stage.height <= 0) return;
+    setPlaying(false);
+    const startX = event.clientX, startY = event.clientY;
+    const initialX = element.x, initialY = element.y;
+    const halfW = element.width / 2, halfH = element.height / 2;
+    let latest = { x: initialX, y: initialY };
+    const move = (moveEvent: PointerEvent) => {
+      const x = Math.min(Math.max(halfW, initialX + (moveEvent.clientX - startX) / stage.width), 1 - halfW);
+      const y = Math.min(Math.max(halfH, initialY + (moveEvent.clientY - startY) / stage.height), 1 - halfH);
+      latest = { x, y };
+      setPreviewScene(replaceSceneElements(scene, (scene.elements ?? []).map(item => item.id === element.id ? { ...item, x, y } : item)));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      void pending.current.then(() => {
+        const current = projectScenes(latestProject.current).find(item => item.id === scene.id) ?? scene;
+        const currentElement = (current.elements ?? []).find(item => item.id === element.id);
+        if (!currentElement || (currentElement.x === latest.x && currentElement.y === latest.y)) { setPreviewScene(null); return; }
+        const elements = (current.elements ?? []).map(item => item.id === element.id ? { ...item, ...latest } : item);
+        void run({ type: 'update', scene: replaceSceneElements(current, elements) }).finally(() => setPreviewScene(null));
+      });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
   }
 
   function addTextLayerAtPlayhead() {
@@ -1956,6 +2056,12 @@ export default function App() {
       const next = formatScenes[sceneIndex + 1];
       if (scene.mediaKind === 'video') {
         const overlays: bridge.PlanOverlay[] = [];
+        for (const element of scene.elements ?? []) {
+          const canvas = document.createElement('canvas');
+          const localTicks = element.startTicks + element.durationTicks / 2;
+          await drawElementOverlay(canvas, scene, element.id, ticksToSeconds(localTicks, project.timebase), displayAspect, project.timebase, size);
+          overlays.push({ png: canvas.toDataURL('image/png'), startTicks: scene.startTicks + element.startTicks, durationTicks: element.durationTicks });
+        }
         for (const layer of sceneTextLayers(scene)) {
           if (layer.durationTicks <= 0) continue;
           const canvas = document.createElement('canvas');
@@ -1978,6 +2084,10 @@ export default function App() {
         boundaries.add(Math.min(scene.durationTicks, Math.max(0, layer.startTicks + layer.durationTicks)));
       }
       if (scene.transition && transitionAllowed) boundaries.add(Math.max(0, scene.durationTicks - secondsToTicks(scene.transition.duration, project.timebase)));
+      if (scene.motion && scene.motion !== 'none') {
+        const step = Math.max(2, secondsToTicks(.5, project.timebase));
+        for (let tick = step; tick < scene.durationTicks; tick += step) boundaries.add(tick);
+      }
       const points = [...boundaries].sort((a, b) => a - b);
       for (let index = 0; index < points.length - 1; index++) {
         const durationTicks = points[index + 1] - points[index];
@@ -2035,6 +2145,10 @@ export default function App() {
             boundaries.add(Math.min(scene.durationTicks, Math.max(0, layer.startTicks + layer.durationTicks)));
           }
           if (scene.transition && next) boundaries.add(Math.max(0, scene.durationTicks - secondsToTicks(scene.transition.duration, project.timebase)));
+          if (scene.motion && scene.motion !== 'none') {
+            const step = Math.max(2, secondsToTicks(.5, project.timebase));
+            for (let tick = step; tick < scene.durationTicks; tick += step) boundaries.add(tick);
+          }
           const points = [...boundaries].sort((a, b) => a - b);
           for (let index = 0; index < points.length - 1; index++) {
             const durationTicks = points[index + 1] - points[index];
@@ -2115,7 +2229,7 @@ export default function App() {
   const tabDescriptions = {
     media: 'A collection of moments, ready to become a story.',
     text: 'A few words can say a lot. Select a scene to make it yours.',
-    elements: 'Shapes, stickers and overlays coming soon.',
+    elements: 'Shapes and stickers for the selected scene. Add one, then drag it on the canvas.',
     transitions: 'Blend the selected scene into the next clip.',
     effects: 'Quick looks for the selected scene.',
     audio: 'Multiple local audio clips, trimmed and mixed into your export.',
@@ -2391,7 +2505,25 @@ export default function App() {
             </div> : tab === 'effects' ? <div className="effects-panel">
               <p className="panel-description">Apply a fast look to the selected scene. Fine-tune intensity and color in the inspector.</p>
               <div className="effects-quick-grid"><button className={`effect-quick-card ${(selectedScene?.filter ?? 'none') === 'none' ? 'active' : ''}`} disabled={!selectedScene || !canEdit} onClick={() => { if (selectedScene) updateSelection({ ...selectedScene, filter: 'none', filterIntensity: 100 }); }}><span className="effect-swatch none" /><strong>Original</strong><small>No look</small></button>{FILTERS.filter(filter => filter.id !== 'none').map(filter => <button key={filter.id} className={`effect-quick-card ${selectedScene?.filter === filter.id ? 'active' : ''}`} disabled={!selectedScene || !canEdit} onClick={() => { if (selectedScene) updateSelection({ ...selectedScene, filter: filter.id, filterIntensity: filter.id === 'none' ? 100 : 78 }); }}><span className={`effect-swatch ${filter.id}`} /><strong>{filter.label}</strong><small>{filter.description}</small></button>)}</div>
-            </div> : <div className="library-empty"><Shapes size={34} /><strong>Elements are coming next.</strong><p>Shapes, stickers, and overlays need the media engine’s layer compositor.</p></div>}
+            </div> : <div className="elements-panel">
+              <div className="element-grid">{ELEMENTS.map(item => <button key={item.kind} className="element-card" disabled={!selectedScene || !canEdit} onClick={() => addElement(item.kind)}><span className="element-card-icon"><ElementGlyph kind={item.kind} /></span><strong>{item.label}</strong></button>)}</div>
+              {(selectedScene?.elements?.length ?? 0) > 0 && <div className="element-list">
+                <div className="library-label">ON THIS SCENE <span>{selectedScene?.elements?.length}</span></div>
+                {selectedScene?.elements?.map(element => <button key={element.id} className={`element-row ${selectedElementId === element.id ? 'active' : ''}`} onClick={() => setSelectedElementId(element.id)}><span className="element-row-icon" style={{ color: element.color }}><ElementGlyph kind={element.kind} size={12} /></span><span>{ELEMENTS.find(item => item.kind === element.kind)?.label}</span><small>{ticksToSeconds(element.startTicks, project.timebase).toFixed(1)}s</small></button>)}
+              </div>}
+              {selectedElement && selectedScene && <div className="element-controls">
+                <div className="element-controls-head"><strong>{ELEMENTS.find(item => item.kind === selectedElement.kind)?.label}</strong><button className="text-button danger" onClick={() => removeElement(selectedElement.id)}><Trash2 size={12} /> Delete</button></div>
+                <div className="element-color-row">{ELEMENT_COLORS.map(color => <button key={color} className={`element-color ${selectedElement.color === color ? 'active' : ''}`} style={{ background: color }} aria-label={`Element color ${color}`} onClick={() => updateElement({ color })} />)}</div>
+                <label className="music-control"><span>Opacity <b>{Math.round(selectedElement.opacity)}%</b></span><input type="range" min="0" max="100" step="1" value={selectedElement.opacity} onChange={event => updateElement({ opacity: Number(event.target.value) })} /></label>
+                <label className="music-control"><span>Rotation <b>{Math.round(selectedElement.rotation)}°</b></span><input type="range" min="-180" max="180" step="1" value={selectedElement.rotation} onChange={event => updateElement({ rotation: Number(event.target.value) })} /></label>
+                <label className="music-control"><span>Width <b>{Math.round(selectedElement.width * 100)}%</b></span><input type="range" min="2" max="100" step="1" value={Math.round(selectedElement.width * 100)} onChange={event => updateElement({ width: Number(event.target.value) / 100 })} /></label>
+                <label className="music-control"><span>Height <b>{Math.round(selectedElement.height * 100)}%</b></span><input type="range" min="2" max="100" step="1" value={Math.round(selectedElement.height * 100)} onChange={event => updateElement({ height: Number(event.target.value) / 100 })} /></label>
+                <label className="music-control"><span>Start <b>{ticksToSeconds(selectedElement.startTicks, project.timebase).toFixed(1)} s</b></span><input type="range" min="0" max={Math.max(0, ticksToSeconds(selectedScene.durationTicks - selectedElement.durationTicks, project.timebase))} step={secondsPerTick(project.timebase)} value={ticksToSeconds(selectedElement.startTicks, project.timebase)} onChange={event => updateElement({ startTicks: secondsToTicks(Number(event.target.value), project.timebase) })} /></label>
+                <label className="music-control"><span>Duration <b>{ticksToSeconds(selectedElement.durationTicks, project.timebase).toFixed(1)} s</b></span><input type="range" min={secondsPerTick(project.timebase)} max={Math.max(secondsPerTick(project.timebase), ticksToSeconds(selectedScene.durationTicks - selectedElement.startTicks, project.timebase))} step={secondsPerTick(project.timebase)} value={ticksToSeconds(selectedElement.durationTicks, project.timebase)} onChange={event => updateElement({ durationTicks: secondsToTicks(Number(event.target.value), project.timebase) })} /></label>
+                <label className="field">Animation<select value={selectedElement.animation} onChange={event => updateElement({ animation: event.target.value as ElementLayer['animation'] })}><option value="none">None</option><option value="fade">Fade in</option><option value="pop">Pop in</option><option value="slide-up">Slide up</option></select></label>
+                <p className="note"><Shapes size={13} /><span>Drag the element on the canvas. Elements render below text and above the photo.</span></p>
+              </div>}
+            </div>}
 
             <div className="library-footer"><HardDrive size={13} /><span>Stored locally. Always yours.</span></div>
           </aside>
@@ -2428,6 +2560,7 @@ export default function App() {
                   <span className="text-box-handle right" onPointerDown={event => beginTextResize(event, 'right')} />
                   <span className="text-box-label">TEXT</span>
                 </div>}
+                {selectedScene && selectedElement && canEdit && <div className="element-box" style={{ left: `${(selectedElement.x - selectedElement.width / 2) * 100}%`, top: `${(selectedElement.y - selectedElement.height / 2) * 100}%`, width: `${selectedElement.width * 100}%`, height: `${selectedElement.height * 100}%`, transform: `rotate(${selectedElement.rotation}deg)` }} title="Drag to move element" onPointerDown={beginElementMove}><span className="element-box-label">ELEMENT</span></div>}
                 {editingText && selectedScene && selectedTextLayer && textBox?.hasText && <div
                   className="text-edit-overlay"
                   style={{ left: `${Math.min(textBox.leftPct, 56)}%`, top: `${Math.min(textBox.topPct, 42)}%`, width: 'min(340px, 74%)' }}
@@ -2484,11 +2617,39 @@ export default function App() {
             <div className="timeline-scrub-row"><input className="scrubber" aria-label="Timeline playhead" type="range" min="0" max={Math.max(duration - frameSeconds, 0)} step={frameSeconds} value={position} disabled={!duration} onChange={e => scrubTo(Number(e.target.value))} /></div>
             <div className="timeline-row">
               <div className="track-label"><Type size={14} /><span>Text</span><span className="track-number">01</span></div>
-              <div className="tracks"><div className="text-track">{scenes.map(scene => { const layers = sceneTextLayers(scene); const title = sceneTextTitle(scene); return <button key={scene.id} className={`text-clip ${isSelected(scene.id) ? 'selected' : ''} ${layers.length ? 'has-text' : ''}`} style={{ flexGrow: scene.durationTicks }} onClick={event => { selectScene(scene, event); setTab('text'); setTextFocus(value => value + 1); }} title={layers.length ? `${layers.length} text layer${layers.length === 1 ? '' : 's'}` : 'Add text to this scene'}><span className="text-clip-inner"><Type size={10} /><span>{title || (layers.length ? `${layers.length} text layers` : 'Add text')}</span>{layers.length > 1 && <small>{layers.length}</small>}</span></button>; })}</div></div>
+              <div className="tracks"><div className="text-track">{scenes.map(scene => {
+                const layers = sceneTextLayers(scene);
+                const laneEnds: number[] = [];
+                const laneOf = layers.map(layer => {
+                  let lane = laneEnds.findIndex(end => end <= layer.startTicks);
+                  if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
+                  laneEnds[lane] = layer.startTicks + layer.durationTicks;
+                  return lane;
+                });
+                const lanes = Math.max(1, laneEnds.length);
+                return <div key={scene.id} className="text-scene" style={{ flexGrow: scene.durationTicks, height: `${Math.max(26, lanes * 17 + 5)}px` }}>
+                  {!layers.length && <button className={`text-clip empty ${isSelected(scene.id) ? 'selected' : ''}`} onClick={event => { selectScene(scene, event); setTab('text'); setTextFocus(value => value + 1); }} title="Add text to this scene"><span className="text-clip-inner"><Type size={10} /><span>Add text</span></span></button>}
+                  {layers.map((layer, index) => {
+                    const left = Math.max(0, Math.min(100, layer.startTicks / Math.max(1, scene.durationTicks) * 100));
+                    const width = Math.max(3, Math.min(100 - left, layer.durationTicks / Math.max(1, scene.durationTicks) * 100));
+                    const active = selectedScene?.id === scene.id && selectedTextLayer?.id === layer.id;
+                    return <button key={layer.id} className={`text-clip layer ${active ? 'selected' : ''} ${isSelected(scene.id) ? 'scene-selected' : ''}`} style={{ left: `${left}%`, width: `${width}%`, top: `${laneOf[index] * 17 + 3}px` }} onClick={event => { event.stopPropagation(); selectScene(scene, event); setSelectedTextLayerId(layer.id); setPosition(ticksToSeconds(scene.startTicks + layer.startTicks, project.timebase)); setTab('text'); setTextFocus(value => value + 1); }} title={`${layer.title || layer.subtitle || 'Text layer'} · ${ticksToSeconds(layer.startTicks, project.timebase).toFixed(1)}–${ticksToSeconds(layer.startTicks + layer.durationTicks, project.timebase).toFixed(1)} s`}><span className="text-clip-inner"><Type size={9} /><span>{layer.title || layer.subtitle || 'Text layer'}</span></span></button>;
+                  })}
+                </div>;
+              })}</div></div>
               <div className="timeline-add-slot"><button className="add-clip text-add" aria-label="Add text layer at playhead" disabled={!canEdit || !selectedScene} onClick={addTextLayerAtPlayhead}><Plus size={16} /></button></div>
             </div>
+            <div className="timeline-row element-row">
+              <div className="track-label"><Shapes size={14} /><span>Elements</span><span className="track-number">02</span></div>
+              <div className="tracks"><div className="element-track">{scenes.map(scene => <div key={scene.id} className="element-scene" style={{ flexGrow: scene.durationTicks }}>{(scene.elements ?? []).map(element => {
+                const left = Math.max(0, Math.min(100, element.startTicks / Math.max(1, scene.durationTicks) * 100));
+                const width = Math.max(3, Math.min(100 - left, element.durationTicks / Math.max(1, scene.durationTicks) * 100));
+                return <button key={element.id} className={`element-clip ${selectedElementId === element.id && selectedScene?.id === scene.id ? 'selected' : ''}`} style={{ left: `${left}%`, width: `${width}%`, color: element.color }} onClick={event => { event.stopPropagation(); selectScene(scene, event); setSelectedElementId(element.id); setTab('elements'); }} title={`${ELEMENTS.find(item => item.kind === element.kind)?.label} · ${ticksToSeconds(element.startTicks, project.timebase).toFixed(1)}–${ticksToSeconds(element.startTicks + element.durationTicks, project.timebase).toFixed(1)} s`}><ElementGlyph kind={element.kind} size={9} /><span>{ELEMENTS.find(item => item.kind === element.kind)?.label}</span></button>;
+              })}</div>)}</div></div>
+              <div className="timeline-add-slot"><button className="add-clip" aria-label="Add element" disabled={!canEdit || !selectedScene} onClick={() => setTab('elements')}><Plus size={16} /></button></div>
+            </div>
             <div className="timeline-row video-row">
-              <div className="track-label"><Film size={14} /><span>Visuals</span><span className="track-number">02</span></div>
+              <div className="track-label"><Film size={14} /><span>Visuals</span><span className="track-number">03</span></div>
               <div className="tracks"><div className="scene-track">{scenes.map((scene, i) => {
                 const display = previewScene?.id === scene.id ? previewScene : scene;
                 const displayDuration = sceneSeconds(display, project.timebase);
@@ -2509,7 +2670,7 @@ export default function App() {
               })}</div></div><div className="timeline-add-slot"><button className="add-clip" aria-label="Add images to timeline" disabled={!canEdit} onClick={() => void chooseImages()}><Plus size={20} /></button></div>
             </div>
             {audioLanes.map((lane, laneIndex) => <div className="timeline-row audio-row" key={lane}>
-              <div className="track-label"><Music size={14} /><span>Audio {laneIndex + 1}</span><span className="track-number">{String(3 + laneIndex).padStart(2, '0')}</span></div>
+              <div className="track-label"><Music size={14} /><span>Audio {laneIndex + 1}</span><span className="track-number">{String(4 + laneIndex).padStart(2, '0')}</span></div>
               <div className="tracks"><div className="audio-track">
                 {audio.filter(clip => (clip.lane ?? 0) === lane).map(clip => {
                   const left = projectTicks ? (clip.startTicks / projectTicks) * 100 : 0;
@@ -2522,9 +2683,9 @@ export default function App() {
                     onClick={() => setSelectedAudioId(clip.id)}
                     onPointerDown={event => beginAudioMove(event, clip)}
                   >
-                    <span className="audio-trim left" onPointerDown={event => beginAudioTrim(event, clip, 'left')} />
+                    <span className="audio-trim left" title="Drag to trim the start" onPointerDown={event => beginAudioTrim(event, clip, 'left')} />
                     <Music size={10} /><span className="audio-name">{clip.name}</span><small>{Math.round(clip.volume * 100)}%</small>
-                    <span className="audio-trim right" onPointerDown={event => beginAudioTrim(event, clip, 'right')} />
+                    <span className="audio-trim right" title="Drag to trim the end" onPointerDown={event => beginAudioTrim(event, clip, 'right')} />
                   </button>;
                 })}
                 {!audio.some(clip => (clip.lane ?? 0) === lane) && <span className="audio-empty">Empty audio track</span>}

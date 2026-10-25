@@ -1,4 +1,4 @@
-import { DEFAULT_TIMEBASE, sceneSeconds, secondsToTicks, type Project, type Scene, type TextAnimation, type TextLayer, type Timebase, type TransitionType } from '../../stores/model';
+import { DEFAULT_TIMEBASE, sceneSeconds, secondsToTicks, ticksToSeconds, type ElementLayer, type Project, type Scene, type TextAnimation, type TextLayer, type Timebase, type TransitionType } from '../../stores/model';
 import { layerDurationSeconds, layerStartSeconds, layerVisibleAt } from '../text/layers';
 import { clampWeight, fontFamily } from '../text/fonts';
 import { applyColorGrade, clamp, hasColorGrade } from './filters';
@@ -299,6 +299,106 @@ async function drawTextLayer(ctx: CanvasRenderingContext2D, layer: TextLayer, w:
   ctx.restore();
 }
 
+function drawStar(ctx: CanvasRenderingContext2D, points: number, outer: number, inner: number) {
+  ctx.beginPath();
+  for (let index = 0; index < points * 2; index++) {
+    const radius = index % 2 === 0 ? outer : inner;
+    const angle = -Math.PI / 2 + index * Math.PI / points;
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+    if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawElementShape(ctx: CanvasRenderingContext2D, element: ElementLayer, w: number, h: number, alpha: number, scale: number, offsetY: number) {
+  const bw = Math.max(2, element.width * w);
+  const bh = Math.max(2, element.height * h);
+  ctx.save();
+  ctx.translate(element.x * w, element.y * h + offsetY);
+  ctx.rotate(element.rotation * Math.PI / 180);
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = element.color;
+  switch (element.kind) {
+    case 'rectangle':
+      if (typeof ctx.roundRect === 'function') {
+        ctx.beginPath();
+        ctx.roundRect(-bw / 2, -bh / 2, bw, bh, Math.min(bw, bh) * .08);
+        ctx.fill();
+      } else ctx.fillRect(-bw / 2, -bh / 2, bw, bh);
+      break;
+    case 'ellipse':
+      ctx.beginPath();
+      ctx.ellipse(0, 0, bw / 2, bh / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case 'triangle':
+      ctx.beginPath();
+      ctx.moveTo(0, -bh / 2);
+      ctx.lineTo(bw / 2, bh / 2);
+      ctx.lineTo(-bw / 2, bh / 2);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    case 'star':
+      drawStar(ctx, 5, Math.min(bw, bh) / 2, Math.min(bw, bh) / 4.6);
+      break;
+    case 'sparkle':
+      drawStar(ctx, 4, Math.min(bw, bh) / 2, Math.min(bw, bh) / 6);
+      break;
+    case 'line':
+      if (typeof ctx.roundRect === 'function') {
+        ctx.beginPath();
+        ctx.roundRect(-bw / 2, -bh / 4, bw, Math.max(2, bh / 2), bh / 4);
+        ctx.fill();
+      } else ctx.fillRect(-bw / 2, -bh / 4, bw, Math.max(2, bh / 2));
+      break;
+    case 'arrow': {
+      const thickness = Math.max(2, bh / 3);
+      ctx.fillRect(-bw / 2, -thickness / 2, bw * .72, thickness);
+      ctx.beginPath();
+      ctx.moveTo(bw / 2, 0);
+      ctx.lineTo(bw * .68, -bh / 2);
+      ctx.lineTo(bw * .68, bh / 2);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
+    case 'heart': {
+      const top = -bh * .18;
+      ctx.beginPath();
+      ctx.moveTo(0, bh / 2);
+      ctx.bezierCurveTo(-bw * .62, -bh * .05, -bw * .42, -bh * .55, 0, top);
+      ctx.bezierCurveTo(bw * .42, -bh * .55, bw * .62, -bh * .05, 0, bh / 2);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
+  }
+  ctx.restore();
+}
+
+function elementVisibleAt(element: ElementLayer, localSeconds: number, timebase: Timebase) {
+  const start = ticksToSeconds(element.startTicks, timebase);
+  const duration = ticksToSeconds(element.durationTicks, timebase);
+  return localSeconds >= start && localSeconds < start + duration;
+}
+
+function drawElements(ctx: CanvasRenderingContext2D, scene: Scene, w: number, h: number, localSeconds: number, timebase: Timebase) {
+  for (const element of scene.elements ?? []) {
+    if (!elementVisibleAt(element, localSeconds, timebase)) continue;
+    const local = localSeconds - ticksToSeconds(element.startTicks, timebase);
+    const progress = clamp(local / .45, 0, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const alpha = (element.opacity / 100) * (element.animation === 'fade' || element.animation === 'slide-up' ? eased : 1);
+    const scale = element.animation === 'pop' ? .6 + .4 * eased : 1;
+    const offsetY = element.animation === 'slide-up' ? (1 - eased) * h * .07 : 0;
+    drawElementShape(ctx, element, w, h, alpha, scale, offsetY);
+  }
+}
+
 export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect: Project['aspect'], quality: 'preview' | 'thumb' | 'export' = 'export', localSeconds = 0, timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }, videoFrame?: HTMLVideoElement | null) {
   const [fullWidth, fullHeight] = size ? [size.width, size.height] : dimensions(aspect);
   const limit = quality === 'preview' ? 1280 : quality === 'thumb' ? 480 : Math.max(fullWidth, fullHeight);
@@ -316,9 +416,23 @@ export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect:
   const sourceHeight = usingVideo ? videoFrame!.videoHeight : (img as HTMLImageElement).height;
   ctx.fillStyle = scene.framingBackground ?? '#000000';
   ctx.fillRect(0, 0, w, h);
-  const zoom = Math.max(1, Math.min(4, scene.imageZoom ?? 1));
-  const panX = Math.max(-1, Math.min(1, scene.imageX ?? 0));
-  const panY = Math.max(-1, Math.min(1, scene.imageY ?? 0));
+  const motion = scene.mediaKind === 'video' ? 'none' : (scene.motion ?? 'none');
+  const motionAmount = Math.max(0, Math.min(.6, scene.motionAmount ?? .2));
+  const motionProgress = clamp(localSeconds / Math.max(.001, sceneSeconds(scene, timebase)), 0, 1);
+  let motionZoom = 1, motionX = 0, motionY = 0;
+  if (motion === 'zoom-in') motionZoom = 1 + motionAmount * motionProgress;
+  else if (motion === 'zoom-out') motionZoom = 1 + motionAmount * (1 - motionProgress);
+  else if (motion === 'pan-left') motionX = motionAmount * (.5 - motionProgress) * 2;
+  else if (motion === 'pan-right') motionX = motionAmount * (motionProgress - .5) * 2;
+  else if (motion === 'pan-up') motionY = motionAmount * (.5 - motionProgress) * 2;
+  else if (motion === 'pan-down') motionY = motionAmount * (motionProgress - .5) * 2;
+  else if (motion === 'ken-burns') {
+    motionZoom = 1 + motionAmount * motionProgress;
+    motionX = motionAmount * .6 * (motionProgress - .5) * 2;
+  }
+  const zoom = Math.max(1, Math.min(4, (scene.imageZoom ?? 1) * motionZoom));
+  const panX = Math.max(-1, Math.min(1, (scene.imageX ?? 0) + motionX));
+  const panY = Math.max(-1, Math.min(1, (scene.imageY ?? 0) + motionY));
   let imageRect = { x: 0, y: 0, w, h };
   if (scene.fit === 'blur') {
     blurredCover(ctx, img, sourceWidth, sourceHeight, w, h);
@@ -344,6 +458,7 @@ export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect:
     applyColorGrade(imageData.data, scene);
     ctx.putImageData(imageData, x, y);
   }
+  drawElements(ctx, scene, w, h, localSeconds, timebase);
   for (const layer of scene.textLayers ?? []) {
     if (!layerVisibleAt(layer, localSeconds, timebase)) continue;
     const local = localSeconds - layerStartSeconds(layer, timebase);
@@ -355,6 +470,23 @@ export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect:
       out: remaining / animationDuration,
     });
   }
+}
+
+export async function drawElementOverlay(canvas: HTMLCanvasElement, scene: Scene, elementId: string, localSeconds: number, aspect: Project['aspect'], timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }) {
+  const [w, h] = size ? [size.width, size.height] : dimensions(aspect);
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, w, h);
+  const element = (scene.elements ?? []).find(item => item.id === elementId);
+  if (!element || !elementVisibleAt(element, localSeconds, timebase)) return;
+  const local = localSeconds - ticksToSeconds(element.startTicks, timebase);
+  const progress = clamp(local / .45, 0, 1);
+  const eased = 1 - Math.pow(1 - progress, 3);
+  const alpha = (element.opacity / 100) * (element.animation === 'fade' || element.animation === 'slide-up' ? eased : 1);
+  const scale = element.animation === 'pop' ? .6 + .4 * eased : 1;
+  const offsetY = element.animation === 'slide-up' ? (1 - eased) * h * .07 : 0;
+  drawElementShape(ctx, element, w, h, alpha, scale, offsetY);
 }
 
 export async function drawTextOverlay(canvas: HTMLCanvasElement, scene: Scene, layerId: string, localSeconds: number, aspect: Project['aspect'], timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }) {
@@ -412,6 +544,43 @@ export async function drawTransition(canvas: HTMLCanvasElement, from: Scene, to:
     };
     drawScaled(fromCanvas, fromScale, 1 - p * .2);
     drawScaled(toCanvas, toScale, p);
+  } else if (type === 'blur') {
+    const soft = (source: HTMLCanvasElement, alpha: number) => {
+      const small = document.createElement('canvas');
+      small.width = Math.max(2, Math.round(w / 14));
+      small.height = Math.max(2, Math.round(h / 14));
+      small.getContext('2d')!.drawImage(source, 0, 0, small.width, small.height);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(small, 0, 0, w, h);
+      ctx.restore();
+    };
+    soft(fromCanvas, 1 - p);
+    soft(toCanvas, p);
+  } else if (type === 'circle') {
+    ctx.drawImage(fromCanvas, 0, 0);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(w / 2, h / 2, Math.hypot(w, h) * .55 * p, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(toCanvas, 0, 0);
+    ctx.restore();
+  } else if (type === 'slide-up') {
+    ctx.drawImage(fromCanvas, 0, -p * h);
+    ctx.drawImage(toCanvas, 0, (1 - p) * h);
+  } else if (type === 'spin') {
+    const drawSpin = (source: HTMLCanvasElement, angle: number, scale: number, alpha: number) => {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(w / 2, h / 2);
+      ctx.rotate(angle);
+      ctx.scale(scale, scale);
+      ctx.drawImage(source, -w / 2, -h / 2);
+      ctx.restore();
+    };
+    drawSpin(fromCanvas, -p * .18, 1 - p * .08, 1 - p);
+    drawSpin(toCanvas, (1 - p) * .18, .92 + p * .08, p);
   } else {
     ctx.drawImage(fromCanvas, 0, 0);
     ctx.save();
