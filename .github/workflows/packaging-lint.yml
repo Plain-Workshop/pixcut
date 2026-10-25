@@ -1,0 +1,62 @@
+name: Packaging lint
+
+# Seconds, not a build: catches broken workflow syntax, invalid Tauri config,
+# and release scripts that no longer parse before a tag burns 90 minutes on it.
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - ".github/workflows/**"
+      - "desktop/scripts/**"
+      - "desktop/src-tauri/tauri.conf.json"
+      - "desktop/src-tauri/capabilities/**"
+      - "desktop/package.json"
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packaging-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Lint workflows
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7
+      - name: Validate release scripts and config
+        run: |
+          set -euo pipefail
+          node --check desktop/scripts/version.mjs
+          node --check desktop/scripts/assemble-release.mjs
+          for file in desktop/src-tauri/tauri.conf.json desktop/src-tauri/capabilities/*.json; do
+            node -e "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))" "$file"
+            echo "ok $file"
+          done
+          node -e "
+            const c = require('./desktop/src-tauri/tauri.conf.json');
+            const fail = [];
+            if (c.bundle?.createUpdaterArtifacts !== true) fail.push('createUpdaterArtifacts must be true');
+            if (!c.plugins?.updater?.pubkey) fail.push('updater pubkey is missing');
+            if (!c.plugins?.updater?.endpoints?.length) fail.push('updater endpoints are missing');
+            if (!(c.bundle?.targets ?? []).includes('nsis')) fail.push('nsis is required for Windows updates');
+            if (fail.length) { console.error(fail.join('\n')); process.exit(1); }
+            console.log('updater config ok');
+          "
+      - name: Check version consistency
+        working-directory: desktop
+        run: node scripts/version.mjs check
+      - name: Check shell syntax
+        run: |
+          for file in $(git ls-files '*.sh'); do bash -n "$file"; done

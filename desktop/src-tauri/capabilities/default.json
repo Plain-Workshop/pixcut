@@ -2,5 +2,9 @@
   "identifier": "main-window",
   "description": "Main editor window. File access is restricted to Rust-owned dialogs and app recovery storage.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "updater:default",
+    "process:allow-restart"
+  ]
 }

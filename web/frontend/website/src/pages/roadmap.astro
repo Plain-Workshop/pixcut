@@ -9,6 +9,9 @@ const now = [
   ['Audio lanes', 'Multiple audio clips, fades and a mixed AAC export.', 'shipped'],
   ['Local MP4 export', 'H.264 export with configurable resolution and quality.', 'shipped'],
   ['Template gallery', 'Editable starter projects for common formats.', 'shipped'],
+  ['Project frame rates', '24, 25, 30 and 60 fps projects with per-format FPS.', 'shipped'],
+  ['In-app updates', 'Signed updater feed with manual check, verification and restart.', 'shipped'],
+  ['Export cancellation', 'Stop a render or FFmpeg encode without touching existing files.', 'shipped'],
 ];
 const next = [
   ['Video-file import', 'Import real video clips and decode them on the timeline.', 'planned'],
@@ -39,7 +42,7 @@ const tone: Record<string, string> = { shipped: 'pill-ok', planned: 'pill-warn',
     <div class="container">
       <div class="stack" style="gap:2rem;">
         <div>
-          <div class="card-head"><div><h2><Icon name="check" size={18} /> Shipped</h2><p class="card-sub">Available in the current open-source build.</p></div><span class="pill pill-ok">Now</span></div>
+          <div class="card-head"><div><h2><Icon name="check" size={18} /> Shipped</h2><p class="card-sub">Available now.</p></div><span class="pill pill-ok">Now</span></div>
           <div class="grid cols-2">
             {now.map(([title, copy, status]) => <article class="card"><h3>{title}</h3><p>{copy}</p><span class={`pill ${tone[status]}`}>{status}</span></article>)}
           </div>

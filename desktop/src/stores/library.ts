@@ -1,0 +1,206 @@
+import { DEFAULT_TIMEBASE, normalizeStarts, projectScenes, sceneSeconds, totalDuration, validateProject, type Project, type Timebase } from './model';
+import { hydrateProjectAssets, persistProjectAssets } from './assets';
+import { drawScene } from '../components/preview/render';
+import { resolveSceneForFormat } from './formats';
+
+export type ProjectSummary = {
+  id: string;
+  name: string;
+  aspect: Project['aspect'];
+  width?: number;
+  height?: number;
+  timebase?: Timebase;
+  sceneCount: number;
+  duration: number;
+  createdAt: number;
+  updatedAt: number;
+  thumbnail: string;
+  group?: string;
+  favorite?: boolean;
+};
+
+type ProjectRow = { id: string; project: Project };
+const DB_NAME = 'pixcut-library';
+const DB_VERSION = 1;
+const PROJECTS = 'projects';
+const META = 'meta';
+let database: Promise<IDBDatabase> | null = null;
+
+function openDatabase() {
+  if (database) return database;
+  database = new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(PROJECTS)) db.createObjectStore(PROJECTS, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(META)) db.createObjectStore(META, { keyPath: 'id' });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  return database;
+}
+
+function requestResult<T>(request: IDBRequest<T>) {
+  return new Promise<T>((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function transactionDone(transaction: IDBTransaction) {
+  return new Promise<void>((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+export async function projectThumbnail(project: Project) {
+  const scene = projectScenes(project)[0];
+  if (!scene) return '';
+  const canvas = document.createElement('canvas');
+  const format = project.formats?.[0];
+  const resolved = resolveSceneForFormat(scene, format);
+  await drawScene(canvas, resolved, project.aspect, 'thumb', Math.min(1.1, sceneSeconds(scene, project.timebase) * .35), project.timebase, format ? { width: format.width, height: format.height } : undefined);
+  return canvas.toDataURL('image/jpeg', .76);
+}
+
+function summaryFrom(project: Project, createdAt: number, thumbnail: string, group?: string, favorite?: boolean): ProjectSummary {
+  return {
+    id: project.id,
+    name: project.name,
+    aspect: project.aspect,
+    width: project.formats?.[0]?.width,
+    height: project.formats?.[0]?.height,
+    timebase: project.timebase ?? DEFAULT_TIMEBASE,
+    sceneCount: projectScenes(project).length,
+    duration: totalDuration(project),
+    createdAt,
+    updatedAt: Date.now(),
+    thumbnail,
+    ...(group ? { group } : {}),
+    ...(favorite ? { favorite } : {}),
+  };
+}
+
+export async function setProjectFavorite(id: string, favorite: boolean) {
+  const db = await openDatabase();
+  const read = db.transaction(META, 'readonly');
+  const summary = await requestResult(read.objectStore(META).get(id)) as ProjectSummary | undefined;
+  if (!summary) return;
+  if (favorite) summary.favorite = true;
+  else delete summary.favorite;
+  const write = db.transaction(META, 'readwrite');
+  write.objectStore(META).put(summary);
+  await transactionDone(write);
+}
+
+export async function renameProjectGroup(from: string, to: string) {
+  const name = to.trim();
+  if (!name || name === from) return;
+  const db = await openDatabase();
+  const read = db.transaction(META, 'readonly');
+  const rows = await requestResult(read.objectStore(META).getAll()) as ProjectSummary[];
+  const write = db.transaction(META, 'readwrite');
+  const store = write.objectStore(META);
+  for (const summary of rows) {
+    if (summary.group !== from) continue;
+    summary.group = name;
+    store.put(summary);
+  }
+  await transactionDone(write);
+}
+
+export async function deleteProjectGroup(group: string) {
+  const db = await openDatabase();
+  const read = db.transaction(META, 'readonly');
+  const rows = await requestResult(read.objectStore(META).getAll()) as ProjectSummary[];
+  const write = db.transaction(META, 'readwrite');
+  const store = write.objectStore(META);
+  for (const summary of rows) {
+    if (summary.group !== group) continue;
+    delete summary.group;
+    store.put(summary);
+  }
+  await transactionDone(write);
+}
+
+export async function setProjectGroup(id: string, group: string | null) {
+  const db = await openDatabase();
+  const read = db.transaction(META, 'readonly');
+  const summary = await requestResult(read.objectStore(META).get(id)) as ProjectSummary | undefined;
+  if (!summary) return;
+  if (group?.trim()) summary.group = group.trim();
+  else delete summary.group;
+  const write = db.transaction(META, 'readwrite');
+  write.objectStore(META).put(summary);
+  await transactionDone(write);
+}
+
+async function readSummary(id: string): Promise<ProjectSummary | undefined> {
+  const db = await openDatabase();
+  const transaction = db.transaction(META, 'readonly');
+  return requestResult(transaction.objectStore(META).get(id)) as Promise<ProjectSummary | undefined>;
+}
+
+export async function listProjects(): Promise<ProjectSummary[]> {
+  const db = await openDatabase();
+  const transaction = db.transaction(META, 'readonly');
+  const rows = await requestResult(transaction.objectStore(META).getAll()) as ProjectSummary[];
+  return rows.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function getLibraryProject(id: string): Promise<Project | null> {
+  const db = await openDatabase();
+  const transaction = db.transaction(PROJECTS, 'readonly');
+  const row = await requestResult(transaction.objectStore(PROJECTS).get(id)) as ProjectRow | undefined;
+  if (!row?.project) return null;
+  const validated = validateProject(row.project);
+  const persisted = await persistProjectAssets(validated);
+  if (JSON.stringify(persisted) !== JSON.stringify(validated)) {
+    const write = db.transaction(PROJECTS, 'readwrite');
+    write.objectStore(PROJECTS).put({ id, project: persisted } satisfies ProjectRow);
+    await transactionDone(write);
+  }
+  return hydrateProjectAssets(persisted);
+}
+
+export async function saveLibraryProject(project: Project): Promise<ProjectSummary | null> {
+  const hydrated = await hydrateProjectAssets(project);
+  if (!projectScenes(hydrated).length) {
+    await deleteLibraryProject(project.id);
+    return null;
+  }
+  const persisted = await persistProjectAssets(hydrated);
+  const previous = await readSummary(project.id);
+  const thumbnail = await projectThumbnail(hydrated).catch(() => '');
+  const summary = summaryFrom(hydrated, previous?.createdAt ?? Date.now(), thumbnail, previous?.group, previous?.favorite);
+  const db = await openDatabase();
+  const transaction = db.transaction([PROJECTS, META], 'readwrite');
+  transaction.objectStore(PROJECTS).put({ id: project.id, project: persisted } satisfies ProjectRow);
+  transaction.objectStore(META).put(summary);
+  await transactionDone(transaction);
+  return summary;
+}
+
+export async function deleteLibraryProject(id: string) {
+  const db = await openDatabase();
+  const transaction = db.transaction([PROJECTS, META], 'readwrite');
+  transaction.objectStore(PROJECTS).delete(id);
+  transaction.objectStore(META).delete(id);
+  await transactionDone(transaction);
+}
+
+export async function duplicateLibraryProject(id: string) {
+  const project = await getLibraryProject(id);
+  if (!project) return null;
+  const copy: Project = structuredClone(project);
+  copy.id = crypto.randomUUID();
+  copy.name = `${project.name} copy`;
+  for (const track of copy.tracks) {
+    track.clips = track.clips.map(scene => ({ ...scene, id: crypto.randomUUID() }));
+    normalizeStarts(track.clips);
+  }
+  return saveLibraryProject(copy);
+}

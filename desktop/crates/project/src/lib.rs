@@ -16,16 +16,164 @@ impl Default for Policy {
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Timebase {
+    pub numerator: u32,
+    pub denominator: u32,
+}
+impl Default for Timebase {
+    fn default() -> Self {
+        Self {
+            numerator: 1,
+            denominator: 30,
+        }
+    }
+}
+impl Timebase {
+    pub fn seconds_per_tick(&self) -> f64 {
+        self.numerator as f64 / self.denominator as f64
+    }
+    pub fn fps(&self) -> f64 {
+        self.denominator as f64 / self.numerator as f64
+    }
+    pub fn min_ticks(&self) -> u64 {
+        (0.5 / self.seconds_per_tick()).ceil() as u64
+    }
+    pub fn max_ticks(&self) -> u64 {
+        (30.0 / self.seconds_per_tick()).floor() as u64
+    }
+    pub fn ticks_to_seconds(&self, ticks: u64) -> f64 {
+        ticks as f64 * self.seconds_per_tick()
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Transition {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub duration: f64,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TextLayer {
+    pub id: String,
+    pub title: String,
+    pub subtitle: String,
+    pub color: String,
+    pub start_ticks: u64,
+    pub duration_ticks: u64,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub align: String,
+    pub font: String,
+    pub font_weight: f64,
+    pub font_style: String,
+    pub size: f64,
+    pub line_height: f64,
+    pub letter_spacing: f64,
+    pub rotation: f64,
+    pub opacity: f64,
+    pub subtitle_scale: f64,
+    pub backdrop_enabled: bool,
+    pub backdrop_color: String,
+    pub backdrop_opacity: f64,
+    pub backdrop_blur: f64,
+    pub backdrop_padding: f64,
+    pub backdrop_radius: f64,
+    pub backdrop_noise: f64,
+    pub outline_enabled: bool,
+    pub stroke_color: String,
+    pub stroke_width: f64,
+    pub shadow_enabled: bool,
+    pub shadow_color: String,
+    pub shadow_intensity: f64,
+    pub shadow_blur: f64,
+    pub shadow_offset_x: f64,
+    pub shadow_offset_y: f64,
+    pub glow_enabled: bool,
+    pub glow_color: String,
+    pub glow_blur: f64,
+    pub glow_intensity: f64,
+    pub animation: String,
+    pub animation_duration: f64,
+}
+impl Default for TextLayer {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            title: String::new(),
+            subtitle: String::new(),
+            color: default_white(),
+            start_ticks: 0,
+            duration_ticks: 0,
+            x: default_text_x(),
+            y: default_text_y(),
+            width: default_text_width(),
+            align: default_text_align(),
+            font: default_text_font(),
+            font_weight: default_text_weight(),
+            font_style: default_text_style(),
+            size: default_text_size(),
+            line_height: default_text_line_height(),
+            letter_spacing: 0.0,
+            rotation: 0.0,
+            opacity: default_text_opacity(),
+            subtitle_scale: default_text_subtitle_scale(),
+            backdrop_enabled: false,
+            backdrop_color: default_black(),
+            backdrop_opacity: default_backdrop_opacity(),
+            backdrop_blur: default_backdrop_blur(),
+            backdrop_padding: default_backdrop_padding(),
+            backdrop_radius: default_backdrop_radius(),
+            backdrop_noise: default_backdrop_noise(),
+            outline_enabled: false,
+            stroke_color: default_black(),
+            stroke_width: 0.0,
+            shadow_enabled: false,
+            shadow_color: default_black(),
+            shadow_intensity: default_shadow_intensity(),
+            shadow_blur: 0.0,
+            shadow_offset_x: 0.0,
+            shadow_offset_y: 0.0,
+            glow_enabled: false,
+            glow_color: default_white(),
+            glow_blur: default_glow_blur(),
+            glow_intensity: default_glow_intensity(),
+            animation: "none".into(),
+            animation_duration: 0.5,
+        }
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Scene {
     pub id: String,
     pub name: String,
     pub image: std::sync::Arc<str>,
-    pub duration: f64,
+    #[serde(default)]
+    pub start_ticks: u64,
+    #[serde(default)]
+    pub source_in_ticks: u64,
+    #[serde(default)]
+    pub duration_ticks: u64,
+    #[serde(default, skip_serializing, rename = "duration")]
+    pub legacy_duration: Option<f64>,
     pub title: String,
     pub subtitle: String,
+    #[serde(default)]
+    pub text_layers: Vec<TextLayer>,
+    #[serde(default)]
+    pub transition: Option<Transition>,
     pub color: String,
     pub fit: String,
+    #[serde(default)]
+    pub image_x: f64,
+    #[serde(default)]
+    pub image_y: f64,
+    #[serde(default = "default_one")]
+    pub image_zoom: f64,
+    #[serde(default = "default_black")]
+    pub framing_background: String,
     #[serde(default = "default_one")]
     pub brightness: f64,
     #[serde(default = "default_one")]
@@ -54,36 +202,429 @@ pub struct Scene {
     pub fade_in: f64,
     #[serde(default, alias = "fade_out")]
     pub fade_out: f64,
+    #[serde(default)]
+    pub text_backdrop_enabled: bool,
+    #[serde(default = "default_black")]
+    pub text_backdrop_color: String,
+    #[serde(default = "default_backdrop_opacity")]
+    pub text_backdrop_opacity: f64,
+    #[serde(default = "default_backdrop_blur")]
+    pub text_backdrop_blur: f64,
+    #[serde(default = "default_backdrop_padding")]
+    pub text_backdrop_padding: f64,
+    #[serde(default = "default_backdrop_radius")]
+    pub text_backdrop_radius: f64,
+    #[serde(default = "default_backdrop_noise")]
+    pub text_backdrop_noise: f64,
+    #[serde(default = "default_black")]
+    pub text_stroke_color: String,
+    #[serde(default)]
+    pub text_outline_enabled: bool,
+    #[serde(default)]
+    pub text_stroke_width: f64,
+    #[serde(default = "default_black")]
+    pub text_shadow_color: String,
+    #[serde(default)]
+    pub text_shadow_enabled: bool,
+    #[serde(default = "default_shadow_intensity")]
+    pub text_shadow_intensity: f64,
+    #[serde(default)]
+    pub text_shadow_blur: f64,
+    #[serde(default)]
+    pub text_shadow_offset_x: f64,
+    #[serde(default)]
+    pub text_shadow_offset_y: f64,
+    #[serde(default)]
+    pub text_glow_enabled: bool,
+    #[serde(default = "default_white")]
+    pub text_glow_color: String,
+    #[serde(default = "default_glow_blur")]
+    pub text_glow_blur: f64,
+    #[serde(default = "default_glow_intensity")]
+    pub text_glow_intensity: f64,
+    #[serde(default = "default_text_x")]
+    pub text_x: f64,
+    #[serde(default = "default_text_y")]
+    pub text_y: f64,
+    #[serde(default = "default_text_width")]
+    pub text_width: f64,
+    #[serde(default = "default_text_align")]
+    pub text_align: String,
+    #[serde(default = "default_text_font")]
+    pub text_font: String,
+    #[serde(default = "default_text_weight")]
+    pub text_font_weight: f64,
+    #[serde(default = "default_text_style")]
+    pub text_font_style: String,
+    #[serde(default = "default_text_size")]
+    pub text_size: f64,
+    #[serde(default = "default_text_line_height")]
+    pub text_line_height: f64,
+    #[serde(default)]
+    pub text_letter_spacing: f64,
+    #[serde(default)]
+    pub text_rotation: f64,
+    #[serde(default = "default_text_opacity")]
+    pub text_opacity: f64,
+    #[serde(default = "default_text_subtitle_scale")]
+    pub text_subtitle_scale: f64,
+}
+impl Scene {
+    fn normalize_transition(&mut self, timebase: &Timebase) -> Result<(), String> {
+        let Some(transition) = self.transition.take() else { return Ok(()) };
+        if transition.kind == "none" {
+            return Ok(());
+        }
+        if !["fade", "slide", "wipe", "zoom"].contains(&transition.kind.as_str())
+            || !transition.duration.is_finite()
+        {
+            return Err("Invalid transition.".into());
+        }
+        let max = 2.0_f64.min(timebase.ticks_to_seconds(self.duration_ticks) * 0.5);
+        self.transition = Some(Transition {
+            kind: transition.kind,
+            duration: transition.duration.max(0.1).min(max.max(0.1)),
+        });
+        Ok(())
+    }
+    fn normalize_text_layers(&mut self) -> Result<(), String> {
+        let duration = self.duration_ticks;
+        if self.text_layers.is_empty() && (!self.title.is_empty() || !self.subtitle.is_empty()) {
+            self.text_layers.push(TextLayer {
+                id: format!("{}-text", self.id),
+                title: self.title.clone(),
+                subtitle: self.subtitle.clone(),
+                color: self.color.clone(),
+                start_ticks: 0,
+                duration_ticks: duration,
+                x: self.text_x,
+                y: self.text_y,
+                width: self.text_width,
+                align: self.text_align.clone(),
+                font: self.text_font.clone(),
+                font_weight: self.text_font_weight,
+                font_style: self.text_font_style.clone(),
+                size: self.text_size,
+                line_height: self.text_line_height,
+                letter_spacing: self.text_letter_spacing,
+                rotation: self.text_rotation,
+                opacity: self.text_opacity,
+                subtitle_scale: self.text_subtitle_scale,
+                backdrop_enabled: self.text_backdrop_enabled,
+                backdrop_color: self.text_backdrop_color.clone(),
+                backdrop_opacity: self.text_backdrop_opacity,
+                backdrop_blur: self.text_backdrop_blur,
+                backdrop_padding: self.text_backdrop_padding,
+                backdrop_radius: self.text_backdrop_radius,
+                backdrop_noise: self.text_backdrop_noise,
+                outline_enabled: self.text_outline_enabled,
+                stroke_color: self.text_stroke_color.clone(),
+                stroke_width: self.text_stroke_width,
+                shadow_enabled: self.text_shadow_enabled,
+                shadow_color: self.text_shadow_color.clone(),
+                shadow_intensity: self.text_shadow_intensity,
+                shadow_blur: self.text_shadow_blur,
+                shadow_offset_x: self.text_shadow_offset_x,
+                shadow_offset_y: self.text_shadow_offset_y,
+                glow_enabled: self.text_glow_enabled,
+                glow_color: self.text_glow_color.clone(),
+                glow_blur: self.text_glow_blur,
+                glow_intensity: self.text_glow_intensity,
+                animation: "none".into(),
+                animation_duration: 0.5,
+            });
+        }
+        if self.text_layers.len() > 8 {
+            return Err("A scene supports up to 8 text layers.".into());
+        }
+        let mut ids = std::collections::HashSet::new();
+        for layer in &mut self.text_layers {
+            let valid = !layer.id.is_empty()
+                && ids.insert(layer.id.clone())
+                && layer.title.chars().count() <= 120
+                && layer.subtitle.chars().count() <= 200
+                && is_hex_color(&layer.color)
+                && layer.x.is_finite()
+                && (0.0..=1.0).contains(&layer.x)
+                && layer.y.is_finite()
+                && (0.0..=1.0).contains(&layer.y)
+                && layer.width.is_finite()
+                && (0.05..=1.0).contains(&layer.width)
+                && ["left", "center", "right"].contains(&layer.align.as_str())
+                && layer.font.chars().count() <= 60
+                && layer.font_weight.is_finite()
+                && (100.0..=900.0).contains(&layer.font_weight)
+                && ["normal", "italic"].contains(&layer.font_style.as_str())
+                && layer.size.is_finite()
+                && (0.01..=0.5).contains(&layer.size)
+                && layer.line_height.is_finite()
+                && (0.5..=3.0).contains(&layer.line_height)
+                && layer.letter_spacing.is_finite()
+                && (-0.05..=0.2).contains(&layer.letter_spacing)
+                && layer.rotation.is_finite()
+                && (-180.0..=180.0).contains(&layer.rotation)
+                && layer.opacity.is_finite()
+                && (0.0..=100.0).contains(&layer.opacity)
+                && layer.subtitle_scale.is_finite()
+                && (0.2..=1.0).contains(&layer.subtitle_scale)
+                && is_hex_color(&layer.backdrop_color)
+                && layer.backdrop_opacity.is_finite()
+                && (0.0..=100.0).contains(&layer.backdrop_opacity)
+                && layer.backdrop_blur.is_finite()
+                && (0.0..=60.0).contains(&layer.backdrop_blur)
+                && layer.backdrop_padding.is_finite()
+                && (0.0..=80.0).contains(&layer.backdrop_padding)
+                && layer.backdrop_radius.is_finite()
+                && (0.0..=60.0).contains(&layer.backdrop_radius)
+                && layer.backdrop_noise.is_finite()
+                && (0.0..=100.0).contains(&layer.backdrop_noise)
+                && is_hex_color(&layer.stroke_color)
+                && layer.stroke_width.is_finite()
+                && (0.0..=12.0).contains(&layer.stroke_width)
+                && is_hex_color(&layer.shadow_color)
+                && layer.shadow_intensity.is_finite()
+                && (0.0..=100.0).contains(&layer.shadow_intensity)
+                && layer.shadow_blur.is_finite()
+                && (0.0..=60.0).contains(&layer.shadow_blur)
+                && layer.shadow_offset_x.is_finite()
+                && (-40.0..=40.0).contains(&layer.shadow_offset_x)
+                && layer.shadow_offset_y.is_finite()
+                && (-40.0..=40.0).contains(&layer.shadow_offset_y)
+                && is_hex_color(&layer.glow_color)
+                && layer.glow_blur.is_finite()
+                && (0.0..=80.0).contains(&layer.glow_blur)
+                && layer.glow_intensity.is_finite()
+                && (0.0..=100.0).contains(&layer.glow_intensity)
+                && ["none", "fade", "slide-up", "slide-left", "pop"].contains(&layer.animation.as_str())
+                && layer.animation_duration.is_finite()
+                && (0.1..=2.0).contains(&layer.animation_duration);
+            if !valid {
+                return Err("Invalid text layer.".into());
+            }
+            if duration == 0 {
+                return Err("A scene is too short for text.".into());
+            }
+            layer.start_ticks = layer.start_ticks.min(duration - 1);
+            if layer.duration_ticks == 0 {
+                layer.duration_ticks = duration - layer.start_ticks;
+            }
+            layer.duration_ticks = layer.duration_ticks.min(duration - layer.start_ticks).max(1);
+        }
+        self.title = self.text_layers.first().map(|layer| layer.title.clone()).unwrap_or_default();
+        self.subtitle = self.text_layers.first().map(|layer| layer.subtitle.clone()).unwrap_or_default();
+        Ok(())
+    }
 }
 fn default_one() -> f64 { 1.0 }
 fn default_filter() -> String { "none".into() }
 fn default_intensity() -> f64 { 100.0 }
 fn default_true() -> bool { true }
+fn default_black() -> String { "#000000".into() }
+fn default_white() -> String { "#FFFFFF".into() }
+fn default_backdrop_opacity() -> f64 { 45.0 }
+fn default_backdrop_blur() -> f64 { 18.0 }
+fn default_backdrop_padding() -> f64 { 24.0 }
+fn default_backdrop_radius() -> f64 { 16.0 }
+fn default_backdrop_noise() -> f64 { 8.0 }
+fn default_shadow_intensity() -> f64 { 60.0 }
+fn default_glow_blur() -> f64 { 24.0 }
+fn default_glow_intensity() -> f64 { 55.0 }
+fn default_music_volume() -> f64 { 0.8 }
+fn default_text_x() -> f64 { 0.09 }
+fn default_text_y() -> f64 { 0.78 }
+fn default_text_width() -> f64 { 0.82 }
+fn default_text_align() -> String { "left".into() }
+fn default_text_font() -> String { "inter".into() }
+fn default_text_weight() -> f64 { 600.0 }
+fn default_text_style() -> String { "normal".into() }
+fn default_text_size() -> f64 { 0.068 }
+fn default_text_line_height() -> f64 { 1.2 }
+fn default_text_opacity() -> f64 { 100.0 }
+fn default_text_subtitle_scale() -> f64 { 0.4 }
+fn is_hex_color(value: &str) -> bool {
+    value.len() == 7 && value.starts_with('#') && value[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
 const FILTER_IDS: &[&str] = &["none", "vivid", "warm", "cool", "mono", "film", "noir", "dream"];
+fn is_audio_data(value: &str) -> bool {
+    [
+        "data:audio/mpeg;base64,",
+        "data:audio/mp3;base64,",
+        "data:audio/wav;base64,",
+        "data:audio/x-wav;base64,",
+        "data:audio/mp4;base64,",
+        "data:audio/aac;base64,",
+        "data:audio/ogg;base64,",
+        "data:audio/webm;base64,",
+    ]
+    .iter()
+    .any(|prefix| value.starts_with(prefix))
+}
+fn is_asset_ref(value: &str) -> bool {
+    value.strip_prefix("pixcut-asset:").is_some_and(|id| {
+        id.len() == 64 && id.chars().all(|character| character.is_ascii_hexdigit())
+    })
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Track {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    #[serde(default)]
+    pub clips: Vec<Scene>,
+    #[serde(default)]
+    pub hidden: bool,
+    #[serde(default)]
+    pub muted: bool,
+    #[serde(default)]
+    pub locked: bool,
+}
+impl Track {
+    pub fn visual() -> Self {
+        Self {
+            id: "visual-1".into(),
+            kind: "visual".into(),
+            name: "Visuals".into(),
+            clips: vec![],
+            hidden: false,
+            muted: false,
+            locked: false,
+        }
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicTrack {
+    pub id: String,
+    pub name: String,
+    pub data: std::sync::Arc<str>,
+    pub volume: f64,
+    pub fade_in: f64,
+    pub fade_out: f64,
+    pub duration_seconds: f64,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioClip {
+    pub id: String,
+    pub name: String,
+    pub data: std::sync::Arc<str>,
+    #[serde(default)]
+    pub lane: u32,
+    #[serde(default)]
+    pub start_ticks: u64,
+    #[serde(default)]
+    pub duration_ticks: u64,
+    #[serde(default)]
+    pub source_in_seconds: f64,
+    #[serde(default)]
+    pub source_duration_seconds: f64,
+    #[serde(default = "default_music_volume")]
+    pub volume: f64,
+    #[serde(default)]
+    pub fade_in: f64,
+    #[serde(default)]
+    pub fade_out: f64,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneFormatOverride {
+    #[serde(default)]
+    pub image_x: Option<f64>,
+    #[serde(default)]
+    pub image_y: Option<f64>,
+    #[serde(default)]
+    pub image_zoom: Option<f64>,
+    #[serde(default)]
+    pub fit: Option<String>,
+    #[serde(default)]
+    pub framing_background: Option<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FormatVariant {
+    pub id: String,
+    pub name: String,
+    pub platform: String,
+    pub aspect: String,
+    pub width: u32,
+    pub height: u32,
+    #[serde(default = "default_export_fps")]
+    pub fps: u32,
+    #[serde(default = "default_export_quality")]
+    pub quality: String,
+    #[serde(default)]
+    pub preset_id: Option<String>,
+    #[serde(default)]
+    pub overrides: std::collections::HashMap<String, SceneFormatOverride>,
+}
+fn default_export_fps() -> u32 { 30 }
+fn default_export_quality() -> String { "standard".into() }
+impl FormatVariant {
+    fn original(aspect: &str) -> Self {
+        let (width, height) = match aspect {
+            "9:16" => (1080, 1920),
+            "4:5" => (1080, 1350),
+            "1:1" => (1080, 1080),
+            _ => (1920, 1080),
+        };
+        Self { id: "format-original".into(), name: "Original".into(), platform: "Original".into(), aspect: aspect.into(), width, height, fps: 30, quality: "standard".into(), preset_id: None, overrides: Default::default() }
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub schema_version: u32,
     pub id: String,
     pub name: String,
     pub aspect: String,
-    pub scenes: Vec<Scene>,
+    #[serde(default)]
+    pub timebase: Timebase,
+    #[serde(default)]
+    pub tracks: Vec<Track>,
+    #[serde(default)]
+    pub audio: Vec<AudioClip>,
+    #[serde(default)]
+    pub formats: Vec<FormatVariant>,
+    #[serde(default, skip_serializing, rename = "music")]
+    pub legacy_music: Option<MusicTrack>,
+    #[serde(default, skip_serializing, rename = "scenes")]
+    pub legacy_scenes: Vec<Scene>,
     pub policy: Policy,
 }
 impl Default for Project {
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 7,
             id: "new-project".into(),
             name: "Untitled story".into(),
             aspect: "16:9".into(),
-            scenes: vec![],
+            timebase: Timebase::default(),
+            tracks: vec![Track::visual()],
+            audio: vec![],
+            formats: vec![],
+            legacy_music: None,
+            legacy_scenes: vec![],
             policy: Policy::default(),
         }
     }
 }
 impl Project {
+    pub fn visual_clips(&self) -> &[Scene] {
+        self.tracks
+            .iter()
+            .find(|track| track.kind == "visual")
+            .map(|track| track.clips.as_slice())
+            .unwrap_or(&[])
+    }
+    pub fn total_ticks(&self) -> u64 {
+        self.visual_clips()
+            .iter()
+            .map(|scene| scene.start_ticks + scene.duration_ticks)
+            .max()
+            .unwrap_or(0)
+    }
     pub fn validate(&mut self) -> Result<(), String> {
-        if self.schema_version != 1 {
+        if self.schema_version != 1 && self.schema_version != 2 && self.schema_version != 3 && self.schema_version != 4 && self.schema_version != 5 && self.schema_version != 6 && self.schema_version != 7 {
             return Err(
                 "Unsupported project version. The original file has not been changed.".into(),
             );
@@ -91,68 +632,356 @@ impl Project {
         if self.name.chars().count() > 120
             || self.id.is_empty()
             || !["16:9", "9:16", "1:1", "4:5"].contains(&self.aspect.as_str())
-            || self.scenes.len() > 100
         {
             return Err("Invalid project format.".into());
         }
-        let mut ids = std::collections::HashSet::new();
-        let mut size = 0;
-        for s in &self.scenes {
-            if !ids.insert(&s.id)
-                || s.id.is_empty()
-                || !s.duration.is_finite()
-                || !(0.5..=30.0).contains(&s.duration)
-                || s.title.chars().count() > 120
-                || s.subtitle.chars().count() > 200
-                || !["cover", "contain", "blur"].contains(&s.fit.as_str())
-                || s.color.len() != 7
-                || !s.color.starts_with('#')
-                || !s.color[1..].chars().all(|c| c.is_ascii_hexdigit())
-                || !s.brightness.is_finite()
-                || !(0.0..=2.5).contains(&s.brightness)
-                || !s.contrast.is_finite()
-                || !(0.0..=2.5).contains(&s.contrast)
-                || !s.saturation.is_finite()
-                || !(0.0..=2.5).contains(&s.saturation)
-                || !s.exposure.is_finite()
-                || !(-3.0..=3.0).contains(&s.exposure)
-                || !s.highlights.is_finite()
-                || !(-1.0..=1.0).contains(&s.highlights)
-                || !s.shadows.is_finite()
-                || !(-1.0..=1.0).contains(&s.shadows)
-                || !s.temperature.is_finite()
-                || !(-1.0..=1.0).contains(&s.temperature)
-                || !s.tint.is_finite()
-                || !(-1.0..=1.0).contains(&s.tint)
-                || !FILTER_IDS.contains(&s.filter.as_str())
-                || !s.filter_intensity.is_finite()
-                || !(0.0..=100.0).contains(&s.filter_intensity)
-                || !s.speed.is_finite()
-                || !(0.25..=4.0).contains(&s.speed)
-                || !s.fade_in.is_finite()
-                || s.fade_in < 0.0
-                || s.fade_in > s.duration
-                || !s.fade_out.is_finite()
-                || s.fade_out < 0.0
-                || s.fade_out > s.duration
-                || ![
-                    "data:image/png;base64,",
-                    "data:image/jpeg;base64,",
-                    "data:image/webp;base64,",
-                ]
-                .iter()
-                .any(|prefix| s.image.starts_with(prefix))
-            {
-                return Err("Invalid scene, image, or duration.".into());
-            }
-            size += s.image.len();
+        let migrating_seconds = self.schema_version == 1;
+        let legacy_layout = self.schema_version < 3;
+        if migrating_seconds {
+            self.timebase = Timebase::default();
         }
-        if size > 90_000_000 {
+        let timebase = self.timebase.clone();
+        if timebase.numerator == 0
+            || timebase.denominator == 0
+            || timebase.numerator > timebase.denominator
+            || timebase.denominator > 1_000_000
+        {
+            return Err("Invalid project timebase.".into());
+        }
+        let step = timebase.seconds_per_tick();
+        if !step.is_finite() || step <= 0.0 {
+            return Err("Invalid project timebase.".into());
+        }
+        let minimum = timebase.min_ticks();
+        let maximum = timebase.max_ticks();
+        let mut tracks = if legacy_layout {
+            let clips = std::mem::take(&mut self.legacy_scenes);
+            vec![Track {
+                id: "visual-1".into(),
+                kind: "visual".into(),
+                name: "Visuals".into(),
+                clips,
+                hidden: false,
+                muted: false,
+                locked: false,
+            }]
+        } else {
+            std::mem::take(&mut self.tracks)
+        };
+        self.legacy_scenes.clear();
+        let migrating_music = self.schema_version < 5;
+        self.schema_version = 7;
+        if tracks.is_empty() {
+            tracks.push(Track::visual());
+        }
+        if tracks.len() > 8 {
+            return Err("A project supports up to 8 tracks in this build.".into());
+        }
+        let mut track_ids = std::collections::HashSet::new();
+        let mut clip_ids = std::collections::HashSet::new();
+        let mut visual_count = 0;
+        let mut bytes = 0;
+        for track in &mut tracks {
+            if track.id.is_empty() || !track_ids.insert(track.id.clone()) {
+                return Err("Invalid or duplicate track ID.".into());
+            }
+            if track.name.chars().count() > 120 {
+                return Err("Invalid track name.".into());
+            }
+            if !["visual", "text", "audio"].contains(&track.kind.as_str()) {
+                return Err("Invalid track kind.".into());
+            }
+            if track.kind == "visual" {
+                visual_count += 1;
+            } else if !track.clips.is_empty() {
+                return Err("Only visual clips are supported in this build.".into());
+            }
+            let mut cursor = 0u64;
+            for s in &mut track.clips {
+                if migrating_seconds {
+                    let seconds = s
+                        .legacy_duration
+                        .ok_or("A scene is missing its duration.")?;
+                    if !seconds.is_finite() || !(0.5..=30.0).contains(&seconds) {
+                        return Err("Invalid scene duration.".into());
+                    }
+                    s.duration_ticks = (seconds / step).round() as u64;
+                }
+                s.legacy_duration = None;
+                let duration = timebase.ticks_to_seconds(s.duration_ticks);
+                if s.duration_ticks < minimum || s.duration_ticks > maximum {
+                    return Err("Invalid scene duration.".into());
+                }
+                s.start_ticks = cursor;
+                cursor += s.duration_ticks;
+                let image_ok = is_asset_ref(&s.image)
+                    || [
+                        "data:image/png;base64,",
+                        "data:image/jpeg;base64,",
+                        "data:image/webp;base64,",
+                    ]
+                    .iter()
+                    .any(|prefix| s.image.starts_with(prefix));
+                if !clip_ids.insert(s.id.clone())
+                    || s.id.is_empty()
+                    || s.title.chars().count() > 120
+                    || s.subtitle.chars().count() > 200
+                    || !["cover", "contain", "blur"].contains(&s.fit.as_str())
+                    || !s.image_x.is_finite()
+                    || !(-1.0..=1.0).contains(&s.image_x)
+                    || !s.image_y.is_finite()
+                    || !(-1.0..=1.0).contains(&s.image_y)
+                    || !s.image_zoom.is_finite()
+                    || !(1.0..=4.0).contains(&s.image_zoom)
+                    || !is_hex_color(&s.framing_background)
+                    || !is_hex_color(&s.color)
+                    || !s.brightness.is_finite()
+                    || !(0.0..=2.5).contains(&s.brightness)
+                    || !s.contrast.is_finite()
+                    || !(0.0..=2.5).contains(&s.contrast)
+                    || !s.saturation.is_finite()
+                    || !(0.0..=2.5).contains(&s.saturation)
+                    || !s.exposure.is_finite()
+                    || !(-3.0..=3.0).contains(&s.exposure)
+                    || !s.highlights.is_finite()
+                    || !(-1.0..=1.0).contains(&s.highlights)
+                    || !s.shadows.is_finite()
+                    || !(-1.0..=1.0).contains(&s.shadows)
+                    || !s.temperature.is_finite()
+                    || !(-1.0..=1.0).contains(&s.temperature)
+                    || !s.tint.is_finite()
+                    || !(-1.0..=1.0).contains(&s.tint)
+                    || !FILTER_IDS.contains(&s.filter.as_str())
+                    || !s.filter_intensity.is_finite()
+                    || !(0.0..=100.0).contains(&s.filter_intensity)
+                    || !s.speed.is_finite()
+                    || !(0.25..=4.0).contains(&s.speed)
+                    || !s.fade_in.is_finite()
+                    || s.fade_in < 0.0
+                    || s.fade_in > duration
+                    || !s.fade_out.is_finite()
+                    || s.fade_out < 0.0
+                    || s.fade_out > duration
+                    || !s.text_backdrop_opacity.is_finite()
+                    || !(0.0..=100.0).contains(&s.text_backdrop_opacity)
+                    || !s.text_backdrop_blur.is_finite()
+                    || !(0.0..=60.0).contains(&s.text_backdrop_blur)
+                    || !s.text_backdrop_padding.is_finite()
+                    || !(0.0..=80.0).contains(&s.text_backdrop_padding)
+                    || !s.text_backdrop_radius.is_finite()
+                    || !(0.0..=60.0).contains(&s.text_backdrop_radius)
+                    || !s.text_backdrop_noise.is_finite()
+                    || !(0.0..=100.0).contains(&s.text_backdrop_noise)
+                    || !is_hex_color(&s.text_backdrop_color)
+                    || !is_hex_color(&s.text_stroke_color)
+                    || !s.text_stroke_width.is_finite()
+                    || !(0.0..=12.0).contains(&s.text_stroke_width)
+                    || !is_hex_color(&s.text_shadow_color)
+                    || !s.text_shadow_intensity.is_finite()
+                    || !(0.0..=100.0).contains(&s.text_shadow_intensity)
+                    || !s.text_shadow_blur.is_finite()
+                    || !(0.0..=60.0).contains(&s.text_shadow_blur)
+                    || !s.text_shadow_offset_x.is_finite()
+                    || !(-40.0..=40.0).contains(&s.text_shadow_offset_x)
+                    || !s.text_shadow_offset_y.is_finite()
+                    || !(-40.0..=40.0).contains(&s.text_shadow_offset_y)
+                    || !is_hex_color(&s.text_glow_color)
+                    || !s.text_glow_blur.is_finite()
+                    || !(0.0..=80.0).contains(&s.text_glow_blur)
+                    || !s.text_glow_intensity.is_finite()
+                    || !(0.0..=100.0).contains(&s.text_glow_intensity)
+                    || !s.text_x.is_finite()
+                    || !(0.0..=1.0).contains(&s.text_x)
+                    || !s.text_y.is_finite()
+                    || !(0.0..=1.0).contains(&s.text_y)
+                    || !s.text_width.is_finite()
+                    || !(0.05..=1.0).contains(&s.text_width)
+                    || !["left", "center", "right"].contains(&s.text_align.as_str())
+                    || s.text_font.chars().count() > 60
+                    || !s.text_font_weight.is_finite()
+                    || !(100.0..=900.0).contains(&s.text_font_weight)
+                    || !["normal", "italic"].contains(&s.text_font_style.as_str())
+                    || !s.text_size.is_finite()
+                    || !(0.01..=0.5).contains(&s.text_size)
+                    || !s.text_line_height.is_finite()
+                    || !(0.5..=3.0).contains(&s.text_line_height)
+                    || !s.text_letter_spacing.is_finite()
+                    || !(-0.05..=0.2).contains(&s.text_letter_spacing)
+                    || !s.text_rotation.is_finite()
+                    || !(-180.0..=180.0).contains(&s.text_rotation)
+                    || !s.text_opacity.is_finite()
+                    || !(0.0..=100.0).contains(&s.text_opacity)
+                    || !s.text_subtitle_scale.is_finite()
+                    || !(0.2..=1.0).contains(&s.text_subtitle_scale)
+                    || !image_ok
+                {
+                    return Err("Invalid scene, image, or duration.".into());
+                }
+                s.normalize_text_layers()?;
+                s.normalize_transition(&timebase)?;
+                bytes += s.image.len();
+            }
+        }
+        if visual_count != 1 {
+            return Err("A project needs exactly one visual track in this build.".into());
+        }
+        if bytes > 90_000_000 {
             return Err("Project exceeds the 64 MB image budget.".into());
         }
+        let total_ticks = tracks
+            .iter()
+            .filter(|track| track.kind == "visual")
+            .flat_map(|track| track.clips.iter())
+            .map(|clip| clip.start_ticks + clip.duration_ticks)
+            .max()
+            .unwrap_or(0);
+        let mut audio = if migrating_music {
+            if let Some(music) = &self.legacy_music {
+                let total_seconds = timebase.ticks_to_seconds(total_ticks);
+                let source_duration = if music.duration_seconds > 0.0 {
+                    music.duration_seconds
+                } else {
+                    total_seconds
+                };
+                let duration_seconds = total_seconds.min(source_duration);
+                let duration_ticks = ((duration_seconds / timebase.seconds_per_tick()).round() as u64)
+                    .max(1)
+                    .min(total_ticks.max(1));
+                vec![AudioClip {
+                    id: music.id.clone(),
+                    name: music.name.clone(),
+                    data: music.data.clone(),
+                    lane: 0,
+                    start_ticks: 0,
+                    duration_ticks,
+                    source_in_seconds: 0.0,
+                    source_duration_seconds: source_duration.max(duration_seconds),
+                    volume: music.volume,
+                    fade_in: music.fade_in,
+                    fade_out: music.fade_out,
+                }]
+            } else {
+                vec![]
+            }
+        } else {
+            std::mem::take(&mut self.audio)
+        };
+        self.legacy_music = None;
+        if audio.len() > 32 {
+            return Err("A project supports up to 32 audio clips in this build.".into());
+        }
+        let mut audio_ids = std::collections::HashSet::new();
+        let mut audio_bytes = 0usize;
+        for clip in &mut audio {
+            let duration = timebase.ticks_to_seconds(clip.duration_ticks);
+            if clip.id.is_empty() || !audio_ids.insert(clip.id.clone()) {
+                return Err("Invalid or duplicate audio ID.".into());
+            }
+            if clip.name.is_empty() || clip.name.chars().count() > 120 {
+                return Err("Invalid audio name.".into());
+            }
+            if clip.lane > 7 {
+                return Err("A project supports up to 8 audio tracks.".into());
+            }
+            if clip.duration_ticks == 0 || clip.start_ticks + clip.duration_ticks > total_ticks {
+                return Err("An audio clip extends beyond the project.".into());
+            }
+            if !clip.source_in_seconds.is_finite()
+                || !(0.0..=600.0).contains(&clip.source_in_seconds)
+                || !clip.source_duration_seconds.is_finite()
+                || !(0.0..=600.0).contains(&clip.source_duration_seconds)
+                || clip.source_in_seconds + duration > clip.source_duration_seconds + 0.05
+            {
+                return Err("Invalid audio trim.".into());
+            }
+            if !clip.volume.is_finite()
+                || !(0.0..=1.0).contains(&clip.volume)
+                || !clip.fade_in.is_finite()
+                || !(0.0..=30.0).contains(&clip.fade_in)
+                || !clip.fade_out.is_finite()
+                || !(0.0..=30.0).contains(&clip.fade_out)
+            {
+                return Err("Invalid audio level.".into());
+            }
+            if clip.data.len() > 70_000_000
+                || (!is_audio_data(&clip.data) && !is_asset_ref(&clip.data))
+            {
+                return Err("Invalid audio data or an audio clip exceeds the 50 MB budget.".into());
+            }
+            audio_bytes += clip.data.len();
+        }
+        if audio_bytes > 280_000_000 {
+            return Err("Audio exceeds the 200 MB project budget.".into());
+        }
+        self.audio = audio;
+        if self.formats.is_empty() {
+            self.formats.push(FormatVariant::original(&self.aspect));
+        }
+        if self.formats.len() > 6 {
+            return Err("A project supports up to 6 output formats.".into());
+        }
+        let mut format_ids = std::collections::HashSet::new();
+        for format in &mut self.formats {
+            if format.id.is_empty() || !format_ids.insert(format.id.clone()) {
+                return Err("Invalid or duplicate output format ID.".into());
+            }
+            if format.name.is_empty() || format.name.chars().count() > 80 || format.platform.is_empty() || format.platform.chars().count() > 80 {
+                return Err("Invalid output format name.".into());
+            }
+            if format.aspect.is_empty() || format.aspect.chars().count() > 20
+                || format.width < 240 || format.height < 240 || format.width > 3840 || format.height > 3840
+                || format.width % 2 != 0 || format.height % 2 != 0
+                || !(15..=60).contains(&format.fps)
+                || !["draft", "standard", "high"].contains(&format.quality.as_str())
+            {
+                return Err("Invalid output format settings.".into());
+            }
+            format.overrides.retain(|scene_id, _| clip_ids.contains(scene_id));
+            for override_value in format.overrides.values() {
+                if override_value.image_x.is_some_and(|value| !value.is_finite() || !(-1.0..=1.0).contains(&value))
+                    || override_value.image_y.is_some_and(|value| !value.is_finite() || !(-1.0..=1.0).contains(&value))
+                    || override_value.image_zoom.is_some_and(|value| !value.is_finite() || !(1.0..=4.0).contains(&value))
+                    || override_value.fit.as_ref().is_some_and(|value| !["cover", "contain", "blur"].contains(&value.as_str()))
+                    || override_value.framing_background.as_ref().is_some_and(|value| !is_hex_color(value))
+                {
+                    return Err("Invalid output format override.".into());
+                }
+            }
+        }
+        self.tracks = tracks;
         self.policy = Policy::default();
         Ok(())
     }
+}
+pub fn normalize_starts(clips: &mut [Scene]) {
+    let mut cursor = 0u64;
+    for clip in clips {
+        clip.start_ticks = cursor;
+        cursor += clip.duration_ticks;
+    }
+}
+fn split_text_layers(layers: &[TextLayer], at: u64) -> (Vec<TextLayer>, Vec<TextLayer>) {
+    let left = layers
+        .iter()
+        .filter(|layer| layer.start_ticks < at)
+        .map(|layer| {
+            let mut copy = (*layer).clone();
+            copy.duration_ticks = copy.duration_ticks.min(at - copy.start_ticks).max(1);
+            copy
+        })
+        .collect();
+    let right = layers
+        .iter()
+        .filter(|layer| layer.start_ticks + layer.duration_ticks > at)
+        .map(|layer| {
+            let mut copy = (*layer).clone();
+            let end = copy.start_ticks + copy.duration_ticks;
+            copy.start_ticks = copy.start_ticks.saturating_sub(at);
+            copy.duration_ticks = (end - at).max(1);
+            copy
+        })
+        .collect();
+    (left, right)
 }
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -166,6 +995,8 @@ pub enum Command {
     Replace { project: Project },
     Rename { name: String },
     Aspect { aspect: String },
+    Audio { audio: Vec<AudioClip> },
+    Formats { formats: Vec<FormatVariant> },
     Add { scenes: Vec<Scene> },
     Update { scene: Scene },
     Remove { id: String },
@@ -177,7 +1008,8 @@ pub enum Command {
     },
     Split {
         id: String,
-        at: f64,
+        #[serde(rename = "atTicks")]
+        at_ticks: u64,
         #[serde(rename = "newId")]
         new_id: String,
     },
@@ -224,107 +1056,167 @@ impl Session {
             }
             _ => {}
         }
+        if let Command::Replace { project } = command {
+            let mut next = project;
+            next.validate()?;
+            self.past.push(std::mem::replace(&mut self.project, next));
+            if self.past.len() > 30 {
+                self.past.remove(0);
+            }
+            self.future.clear();
+            return Ok(());
+        }
         let mut p = self.project.clone();
-        match command {
-            Command::Replace { project } => p = project,
-            Command::Rename { name } => p.name = name,
-            Command::Aspect { aspect } => p.aspect = aspect,
-            Command::Add { scenes } => p.scenes.extend(scenes),
-            Command::Update { scene } => {
-                if let Some(s) = p.scenes.iter_mut().find(|s| s.id == scene.id) {
-                    *s = scene;
-                }
-            }
-            Command::Remove { id } => p.scenes.retain(|s| s.id != id),
-            Command::Move { id, offset } => {
-                if let Some(i) = p.scenes.iter().position(|s| s.id == id) {
-                    let target = i as i64 + offset as i64;
-                    if target >= 0 && (target as usize) < p.scenes.len() {
-                        let scene = p.scenes.remove(i);
-                        p.scenes.insert(target as usize, scene);
+        if let Command::Rename { name } = &command {
+            p.name = name.clone();
+        }
+        if let Command::Aspect { aspect } = &command {
+            p.aspect = aspect.clone();
+        }
+        if let Command::Audio { audio } = &command {
+            p.audio = audio.clone();
+        }
+        if let Command::Formats { formats } = &command {
+            p.formats = formats.clone();
+        }
+        let track_index = p
+            .tracks
+            .iter()
+            .position(|track| track.kind == "visual")
+            .ok_or("This project has no visual track.")?;
+        let timebase = p.timebase.clone();
+        {
+            let clips = &mut p.tracks[track_index].clips;
+            match command {
+                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } => {}
+                Command::Add { scenes } => clips.extend(scenes),
+                Command::Update { scene } => {
+                    if let Some(s) = clips.iter_mut().find(|s| s.id == scene.id) {
+                        *s = scene;
                     }
                 }
-            }
-            Command::Duplicate { id, new_id } => {
-                let Some(i) = p.scenes.iter().position(|s| s.id == id) else {
-                    return Err("Select a scene to duplicate.".into());
-                };
-                if p.scenes.iter().any(|s| s.id == new_id) {
-                    return Err("A scene with this ID already exists.".into());
-                }
-                let mut copy = p.scenes[i].clone();
-                copy.id = new_id;
-                copy.name = format!("{} copy", copy.name);
-                p.scenes.insert(i + 1, copy);
-            }
-            Command::Split { id, at, new_id } => {
-                let Some(i) = p.scenes.iter().position(|s| s.id == id) else {
-                    return Err("Select a scene to split.".into());
-                };
-                let scene = p.scenes[i].clone();
-                if !at.is_finite() || at < 0.5 || scene.duration - at < 0.5 {
-                    return Err(
-                        "Move the playhead at least half a second inside the clip to split it."
-                            .into(),
-                    );
-                }
-                if p.scenes.iter().any(|s| s.id == new_id) {
-                    return Err("A scene with this ID already exists.".into());
-                }
-                let at = (at * 1000.0).round() / 1000.0;
-                let remaining = ((scene.duration - at) * 1000.0).round() / 1000.0;
-                let mut left = scene.clone();
-                left.duration = at;
-                left.fade_in = left.fade_in.min(at);
-                left.fade_out = 0.0;
-                let mut right = scene;
-                right.id = new_id;
-                right.duration = remaining;
-                right.fade_in = 0.0;
-                right.fade_out = right.fade_out.min(remaining);
-                p.scenes.splice(i..=i, [left, right]);
-            }
-            Command::UpdateMany { scenes } => {
-                for scene in scenes {
-                    if let Some(existing) = p.scenes.iter_mut().find(|s| s.id == scene.id) {
-                        *existing = scene;
+                Command::Remove { id } => clips.retain(|s| s.id != id),
+                Command::Move { id, offset } => {
+                    if let Some(i) = clips.iter().position(|s| s.id == id) {
+                        let target = i as i64 + offset as i64;
+                        if target >= 0 && (target as usize) < clips.len() {
+                            let scene = clips.remove(i);
+                            clips.insert(target as usize, scene);
+                        }
                     }
                 }
-            }
-            Command::RemoveMany { ids } => {
-                let removed: std::collections::HashSet<String> = ids.into_iter().collect();
-                p.scenes.retain(|scene| !removed.contains(&scene.id));
-            }
-            Command::DuplicateMany { items } => {
-                let existing: std::collections::HashSet<String> =
-                    p.scenes.iter().map(|scene| scene.id.clone()).collect();
-                let mut new_ids = std::collections::HashSet::new();
-                let mut by_id = std::collections::HashMap::new();
-                for item in &items {
-                    if !existing.contains(&item.id) {
+                Command::Duplicate { id, new_id } => {
+                    let Some(i) = clips.iter().position(|s| s.id == id) else {
                         return Err("Select a scene to duplicate.".into());
-                    }
-                    if existing.contains(&item.new_id) || !new_ids.insert(item.new_id.clone()) {
+                    };
+                    if clips.iter().any(|s| s.id == new_id) {
                         return Err("A scene with this ID already exists.".into());
                     }
-                    if by_id.insert(item.id.clone(), item.new_id.clone()).is_some() {
-                        return Err("A scene can only be duplicated once at a time.".into());
+                    let mut copy = clips[i].clone();
+                    copy.id = new_id;
+                    copy.name = format!("{} copy", copy.name);
+                    clips.insert(i + 1, copy);
+                }
+                Command::Split { id, at_ticks, new_id } => {
+                    let Some(i) = clips.iter().position(|s| s.id == id) else {
+                        return Err("Select a scene to split.".into());
+                    };
+                    let scene = clips[i].clone();
+                    let minimum = timebase.min_ticks();
+                    if at_ticks < minimum || scene.duration_ticks.saturating_sub(at_ticks) < minimum {
+                        return Err(
+                            "Move the playhead at least half a second inside the clip to split it."
+                                .into(),
+                        );
+                    }
+                    if clips.iter().any(|s| s.id == new_id) {
+                        return Err("A scene with this ID already exists.".into());
+                    }
+                    let remaining_ticks = scene.duration_ticks - at_ticks;
+                    let left_seconds = timebase.ticks_to_seconds(at_ticks);
+                    let right_seconds = timebase.ticks_to_seconds(remaining_ticks);
+                    let (left_layers, right_layers) = split_text_layers(&scene.text_layers, at_ticks);
+                    let mut left = scene.clone();
+                    left.duration_ticks = at_ticks;
+                    left.legacy_duration = None;
+                    left.fade_in = left.fade_in.min(left_seconds);
+                    left.fade_out = 0.0;
+                    left.text_layers = left_layers;
+                    left.title = left.text_layers.first().map(|layer| layer.title.clone()).unwrap_or_default();
+                    left.subtitle = left.text_layers.first().map(|layer| layer.subtitle.clone()).unwrap_or_default();
+                    let mut right = scene;
+                    right.id = new_id;
+                    right.start_ticks = 0;
+                    right.source_in_ticks += at_ticks;
+                    right.duration_ticks = remaining_ticks;
+                    right.legacy_duration = None;
+                    right.fade_in = 0.0;
+                    right.fade_out = right.fade_out.min(right_seconds);
+                    right.text_layers = right_layers;
+                    right.title = right.text_layers.first().map(|layer| layer.title.clone()).unwrap_or_default();
+                    right.subtitle = right.text_layers.first().map(|layer| layer.subtitle.clone()).unwrap_or_default();
+                    clips.splice(i..=i, [left, right]);
+                }
+                Command::UpdateMany { scenes } => {
+                    for scene in scenes {
+                        if let Some(existing) = clips.iter_mut().find(|s| s.id == scene.id) {
+                            *existing = scene;
+                        }
                     }
                 }
-                let mut next = Vec::with_capacity(p.scenes.len() + items.len());
-                for scene in &p.scenes {
-                    next.push(scene.clone());
-                    if let Some(new_id) = by_id.get(&scene.id) {
-                        let mut copy = scene.clone();
-                        copy.id = new_id.clone();
-                        copy.name = format!("{} copy", copy.name);
-                        next.push(copy);
-                    }
+                Command::RemoveMany { ids } => {
+                    let removed: std::collections::HashSet<String> = ids.into_iter().collect();
+                    clips.retain(|scene| !removed.contains(&scene.id));
                 }
-                p.scenes = next;
+                Command::DuplicateMany { items } => {
+                    let existing: std::collections::HashSet<String> =
+                        clips.iter().map(|scene| scene.id.clone()).collect();
+                    let mut new_ids = std::collections::HashSet::new();
+                    let mut by_id = std::collections::HashMap::new();
+                    for item in &items {
+                        if !existing.contains(&item.id) {
+                            return Err("Select a scene to duplicate.".into());
+                        }
+                        if existing.contains(&item.new_id) || !new_ids.insert(item.new_id.clone())
+                        {
+                            return Err("A scene with this ID already exists.".into());
+                        }
+                        if by_id.insert(item.id.clone(), item.new_id.clone()).is_some() {
+                            return Err("A scene can only be duplicated once at a time.".into());
+                        }
+                    }
+                    let mut next = Vec::with_capacity(clips.len() + items.len());
+                    for scene in &*clips {
+                        next.push(scene.clone());
+                        if let Some(new_id) = by_id.get(&scene.id) {
+                            let mut copy = scene.clone();
+                            copy.id = new_id.clone();
+                            copy.name = format!("{} copy", copy.name);
+                            next.push(copy);
+                        }
+                    }
+                    *clips = next;
+                }
+                Command::Undo | Command::Redo => unreachable!(),
             }
-            _ => unreachable!(),
+            normalize_starts(clips);
         }
+        let total_ticks = p
+            .visual_clips()
+            .iter()
+            .map(|clip| clip.start_ticks + clip.duration_ticks)
+            .max()
+            .unwrap_or(0);
+        p.audio = std::mem::take(&mut p.audio)
+            .into_iter()
+            .filter_map(|mut clip| {
+                if total_ticks == 0 || clip.start_ticks >= total_ticks {
+                    return None;
+                }
+                clip.duration_ticks = clip.duration_ticks.min(total_ticks - clip.start_ticks);
+                (clip.duration_ticks > 0).then_some(clip)
+            })
+            .collect();
         p.validate()?;
         self.past.push(std::mem::replace(&mut self.project, p));
         if self.past.len() > 30 {
@@ -342,11 +1234,20 @@ mod tests {
             id: "one".into(),
             name: "Test".into(),
             image: "data:image/png;base64,AA==".into(),
-            duration: 4.0,
+            start_ticks: 0,
+            source_in_ticks: 0,
+            duration_ticks: 120,
+            legacy_duration: None,
             title: "Hello".into(),
             subtitle: "".into(),
+            text_layers: vec![],
+            transition: None,
             color: "#ffffff".into(),
             fit: "cover".into(),
+            image_x: 0.0,
+            image_y: 0.0,
+            image_zoom: 1.0,
+            framing_background: "#000000".into(),
             brightness: 1.0,
             contrast: 1.0,
             saturation: 1.0,
@@ -361,6 +1262,39 @@ mod tests {
             pitch: true,
             fade_in: 0.0,
             fade_out: 0.0,
+            text_backdrop_enabled: false,
+            text_backdrop_color: "#000000".into(),
+            text_backdrop_opacity: 45.0,
+            text_backdrop_blur: 18.0,
+            text_backdrop_padding: 24.0,
+            text_backdrop_radius: 16.0,
+            text_backdrop_noise: 8.0,
+            text_stroke_color: "#000000".into(),
+            text_outline_enabled: false,
+            text_stroke_width: 0.0,
+            text_shadow_color: "#000000".into(),
+            text_shadow_enabled: false,
+            text_shadow_intensity: 60.0,
+            text_shadow_blur: 0.0,
+            text_shadow_offset_x: 0.0,
+            text_shadow_offset_y: 0.0,
+            text_glow_enabled: false,
+            text_glow_color: "#FFFFFF".into(),
+            text_glow_blur: 24.0,
+            text_glow_intensity: 55.0,
+            text_x: 0.09,
+            text_y: 0.78,
+            text_width: 0.82,
+            text_align: "left".into(),
+            text_font: "inter".into(),
+            text_font_weight: 600.0,
+            text_font_style: "normal".into(),
+            text_size: 0.068,
+            text_line_height: 1.2,
+            text_letter_spacing: 0.0,
+            text_rotation: 0.0,
+            text_opacity: 100.0,
+            text_subtitle_scale: 0.4,
         }
     }
     #[test]
@@ -371,9 +1305,9 @@ mod tests {
         })
         .unwrap();
         s.apply(Command::Undo).unwrap();
-        assert!(s.project.scenes.is_empty());
+        assert!(s.project.visual_clips().is_empty());
         s.apply(Command::Redo).unwrap();
-        assert_eq!(s.project.scenes.len(), 1);
+        assert_eq!(s.project.visual_clips().len(), 1);
         s.apply(Command::Undo).unwrap();
         s.apply(Command::Rename { name: "New".into() }).unwrap();
         assert!(s.future.is_empty());
@@ -383,7 +1317,7 @@ mod tests {
         let mut s = Session::default();
         let original = s.project.clone();
         let mut bad = scene();
-        bad.duration = -1.0;
+        bad.duration_ticks = 0;
         assert!(s.apply(Command::Add { scenes: vec![bad] }).is_err());
         assert_eq!(s.project, original);
         assert!(s.past.is_empty());
@@ -397,10 +1331,233 @@ mod tests {
         assert_eq!(p.policy, Policy::default());
     }
     #[test]
+    fn audio_must_be_local_and_bounded() {
+        let mut p = Project::default();
+        p.tracks[0].clips.push(scene());
+        p.audio = vec![AudioClip {
+            id: "audio".into(),
+            name: "Track.mp3".into(),
+            data: "data:audio/mpeg;base64,AA==".into(),
+            lane: 0,
+            start_ticks: 0,
+            duration_ticks: 120,
+            source_in_seconds: 0.0,
+            source_duration_seconds: 30.0,
+            volume: 0.8,
+            fade_in: 1.0,
+            fade_out: 1.0,
+        }];
+        p.validate().unwrap();
+        let mut bad_volume = p.clone();
+        bad_volume.audio[0].volume = 2.0;
+        assert!(bad_volume.validate().is_err());
+        let mut bad_data = p.clone();
+        bad_data.audio[0].data = "https://example.com/track.mp3".into();
+        assert!(bad_data.validate().is_err());
+        let mut bad_trim = p.clone();
+        bad_trim.audio[0].source_in_seconds = 29.0;
+        assert!(bad_trim.validate().is_err());
+        let mut s = Session::default();
+        s.apply(Command::Add { scenes: vec![scene()] }).unwrap();
+        s.apply(Command::Audio { audio: p.audio.clone() }).unwrap();
+        assert_eq!(s.project.audio[0].name, "Track.mp3");
+        s.apply(Command::Audio { audio: vec![] }).unwrap();
+        assert!(s.project.audio.is_empty());
+        s.apply(Command::Audio { audio: p.audio.clone() }).unwrap();
+        s.apply(Command::Remove { id: "one".into() }).unwrap();
+        assert!(s.project.audio.is_empty());
+    }
+    #[test]
+    fn validates_per_format_overrides() {
+        let mut s = Session::default();
+        s.apply(Command::Add { scenes: vec![scene()] }).unwrap();
+        let mut overrides = std::collections::HashMap::new();
+        overrides.insert("one".into(), SceneFormatOverride { image_x: Some(-0.25), image_y: Some(0.1), image_zoom: Some(1.8), fit: Some("contain".into()), framing_background: Some("#112233".into()) });
+        let formats = vec![
+            FormatVariant { id: "yt".into(), name: "YouTube".into(), platform: "YouTube".into(), aspect: "16:9".into(), width: 1920, height: 1080, fps: 30, quality: "standard".into(), preset_id: Some("youtube-video".into()), overrides: Default::default() },
+            FormatVariant { id: "reels".into(), name: "Reels".into(), platform: "Instagram".into(), aspect: "9:16".into(), width: 1080, height: 1920, fps: 30, quality: "standard".into(), preset_id: Some("instagram-reels".into()), overrides },
+        ];
+        s.apply(Command::Formats { formats }).unwrap();
+        assert_eq!(s.project.formats.len(), 2);
+        assert_eq!(s.project.formats[1].overrides["one"].image_zoom, Some(1.8));
+        let mut bad_size = s.project.formats.clone();
+        bad_size[0].width = 100;
+        assert!(s.apply(Command::Formats { formats: bad_size }).is_err());
+        let mut bad_override = s.project.formats.clone();
+        bad_override[1].overrides.get_mut("one").unwrap().image_zoom = Some(9.0);
+        assert!(s.apply(Command::Formats { formats: bad_override }).is_err());
+    }
+    #[test]
+    fn validates_transitions_and_text_animations() {
+        let mut s = Session::default();
+        s.apply(Command::Add { scenes: vec![scene()] }).unwrap();
+        let mut clip = s.project.visual_clips()[0].clone();
+        clip.transition = Some(Transition { kind: "fade".into(), duration: 0.6 });
+        s.apply(Command::Update { scene: clip.clone() }).unwrap();
+        assert_eq!(s.project.visual_clips()[0].transition.as_ref().unwrap().kind, "fade");
+        clip.transition = Some(Transition { kind: "zoom".into(), duration: 8.0 });
+        s.apply(Command::Update { scene: clip.clone() }).unwrap();
+        assert_eq!(s.project.visual_clips()[0].transition.as_ref().unwrap().duration, 2.0);
+        clip.transition = Some(Transition { kind: "spin".into(), duration: 0.5 });
+        assert!(s.apply(Command::Update { scene: clip }).is_err());
+        let mut animated = s.project.visual_clips()[0].clone();
+        animated.text_layers[0].animation = "slide-up".into();
+        animated.text_layers[0].animation_duration = 1.2;
+        s.apply(Command::Update { scene: animated.clone() }).unwrap();
+        assert_eq!(s.project.visual_clips()[0].text_layers[0].animation, "slide-up");
+        animated.text_layers[0].animation = "spin".into();
+        assert!(s.apply(Command::Update { scene: animated }).is_err());
+    }
+    #[test]
+    fn migrates_and_splits_independent_text_layers() {
+        let mut s = Session::default();
+        s.apply(Command::Add { scenes: vec![scene()] }).unwrap();
+        let mut first = s.project.visual_clips()[0].clone();
+        assert_eq!(first.text_layers.len(), 1);
+        assert_eq!(first.text_layers[0].title, "Hello");
+        let mut second = first.text_layers[0].clone();
+        second.id = "layer-2".into();
+        second.title = "Second".into();
+        second.start_ticks = 30;
+        second.duration_ticks = 60;
+        second.x = 0.5;
+        second.size = 0.1;
+        first.text_layers.push(second.clone());
+        s.apply(Command::Update { scene: first }).unwrap();
+        assert_eq!(s.project.visual_clips()[0].text_layers.len(), 2);
+        assert_eq!(s.project.visual_clips()[0].text_layers[1].title, "Second");
+        s.apply(Command::Split { id: "one".into(), at_ticks: 60, new_id: "two".into() }).unwrap();
+        assert_eq!(s.project.visual_clips()[0].text_layers[1].duration_ticks, 30);
+        assert_eq!(s.project.visual_clips()[1].text_layers[1].start_ticks, 0);
+        assert_eq!(s.project.visual_clips()[1].text_layers[1].duration_ticks, 30);
+        let mut bad = s.project.visual_clips()[0].clone();
+        bad.text_layers[0].size = 0.9;
+        assert!(s.apply(Command::Update { scene: bad }).is_err());
+    }
+    #[test]
+    fn migrates_legacy_music_to_an_audio_clip() {
+        let mut p = Project::default();
+        p.schema_version = 4;
+        p.tracks[0].clips.push(scene());
+        p.legacy_music = Some(MusicTrack {
+            id: "music".into(),
+            name: "Bed.mp3".into(),
+            data: "data:audio/mpeg;base64,AA==".into(),
+            volume: 0.7,
+            fade_in: 0.5,
+            fade_out: 0.5,
+            duration_seconds: 2.0,
+        });
+        p.validate().unwrap();
+        assert_eq!(p.schema_version, 7);
+        assert_eq!(p.audio.len(), 1);
+        assert_eq!(p.audio[0].start_ticks, 0);
+        assert_eq!(p.audio[0].duration_ticks, 60);
+        assert_eq!(p.audio[0].source_duration_seconds, 2.0);
+        let serialized = serde_json::to_value(&p).unwrap();
+        assert!(serialized.get("music").is_none());
+        assert_eq!(serialized["audio"][0]["name"], "Bed.mp3");
+    }
+    #[test]
+    fn accepts_local_asset_references() {
+        let mut p = Project::default();
+        let mut clip = scene();
+        clip.image = format!("pixcut-asset:{}", "a".repeat(64)).into();
+        p.tracks[0].clips.push(clip);
+        p.audio = vec![AudioClip {
+            id: "audio".into(),
+            name: "Track.wav".into(),
+            data: format!("pixcut-asset:{}", "b".repeat(64)).into(),
+            lane: 0,
+            start_ticks: 0,
+            duration_ticks: 120,
+            source_in_seconds: 0.0,
+            source_duration_seconds: 10.0,
+            volume: 0.8,
+            fade_in: 0.0,
+            fade_out: 0.0,
+        }];
+        p.validate().unwrap();
+    }
+    #[test]
     fn future_schema_is_rejected() {
         let mut p = Project::default();
-        p.schema_version = 2;
+        p.schema_version = 8;
         assert!(p.validate().is_err());
+    }
+    #[test]
+    fn migrates_legacy_seconds_to_frame_ticks() {
+        let mut p: Project = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "id": "legacy",
+            "name": "Legacy",
+            "aspect": "16:9",
+            "scenes": [{
+                "id": "one",
+                "name": "Photo",
+                "image": "data:image/png;base64,AA==",
+                "duration": 4.0,
+                "title": "",
+                "subtitle": "",
+                "color": "#ffffff",
+                "fit": "cover"
+            }],
+            "policy": { "watermark": false, "pixcut_outro": false, "privacy": "local" }
+        }))
+        .unwrap();
+        p.validate().unwrap();
+        assert_eq!(p.schema_version, 7);
+        assert_eq!(p.timebase, Timebase::default());
+        assert_eq!(p.tracks.len(), 1);
+        assert_eq!(p.tracks[0].kind, "visual");
+        assert_eq!(p.visual_clips()[0].duration_ticks, 120);
+        assert_eq!(p.visual_clips()[0].start_ticks, 0);
+        let serialized = serde_json::to_value(&p).unwrap();
+        assert!(serialized.get("scenes").is_none());
+        assert!(serialized["tracks"][0]["clips"][0].get("duration").is_none());
+        assert_eq!(serialized["tracks"][0]["clips"][0]["durationTicks"], 120);
+    }
+    #[test]
+    fn wraps_v2_scenes_into_a_visual_track() {
+        let mut p: Project = serde_json::from_value(serde_json::json!({
+            "schema_version": 2,
+            "id": "v2",
+            "name": "V2",
+            "aspect": "16:9",
+            "timebase": { "numerator": 1, "denominator": 30 },
+            "scenes": [
+                { "id": "one", "name": "Photo", "image": "data:image/png;base64,AA==", "durationTicks": 120, "title": "", "subtitle": "", "color": "#ffffff", "fit": "cover" },
+                { "id": "two", "name": "Photo", "image": "data:image/png;base64,AA==", "durationTicks": 60, "title": "", "subtitle": "", "color": "#ffffff", "fit": "cover" }
+            ],
+            "policy": { "watermark": false, "pixcut_outro": false, "privacy": "local" }
+        }))
+        .unwrap();
+        p.validate().unwrap();
+        assert_eq!(p.schema_version, 7);
+        assert_eq!(p.tracks.len(), 1);
+        assert_eq!(p.tracks[0].kind, "visual");
+        assert_eq!(p.visual_clips()[0].start_ticks, 0);
+        assert_eq!(p.visual_clips()[1].start_ticks, 120);
+    }
+    #[test]
+    fn move_recomputes_clip_starts() {
+        let mut s = Session::default();
+        s.apply(Command::Add {
+            scenes: vec![scene()],
+        })
+        .unwrap();
+        let mut second = scene();
+        second.id = "two".into();
+        second.duration_ticks = 60;
+        s.apply(Command::Add { scenes: vec![second] }).unwrap();
+        s.apply(Command::Move {
+            id: "two".into(),
+            offset: -1,
+        })
+        .unwrap();
+        assert_eq!(s.project.visual_clips()[0].id, "two");
+        assert_eq!(s.project.visual_clips()[0].start_ticks, 0);
+        assert_eq!(s.project.visual_clips()[1].start_ticks, 60);
     }
     #[test]
     fn split_preserves_timing_and_is_undoable() {
@@ -411,18 +1568,20 @@ mod tests {
         .unwrap();
         s.apply(Command::Split {
             id: "one".into(),
-            at: 1.5,
+            at_ticks: 45,
             new_id: "two".into(),
         })
         .unwrap();
-        assert_eq!(s.project.scenes.len(), 2);
-        assert_eq!(s.project.scenes[0].duration, 1.5);
-        assert_eq!(s.project.scenes[1].duration, 2.5);
-        assert_eq!(s.project.scenes[0].fade_out, 0.0);
-        assert_eq!(s.project.scenes[1].fade_in, 0.0);
+        assert_eq!(s.project.visual_clips().len(), 2);
+        assert_eq!(s.project.visual_clips()[0].duration_ticks, 45);
+        assert_eq!(s.project.visual_clips()[1].duration_ticks, 75);
+        assert_eq!(s.project.visual_clips()[0].start_ticks, 0);
+        assert_eq!(s.project.visual_clips()[1].start_ticks, 45);
+        assert_eq!(s.project.visual_clips()[0].fade_out, 0.0);
+        assert_eq!(s.project.visual_clips()[1].fade_in, 0.0);
         s.apply(Command::Undo).unwrap();
-        assert_eq!(s.project.scenes.len(), 1);
-        assert_eq!(s.project.scenes[0].duration, 4.0);
+        assert_eq!(s.project.visual_clips().len(), 1);
+        assert_eq!(s.project.visual_clips()[0].duration_ticks, 120);
     }
     #[test]
     fn split_rejects_thin_edges_and_duplicate_ids() {
@@ -434,25 +1593,25 @@ mod tests {
         assert!(s
             .apply(Command::Split {
                 id: "one".into(),
-                at: 0.2,
+                at_ticks: 6,
                 new_id: "two".into(),
             })
             .is_err());
         assert!(s
             .apply(Command::Split {
                 id: "one".into(),
-                at: 3.8,
+                at_ticks: 114,
                 new_id: "two".into(),
             })
             .is_err());
         assert!(s
             .apply(Command::Split {
                 id: "one".into(),
-                at: 1.5,
+                at_ticks: 45,
                 new_id: "one".into(),
             })
             .is_err());
-        assert_eq!(s.project.scenes.len(), 1);
+        assert_eq!(s.project.visual_clips().len(), 1);
     }
     #[test]
     fn duplicate_inserts_a_copy_after_the_original() {
@@ -469,10 +1628,10 @@ mod tests {
         })
         .unwrap();
         assert_eq!(
-            s.project.scenes.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            s.project.visual_clips().iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
             vec!["one", "copy", "two"]
         );
-        assert_eq!(s.project.scenes[1].name, "Test copy");
+        assert_eq!(s.project.visual_clips()[1].name, "Test copy");
     }
     #[test]
     fn batch_edits_are_atomic_and_undoable() {
@@ -495,19 +1654,19 @@ mod tests {
         })
         .unwrap();
         assert_eq!(
-            s.project.scenes.iter().map(|s| s.title.as_str()).collect::<Vec<_>>(),
+            s.project.visual_clips().iter().map(|s| s.title.as_str()).collect::<Vec<_>>(),
             vec!["A", "Hello", "C"]
         );
         s.apply(Command::RemoveMany {
             ids: vec!["one".into(), "three".into()],
         })
         .unwrap();
-        assert_eq!(s.project.scenes.len(), 1);
-        assert_eq!(s.project.scenes[0].id, "two");
+        assert_eq!(s.project.visual_clips().len(), 1);
+        assert_eq!(s.project.visual_clips()[0].id, "two");
         s.apply(Command::Undo).unwrap();
-        assert_eq!(s.project.scenes.len(), 3);
+        assert_eq!(s.project.visual_clips().len(), 3);
         assert_eq!(
-            s.project.scenes.iter().map(|s| s.title.as_str()).collect::<Vec<_>>(),
+            s.project.visual_clips().iter().map(|s| s.title.as_str()).collect::<Vec<_>>(),
             vec!["A", "Hello", "C"]
         );
     }
@@ -526,12 +1685,12 @@ mod tests {
         })
         .unwrap();
         assert_eq!(
-            s.project.scenes.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            s.project.visual_clips().iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
             vec!["one", "copy"]
         );
-        assert_eq!(s.project.scenes[1].name, "Test copy");
+        assert_eq!(s.project.visual_clips()[1].name, "Test copy");
         s.apply(Command::Undo).unwrap();
-        assert_eq!(s.project.scenes.len(), 1);
+        assert_eq!(s.project.visual_clips().len(), 1);
         assert!(s
             .apply(Command::DuplicateMany {
                 items: vec![DuplicateItem {
@@ -540,12 +1699,12 @@ mod tests {
                 }],
             })
             .is_err());
-        assert_eq!(s.project.scenes.len(), 1);
+        assert_eq!(s.project.visual_clips().len(), 1);
     }
     #[test]
     fn scene_controls_serialize_as_camel_case() {
         let value = serde_json::to_value(scene()).unwrap();
-        for key in ["fadeIn", "fadeOut", "filterIntensity", "speed", "pitch"] {
+        for key in ["fadeIn", "fadeOut", "filterIntensity", "speed", "pitch", "textBackdropOpacity", "textStrokeWidth", "textShadowBlur", "textGlowBlur", "textShadowIntensity", "textOutlineEnabled"] {
             assert!(value.get(key).is_some(), "{key} should serialize");
         }
         assert!(value.get("fade_in").is_none());
@@ -569,6 +1728,41 @@ mod tests {
         assert_eq!(parsed.fade_out, 0.5);
         assert_eq!(parsed.filter, "none");
         assert_eq!(parsed.speed, 1.0);
+    }
+    #[test]
+    fn validates_text_layout_controls() {
+        let mut p = Project::default();
+        let mut valid = scene();
+        valid.text_x = 0.2;
+        valid.text_y = 0.4;
+        valid.text_width = 0.6;
+        valid.text_align = "center".into();
+        valid.text_font = "playfair".into();
+        valid.text_font_weight = 700.0;
+        valid.text_font_style = "italic".into();
+        valid.text_size = 0.1;
+        valid.text_line_height = 1.4;
+        valid.text_letter_spacing = 0.01;
+        valid.text_rotation = 12.0;
+        valid.text_opacity = 80.0;
+        valid.text_subtitle_scale = 0.5;
+        p.tracks[0].clips.push(valid);
+        p.validate().unwrap();
+        let serialized = serde_json::to_value(&p).unwrap();
+        assert_eq!(serialized["tracks"][0]["clips"][0]["textAlign"], "center");
+        assert_eq!(serialized["tracks"][0]["clips"][0]["textFont"], "playfair");
+
+        let mut bad = Project::default();
+        let mut clip = scene();
+        clip.text_x = 2.0;
+        bad.tracks[0].clips.push(clip);
+        assert!(bad.validate().is_err());
+
+        let mut bad_align = Project::default();
+        let mut clip = scene();
+        clip.text_align = "justify".into();
+        bad_align.tracks[0].clips.push(clip);
+        assert!(bad_align.validate().is_err());
     }
     #[test]
     fn batch_command_tags_deserialize_from_camel_case() {
@@ -597,6 +1791,21 @@ mod tests {
             }
             _ => panic!("expected duplicateMany"),
         }
+        let split: Command = serde_json::from_value(serde_json::json!({
+            "type": "split",
+            "id": "one",
+            "atTicks": 45,
+            "newId": "two"
+        }))
+        .unwrap();
+        match split {
+            Command::Split { id, at_ticks, new_id } => {
+                assert_eq!(id, "one");
+                assert_eq!(at_ticks, 45);
+                assert_eq!(new_id, "two");
+            }
+            _ => panic!("expected split"),
+        }
     }
     #[test]
     fn rejects_invalid_color_controls_speed_and_fades() {
@@ -616,7 +1825,31 @@ mod tests {
         let mut bad_fade = scene();
         bad_fade.fade_in = 5.0;
         assert!(s.apply(Command::Add { scenes: vec![bad_fade] }).is_err());
-        assert!(s.project.scenes.is_empty());
+        let mut bad_backdrop = scene();
+        bad_backdrop.text_backdrop_opacity = 101.0;
+        assert!(s.apply(Command::Add { scenes: vec![bad_backdrop] }).is_err());
+        let mut bad_stroke = scene();
+        bad_stroke.text_stroke_color = "red".into();
+        assert!(s.apply(Command::Add { scenes: vec![bad_stroke] }).is_err());
+        let mut bad_shadow = scene();
+        bad_shadow.text_shadow_offset_y = 41.0;
+        assert!(s.apply(Command::Add { scenes: vec![bad_shadow] }).is_err());
+        let mut bad_zoom = scene();
+        bad_zoom.image_zoom = 9.0;
+        assert!(s.apply(Command::Add { scenes: vec![bad_zoom] }).is_err());
+        let mut bad_pan = scene();
+        bad_pan.image_x = 2.0;
+        assert!(s.apply(Command::Add { scenes: vec![bad_pan] }).is_err());
+        let mut bad_letterbox = scene();
+        bad_letterbox.framing_background = "black".into();
+        assert!(s.apply(Command::Add { scenes: vec![bad_letterbox] }).is_err());
+        let mut bad_glow_color = scene();
+        bad_glow_color.text_glow_color = "white".into();
+        assert!(s.apply(Command::Add { scenes: vec![bad_glow_color] }).is_err());
+        let mut bad_glow_intensity = scene();
+        bad_glow_intensity.text_glow_intensity = 101.0;
+        assert!(s.apply(Command::Add { scenes: vec![bad_glow_intensity] }).is_err());
+        assert!(s.project.visual_clips().is_empty());
     }
     #[test]
     fn split_clamps_fades_to_the_new_durations() {
@@ -627,15 +1860,15 @@ mod tests {
         s.apply(Command::Add { scenes: vec![fading] }).unwrap();
         s.apply(Command::Split {
             id: "one".into(),
-            at: 2.0,
+            at_ticks: 60,
             new_id: "two".into(),
         })
         .unwrap();
-        assert_eq!(s.project.scenes[0].duration, 2.0);
-        assert_eq!(s.project.scenes[0].fade_in, 2.0);
-        assert_eq!(s.project.scenes[0].fade_out, 0.0);
-        assert_eq!(s.project.scenes[1].duration, 2.0);
-        assert_eq!(s.project.scenes[1].fade_in, 0.0);
-        assert_eq!(s.project.scenes[1].fade_out, 2.0);
+        assert_eq!(s.project.visual_clips()[0].duration_ticks, 60);
+        assert_eq!(s.project.visual_clips()[0].fade_in, 2.0);
+        assert_eq!(s.project.visual_clips()[0].fade_out, 0.0);
+        assert_eq!(s.project.visual_clips()[1].duration_ticks, 60);
+        assert_eq!(s.project.visual_clips()[1].fade_in, 0.0);
+        assert_eq!(s.project.visual_clips()[1].fade_out, 2.0);
     }
 }

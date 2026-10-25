@@ -8,3 +8,6 @@ target/
 backups/
 artifacts/
 template-assets/
+
+# Local signing keys and passwords
+.secrets/

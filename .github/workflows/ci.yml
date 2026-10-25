@@ -1,8 +1,17 @@
 name: ci
+
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   site:
@@ -31,7 +40,62 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop -> desktop/target
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
+      - run: node scripts/version.mjs check
+      - run: cargo test -p pixcut-project
       - run: cargo check -p pixcut-project
+
+  security:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      # The three zip advisories affect ZipArchive::extract() only. PixCut reads
+      # .pixcut entries with by_name and writes them with ZipWriter; it never
+      # extracts a ZIP. The updater's archive is signature-verified. Drop these
+      # ignores once tauri-plugin-updater ships zip >= 9.
+      - run: >-
+          cargo audit
+          --ignore RUSTSEC-2026-0367
+          --ignore RUSTSEC-2026-0368
+          --ignore RUSTSEC-2026-0369
+
+  # Bundling is the step that breaks independently of tests. Exercise it on
+  # main and on demand, without spending macOS/Windows minutes on every PR.
+  desktop-package:
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, bundles: app }
+          - { os: windows-latest, bundles: nsis }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop -> desktop/target
+      - run: npm ci
+      - name: Bundle without updater signing
+        run: npm run tauri -- build --debug --bundles ${{ matrix.bundles }} --config src-tauri/tauri.ci.conf.json

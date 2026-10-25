@@ -3,7 +3,7 @@ import { applyColorGrade, filterLook, hasColorGrade } from '../src/components/pr
 import type { Scene } from '../src/stores/model';
 
 const scene = (patch: Partial<Scene> = {}): Scene => ({
-  id: 'a', name: 'Photo', image: 'data:image/png;base64,AA==', duration: 4,
+  id: 'a', startTicks: 0, sourceInTicks: 0, name: 'Photo', image: 'data:image/png;base64,AA==', durationTicks: 120,
   title: '', subtitle: '', color: '#ffffff', fit: 'cover', ...patch,
 });
 

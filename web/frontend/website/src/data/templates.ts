@@ -4,7 +4,6 @@ export interface Template {
   category: string;
   format: string;
   duration: number;
-  free: boolean;
   popularity: number;
   languages: string[];
   image: string;
@@ -23,7 +22,6 @@ export const templates: Template[] = [
     category: 'Travel',
     format: '16:9',
     duration: 30,
-    free: true,
     popularity: 94,
     languages: ['EN'],
     image: '/images/travel.jpg',
@@ -40,7 +38,6 @@ export const templates: Template[] = [
     category: 'Social',
     format: '9:16',
     duration: 40,
-    free: true,
     popularity: 91,
     languages: ['EN'],
     image: '/images/vlog.jpg',
@@ -57,7 +54,6 @@ export const templates: Template[] = [
     category: 'Business',
     format: '4:5',
     duration: 12,
-    free: true,
     popularity: 86,
     languages: ['EN'],
     image: '/images/product.jpg',
@@ -74,7 +70,6 @@ export const templates: Template[] = [
     category: 'Birthday',
     format: '1:1',
     duration: 15,
-    free: true,
     popularity: 78,
     languages: ['EN'],
     image: '/images/birthday.jpg',
@@ -91,7 +86,6 @@ export const templates: Template[] = [
     category: 'Family',
     format: '16:9',
     duration: 20,
-    free: true,
     popularity: 83,
     languages: ['EN'],
     image: '/images/family.jpg',
@@ -108,7 +102,6 @@ export const templates: Template[] = [
     category: 'Wedding',
     format: '16:9',
     duration: 45,
-    free: true,
     popularity: 89,
     languages: ['EN'],
     image: '/images/wedding.jpg',
@@ -125,7 +118,6 @@ export const templates: Template[] = [
     category: 'Holiday',
     format: '1:1',
     duration: 18,
-    free: true,
     popularity: 72,
     languages: ['EN'],
     image: '/images/holiday.jpg',
@@ -142,7 +134,6 @@ export const templates: Template[] = [
     category: 'Business',
     format: '16:9',
     duration: 25,
-    free: true,
     popularity: 81,
     languages: ['EN'],
     image: '/images/business.jpg',

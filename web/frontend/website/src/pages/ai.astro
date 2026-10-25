@@ -15,7 +15,7 @@ const features = [
 const modes = [
   { name: 'Local model', where: 'Your machine', privacy: 'Nothing leaves the device', setup: 'Install a supported local runtime', tone: 'pill-ok' },
   { name: 'Bring your own key', where: 'Your provider account', privacy: 'You control the provider and its retention', setup: 'Paste an API key in settings', tone: 'pill-accent' },
-  { name: 'Not included', where: 'No hosted PixCut service', privacy: 'The open-source build has no PixCut account', setup: 'Use local or BYOK', tone: 'pill-neutral' },
+  { name: 'Not included', where: 'No hosted PixCut service', privacy: 'PixCut has no account', setup: 'Use local or BYOK', tone: 'pill-neutral' },
 ];
 ---
 
@@ -24,7 +24,7 @@ const modes = [
     <div class="container">
       <span class="eyebrow">AI</span>
       <h1>Optional AI.<br /><span class="gradient-text">On your terms.</span></h1>
-      <p class="lede">AI features are off by default. The open-source build has no hosted PixCut service: run a local model or connect your own provider account.</p>
+      <p class="lede">AI features are off by default. PixCut has no hosted service: run a local model or connect your own provider account.</p>
       <div class="hero-actions" style="margin-top:1.5rem;">
         <a class="btn btn-primary" href="/download"><Icon name="download" size={17} /> Download PixCut</a>
         <a class="btn btn-secondary" href="/roadmap"><Icon name="trending" size={17} /> See the roadmap</a>
@@ -90,7 +90,7 @@ const modes = [
       </div>
       <div class="card">
         <h3>What about a hosted PixCut service?</h3>
-        <p>It is not part of this project. The open-source build has no hosted account, credits or PixCut-operated inference service.</p>
+        <p>It is not part of this project. PixCut has no hosted account, credits or PixCut-operated inference service.</p>
         <p class="small muted">If someone builds a hosted service on top of PixCut, it is their responsibility to explain pricing, data processing and retention.</p>
         <a class="link-arrow" href={GITHUB_URL} rel="noreferrer">View the source <Icon name="external" size={13} /></a>
       </div>

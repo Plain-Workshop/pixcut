@@ -281,20 +281,6 @@ main { display: block; }
 .form-status.ok { color: var(--green); }
 .form-status.err { color: var(--danger); }
 
-/* Pricing */
-.price-card { position: relative; padding: 2rem; }
-.price-card.popular { border-color: rgba(155, 108, 255, 0.58); background: linear-gradient(180deg, rgba(124, 77, 255, 0.15), var(--card) 48%); box-shadow: 0 24px 80px rgba(124, 77, 255, 0.18); }
-.price-popular { position: absolute; top: -0.7rem; right: 1.4rem; background: var(--gradient); color: #fff; font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; padding: 0.24rem 0.6rem; border-radius: 6px; }
-.price { display: flex; align-items: baseline; gap: 0.35rem; margin: 1.25rem 0 0.2rem; }
-.price strong { font-size: 3rem; letter-spacing: -0.06em; line-height: 1; }
-.price span { color: var(--muted); font-size: 0.9rem; }
-.plan-list { list-style: none; padding: 0; margin: 1.3rem 0; display: grid; gap: 0.62rem; }
-.plan-list li { display: flex; gap: 0.5rem; align-items: flex-start; color: var(--muted); font-size: 0.9rem; }
-.plan-list svg { color: var(--green); flex: none; margin-top: 0.2rem; }
-.toggle { display: inline-flex; background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 0.22rem; gap: 0.15rem; }
-.toggle button { border: 0; background: transparent; color: var(--muted); padding: 0.4rem 0.9rem; border-radius: 999px; cursor: pointer; font-size: 0.84rem; font-weight: 700; }
-.toggle button.active { background: var(--accent); color: #170b2f; }
-
 /* Download */
 .os-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
 .os-card { display: flex; flex-direction: column; gap: 1.1rem; }
@@ -404,7 +390,6 @@ main { display: block; }
   .hero-float { display: none; }
   .brand img { width: 168px; }
   .footer-grid { grid-template-columns: 1fr; gap: 1.6rem; }
-  .price-card { padding: 1.5rem; }
 }
 
 /* Home and page extras */

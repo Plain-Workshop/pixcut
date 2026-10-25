@@ -1,0 +1,48 @@
+export type FontOption = {
+  id: string;
+  label: string;
+  family: string;
+  category: 'Sans' | 'Serif' | 'Display' | 'Handwritten';
+  weights: number[];
+  italic: boolean;
+};
+
+export const FONTS: FontOption[] = [
+  { id: 'inter', label: 'Inter', family: "'Inter Variable', Inter, system-ui, sans-serif", category: 'Sans', weights: [300, 400, 500, 600, 700, 800, 900], italic: true },
+  { id: 'space-grotesk', label: 'Space Grotesk', family: "'Space Grotesk Variable', Inter, system-ui, sans-serif", category: 'Sans', weights: [300, 400, 500, 600, 700], italic: false },
+  { id: 'dm-sans', label: 'DM Sans', family: "'DM Sans Variable', Inter, system-ui, sans-serif", category: 'Sans', weights: [300, 400, 500, 600, 700, 800, 900], italic: true },
+  { id: 'playfair', label: 'Playfair Display', family: "'Playfair Display Variable', Georgia, serif", category: 'Serif', weights: [400, 500, 600, 700, 800, 900], italic: true },
+  { id: 'libre-baskerville', label: 'Libre Baskerville', family: "'Libre Baskerville', Georgia, serif", category: 'Serif', weights: [400, 700], italic: true },
+  { id: 'bebas-neue', label: 'Bebas Neue', family: "'Bebas Neue', 'Arial Narrow', sans-serif", category: 'Display', weights: [400], italic: false },
+  { id: 'archivo-black', label: 'Archivo Black', family: "'Archivo Black', 'Arial Black', sans-serif", category: 'Display', weights: [400], italic: false },
+  { id: 'caveat', label: 'Caveat', family: "'Caveat Variable', 'Segoe Script', cursive", category: 'Handwritten', weights: [400, 500, 600, 700], italic: false },
+];
+
+export const FONT_CATEGORIES = ['All', 'Sans', 'Serif', 'Display', 'Handwritten'] as const;
+
+export const DEFAULT_FONT_ID = 'inter';
+export const DEFAULT_TEXT_SIZE = 0.068;
+export const DEFAULT_TEXT_X = 0.09;
+export const DEFAULT_TEXT_Y = 0.78;
+export const DEFAULT_TEXT_WIDTH = 0.82;
+export const DEFAULT_TEXT_WEIGHT = 600;
+export const DEFAULT_TEXT_LINE_HEIGHT = 1.2;
+export const DEFAULT_TEXT_SUBTITLE_SCALE = 0.4;
+
+export function fontOption(id: string | undefined) {
+  return FONTS.find(font => font.id === id) ?? FONTS[0];
+}
+
+export function fontFamily(id: string | undefined) {
+  return fontOption(id).family;
+}
+
+export function fontWeights(id: string | undefined) {
+  return fontOption(id).weights;
+}
+
+export function clampWeight(weight: number | undefined, id: string | undefined) {
+  const weights = fontWeights(id);
+  const target = weight ?? DEFAULT_TEXT_WEIGHT;
+  return weights.reduce((best, value) => Math.abs(value - target) < Math.abs(best - target) ? value : best, weights[0]);
+}

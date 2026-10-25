@@ -1,15 +1,17 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { edit, emptyProject, validateProject, type Command, type Project, type Session } from '../stores/model';
+import { hydrateProjectAssets, persistProjectAssets } from '../stores/assets';
 export const native = isTauri();
 let current = emptyProject();
 let past: Project[] = [], future: Project[] = [];
 function view(): Session { return { project: current, canUndo: past.length > 0, canRedo: future.length > 0 }; }
 async function database() { return new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open('pixcut-local', 1); request.onupgradeneeded = () => request.result.createObjectStore('projects'); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
-async function persist(project: Project) { const db = await database(); try { await new Promise<void>((resolve, reject) => { const tx = db.transaction('projects', 'readwrite'); tx.objectStore('projects').put(project, 'recovery'); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error); }); } finally { db.close(); } }
+async function persist(project: Project) { const persisted = await persistProjectAssets(project); const db = await database(); try { await new Promise<void>((resolve, reject) => { const tx = db.transaction('projects', 'readwrite'); tx.objectStore('projects').put(persisted, 'recovery'); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error); }); } finally { db.close(); } }
 export async function initialize(): Promise<Session> {
   if (native) return invoke('initialize');
   const db = await database();
-  try { const saved = await new Promise<unknown>((resolve, reject) => { const req = db.transaction('projects').objectStore('projects').get('recovery'); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); }); if (saved) current = validateProject(saved); } finally { db.close(); }
+  try { const saved = await new Promise<unknown>((resolve, reject) => { const req = db.transaction('projects').objectStore('projects').get('recovery'); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); }); if (saved) { const validated = validateProject(saved); const persisted = await persistProjectAssets(validated); current = await hydrateProjectAssets(persisted); const legacy = (saved as { schema_version?: number }).schema_version !== 7 || JSON.stringify(persisted) !== JSON.stringify(validated); if (legacy) await persist(current); } } finally { db.close(); }
   return view();
 }
 export async function dispatch(command: Command): Promise<Session> {
@@ -21,11 +23,73 @@ export async function dispatch(command: Command): Promise<Session> {
   await persist(next); current = next; past = nextPast; future = nextFuture;
   return view();
 }
-export async function saveProject(project: Project): Promise<boolean> {
-  if (native) return invoke('save_project');
+function downloadProject(project: Project) {
   const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${project.name.replace(/[^\p{L}\p{N} _-]/gu, '') || 'Project'}.pixcut.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); return true;
 }
+export async function saveProject(project: Project): Promise<boolean> {
+  if (native) return invoke('save_project');
+  return downloadProject(project);
+}
+export async function exportProjectFile(project: Project): Promise<boolean> {
+  if (native) return invoke('save_project_file', { project });
+  return downloadProject(project);
+}
+export function onProjectOpened(handler: () => void): Promise<UnlistenFn> | null {
+  return native ? listen('project-opened', handler) : null;
+}
+export async function takePendingProject(): Promise<Session | null> {
+  return native ? invoke('take_pending_project') : null;
+}
 export async function openProject(): Promise<Session | null> { return invoke('open_project'); }
 export async function exporterAvailable(): Promise<boolean> { return native ? invoke('exporter_available') : false; }
-export async function exportMovie(projectId: string, frames: string[]): Promise<string | null> { return invoke('export_movie', { projectId, frames }); }
+export type PickedMedia = { name: string; mime: string; data: string };
+export async function pickMedia(kind: 'image' | 'audio' | 'video'): Promise<PickedMedia[] | null> { return native ? invoke('pick_media', { kind }) : null; }
+export type ExportOptions = { width: number; height: number; fps: number; crf: number; filename: string };
+export type ExportJob = { frames: string[]; durations: number[]; options: ExportOptions };
+export async function exportMovie(projectId: string, frames: string[], durations: number[], options: ExportOptions): Promise<string | null> { return invoke('export_movie', { projectId, frames, durations, options }); }
+export async function exportVariants(projectId: string, jobs: ExportJob[]): Promise<string[]> { return invoke('export_variants', { projectId, jobs }); }
+export async function cancelExport(): Promise<void> { if (native) await invoke('cancel_export'); }
+export function onExportProgress(handler: (percent: number) => void): Promise<UnlistenFn> | null { return native ? listen<number>('export-progress', event => handler(event.payload)) : null; }
+
+export type UpdateInfo = { version: string; currentVersion: string; notes: string; date: string | null };
+type PendingUpdate = Awaited<ReturnType<typeof import('@tauri-apps/plugin-updater')['check']>>;
+let pendingUpdate: PendingUpdate = null;
+
+export async function appVersion(): Promise<string | null> {
+  if (!native) return null;
+  const { getVersion } = await import('@tauri-apps/api/app');
+  return getVersion();
+}
+
+export async function checkForUpdate(): Promise<UpdateInfo | null> {
+  if (!native) throw new Error('Updates are available in the desktop app.');
+  const { check } = await import('@tauri-apps/plugin-updater');
+  pendingUpdate = await check();
+  if (!pendingUpdate) return null;
+  const update = pendingUpdate;
+  return { version: update.version, currentVersion: update.currentVersion, notes: update.body ?? '', date: update.date ?? null };
+}
+
+export async function installUpdate(onProgress: (percent: number) => void): Promise<void> {
+  if (!native) throw new Error('Updates are available in the desktop app.');
+  if (!pendingUpdate) {
+    const { check } = await import('@tauri-apps/plugin-updater');
+    pendingUpdate = await check();
+  }
+  if (!pendingUpdate) throw new Error('PixCut is already up to date.');
+  const update = pendingUpdate;
+  let total = 0, received = 0;
+  await update.downloadAndInstall(event => {
+    if (event.event === 'Started') { total = event.data.contentLength ?? 0; received = 0; onProgress(0); }
+    else if (event.event === 'Progress') { received += event.data.chunkLength; onProgress(total ? Math.min(99, Math.round((received / total) * 100)) : 50); }
+    else if (event.event === 'Finished') onProgress(100);
+  });
+  pendingUpdate = null;
+}
+
+export async function restartToUpdate(): Promise<void> {
+  if (!native) throw new Error('Restart is available in the desktop app.');
+  const { relaunch } = await import('@tauri-apps/plugin-process');
+  await relaunch();
+}

@@ -50,7 +50,6 @@ import { templates, categories } from '../data/templates';
             data-id={template.id}
             data-category={template.category}
             data-format={template.format}
-            data-free={String(template.free)}
             data-duration={template.duration}
             data-name={template.name}
             data-popularity={template.popularity}
@@ -83,7 +82,7 @@ import { templates, categories } from '../data/templates';
       <div>
         <span class="eyebrow">How templates work</span>
         <h2 class="section-title">Pick a starting point. Keep your voice.</h2>
-        <p class="section-copy">Every template is a normal PixCut project: editable scenes, text, music and effects. Every template is free to use, edit and share under its listed content license.</p>
+        <p class="section-copy">Every template is a normal PixCut project: editable scenes, text, music and effects. Every template is included, and you can use, edit and share it under its listed content license.</p>
         <ul class="feature-list" style="margin-top:1.4rem;">
           <li><Icon name="check" size={16} /> All templates open in the desktop app</li>
           <li><Icon name="check" size={16} /> Every template exports without a watermark</li>
@@ -119,7 +118,7 @@ import { templates, categories } from '../data/templates';
       <a class="btn btn-secondary" href="/download"><Icon name="download" size={17} /> Download app</a>
     </div>
     <p id="template-launch-status" class="form-note" role="status" hidden></p>
-    <p class="form-note">Opening a template requires a recent PixCut build. All templates are free.</p>
+    <p class="form-note">Opening a template requires a recent PixCut build. All templates are included.</p>
   </dialog>
 
   <script type="application/json" id="template-json" set:html={JSON.stringify(templates)}></script>

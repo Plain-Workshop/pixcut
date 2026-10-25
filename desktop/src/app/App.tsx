@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
@@ -25,11 +26,14 @@ import {
   LoaderCircle,
   Magnet,
   Maximize2,
+  MoreHorizontal,
   Music,
   Pause,
+  Pencil,
   Play,
   Plus,
   Redo2,
+  RefreshCw,
   Save,
   Scissors,
   Search,
@@ -37,12 +41,15 @@ import {
   Shapes,
   SkipBack,
   Sparkles,
+  Star,
   Trash2,
   Type,
   Undo2,
   Upload,
   WifiOff,
   X,
+  ZoomIn,
+  ZoomOut,
   Zap,
 } from 'lucide-react';
 import { Brand } from '../components/BrandLogo';
@@ -52,8 +59,16 @@ import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import { ShortcutSettings } from '../components/shortcuts/ShortcutSettings';
 import * as bridge from './bridge';
-import { emptyProject, sceneAt, scenePatch, timecode, totalDuration, validateProject, type Command, type Project, type Scene, type ScenePatchKey, type Session } from '../stores/model';
-import { demoImage, demoScenes, dimensions, drawScene, fadeOpacity, loadImage } from '../components/preview/render';
+import { MAX_AUDIO_FILE_BYTES, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type TransitionType, type SceneFormatOverride, type FormatVariant } from '../stores/model';
+import { drawScene, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
+import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers, sceneTextTitle } from '../components/text/layers';
+import { clampWeight, fontOption } from '../components/text/fonts';
+import { FILTERS } from '../components/preview/filters';
+import { FORMAT_PRESETS, createCustomFormat, createFormat, formatSize, resolveSceneForFormat, resolveScenesForFormat } from '../stores/formats';
+import { errorTitle, isImageFile, messageFor } from './errors';
+import { deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, listProjects, projectThumbnail, renameProjectGroup, saveLibraryProject, setProjectFavorite, setProjectGroup, type ProjectSummary } from '../stores/library';
+import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from '../stores/preferences';
+import { SAMPLE_TEMPLATE, TEMPLATES, buildTemplateProject, templatePreview, type TemplateDefinition } from '../templates/catalog';
 import {
   COMMANDS,
   bindingMatchesEvent,
@@ -68,36 +83,167 @@ import {
 import '../styles/styles.css';
 
 const INITIAL: Session = { project: emptyProject(), canUndo: false, canRedo: false };
-const TEMPLATE_NAMES = ['Travel', 'Family', 'Birthday', 'Product', 'Social'];
 const AVAILABLE: CommandAvailability = { disabled: false };
 const HINTS_KEY = 'pixcut-hints-dismissed';
 const RANGE_NAVIGATION_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
+const TEMPLATE_CATEGORIES = ['All', 'Travel', 'Family', 'Birthday', 'Product', 'Social'] as const;
+const EXPORT_QUALITY_CRF: Record<'draft' | 'standard' | 'high', number> = { draft: 28, standard: 23, high: 18 };
+const RELEASES_URL = 'https://github.com/Plain-Workshop/pixcut/releases/latest';
+const TRANSITION_OPTIONS: { id: TransitionType; label: string; description: string }[] = [
+  { id: 'none', label: 'Hard cut', description: 'No transition' },
+  { id: 'fade', label: 'Crossfade', description: 'Smooth dissolve' },
+  { id: 'slide', label: 'Slide', description: 'Push to next' },
+  { id: 'wipe', label: 'Wipe', description: 'Reveal across' },
+  { id: 'zoom', label: 'Zoom', description: 'Push and blend' },
+];
+
+function sortProjects(items: ProjectSummary[]) {
+  return [...items].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function relativeTime(timestamp: number) {
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)} h ago`;
+  if (seconds < 604_800) return `${Math.floor(seconds / 86_400)} d ago`;
+  return new Date(timestamp).toLocaleDateString();
+}
+
+function imageFileData(file: File): Promise<string> {
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    return Promise.reject(new Error(`“${file.name}” is not a JPEG, PNG, or WebP image. Choose one of those formats.`));
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    return Promise.reject(new Error(`“${file.name}” is larger than 10 MB. Choose a smaller image.`));
+  }
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
+function audioMime(file: File) {
+  const type = file.type.toLowerCase();
+  if (type === 'audio/mpeg' || type === 'audio/mp3') return 'audio/mpeg';
+  if (type === 'audio/wav' || type === 'audio/x-wav') return 'audio/wav';
+  if (type === 'audio/mp4' || type === 'audio/x-m4a') return 'audio/mp4';
+  if (type === 'audio/aac') return 'audio/aac';
+  if (type === 'audio/ogg') return 'audio/ogg';
+  if (type === 'audio/webm') return 'audio/webm';
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  if (extension === 'mp3') return 'audio/mpeg';
+  if (extension === 'wav') return 'audio/wav';
+  if (extension === 'm4a' || extension === 'mp4') return 'audio/mp4';
+  if (extension === 'aac') return 'audio/aac';
+  if (extension === 'ogg' || extension === 'oga') return 'audio/ogg';
+  if (extension === 'webm') return 'audio/webm';
+  return '';
+}
+
+function fileFromPicked(item: bridge.PickedMedia): File {
+  const payload = item.data.slice(item.data.indexOf(',') + 1);
+  const binary = atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return new File([bytes], item.name, { type: item.mime });
+}
+
+async function audioFileData(file: File) {
+  const mime = audioMime(file);
+  if (!mime) {
+    if (isImageFile(file)) throw new Error(`“${file.name}” is an image, not audio. Choose an MP3, WAV, M4A, OGG, or WebM audio file.`);
+    throw new Error(`“${file.name}” is not a supported audio file. Choose MP3, WAV, M4A, OGG, or WebM.`);
+  }
+  if (file.size > MAX_AUDIO_FILE_BYTES) throw new Error(`“${file.name}” is larger than 50 MB. Choose a shorter or smaller audio file.`);
+  const raw = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error(`“${file.name}” could not be read. Try choosing it again.`));
+    reader.readAsDataURL(file);
+  });
+  return `data:${mime};base64,${raw.slice(raw.indexOf(',') + 1)}`;
+}
+
+function audioDuration(data: string) {
+  return new Promise<number>(resolve => {
+    const audio = new Audio();
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => resolve(Number.isFinite(audio.duration) ? audio.duration : 0);
+    audio.onerror = () => resolve(0);
+    audio.src = data;
+  });
+}
+
+function formatBytes(bytes: number) {
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
 
 export default function App() {
   const [session, setSession] = useState(INITIAL), [screen, setScreen] = useState<'home' | 'editor'>('home');
   const [homeSection, setHomeSection] = useState<'home' | 'projects'>('home');
   const [ready, setReady] = useState(false), [busy, setBusy] = useState(false), [playing, setPlaying] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]), [primarySelected, setPrimarySelected] = useState<string | null>(null), [position, setPosition] = useState(0);
-  const [tab, setTab] = useState<'media' | 'text' | 'elements' | 'transitions' | 'effects' | 'audio' | 'templates'>('media'), [modal, setModal] = useState<'templates' | 'export' | 'new' | 'shortcuts' | 'palette' | 'settings' | null>(null);
+  const [tab, setTab] = useState<'media' | 'text' | 'elements' | 'transitions' | 'effects' | 'audio' | 'templates'>('media'), [modal, setModal] = useState<'templates' | 'export' | 'new' | 'shortcuts' | 'palette' | 'settings' | 'delete' | 'rename' | 'group' | 'groups' | 'formats' | null>(null);
   const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'editing' | 'shortcuts' | 'updates' | 'privacy'>('general');
+  const [appVersion, setAppVersion] = useState('0.1.0');
+  const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'>('idle');
+  const [updateInfo, setUpdateInfo] = useState<bridge.UpdateInfo | null>(null);
+  const [updateProgress, setUpdateProgress] = useState(0);
+  const [updateMessage, setUpdateMessage] = useState('');
   const [language, setLanguage] = useState(() => localStorage.getItem('pixcut-language') || 'en');
-  const [templateQuery, setTemplateQuery] = useState(''), [mediaQuery, setMediaQuery] = useState(''), [exportOutro, setExportOutro] = useState(false);
-  const [notice, setNotice] = useState(''), [error, setError] = useState(''), [exporter, setExporter] = useState(false), [exporting, setExporting] = useState(false), [status, setStatus] = useState('Saved locally');
+  const [templateQuery, setTemplateQuery] = useState(''), [mediaQuery, setMediaQuery] = useState('');
+  const [templateCategory, setTemplateCategory] = useState<'All' | TemplateDefinition['category']>('All');
+  const [templateThumbs, setTemplateThumbs] = useState<Record<string, string>>({});
+  const [pendingTemplate, setPendingTemplate] = useState<TemplateDefinition | null>(null);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]), [libraryReady, setLibraryReady] = useState(false);
+  const [projectMenu, setProjectMenu] = useState<string | null>(null), [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
+  const [renameTarget, setRenameTarget] = useState<ProjectSummary | null>(null), [renameDraft, setRenameDraft] = useState('');
+  const [groupTarget, setGroupTarget] = useState<ProjectSummary | null>(null), [groupDraft, setGroupDraft] = useState('');
+  const [groupDrafts, setGroupDrafts] = useState<Record<string, string>>({});
+  const [groupFilter, setGroupFilter] = useState<string>('all');
+  const [libraryQuery, setLibraryQuery] = useState('');
+  const [librarySort, setLibrarySort] = useState<'recent' | 'name' | 'duration'>('recent');
+  const [favoriteOnly, setFavoriteOnly] = useState(false);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [reorderId, setReorderId] = useState<string | null>(null);
+  const [audioDraft, setAudioDraft] = useState<AudioClip | null>(null);
+  const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
+  const [previewAudio, setPreviewAudio] = useState<AudioClip[] | null>(null);
+  const [previewSize, setPreviewSize] = useState<{ width: number; height: number } | null>(null);
+  const [notice, setNotice] = useState(''), [error, setError] = useState(''), [exporter, setExporter] = useState(false), [exporting, setExporting] = useState(false), [exportProgress, setExportProgress] = useState(0), [status, setStatus] = useState('Saved locally');
+  const [exportSettings, setExportSettings] = useState({ name: '', version: 'v1', includeQuality: true, includePreset: true });
+  const [cancellingExport, setCancellingExport] = useState(false);
+  const exportCancelled = useRef(false);
+  const [customFormatDraft, setCustomFormatDraft] = useState<{ name: string; width: number; height: number; fps: number; quality: 'draft' | 'standard' | 'high' }>({ name: '', width: 1080, height: 1080, fps: 30, quality: 'standard' });
+  const [newCustomFormats, setNewCustomFormats] = useState<FormatVariant[]>([]);
+  const [newProjectFps, setNewProjectFps] = useState(30);
   const [name, setName] = useState('Untitled story');
-  const [templateArt] = useState(() => [demoImage(0), demoImage(1), demoImage(2)]);
   const [editingText, setEditingText] = useState(false), [safeArea, setSafeArea] = useState(false);
   const [textDraft, setTextDraft] = useState({ title: '', subtitle: '' });
+  const [selectedTextLayerId, setSelectedTextLayerId] = useState<string | null>(null);
+  const [textFocus, setTextFocus] = useState(0);
+  const [activeFormatId, setActiveFormatId] = useState<string | null>(null);
+  const [newFormatIds, setNewFormatIds] = useState<string[]>(['youtube-video']);
+  const [exportFormatIds, setExportFormatIds] = useState<string[]>([]);
+  const [framingMode, setFramingMode] = useState(false);
+  const [, setFontTick] = useState(0);
   const [previewScene, setPreviewScene] = useState<Scene | null>(null);
   const [propertyClipboard, setPropertyClipboard] = useState<Partial<Scene> | null>(null);
   const [platform] = useState(detectPlatform);
   const [shortcuts, setShortcuts] = useState<ShortcutSettingsData>(() => loadShortcutSettings(platform));
   const [shortcutDirty, setShortcutDirty] = useState(false);
-  const [showHints, setShowHints] = useState(() => { try { return localStorage.getItem(HINTS_KEY) !== '1'; } catch { return true; } });
-  const [snapping, setSnapping] = useState(true), [playDirection, setPlayDirection] = useState<1 | -1>(1);
+  const [showHints, setShowHints] = useState(() => loadPreferences().showHints && (() => { try { return localStorage.getItem(HINTS_KEY) !== '1'; } catch { return true; } })());
+  const [preferences, setPreferences] = useState<Preferences>(loadPreferences);
+  const [storageLabel, setStorageLabel] = useState('Checking local storage…');
+  const [snapping, setSnapping] = useState(() => loadPreferences().snapping), [playDirection, setPlayDirection] = useState<1 | -1>(1);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [fadeDrag, setFadeDrag] = useState<{ sceneId: string; side: 'in' | 'out'; value: number } | null>(null);
   const [layout, setLayout] = useState(() => { try { return JSON.parse(localStorage.getItem('pixcut-layout') || '{}'); } catch { return {}; } });
   const libraryWidth = layout.libraryWidth ?? 280, inspectorWidth = layout.inspectorWidth ?? 288, timelineHeight = layout.timelineHeight ?? 282;
+  const timelineZoom = Math.min(6, Math.max(1, Number(layout.timelineZoom) || 1));
 
   function beginResize(kind: 'library' | 'inspector' | 'timeline', start: number, coord: number) {
     const onMove = (e: PointerEvent) => {
@@ -116,40 +262,303 @@ export default function App() {
     window.addEventListener('pointerup', onUp);
   }
 
+  function changeTimelineZoom(value: number) {
+    const next = Math.min(6, Math.max(1, Math.round(value * 4) / 4));
+    setLayout((current: any) => {
+      const updated = { ...current, timelineZoom: next };
+      try { localStorage.setItem('pixcut-layout', JSON.stringify(updated)); } catch { /* optional */ }
+      return updated;
+    });
+  }
+
+  useEffect(() => {
+    const element = timelineScroll.current;
+    if (!element) return;
+    const ratio = duration > 0 ? position / duration : 0;
+    const frame = requestAnimationFrame(() => { element.scrollLeft = Math.max(0, ratio * element.scrollWidth - element.clientWidth * .45); });
+    return () => cancelAnimationFrame(frame);
+  }, [timelineZoom]);
+
   const pending = useRef<Promise<boolean>>(Promise.resolve(true)), latestProject = useRef(INITIAL.project);
-  const mediaInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null), preview = useRef<HTMLCanvasElement>(null), operation = useRef(false);
-  const sceneQueue = useRef<Command[]>([]), offscreen = useRef<HTMLCanvasElement | null>(null);
+  const mediaInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null), replaceInput = useRef<HTMLInputElement>(null), audioInput = useRef<HTMLInputElement>(null), preview = useRef<HTMLCanvasElement>(null), audioElements = useRef<Map<string, HTMLAudioElement>>(new Map()), previewArea = useRef<HTMLDivElement>(null), previewStage = useRef<HTMLDivElement>(null), operation = useRef(false);
+  const replaceTargetId = useRef<string | null>(null), inspectorFlush = useRef<() => void>(() => {}), audioDraftRef = useRef<AudioClip | null>(null), audioLaneRef = useRef(0);
+  const sceneQueue = useRef<Command[]>([]), offscreen = useRef<HTMLCanvasElement | null>(null), timelineScroll = useRef<HTMLDivElement>(null);
   const positionRef = useRef(0), closeModalRef = useRef<() => void>(() => {}), commandRef = useRef<(id: string) => void>(() => {});
-  const selectionAnchor = useRef<string | null>(null);
+  const selectionAnchor = useRef<string | null>(null), reorderRef = useRef<string | null>(null);
   const project = session.project, duration = totalDuration(project);
+  const scenes = projectScenes(project);
+  const activeFormat = project.formats.find(format => format.id === activeFormatId) ?? project.formats[0];
+  const activeSize = formatSize(activeFormat);
+  const displayAspect = project.aspect;
+  const audioClips = previewAudio ?? project.audio;
+  const audio = audioClips.map(clip => audioDraft?.id === clip.id ? audioDraft : clip);
+  const selectedAudio = audioDraft ?? audio.find(clip => clip.id === selectedAudioId) ?? audio[0] ?? null;
+  const audioLanes = Array.from({ length: Math.max(1, ...audio.map(clip => clip.lane ?? 0)) + 1 }, (_, lane) => lane);
+  const projectTicks = totalTicks(project);
+  const timelineRatio = duration > 0 ? Math.min(1, Math.max(0, position / duration)) : 0;
+  const frameSeconds = secondsPerTick(project.timebase);
   const activeInfo = sceneAt(project, position), active = activeInfo?.scene, activeStart = activeInfo?.start ?? 0;
   const selectedScenes = selectedIds.length
-    ? selectedIds.map(id => project.scenes.find(scene => scene.id === id)).filter((scene): scene is Scene => Boolean(scene))
+    ? selectedIds.map(id => scenes.find(scene => scene.id === id)).filter((scene): scene is Scene => Boolean(scene))
     : active ? [active] : [];
   const primaryScene = primarySelected ? selectedScenes.find(scene => scene.id === primarySelected) : undefined;
   const selectedScene = primaryScene ?? selectedScenes.at(-1) ?? active;
   const selectedCount = selectedScenes.length;
   const isSelected = (id: string) => selectedIds.includes(id);
   const previewTarget = previewScene ?? active;
-  const filteredScenes = project.scenes.filter(s => s.name.toLowerCase().includes(mediaQuery.trim().toLowerCase()));
+  const selectedTextLayers = selectedScene ? sceneTextLayers(selectedScene) : [];
+  const selectedTextLayer = selectedTextLayers.find(layer => layer.id === selectedTextLayerId) ?? selectedTextLayers[0] ?? null;
+  const previewLocalSeconds = previewTarget && active && previewTarget.id === active.id ? Math.max(0, position - activeStart) : 0;
+  const textBox = selectedTextLayer ? textBoxLayout(selectedTextLayer, displayAspect, activeSize) : null;
+  const selectedTextVisible = selectedTextLayer ? layerVisibleAt(selectedTextLayer, previewLocalSeconds, project.timebase) : false;
+  const textStartTicks = selectedScene ? Math.min(Math.max(0, secondsToTicks(position - ticksToSeconds(selectedScene.startTicks, project.timebase), project.timebase)), Math.max(0, selectedScene.durationTicks - 1)) : 0;
+  const activeIndex = active ? scenes.findIndex(scene => scene.id === active.id) : -1;
+  const nextScene = activeIndex >= 0 ? scenes[activeIndex + 1] : undefined;
+  const previewTransition = active?.transition && nextScene && previewTarget?.id === active.id
+    ? (() => {
+      const sceneDuration = sceneSeconds(active, project.timebase);
+      const start = Math.max(0, sceneDuration - active.transition!.duration);
+      if (previewLocalSeconds < start) return null;
+      return { type: active.transition!.type, progress: Math.min(1, (previewLocalSeconds - start) / active.transition!.duration), next: nextScene };
+    })()
+    : null;
+  const rawPreviewScene = previewScene ? scenes.find(scene => scene.id === previewScene.id) : undefined;
+  const framingStaged = Boolean(previewScene && rawPreviewScene && (previewScene.imageX !== rawPreviewScene.imageX || previewScene.imageY !== rawPreviewScene.imageY || previewScene.imageZoom !== rawPreviewScene.imageZoom || previewScene.fit !== rawPreviewScene.fit || previewScene.framingBackground !== rawPreviewScene.framingBackground));
+  const resolvedPreviewTarget = previewTarget ? resolveSceneForFormat(previewTarget, activeFormat) : null;
+  const sceneForPreview = resolvedPreviewTarget && framingStaged && previewScene ? { ...resolvedPreviewTarget, imageX: previewScene.imageX, imageY: previewScene.imageY, imageZoom: previewScene.imageZoom, fit: previewScene.fit, framingBackground: previewScene.framingBackground } : resolvedPreviewTarget;
+  const resolvedNextScene = previewTransition?.next ? resolveSceneForFormat(previewTransition.next, activeFormat) : undefined;
+  const filteredScenes = scenes.filter(s => s.name.toLowerCase().includes(mediaQuery.trim().toLowerCase()));
   const canEdit = ready && !busy && !exporting;
 
-  useEffect(() => { bridge.initialize().then(s => { setSession(s); latestProject.current = s.project; setName(s.project.name); }).catch(e => setError(`Recovery could not be loaded: ${String(e)}`)).finally(() => setReady(true)); bridge.exporterAvailable().then(setExporter).catch(() => setExporter(false)); }, []);
+  const refreshLibrary = useCallback(async () => {
+    try { setProjects(sortProjects(await listProjects())); }
+    catch (e) { setError(`Project library could not be read. ${messageFor(e)}`); }
+    finally { setLibraryReady(true); }
+  }, []);
+
+  function updatePreferences(patch: Partial<Preferences>) {
+    setPreferences(current => ({ ...current, ...patch }));
+  }
+
+  function toggleSnapping() {
+    setSnapping(value => {
+      const next = !value;
+      setPreferences(current => ({ ...current, snapping: next }));
+      return next;
+    });
+  }
+
+  function resetPreferences() {
+    setPreferences({ ...DEFAULT_PREFERENCES });
+    setSnapping(DEFAULT_PREFERENCES.snapping);
+    setShowHints(true);
+    try { localStorage.removeItem(HINTS_KEY); } catch { /* optional */ }
+    setNotice('Preferences reset to their defaults.');
+  }
+
+  function refreshStorage() {
+    setStorageLabel('Checking local storage…');
+    navigator.storage?.estimate?.().then(({ usage, quota }) => {
+      setStorageLabel(`${formatBytes(usage ?? 0)} used${quota ? ` of ${formatBytes(quota)} available` : ''}`);
+    }).catch(() => setStorageLabel('Storage usage is unavailable in this preview.'));
+  }
+
+  function recheckExporter() {
+    bridge.exporterAvailable().then(available => { setExporter(available); setNotice(available ? 'FFmpeg is ready for MP4 export.' : 'FFmpeg was not found on this device.'); }).catch(error => setError(messageFor(error)));
+  }
+
+  function updateErrorText(error: unknown) {
+    const raw = error instanceof Error ? error.message : String(error ?? '');
+    if (/fetch|network|connect|timeout|release json|status code|404|403|500/i.test(raw)) return 'Could not reach the release feed. Check your connection and try again.';
+    if (/signature|public key|verify/i.test(raw)) return 'This update could not be verified, so PixCut did not install it.';
+    return messageFor(error);
+  }
+
+  function checkForUpdates() {
+    setUpdateState('checking'); setUpdateMessage(''); setUpdateInfo(null); setUpdateProgress(0);
+    bridge.checkForUpdate()
+      .then(info => {
+        if (info) { setUpdateInfo(info); setUpdateState('available'); }
+        else { setUpdateState('idle'); setUpdateMessage('PixCut is up to date.'); }
+      })
+      .catch(error => { setUpdateState('error'); setUpdateMessage(updateErrorText(error)); });
+  }
+
+  function downloadUpdate() {
+    setUpdateState('downloading'); setUpdateProgress(0); setUpdateMessage('');
+    bridge.installUpdate(setUpdateProgress)
+      .then(() => { setUpdateState('ready'); setUpdateMessage(''); setNotice('Update downloaded. Restart PixCut to finish.'); })
+      .catch(error => { setUpdateState('error'); setUpdateMessage(updateErrorText(error)); });
+  }
+
+  function restartUpdate() {
+    bridge.restartToUpdate().catch(error => { setUpdateState('error'); setUpdateMessage(updateErrorText(error)); });
+  }
+
+  function copyDownloadLink() {
+    if (!navigator.clipboard) { setNotice(`Download the latest release from ${RELEASES_URL}`); return; }
+    navigator.clipboard.writeText(RELEASES_URL).then(() => setNotice('Download link copied.')).catch(() => setNotice(`Download the latest release from ${RELEASES_URL}`));
+  }
+
+  useEffect(() => { savePreferences(preferences); }, [preferences]);
+
+  useEffect(() => {
+    if (modal !== 'settings' || settingsTab !== 'privacy') return;
+    let cancelled = false;
+    navigator.storage?.estimate?.().then(({ usage, quota }) => {
+      if (cancelled) return;
+      setStorageLabel(`${formatBytes(usage ?? 0)} used${quota ? ` of ${formatBytes(quota)} available` : ''}`);
+    }).catch(() => { if (!cancelled) setStorageLabel('Storage usage is unavailable in this preview.'); });
+    return () => { cancelled = true; };
+  }, [modal, settingsTab]);
+
+  function diagnostics() {
+    return [
+      `PixCut Desktop ${appVersion}`,
+      `Runtime: ${bridge.native ? 'native Tauri' : 'browser preview'}`,
+      `Platform: ${platform}`,
+      `Project schema: 7`,
+      `Project: ${latestProject.current.aspect} · ${frameRate(latestProject.current.timebase).toFixed(0)} fps · ${totalDuration(latestProject.current).toFixed(1)} s`,
+      `FFmpeg: ${exporter ? 'available' : 'not found'}`,
+      `Preferences: ${preferences.compact ? 'compact' : 'comfortable'} · ${preferences.reduceMotion ? 'reduced motion' : 'full motion'} · autosave ${preferences.autosaveMs} ms`,
+    ].join('\n');
+  }
+
+  function copyDiagnostics() {
+    const text = diagnostics();
+    if (!navigator.clipboard) { setNotice('Clipboard access is unavailable in this preview.'); return; }
+    navigator.clipboard.writeText(text).then(() => setNotice('Build diagnostics copied.')).catch(error => setError(messageFor(error)));
+  }
+
+  const persistCurrent = useCallback(async () => {
+    const current = latestProject.current;
+    try {
+      const summary = await saveLibraryProject(current);
+      setProjects(list => summary
+        ? sortProjects([summary, ...list.filter(item => item.id !== summary.id)])
+        : list.filter(item => item.id !== current.id));
+    } catch { /* recovery remains the source of truth if a thumbnail cannot be drawn */ }
+  }, []);
+
+  useEffect(() => { bridge.initialize().then(s => { setSession(s); latestProject.current = s.project; setName(s.project.name); }).catch(e => setError(`Recovery could not be loaded. ${messageFor(e)}`)).finally(() => setReady(true)); bridge.exporterAvailable().then(setExporter).catch(() => setExporter(false)); bridge.appVersion().then(version => { if (version) setAppVersion(version); }).catch(() => { /* browser preview */ }); }, []);
+  useEffect(() => { const listener = bridge.onExportProgress(percent => setExportProgress(current => Math.max(current, 72 + Math.round(Math.min(99, percent) * .27)))); return () => { void listener?.then(unlisten => unlisten()); }; }, []);
+  useEffect(() => {
+    if (!bridge.native) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const adopt = () => {
+      void (async () => {
+        try {
+          await persistCurrent();
+          const next = await bridge.takePendingProject();
+          if (!disposed && next) adoptProject(next, 'Project opened from your device.');
+        } catch (e) { if (!disposed) setError(messageFor(e)); }
+      })();
+    };
+    const subscription = bridge.onProjectOpened(adopt);
+    void (async () => {
+      if (subscription) {
+        const fn = await subscription;
+        if (disposed) fn();
+        else unlisten = fn;
+      }
+      if (!disposed) adopt();
+    })();
+    return () => { disposed = true; unlisten?.(); };
+  }, [persistCurrent]);
+  useEffect(() => { void refreshLibrary(); }, [refreshLibrary]);
+  useEffect(() => { if (screen === 'home') void refreshLibrary(); }, [screen, refreshLibrary]);
+  useEffect(() => {
+    if (!ready || (screen !== 'home' && modal !== 'templates')) return;
+    let cancelled = false;
+    void (async () => {
+      for (const template of TEMPLATES) {
+        if (templateThumbs[template.id]) continue;
+        try {
+          const thumbnail = await projectThumbnail(buildTemplateProject(template));
+          if (!cancelled) setTemplateThumbs(current => current[template.id] ? current : { ...current, [template.id]: thumbnail });
+        } catch { /* the generated art remains as a fallback */ }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ready, screen, modal, templateThumbs]);
+  useEffect(() => {
+    if (!ready) return;
+    const timeout = setTimeout(() => { void persistCurrent(); }, preferences.autosaveMs);
+    return () => clearTimeout(timeout);
+  }, [project, ready, persistCurrent, preferences.autosaveMs]);
+  useEffect(() => { audioDraftRef.current = null; setAudioDraft(null); }, [project.id, selectedAudioId]);
+  useEffect(() => {
+    if (!project.audio.length) { setSelectedAudioId(null); return; }
+    setSelectedAudioId(id => id && project.audio.some(clip => clip.id === id) ? id : project.audio[0].id);
+  }, [project.audio]);
+  useEffect(() => {
+    for (const clip of audio) {
+      const element = audioElements.current.get(clip.id);
+      if (!element) continue;
+      const start = ticksToSeconds(clip.startTicks, project.timebase);
+      const length = ticksToSeconds(clip.durationTicks, project.timebase);
+      const local = position - start;
+      const active = local >= 0 && local < length;
+      if (!active) { element.pause(); continue; }
+      const target = clip.sourceInSeconds + local;
+      if (!playing) {
+        element.pause();
+        try { element.currentTime = target; } catch { /* metadata may still be loading */ }
+      } else {
+        if (element.paused || Math.abs(element.currentTime - target) > .35) {
+          try { element.currentTime = target; } catch { /* metadata may still be loading */ }
+        }
+        if (element.paused) void element.play().catch(() => { /* playback may be blocked until a user gesture */ });
+      }
+      const fadeIn = clip.fadeIn > 0 ? Math.min(1, Math.max(0, local / clip.fadeIn)) : 1;
+      const fadeOut = clip.fadeOut > 0 ? Math.min(1, Math.max(0, (length - local) / clip.fadeOut)) : 1;
+      element.volume = Math.min(1, Math.max(0, clip.volume * Math.min(fadeIn, fadeOut)));
+    }
+  }, [position, playing, audio, project.timebase]);
+  useEffect(() => () => { for (const element of audioElements.current.values()) element.pause(); }, []);
+  useEffect(() => {
+    if (!projectMenu) return;
+    const close = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest(`[data-project-menu="${projectMenu}"], [data-project-actions="${projectMenu}"]`)) return;
+      setProjectMenu(null);
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); };
+  }, [projectMenu]);
   useEffect(() => { setName(project.name); }, [project.name]);
-  useEffect(() => { if (selectedScene) setTextDraft({ title: selectedScene.title, subtitle: selectedScene.subtitle }); setPreviewScene(null); }, [selectedScene?.id]);
+  useEffect(() => { if (modal === 'export') setExportSettings(current => ({ ...current, name: project.name, version: 'v1' })); }, [modal, project.id]);
+  useEffect(() => {
+    const layers = selectedScene ? sceneTextLayers(selectedScene) : [];
+    setSelectedTextLayerId(id => id && layers.some(layer => layer.id === id) ? id : layers[0]?.id ?? null);
+    setPreviewScene(null);
+  }, [selectedScene?.id, selectedScene?.textLayers]);
+  useEffect(() => {
+    if (selectedTextLayer) setTextDraft({ title: selectedTextLayer.title, subtitle: selectedTextLayer.subtitle });
+  }, [selectedTextLayer?.id]);
+  useEffect(() => {
+    if (!selectedTextLayer) return;
+    const style = selectedTextLayer.fontStyle === 'italic' ? 'italic ' : '';
+    const font = `${style}${clampWeight(selectedTextLayer.fontWeight, selectedTextLayer.font)} 32px ${fontOption(selectedTextLayer.font).family}`;
+    let cancelled = false;
+    void document.fonts.load(font, `${selectedTextLayer.title.slice(0, 20)}Aa`).then(() => { if (!cancelled) setFontTick(value => value + 1); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedTextLayer?.id, selectedTextLayer?.font, selectedTextLayer?.fontWeight, selectedTextLayer?.fontStyle, selectedTextLayer?.title]);
   useEffect(() => {
     setSelectedIds(ids => {
-      const next = ids.filter(id => project.scenes.some(scene => scene.id === id));
+      const next = ids.filter(id => scenes.some(scene => scene.id === id));
       return next.length === ids.length ? ids : next;
     });
-    setPrimarySelected(id => id && project.scenes.some(scene => scene.id === id) ? id : null);
-    if (selectionAnchor.current && !project.scenes.some(scene => scene.id === selectionAnchor.current)) selectionAnchor.current = null;
-  }, [project.scenes]);
-  useEffect(() => { setPosition(t => Math.min(t, Math.max(0, duration - 1 / 30))); }, [duration]);
+    setPrimarySelected(id => id && scenes.some(scene => scene.id === id) ? id : null);
+    if (selectionAnchor.current && !scenes.some(scene => scene.id === selectionAnchor.current)) selectionAnchor.current = null;
+  }, [scenes]);
+  useEffect(() => { setPosition(t => Math.min(t, Math.max(0, duration - frameSeconds))); }, [duration, frameSeconds]);
   useEffect(() => { if (!notice) return; const id = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(id); }, [notice]);
 
   const run = useCallback((command: Command): Promise<boolean> => {
-    const light = (value: Command) => value.type === 'update' || value.type === 'updateMany';
+    const light = (value: Command) => value.type === 'update' || value.type === 'updateMany' || value.type === 'audio';
     if (operation.current) {
       if (command.type === 'update') {
         const queued = sceneQueue.current;
@@ -181,7 +590,7 @@ export default function App() {
         } catch (e) {
           success = false;
           sceneQueue.current = [];
-          setError(String(e));
+          setError(messageFor(e));
           setStatus('Changes not saved');
           break;
         }
@@ -201,7 +610,7 @@ export default function App() {
     let frame = 0, previous = performance.now();
     const tick = (now: number) => {
       const delta = (now - previous) / 1000; previous = now;
-      const limit = Math.max(0, duration - 1 / 30);
+      const limit = Math.max(0, duration - frameSeconds);
       const next = positionRef.current + delta * playDirection;
       if (playDirection > 0 && next >= duration) { positionRef.current = limit; setPosition(limit); setPlaying(false); return; }
       if (playDirection < 0 && next <= 0) { positionRef.current = 0; setPosition(0); setPlaying(false); return; }
@@ -216,11 +625,50 @@ export default function App() {
     if (!previewTarget || !preview.current) return;
     if (!offscreen.current) offscreen.current = document.createElement('canvas');
     const layer = offscreen.current; let cancelled = false;
-    drawScene(layer, previewTarget, project.aspect, 'preview').then(() => { if (!cancelled && preview.current) { preview.current.width = layer.width; preview.current.height = layer.height; preview.current.getContext('2d')!.drawImage(layer, 0, 0); } }).catch(e => setError(String(e)));
+    const paint = previewTransition && resolvedNextScene ? drawTransition(layer, sceneForPreview!, resolvedNextScene, previewTransition.type, displayAspect, 'preview', previewTransition.progress, previewLocalSeconds, 0, project.timebase, activeSize) : drawScene(layer, sceneForPreview!, displayAspect, 'preview', previewLocalSeconds, project.timebase, activeSize);
+    paint.then(() => { if (!cancelled && preview.current) { preview.current.width = layer.width; preview.current.height = layer.height; preview.current.getContext('2d')!.drawImage(layer, 0, 0); } }).catch(e => setError(messageFor(e)));
     return () => { cancelled = true; };
-  }, [previewTarget, project.aspect, screen]);
+  }, [previewTarget, previewLocalSeconds, displayAspect, project.timebase, screen, activeFormat?.id, framingStaged, previewTransition?.type, previewTransition?.progress, previewTransition?.next]);
 
-  const save = useCallback(async () => { try { await pending.current; if (await bridge.saveProject(latestProject.current)) setNotice('Project saved. Embedded images travel with your project.'); } catch (e) { setError(String(e)); } }, []);
+  useEffect(() => {
+    const area = previewArea.current;
+    if (!area) return;
+    const update = () => {
+      const [width, height] = [activeSize.width, activeSize.height] as [number, number];
+      const scale = Math.min(area.clientWidth / width, area.clientHeight / height);
+      setPreviewSize({ width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)) });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, [activeSize.width, activeSize.height, screen]);
+
+  const save = useCallback(async () => { try { await pending.current; await persistCurrent(); if (await bridge.saveProject(latestProject.current)) setNotice(bridge.native ? 'Project saved as a .pixcut package with its media files.' : 'Project file downloaded. A local copy is also saved on this device.'); } catch (e) { setError(messageFor(e)); } }, [persistCurrent]);
+
+  function goHome() {
+    setPlaying(false);
+    setPreviewScene(null);
+    setEditingText(false);
+    setScreen('home');
+    void persistCurrent();
+  }
+
+  function adoptProject(next: Session, message: string) {
+    latestProject.current = next.project;
+    setSession(next);
+    setName(next.project.name);
+    setSelectedIds([]);
+    setPrimarySelected(null);
+    selectionAnchor.current = null;
+    setPosition(0);
+    setPreviewScene(null);
+    setEditingText(false);
+    setPlaying(false);
+    setScreen('editor');
+    setModal(null);
+    setNotice(message);
+  }
 
   function shortcutText(id: string) {
     const binding = shortcuts.bindings[id] ?? '';
@@ -230,11 +678,11 @@ export default function App() {
   function availabilityFor(id: string): CommandAvailability {
     if (exporting) return { disabled: true, reason: 'Finish the current export first.' };
     const editor = screen === 'editor';
-    const hasProject = project.scenes.length > 0;
+    const hasProject = scenes.length > 0;
     const scene = selectedScene;
-    const sceneIndex = scene ? project.scenes.findIndex(item => item.id === scene.id) : -1;
-    const sceneStart = sceneIndex > 0 ? project.scenes.slice(0, sceneIndex).reduce((sum, item) => sum + item.duration, 0) : 0;
-    const sceneOffset = scene ? position - sceneStart : 0;
+    const sceneStartTicks = scene?.startTicks ?? 0;
+    const sceneOffsetTicks = secondsToTicks(position, project.timebase) - sceneStartTicks;
+    const splitMinimum = minTicks(project.timebase);
     switch (id) {
       case 'project.new': return ready ? AVAILABLE : { disabled: true, reason: 'PixCut is still loading.' };
       case 'project.open': return canEdit ? AVAILABLE : { disabled: true, reason: 'Finish the current operation first.' };
@@ -255,7 +703,7 @@ export default function App() {
         if (!selectedScenes.length) return { disabled: true, reason: 'Select a clip first.' };
         if (selectedScenes.length !== 1) return { disabled: true, reason: 'Select one clip to split.' };
         if (!canEdit) return { disabled: true, reason: 'Finish the current operation first.' };
-        return scene && sceneOffset >= 0.5 && scene.duration - sceneOffset >= 0.5 ? AVAILABLE : { disabled: true, reason: 'Place the playhead at least half a second inside the selected clip.' };
+        return scene && sceneOffsetTicks >= splitMinimum && scene.durationTicks - sceneOffsetTicks >= splitMinimum ? AVAILABLE : { disabled: true, reason: 'Place the playhead at least half a second inside the selected clip.' };
       case 'clip.delete':
       case 'clip.ripple_delete':
       case 'clip.duplicate':
@@ -280,21 +728,21 @@ export default function App() {
   function togglePlayback() {
     if (!duration) return;
     if (playing) { setPlaying(false); return; }
-    if (position >= duration - 1 / 30) setPosition(0);
+    if (position >= duration - frameSeconds) setPosition(0);
     setPlayDirection(1);
     setPlaying(true);
   }
 
   function playForward() {
     if (!duration) return;
-    if (position >= duration - 1 / 30) setPosition(0);
+    if (position >= duration - frameSeconds) setPosition(0);
     setPlayDirection(1);
     setPlaying(true);
   }
 
   function playReverse() {
     if (!duration) return;
-    if (position <= 1 / 30) setPosition(Math.max(0, duration - 1 / 30));
+    if (position <= frameSeconds) setPosition(Math.max(0, duration - frameSeconds));
     setPlayDirection(-1);
     setPlaying(true);
   }
@@ -302,16 +750,18 @@ export default function App() {
   function stepFrame(direction: 1 | -1) {
     if (!duration) return;
     setPlaying(false);
-    setPosition(value => Math.min(Math.max(0, value + direction / 30), Math.max(0, duration - 1 / 30)));
+    setPosition(value => Math.min(Math.max(0, value + direction * frameSeconds), Math.max(0, duration - frameSeconds)));
   }
 
   function snapTime(value: number) {
-    const limit = Math.max(0, duration - 1 / 30);
+    const limit = Math.max(0, duration - frameSeconds);
     const clamped = Math.min(Math.max(0, value), limit);
     if (!snapping) return clamped;
     const cuts = [0];
-    let cursor = 0;
-    for (const scene of project.scenes) { cursor += scene.duration; cuts.push(Math.min(cursor, limit)); }
+    for (const scene of scenes) {
+      cuts.push(Math.min(ticksToSeconds(scene.startTicks, project.timebase), limit));
+      cuts.push(Math.min(ticksToSeconds(scene.startTicks + scene.durationTicks, project.timebase), limit));
+    }
     let best = clamped, distance = 0.12;
     for (const cut of cuts) {
       const gap = Math.abs(cut - clamped);
@@ -327,8 +777,7 @@ export default function App() {
 
   function focusScene(scene: Scene) {
     setPlaying(false);
-    const index = project.scenes.findIndex(item => item.id === scene.id);
-    setPosition(project.scenes.slice(0, index).reduce((sum, item) => sum + item.duration, 0));
+    setPosition(ticksToSeconds(scene.startTicks, project.timebase));
   }
 
   function selectScene(scene: Scene, event?: ReactMouseEvent) {
@@ -349,7 +798,7 @@ export default function App() {
       return;
     }
     if (range && selectionAnchor.current) {
-      const ids = project.scenes.map(item => item.id);
+      const ids = scenes.map(item => item.id);
       const from = ids.indexOf(selectionAnchor.current), to = ids.indexOf(scene.id);
       if (from >= 0 && to >= 0) {
         setSelectedIds(ids.slice(Math.min(from, to), Math.max(from, to) + 1));
@@ -364,41 +813,65 @@ export default function App() {
     focusScene(scene);
   }
 
-  function updateSelection(next: Scene, force: ScenePatchKey[] = []) {
+  function updateSelection(next: Scene, force: ScenePatchKey[] = []): Promise<boolean> {
     const targets = selectedScenes;
-    if (!targets.length) return;
+    if (!targets.length) return Promise.resolve(false);
     const base = targets.find(scene => scene.id === next.id) ?? targets[0];
     const patch = scenePatch(base, next);
     for (const key of force) {
       const value = (next as unknown as Record<string, unknown>)[key];
       if (value !== undefined) (patch as Record<string, unknown>)[key] = value;
     }
-    if (!Object.keys(patch).length) return;
+    if (!Object.keys(patch).length) return Promise.resolve(true);
     const ids = targets.map(scene => scene.id);
-    const applyPatch = () => {
-      const latest = latestProject.current.scenes;
+    const framingKeys = ['imageX', 'imageY', 'imageZoom', 'fit', 'framingBackground'] as const;
+    const framePatch: SceneFormatOverride = {};
+    const existingFraming = activeFormat?.overrides[base.id];
+    let frameChanged = false;
+    for (const key of framingKeys) {
+      if (!(key in patch)) continue;
+      const value = (patch as Record<string, unknown>)[key];
+      if (value !== undefined) {
+        (framePatch as Record<string, unknown>)[key] = value;
+        if ((existingFraming as Record<string, unknown> | undefined)?.[key] !== value) frameChanged = true;
+      }
+      delete (patch as Record<string, unknown>)[key];
+    }
+    let formatsTask: Promise<boolean> | null = null;
+    if (frameChanged && activeFormat) {
+      const nextFormats = project.formats.map(format => format.id === activeFormat.id
+        ? { ...format, overrides: { ...format.overrides, ...Object.fromEntries(ids.map(id => [id, { ...format.overrides[id], ...framePatch }])) } }
+        : format);
+      formatsTask = run({ type: 'formats', formats: nextFormats });
+    }
+    const applyPatch = (): Promise<boolean> => {
+      const latest = projectScenes(latestProject.current);
       const currentTargets = ids.map(id => latest.find(scene => scene.id === id)).filter((scene): scene is Scene => Boolean(scene));
-      if (!currentTargets.length) return;
+      if (!currentTargets.length) return Promise.resolve(false);
       if (currentTargets.length === 1) {
-        void run({ type: 'update', scene: { ...currentTargets[0], ...patch } });
-        return;
+        return run({ type: 'update', scene: { ...currentTargets[0], ...patch } });
       }
       const scenes = currentTargets.map(scene => {
         const merged: Scene = { ...scene, ...patch };
         if (patch.speed !== undefined) {
-          const source = scene.duration * (scene.speed ?? 1);
+          const source = sceneSeconds(scene, project.timebase) * (scene.speed ?? 1);
           const duration = Math.min(30, Math.max(0.5, source / patch.speed));
-          merged.duration = duration;
-          merged.speed = source / duration;
+          const resized = setSceneSeconds(scene, duration, project.timebase);
+          merged.durationTicks = resized.durationTicks;
+          merged.speed = patch.speed;
+        } else if (patch.durationTicks !== undefined) {
+          merged.durationTicks = setSceneSeconds(merged, ticksToSeconds(patch.durationTicks, project.timebase), project.timebase).durationTicks;
         }
-        merged.fadeIn = Math.min(merged.fadeIn ?? 0, merged.duration);
-        merged.fadeOut = Math.min(merged.fadeOut ?? 0, merged.duration);
+        const seconds = sceneSeconds(merged, project.timebase);
+        merged.fadeIn = Math.min(merged.fadeIn ?? 0, seconds);
+        merged.fadeOut = Math.min(merged.fadeOut ?? 0, seconds);
         return merged;
       });
-      void run({ type: 'updateMany', scenes });
+      return run({ type: 'updateMany', scenes });
     };
-    if (operation.current) void pending.current.then(applyPatch);
-    else applyPatch();
+    const commonTask = Object.keys(patch).length ? (operation.current ? pending.current.then(applyPatch) : Promise.resolve(applyPatch())) : null;
+    const task = formatsTask ?? commonTask ?? Promise.resolve(true);
+    return task.finally(() => setPreviewScene(null));
   }
 
   function splitAtPlayhead() {
@@ -407,16 +880,16 @@ export default function App() {
       return;
     }
     const scene = selectedScenes[0];
-    const index = project.scenes.findIndex(item => item.id === scene.id);
+    const index = scenes.findIndex(item => item.id === scene.id);
     if (index < 0) return;
-    const start = project.scenes.slice(0, index).reduce((sum, item) => sum + item.duration, 0);
-    const at = position - start;
-    if (at < 0.5 || scene.duration - at < 0.5) {
+    const atTicks = secondsToTicks(position, project.timebase) - scene.startTicks;
+    const splitMinimum = minTicks(project.timebase);
+    if (atTicks < splitMinimum || scene.durationTicks - atTicks < splitMinimum) {
       setNotice('Place the playhead at least half a second inside the selected clip.');
       return;
     }
     const newId = crypto.randomUUID();
-    void run({ type: 'split', id: scene.id, at, newId }).then(ok => {
+    void run({ type: 'split', id: scene.id, atTicks, newId }).then(ok => {
       if (ok) {
         setSelectedIds([newId]);
         setPrimarySelected(newId);
@@ -456,7 +929,7 @@ export default function App() {
   }
 
   function applyShortcuts(next: ShortcutSettingsData) {
-    try { saveShortcutSettings(next); } catch (e) { setError(`Shortcuts could not be saved: ${String(e)}`); return false; }
+    try { saveShortcutSettings(next); } catch (e) { setError(`Shortcuts could not be saved. ${messageFor(e)}`); return false; }
     setShortcuts(next);
     setNotice('Shortcuts applied everywhere: tooltips, help, and the command palette.');
     return true;
@@ -464,11 +937,13 @@ export default function App() {
 
   function dismissHints() {
     setShowHints(false);
+    updatePreferences({ showHints: false });
     try { localStorage.setItem(HINTS_KEY, '1'); } catch { /* local preferences are optional */ }
   }
 
   function copySceneProperties(source: Scene) {
     setPropertyClipboard({
+      textLayers: structuredClone(source.textLayers ?? []),
       brightness: source.brightness ?? 1,
       contrast: source.contrast ?? 1,
       saturation: source.saturation ?? 1,
@@ -479,12 +954,219 @@ export default function App() {
       tint: source.tint ?? 0,
       filter: source.filter ?? 'none',
       filterIntensity: source.filterIntensity ?? 100,
+      imageX: source.imageX ?? 0,
+      imageY: source.imageY ?? 0,
+      imageZoom: source.imageZoom ?? 1,
+      framingBackground: source.framingBackground ?? '#000000',
+      textBackdropEnabled: source.textBackdropEnabled ?? false,
+      textBackdropColor: source.textBackdropColor ?? '#000000',
+      textBackdropOpacity: source.textBackdropOpacity ?? 45,
+      textBackdropBlur: source.textBackdropBlur ?? 18,
+      textBackdropPadding: source.textBackdropPadding ?? 24,
+      textBackdropRadius: source.textBackdropRadius ?? 16,
+      textBackdropNoise: source.textBackdropNoise ?? 8,
+      textStrokeColor: source.textStrokeColor ?? '#000000',
+      textOutlineEnabled: source.textOutlineEnabled ?? false,
+      textStrokeWidth: source.textStrokeWidth ?? 0,
+      textShadowColor: source.textShadowColor ?? '#000000',
+      textShadowEnabled: source.textShadowEnabled ?? false,
+      textShadowIntensity: source.textShadowIntensity ?? 60,
+      textShadowBlur: source.textShadowBlur ?? 0,
+      textShadowOffsetX: source.textShadowOffsetX ?? 0,
+      textShadowOffsetY: source.textShadowOffsetY ?? 0,
+      textGlowEnabled: source.textGlowEnabled ?? false,
+      textGlowColor: source.textGlowColor ?? '#FFFFFF',
+      textGlowBlur: source.textGlowBlur ?? 24,
+      textGlowIntensity: source.textGlowIntensity ?? 55,
+      textX: source.textX ?? 0.09,
+      textY: source.textY ?? 0.78,
+      textWidth: source.textWidth ?? 0.82,
+      textAlign: source.textAlign ?? 'left',
+      textFont: source.textFont ?? 'inter',
+      textFontWeight: source.textFontWeight ?? 600,
+      textFontStyle: source.textFontStyle ?? 'normal',
+      textSize: source.textSize ?? 0.068,
+      textLineHeight: source.textLineHeight ?? 1.2,
+      textLetterSpacing: source.textLetterSpacing ?? 0,
+      textRotation: source.textRotation ?? 0,
+      textOpacity: source.textOpacity ?? 100,
+      textSubtitleScale: source.textSubtitleScale ?? 0.4,
     });
-    setNotice('Color and filter properties copied. Select another clip to paste them.');
+    setNotice('Color, look, text layout, and text-effect properties copied. Select another clip to paste them.');
   }
 
   function notifyPasted() {
-    setNotice('Color and filter properties pasted.');
+    setNotice('Color, look, and text effects pasted.');
+  }
+
+  function selectTextLayer(id: string | null) {
+    setSelectedTextLayerId(id);
+    if (!id || !selectedScene) return;
+    const layer = sceneTextLayers(selectedScene).find(item => item.id === id);
+    if (!layer) return;
+    setPosition(ticksToSeconds(selectedScene.startTicks, project.timebase) + layerStartSeconds(layer, project.timebase));
+  }
+
+  function replaceSceneTextLayers(scene: Scene, layers: TextLayer[]): Scene {
+    return { ...scene, textLayers: layers, title: layers[0]?.title ?? '', subtitle: layers[0]?.subtitle ?? '' };
+  }
+
+  function addTextLayerAtPlayhead() {
+    const scene = selectedScene ?? active;
+    if (!scene || !canEdit) { setNotice('Add a photo before adding text.'); return; }
+    const startTicks = Math.min(Math.max(0, textStartTicks), Math.max(0, scene.durationTicks - 1));
+    const layer = createTextLayer(Math.max(1, scene.durationTicks - startTicks), { startTicks });
+    const next = replaceSceneTextLayers(scene, [...sceneTextLayers(scene), layer]);
+    void run({ type: 'update', scene: next }).then(ok => {
+      if (!ok) return;
+      setSelectedIds([scene.id]);
+      setPrimarySelected(scene.id);
+      selectionAnchor.current = scene.id;
+      setSelectedTextLayerId(layer.id);
+      setTab('text');
+      setTextFocus(value => value + 1);
+      setNotice('Text layer added. Style it in the inspector Text tab.');
+    });
+  }
+
+  function previewInlineText(next: { title: string; subtitle: string }) {
+    if (!selectedScene || !selectedTextLayer) return;
+    setTextDraft(next);
+    const layers = sceneTextLayers(selectedScene).map(layer => layer.id === selectedTextLayer.id ? { ...layer, ...next } : layer);
+    setPreviewScene(replaceSceneTextLayers(selectedScene, layers));
+  }
+
+  function commitInlineText() {
+    const scene = selectedScene, layer = selectedTextLayer;
+    if (!scene || !layer) { setEditingText(false); return; }
+    const layers = sceneTextLayers(scene).map(item => item.id === layer.id ? { ...item, ...textDraft } : item);
+    const next = replaceSceneTextLayers(scene, layers);
+    setPreviewScene(next);
+    void run({ type: 'update', scene: next }).finally(() => { setPreviewScene(null); setEditingText(false); });
+  }
+
+  function cancelInlineText() {
+    setPreviewScene(null);
+    setEditingText(false);
+  }
+
+  function blurInlineText(event: { currentTarget: HTMLElement; relatedTarget: EventTarget | null }) {
+    const editor = event.currentTarget.closest('.text-edit-overlay');
+    if (editor?.contains(event.relatedTarget as Node | null)) return;
+    commitInlineText();
+  }
+
+  function beginImagePan(event: ReactPointerEvent<HTMLElement>) {
+    const scene = selectedScene;
+    if (!scene || !canEdit || event.button !== 0) return;
+    event.preventDefault();
+    inspectorFlush.current();
+    const stage = previewStage.current?.getBoundingClientRect();
+    if (!stage || stage.width <= 0 || stage.height <= 0) return;
+    setPlaying(false);
+    setEditingText(false);
+    const startX = event.clientX, startY = event.clientY;
+    const initialX = scene.imageX ?? 0, initialY = scene.imageY ?? 0;
+    let latest = { imageX: initialX, imageY: initialY };
+    const move = (moveEvent: PointerEvent) => {
+      latest = {
+        imageX: Math.min(1, Math.max(-1, initialX + (moveEvent.clientX - startX) / stage.width * 2.6)),
+        imageY: Math.min(1, Math.max(-1, initialY + (moveEvent.clientY - startY) / stage.height * 2.6)),
+      };
+      setPreviewScene({ ...scene, ...latest });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      void pending.current.then(() => {
+        const current = projectScenes(latestProject.current).find(item => item.id === scene.id) ?? scene;
+        if ((current.imageX ?? 0) === latest.imageX && (current.imageY ?? 0) === latest.imageY) { setPreviewScene(null); return; }
+        void run({ type: 'update', scene: { ...current, ...latest } }).finally(() => setPreviewScene(null));
+      });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  function beginTextMove(event: ReactPointerEvent<HTMLElement>) {
+    const scene = selectedScene;
+    const layer = selectedTextLayer;
+    if (!scene || !layer || !canEdit || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    inspectorFlush.current();
+    const stage = previewStage.current?.getBoundingClientRect();
+    if (!stage || stage.width <= 0 || stage.height <= 0) return;
+    const startX = event.clientX, startY = event.clientY;
+    const initialX = layer.x, initialY = layer.y;
+    const width = layer.width;
+    const height = (textBox?.heightPct ?? 10) / 100;
+    let latest = { x: initialX, y: initialY };
+    setPlaying(false);
+    setEditingText(false);
+    const move = (moveEvent: PointerEvent) => {
+      let x = Math.min(Math.max(0, initialX + (moveEvent.clientX - startX) / stage.width), Math.max(0, 1 - width));
+      let y = Math.min(Math.max(0, initialY + (moveEvent.clientY - startY) / stage.height), Math.max(0, 1 - height));
+      for (const snap of [0, (1 - width) / 2, 1 - width]) if (Math.abs(x - snap) < .015) x = snap;
+      for (const snap of [0, (1 - height) / 2, 1 - height]) if (Math.abs(y - snap) < .015) y = snap;
+      latest = { x, y };
+      const layers = sceneTextLayers(scene).map(item => item.id === layer.id ? { ...item, x, y } : item);
+      setPreviewScene(replaceSceneTextLayers(scene, layers));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      void pending.current.then(() => {
+        const current = projectScenes(latestProject.current).find(item => item.id === scene.id) ?? scene;
+        const currentLayer = sceneTextLayers(current).find(item => item.id === layer.id);
+        if (!currentLayer || (currentLayer.x === latest.x && currentLayer.y === latest.y)) { setPreviewScene(null); return; }
+        const layers = sceneTextLayers(current).map(item => item.id === layer.id ? { ...item, ...latest } : item);
+        void run({ type: 'update', scene: replaceSceneTextLayers(current, layers) }).finally(() => setPreviewScene(null));
+      });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  function beginTextResize(event: ReactPointerEvent<HTMLElement>, side: 'left' | 'right') {
+    const scene = selectedScene;
+    const layer = selectedTextLayer;
+    if (!scene || !layer || !canEdit || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    inspectorFlush.current();
+    const stage = previewStage.current?.getBoundingClientRect();
+    if (!stage || stage.width <= 0) return;
+    const startX = event.clientX;
+    const initialX = layer.x, initialWidth = layer.width;
+    let latest = { x: initialX, width: initialWidth };
+    setPlaying(false);
+    setEditingText(false);
+    const move = (moveEvent: PointerEvent) => {
+      const delta = (moveEvent.clientX - startX) / stage.width;
+      if (side === 'right') {
+        const width = Math.min(1 - initialX, Math.max(.15, initialWidth + delta));
+        latest = { x: initialX, width };
+      } else {
+        const x = Math.min(initialX + initialWidth - .15, Math.max(0, initialX + delta));
+        latest = { x, width: initialWidth + (initialX - x) };
+      }
+      const layers = sceneTextLayers(scene).map(item => item.id === layer.id ? { ...item, ...latest } : item);
+      setPreviewScene(replaceSceneTextLayers(scene, layers));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      void pending.current.then(() => {
+        const current = projectScenes(latestProject.current).find(item => item.id === scene.id) ?? scene;
+        const currentLayer = sceneTextLayers(current).find(item => item.id === layer.id);
+        if (!currentLayer || (currentLayer.x === latest.x && currentLayer.width === latest.width)) { setPreviewScene(null); return; }
+        const layers = sceneTextLayers(current).map(item => item.id === layer.id ? { ...item, ...latest } : item);
+        void run({ type: 'update', scene: replaceSceneTextLayers(current, layers) }).finally(() => setPreviewScene(null));
+      });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
   }
 
   function beginFadeDrag(event: ReactPointerEvent<HTMLSpanElement>, scene: Scene, side: 'in' | 'out') {
@@ -503,11 +1185,12 @@ export default function App() {
     if (!selectedIds.includes(scene.id)) selectionAnchor.current = scene.id;
     setPlaying(false);
     setPreviewScene({ ...scene, ...next });
+    const sceneDuration = sceneSeconds(scene, project.timebase);
     setFadeDrag({ sceneId: scene.id, side, value: side === 'in' ? initialIn : initialOut });
     const move = (moveEvent: PointerEvent) => {
-      const delta = ((moveEvent.clientX - startX) / width) * scene.duration * (side === 'in' ? 1 : -1);
+      const delta = ((moveEvent.clientX - startX) / width) * sceneDuration * (side === 'in' ? 1 : -1);
       const base = side === 'in' ? initialIn : initialOut;
-      const value = Math.min(scene.duration, Math.max(0, Math.round((base + delta) * 10) / 10));
+      const value = Math.min(sceneDuration, Math.max(0, Math.round((base + delta) * 10) / 10));
       next = side === 'in' ? { ...next, fadeIn: value } : { ...next, fadeOut: value };
       setFadeDrag({ sceneId: scene.id, side, value });
       setPreviewScene({ ...scene, ...next });
@@ -518,7 +1201,7 @@ export default function App() {
       setFadeDrag(null);
       setPreviewScene(null);
       void pending.current.then(() => {
-        const current = latestProject.current.scenes.find(item => item.id === scene.id) ?? scene;
+        const current = projectScenes(latestProject.current).find(item => item.id === scene.id) ?? scene;
         if ((current.fadeIn ?? 0) !== next.fadeIn || (current.fadeOut ?? 0) !== next.fadeOut) {
           void run({ type: 'update', scene: { ...current, ...next } });
         }
@@ -529,7 +1212,7 @@ export default function App() {
   }
 
   const fadeScene = previewScene && previewScene.id === active?.id ? previewScene : active;
-  const fadeAmount = fadeScene ? 1 - fadeOpacity(fadeScene, position - activeStart) : 0;
+  const fadeAmount = fadeScene ? 1 - fadeOpacity(fadeScene, position - activeStart, project.timebase) : 0;
 
   function requestCloseModal() {
     if (exporting) return;
@@ -537,6 +1220,11 @@ export default function App() {
       setNotice('Apply or cancel your shortcut changes before closing Settings.');
       return;
     }
+    if (modal === 'new') setPendingTemplate(null);
+    if (modal === 'delete') setDeleteTarget(null);
+    if (modal === 'rename') setRenameTarget(null);
+    if (modal === 'group') setGroupTarget(null);
+    if (modal === 'groups') setGroupDrafts({});
     setModal(null);
   }
 
@@ -554,11 +1242,11 @@ export default function App() {
       case 'palette.open': setModal('palette'); break;
       case 'help.shortcuts': setModal('shortcuts'); break;
       case 'settings.open': setModal('settings'); break;
-      case 'project.new': project.scenes.length ? setModal('new') : void start(); break;
+      case 'project.new': scenes.length ? setModal('new') : void startBlank(); break;
       case 'project.open': void open(); break;
       case 'project.save': void save(); break;
-      case 'project.import': mediaInput.current?.click(); break;
-      case 'export.open': setPlaying(false); setModal('export'); break;
+      case 'project.import': void chooseImages(); break;
+      case 'export.open': openExportModal(); break;
       case 'history.undo': void run({ type: 'undo' }); break;
       case 'history.redo': void run({ type: 'redo' }); break;
       case 'playback.toggle': togglePlayback(); break;
@@ -571,7 +1259,7 @@ export default function App() {
       case 'clip.duplicate': duplicateSelected(); break;
       case 'timeline.prev_frame': stepFrame(-1); break;
       case 'timeline.next_frame': stepFrame(1); break;
-      case 'timeline.snapping': setSnapping(value => !value); break;
+      case 'timeline.snapping': toggleSnapping(); break;
       case 'view.safe_area': setSafeArea(value => !value); break;
     }
   }
@@ -616,33 +1304,535 @@ export default function App() {
     };
   }, [contextMenu]);
 
-  async function start(template = false) {
-    const p = emptyProject(template ? 'A little further' : 'Untitled story'); if (template) p.scenes = demoScenes();
-    if (await run({ type: 'replace', project: p })) { const first = p.scenes[0]?.id ?? null; setSelectedIds(first ? [first] : []); setPrimarySelected(first); selectionAnchor.current = first; setPosition(0); setScreen('editor'); setModal(null); }
+  async function launchProject(p: Project) {
+    if (projectScenes(latestProject.current).length) await persistCurrent();
+    if (!(await run({ type: 'replace', project: p }))) return false;
+    const first = projectScenes(p)[0]?.id ?? null;
+    setSelectedIds(first ? [first] : []);
+    setPrimarySelected(first);
+    selectionAnchor.current = first;
+    setPosition(0);
+    setPreviewScene(null);
+    setEditingText(false);
+    setPlaying(false);
+    setScreen('editor');
+    setModal(null);
+    setPendingTemplate(null);
+    setHomeSection('home');
+    return true;
   }
 
-  async function importFiles(files: FileList | null) {
+  async function startBlank() {
+    await launchProject(emptyProject('Untitled story', preferences.defaultAspect));
+  }
+
+  async function startWithFormats() {
+    const selected = FORMAT_PRESETS.filter(preset => newFormatIds.includes(preset.id));
+    const baseAspect = (['16:9', '9:16', '1:1', '4:5'].includes(selected[0]?.aspect ?? '') ? selected[0].aspect : preferences.defaultAspect) as Project['aspect'];
+    const next = emptyProject('Untitled story', baseAspect, newProjectFps);
+    const presetFormats = selected.map(preset => ({ id: crypto.randomUUID(), name: preset.name, platform: preset.platform, aspect: preset.aspect, width: preset.width, height: preset.height, fps: preset.fps, quality: preset.quality, presetId: preset.id, overrides: {} }));
+    next.formats = presetFormats.length || newCustomFormats.length ? [...presetFormats, ...newCustomFormats] : next.formats;
+    setNewCustomFormats([]);
+    await launchProject(next);
+  }
+
+  async function addFormat(presetId: string) {
+    if (project.formats.length >= 6) { setNotice('A project supports up to six output formats.'); return; }
+    const format = createFormat(presetId, project.formats);
+    if (await run({ type: 'formats', formats: [...project.formats, format] })) {
+      setActiveFormatId(format.id);
+      setNotice(`${format.name} added. Framing is saved separately for this format.`);
+    }
+  }
+
+  async function toggleFormatPreset(presetId: string) {
+    const existing = project.formats.find(format => format.presetId === presetId);
+    if (existing) await removeFormat(existing.id);
+    else await addFormat(presetId);
+  }
+
+  function addNewCustomFormat() {
+    const width = Math.round(customFormatDraft.width / 2) * 2;
+    const height = Math.round(customFormatDraft.height / 2) * 2;
+    if (width < 240 || height < 240 || width > 3840 || height > 3840) { setError('Custom size must be between 240 and 3840 pixels.'); return; }
+    setNewCustomFormats(current => [...current, createCustomFormat(customFormatDraft.name, width, height, customFormatDraft.fps, customFormatDraft.quality, current)]);
+    setCustomFormatDraft({ name: '', width: 1080, height: 1080, fps: 30, quality: 'standard' });
+  }
+
+  async function addCustomFormat() {
+    if (project.formats.length >= 6) { setNotice('A project supports up to six output formats.'); return; }
+    const width = Math.round(customFormatDraft.width / 2) * 2;
+    const height = Math.round(customFormatDraft.height / 2) * 2;
+    if (width < 240 || height < 240 || width > 3840 || height > 3840) { setError('Custom size must be between 240 and 3840 pixels.'); return; }
+    const format = createCustomFormat(customFormatDraft.name, width, height, customFormatDraft.fps, customFormatDraft.quality, project.formats);
+    if (await run({ type: 'formats', formats: [...project.formats, format] })) {
+      setActiveFormatId(format.id);
+      setCustomFormatDraft({ name: '', width: 1080, height: 1080, fps: 30, quality: 'standard' });
+      setNotice(`${format.name} added.`);
+    }
+  }
+
+  async function updateFormatSettings(format: FormatVariant, patch: Partial<FormatVariant>) {
+    const width = Math.round((patch.width ?? format.width) / 2) * 2;
+    const height = Math.round((patch.height ?? format.height) / 2) * 2;
+    if (width < 240 || height < 240 || width > 3840 || height > 3840) { setError('Format size must be between 240 and 3840 pixels.'); return; }
+    const next = project.formats.map(item => item.id === format.id ? { ...item, ...patch, width, height, name: (patch.name ?? item.name).trim() || item.name } : item);
+    await run({ type: 'formats', formats: next });
+  }
+
+  async function removeFormat(formatId: string) {
+    if (project.formats.length <= 1) { setNotice('Keep at least one output format.'); return; }
+    const formats = project.formats.filter(format => format.id !== formatId);
+    if (await run({ type: 'formats', formats })) {
+      if (activeFormat?.id === formatId) setActiveFormatId(formats[0]?.id ?? null);
+      setNotice('Output format removed.');
+    }
+  }
+
+  async function applyFramingToAllFormats() {
+    const scene = selectedScene;
+    if (!scene || !activeFormat) return;
+    const resolved = resolveSceneForFormat(scene, activeFormat);
+    const override = { imageX: resolved.imageX ?? 0, imageY: resolved.imageY ?? 0, imageZoom: resolved.imageZoom ?? 1, fit: resolved.fit, framingBackground: resolved.framingBackground ?? '#000000' };
+    const formats = project.formats.map(format => ({ ...format, overrides: { ...format.overrides, [scene.id]: { ...format.overrides[scene.id], ...override } } }));
+    if (await run({ type: 'formats', formats })) setNotice('Current framing copied to every output format.');
+  }
+
+  async function startTemplate(template: TemplateDefinition) {
+    await launchProject(buildTemplateProject(template));
+  }
+
+  function chooseTemplate(template: TemplateDefinition) {
+    if (projectScenes(latestProject.current).length) {
+      setPendingTemplate(template);
+      setModal('new');
+      return;
+    }
+    void startTemplate(template);
+  }
+
+  async function openLibraryProject(summary: ProjectSummary) {
+    setProjectMenu(null);
+    if (summary.id === project.id) { setScreen('editor'); return; }
+    if (!canEdit) return;
+    try {
+      const p = await getLibraryProject(summary.id);
+      if (!p) throw new Error('This project could not be found on this device.');
+      if (await launchProject(p)) setNotice(`Opened “${p.name}”.`);
+    } catch (e) { setError(messageFor(e)); }
+  }
+
+  async function duplicateProject(summary: ProjectSummary) {
+    setProjectMenu(null);
+    if (!canEdit) return;
+    try {
+      const copy = await duplicateLibraryProject(summary.id);
+      if (!copy) throw new Error('This project could not be duplicated.');
+      await refreshLibrary();
+      setNotice(`“${copy.name}” added to your library.`);
+    } catch (e) { setError(messageFor(e)); }
+  }
+
+  function askDeleteProject(summary: ProjectSummary) {
+    setProjectMenu(null);
+    setDeleteTarget(summary);
+    setModal('delete');
+  }
+
+  function askRenameProject(summary: ProjectSummary) {
+    setProjectMenu(null);
+    setRenameTarget(summary);
+    setRenameDraft(summary.name);
+    setModal('rename');
+  }
+
+  function askGroupProject(summary: ProjectSummary) {
+    setProjectMenu(null);
+    setGroupTarget(summary);
+    setGroupDraft(summary.group ?? '');
+    setModal('group');
+  }
+
+  async function confirmGroupProject(group: string | null) {
+    const target = groupTarget;
+    if (!target) return;
+    setModal(null);
+    setGroupTarget(null);
+    try {
+      await setProjectGroup(target.id, group);
+      setProjects(items => items.map(item => item.id === target.id ? { ...item, ...(group?.trim() ? { group: group.trim() } : { group: undefined }) } : item));
+      setNotice(group?.trim() ? `“${target.name}” moved to “${group.trim()}”.` : `“${target.name}” removed from its group.`);
+    } catch (e) { setError(messageFor(e)); }
+  }
+
+  function projectGroups() {
+    return [...new Set(projects.map(entry => entry.group).filter((group): group is string => Boolean(group)))].sort((a, b) => a.localeCompare(b));
+  }
+
+  function openGroupManager() {
+    const groups = projectGroups();
+    setGroupDrafts(Object.fromEntries(groups.map(group => [group, group])));
+    setModal('groups');
+  }
+
+  async function saveGroupRename(from: string) {
+    const to = groupDrafts[from]?.trim();
+    if (!to || to === from) return;
+    try {
+      await renameProjectGroup(from, to);
+      await refreshLibrary();
+      setGroupDrafts(current => {
+        const next = { ...current };
+        delete next[from];
+        next[to] = to;
+        return next;
+      });
+      if (groupFilter === from) setGroupFilter(to);
+      setNotice(`Group renamed to “${to}”.`);
+    } catch (e) { setError(messageFor(e)); }
+  }
+
+  async function removeGroup(group: string) {
+    try {
+      await deleteProjectGroup(group);
+      await refreshLibrary();
+      setGroupDrafts(current => { const next = { ...current }; delete next[group]; return next; });
+      if (groupFilter === group) setGroupFilter('all');
+      setNotice(`“${group}” removed. Its projects are now ungrouped.`);
+    } catch (e) { setError(messageFor(e)); }
+  }
+
+  async function toggleProjectFavorite(summary: ProjectSummary) {
+    try {
+      await setProjectFavorite(summary.id, !summary.favorite);
+      setProjects(items => items.map(item => item.id === summary.id ? { ...item, ...(summary.favorite ? { favorite: undefined } : { favorite: true }) } : item));
+      setNotice(summary.favorite ? `“${summary.name}” removed from favorites.` : `“${summary.name}” added to favorites.`);
+      setProjectMenu(null);
+    } catch (e) { setError(messageFor(e)); }
+  }
+
+  async function confirmDeleteProject() {
+    const target = deleteTarget;
+    if (!target) return;
+    setModal(null);
+    setDeleteTarget(null);
+    try {
+      await deleteLibraryProject(target.id);
+      setProjects(list => list.filter(item => item.id !== target.id));
+      if (target.id === latestProject.current.id) {
+        await run({ type: 'replace', project: emptyProject() });
+        setSelectedIds([]);
+        setPrimarySelected(null);
+        selectionAnchor.current = null;
+        setPosition(0);
+        setScreen('home');
+      }
+      setNotice(`“${target.name}” deleted from this device.`);
+    } catch (e) { setError(messageFor(e)); }
+  }
+
+  async function chooseImages() {
+    if (!canEdit) return;
+    if (bridge.native) {
+      try {
+        const picked = await bridge.pickMedia('image');
+        if (picked?.length) await importFiles(picked.map(fileFromPicked));
+      } catch (e) { setError(messageFor(e)); }
+      return;
+    }
+    mediaInput.current?.click();
+  }
+
+  async function chooseAudio() {
+    if (!canEdit) return;
+    if (bridge.native) {
+      try {
+        const picked = await bridge.pickMedia('audio');
+        if (picked?.length) await importAudio(fileFromPicked(picked[0]));
+      } catch (e) { setError(messageFor(e)); }
+      return;
+    }
+    audioInput.current?.click();
+  }
+
+  async function importFiles(files: FileList | File[] | null) {
     if (!files?.length || operation.current) return;
     setPlaying(false); setBusy(true); operation.current = true;
     try {
-      const scenes: Scene[] = [];
+      const added: Scene[] = [];
       const incomingBytes = Array.from(files).reduce((sum, file) => sum + Math.ceil(file.size / 3) * 4 + 64, 0);
-      if (incomingBytes + project.scenes.reduce((sum, scene) => sum + scene.image.length, 0) > 90_000_000) throw new Error('This prototype supports up to 64 MB of embedded images per project.');
-      if (files.length + project.scenes.length > 100) throw new Error('Add up to 100 images per project.');
+      if (incomingBytes + scenes.reduce((sum, scene) => sum + scene.image.length, 0) > 90_000_000) throw new Error('This prototype supports up to 64 MB of embedded images per project.');
+      if (files.length + scenes.length > 100) throw new Error('Add up to 100 images per project.');
       for (const file of Array.from(files)) {
-        if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error(`${file.name}: use JPEG, PNG, or WebP images. Video and audio editing will come in a later slice.`);
-        if (file.size > 10 * 1024 * 1024) throw new Error(`${file.name}: choose an image smaller than 10 MB.`);
-        const image = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result as string); reader.onerror = () => reject(new Error(`Could not read ${file.name}`)); reader.readAsDataURL(file); });
+        const image = await imageFileData(file);
         await loadImage(image);
-        scenes.push({ id: crypto.randomUUID(), name: file.name, image, duration: 4, title: '', subtitle: '', color: '#ffffff', fit: 'cover' });
+        added.push({ id: crypto.randomUUID(), startTicks: 0, sourceInTicks: 0, name: file.name, image, durationTicks: secondsToTicks(preferences.defaultSceneSeconds, project.timebase), title: '', subtitle: '', color: '#ffffff', fit: preferences.defaultFit });
       }
-      const next = await bridge.dispatch({ type: 'add', scenes }); latestProject.current = next.project; setSession(next); setStatus('Saved locally'); const first = scenes[0]?.id ?? null; setSelectedIds(first ? [first] : []); setPrimarySelected(first); selectionAnchor.current = first; setPosition(totalDuration(project)); setScreen('editor'); setNotice(`${scenes.length} image${scenes.length === 1 ? '' : 's'} added. Originals stay untouched.`);
-    } catch (e) { setError(String(e)); } finally { setBusy(false); operation.current = false; if (mediaInput.current) mediaInput.current.value = ''; }
+      const next = await bridge.dispatch({ type: 'add', scenes: added }); latestProject.current = next.project; setSession(next); setStatus('Saved locally'); const first = added[0]?.id ?? null; setSelectedIds(first ? [first] : []); setPrimarySelected(first); selectionAnchor.current = first; setPosition(totalDuration(next.project)); setScreen('editor'); setNotice(`${added.length} image${added.length === 1 ? '' : 's'} added. Originals stay untouched.`);
+    } catch (e) { setError(messageFor(e)); } finally { setBusy(false); operation.current = false; if (mediaInput.current) mediaInput.current.value = ''; }
+  }
+
+  function constrainAudio(clip: AudioClip): AudioClip {
+    const total = projectTicks;
+    const currentDuration = ticksToSeconds(clip.durationTicks, project.timebase);
+    const sourceDuration = Math.max(clip.sourceDurationSeconds > 0 ? clip.sourceDurationSeconds : currentDuration, secondsPerTick(project.timebase));
+    const sourceIn = Math.min(Math.max(0, clip.sourceInSeconds), Math.max(0, sourceDuration - secondsPerTick(project.timebase)));
+    const maxDuration = Math.max(1, Math.min(total - clip.startTicks, secondsToTicks(sourceDuration - sourceIn, project.timebase)));
+    const durationTicks = Math.max(1, Math.min(clip.durationTicks, maxDuration));
+    const startTicks = Math.min(Math.max(0, clip.startTicks), Math.max(0, total - durationTicks));
+    const seconds = ticksToSeconds(durationTicks, project.timebase);
+    return { ...clip, startTicks, durationTicks, sourceInSeconds: sourceIn, sourceDurationSeconds: sourceDuration, fadeIn: Math.min(clip.fadeIn, seconds), fadeOut: Math.min(clip.fadeOut, seconds) };
+  }
+
+  async function importAudio(file: File | null | undefined) {
+    if (!file || !canEdit) return;
+    if (!projectTicks) { setNotice('Add photos before adding audio.'); return; }
+    try {
+      const data = await audioFileData(file);
+      const sourceDuration = Math.round((await audioDuration(data)) * 100) / 100;
+      const desiredStart = secondsToTicks(position, project.timebase);
+      const startTicks = desiredStart >= projectTicks ? 0 : Math.min(desiredStart, projectTicks - 1);
+      const remaining = ticksToSeconds(projectTicks - startTicks, project.timebase);
+      const duration = Math.max(secondsPerTick(project.timebase), Math.min(sourceDuration || remaining, remaining));
+      const clip = constrainAudio({
+        id: crypto.randomUUID(),
+        name: file.name,
+        data,
+        lane: audioLaneRef.current,
+        startTicks,
+        durationTicks: secondsToTicks(duration, project.timebase),
+        sourceInSeconds: 0,
+        sourceDurationSeconds: sourceDuration || duration,
+        volume: .8,
+        fadeIn: 0,
+        fadeOut: 0,
+      });
+      if (await run({ type: 'audio', audio: [...project.audio, clip] })) {
+        setSelectedAudioId(clip.id);
+        setTab('audio');
+        setNotice(`Audio added at ${ticksToSeconds(clip.startTicks, project.timebase).toFixed(1)} s. It stays on this device.`);
+      }
+    } catch (e) { setError(messageFor(e)); } finally { if (audioInput.current) audioInput.current.value = ''; }
+  }
+
+  function removeAudio(id: string) {
+    const next = project.audio.filter(clip => clip.id !== id);
+    audioDraftRef.current = null;
+    setAudioDraft(null);
+    setPreviewAudio(null);
+    void run({ type: 'audio', audio: next }).then(ok => {
+      if (!ok) return;
+      setSelectedAudioId(current => current === id ? next[0]?.id ?? null : current);
+      setNotice('Audio clip removed from this project.');
+    });
+  }
+
+  function stageAudio(patch: Partial<AudioClip>) {
+    const base = audioDraftRef.current ?? selectedAudio;
+    if (!base) return;
+    const next = constrainAudio({ ...base, ...patch });
+    audioDraftRef.current = next;
+    setAudioDraft(next);
+  }
+
+  function commitAudio() {
+    const next = audioDraftRef.current;
+    if (!next) return;
+    const constrained = constrainAudio(next);
+    audioDraftRef.current = null;
+    setAudioDraft(null);
+    setPreviewAudio(null);
+    void run({ type: 'audio', audio: project.audio.map(clip => clip.id === constrained.id ? constrained : clip) });
+  }
+
+  function beginAudioMove(event: ReactPointerEvent<HTMLElement>, clip: AudioClip) {
+    if (!canEdit || event.button !== 0 || !projectTicks) return;
+    const track = (event.currentTarget as HTMLElement).closest<HTMLElement>('.audio-track');
+    const width = track?.getBoundingClientRect().width ?? 0;
+    if (!track || width <= 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedAudioId(clip.id);
+    setTab('audio');
+    setPlaying(false);
+    const startX = event.clientX;
+    const initialStart = clip.startTicks;
+    let latest = project.audio;
+    const move = (moveEvent: PointerEvent) => {
+      const delta = Math.round(((moveEvent.clientX - startX) / width) * projectTicks);
+      const startTicks = Math.min(Math.max(0, initialStart + delta), Math.max(0, projectTicks - clip.durationTicks));
+      latest = project.audio.map(item => item.id === clip.id ? { ...item, startTicks } : item);
+      setPreviewAudio(latest);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setPreviewAudio(null);
+      void run({ type: 'audio', audio: latest });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  function beginAudioTrim(event: ReactPointerEvent<HTMLElement>, clip: AudioClip, side: 'left' | 'right') {
+    if (!canEdit || event.button !== 0 || !projectTicks) return;
+    const track = (event.currentTarget as HTMLElement).closest<HTMLElement>('.audio-track');
+    const width = track?.getBoundingClientRect().width ?? 0;
+    if (!track || width <= 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedAudioId(clip.id);
+    setTab('audio');
+    setPlaying(false);
+    const startX = event.clientX;
+    const initialStart = clip.startTicks, initialDuration = clip.durationTicks, initialIn = clip.sourceInSeconds;
+    let latest = project.audio;
+    const move = (moveEvent: PointerEvent) => {
+      const delta = Math.round(((moveEvent.clientX - startX) / width) * projectTicks);
+      let startTicks = initialStart, durationTicks = initialDuration, sourceIn = initialIn;
+      if (side === 'left') {
+        let shift = Math.min(initialDuration - 1, Math.max(delta, -initialStart));
+        shift = Math.max(shift, -secondsToTicks(initialIn, project.timebase));
+        startTicks = initialStart + shift;
+        durationTicks = initialDuration - shift;
+        sourceIn = Math.max(0, initialIn + ticksToSeconds(shift, project.timebase));
+      } else {
+        const maxDuration = Math.min(projectTicks - initialStart, secondsToTicks(clip.sourceDurationSeconds - initialIn, project.timebase));
+        durationTicks = Math.min(Math.max(1, initialDuration + delta), Math.max(1, maxDuration));
+      }
+      latest = project.audio.map(item => item.id === clip.id ? { ...item, startTicks, durationTicks, sourceInSeconds: sourceIn } : item);
+      setPreviewAudio(latest);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setPreviewAudio(null);
+      void run({ type: 'audio', audio: latest });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  function requestReplaceImage(sceneId?: string) {
+    const id = sceneId ?? (selectedCount === 1 ? selectedScene?.id : undefined);
+    if (!id) { setNotice('Select one scene to replace its image.'); return; }
+    if (!canEdit) return;
+    inspectorFlush.current();
+    replaceTargetId.current = id;
+    replaceInput.current?.click();
+  }
+
+  async function replaceImageForScene(sceneId: string, file: File) {
+    if (!canEdit) return;
+    try {
+      const image = await imageFileData(file);
+      await loadImage(image);
+      inspectorFlush.current();
+      await pending.current;
+      const target = projectScenes(latestProject.current).find(scene => scene.id === sceneId);
+      if (!target) throw new Error('That scene is no longer in the project.');
+      if (await run({ type: 'update', scene: replaceSceneImage(target, image, file.name) })) {
+        setNotice(`Image replaced. Timing, text, and looks were kept.`);
+      }
+    } catch (e) { setError(messageFor(e)); }
+  }
+
+  function beginReorder(event: ReactDragEvent<HTMLElement>, scene: Scene) {
+    if (!canEdit || (event.target as HTMLElement).closest('.fade-handle')) { event.preventDefault(); return; }
+    reorderRef.current = scene.id;
+    setReorderId(scene.id);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', scene.id);
+  }
+
+  function endReorder() {
+    reorderRef.current = null;
+    setReorderId(null);
+    setDropTarget(null);
+  }
+
+  function dragOverScene(event: ReactDragEvent<HTMLElement>, id: string) {
+    if (reorderRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = 'move';
+      setDropTarget(id);
+      return;
+    }
+    dragOverTarget(event, id);
+  }
+
+  function dropScene(event: ReactDragEvent<HTMLElement>, target: Scene) {
+    const sourceId = reorderRef.current;
+    if (sourceId) {
+      event.preventDefault();
+      event.stopPropagation();
+      const sourceIndex = scenes.findIndex(scene => scene.id === sourceId);
+      const targetIndex = scenes.findIndex(scene => scene.id === target.id);
+      endReorder();
+      if (sourceIndex >= 0 && targetIndex >= 0 && sourceIndex !== targetIndex) {
+        void run({ type: 'move', id: sourceId, offset: targetIndex - sourceIndex });
+      }
+      return;
+    }
+    void dropReplacement(event, target);
+  }
+
+  async function dropReplacement(event: ReactDragEvent<HTMLElement>, scene: Scene) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDropTarget(null);
+    const file = Array.from(event.dataTransfer.files).find(item => item.type.startsWith('image/'));
+    if (!file) { setError('Drop a JPEG, PNG, or WebP image to replace this scene.'); return; }
+    await replaceImageForScene(scene.id, file);
+  }
+
+  function dragOverTarget(event: ReactDragEvent<HTMLElement>, id: string) {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = 'copy';
+    setDropTarget(id);
+  }
+
+  function dropIntoMedia(event: ReactDragEvent<HTMLElement>) {
+    event.preventDefault();
+    setDropTarget(null);
+    if (event.dataTransfer.files.length) void importFiles(event.dataTransfer.files);
+  }
+
+  async function renameProject() {
+    const target = renameTarget;
+    if (!target) return;
+    const name = renameDraft.trim().replace(/\s+/g, ' ').slice(0, 120) || 'Untitled story';
+    try {
+      if (target.id === latestProject.current.id) {
+        if (!(await run({ type: 'rename', name }))) return;
+        await persistCurrent();
+      } else {
+        const stored = await getLibraryProject(target.id);
+        if (!stored) throw new Error('This project could not be found on this device.');
+        await saveLibraryProject({ ...stored, name });
+      }
+      await refreshLibrary();
+      setModal(null);
+      setRenameTarget(null);
+      setNotice(`Project renamed to “${name}”.`);
+    } catch (e) { setError(messageFor(e)); }
+  }
+
+  async function exportLibraryProject(summary: ProjectSummary) {
+    setProjectMenu(null);
+    try {
+      const stored = await getLibraryProject(summary.id);
+      if (!stored) throw new Error('This project could not be found on this device.');
+      if (await bridge.exportProjectFile(stored)) setNotice(`Project file for “${stored.name}” saved.`);
+    } catch (e) { setError(messageFor(e)); }
   }
 
   async function open() {
     if (!bridge.native) { projectInput.current?.click(); return; }
-    try { const next = await bridge.openProject(); if (next) { latestProject.current = next.project; setSession(next); setScreen('editor'); setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null; setPosition(0); } } catch (e) { setError(String(e)); }
+    try { const next = await bridge.openProject(); if (next) { await persistCurrent(); latestProject.current = next.project; setSession(next); setScreen('editor'); setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null; setPosition(0); } } catch (e) { setError(messageFor(e)); }
   }
 
   async function openBrowserProject(e: ChangeEvent<HTMLInputElement>) {
@@ -650,20 +1840,102 @@ export default function App() {
       const file = e.target.files?.[0]; if (!file) return;
       if (file.size > 100_000_000) throw new Error('Project file exceeds 100 MB.');
       const p = validateProject(JSON.parse(await file.text()));
+      await persistCurrent();
       if (await run({ type: 'replace', project: p })) { setScreen('editor'); setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null; setPosition(0); }
-    } catch (e) { setError(String(e)); } finally { e.target.value = ''; }
+    } catch (e) { setError(messageFor(e)); } finally { e.target.value = ''; }
   }
 
   function togglePreviewFullscreen() { const element = document.querySelector('.preview-panel'); if (!document.fullscreenElement) void element?.requestFullscreen?.(); else void document.exitFullscreen(); }
 
+  function openExportModal() {
+    setPlaying(false);
+    setExportFormatIds(project.formats.map(format => format.id));
+    setModal('export');
+  }
+
+  function exportFilename(format?: FormatVariant, includeFormat = false) {
+    const parts = [exportSettings.name.trim() || project.name || 'PixCut project'];
+    if (exportSettings.version.trim()) parts.push(exportSettings.version.trim());
+    if (format && (includeFormat || exportSettings.includePreset)) parts.push(format.name);
+    if (exportSettings.includeQuality && format) parts.push(format.quality === 'draft' ? 'Draft' : format.quality === 'high' ? 'High quality' : 'Standard');
+    return `${parts.join(' - ')}.mp4`;
+  }
+
   async function exportVideo() {
-    setExporting(true); setPlaying(false); setError('');
+    const selectedFormats = project.formats.filter(format => exportFormatIds.includes(format.id));
+    if (!selectedFormats.length) { setError('Choose at least one output format.'); return; }
+    exportCancelled.current = false; setCancellingExport(false);
+    setExporting(true); setExportProgress(1); setPlaying(false); setError('');
     try {
-      await document.fonts.ready; const frames: string[] = [];
-      for (const scene of project.scenes) { const canvas = document.createElement('canvas'); await drawScene(canvas, scene, project.aspect); frames.push(canvas.toDataURL('image/png')); }
-      const path = await bridge.exportMovie(project.id, frames);
-      if (path) { setNotice(`MP4 exported to ${path}`); setModal(null); }
-    } catch (e) { setError(String(e)); } finally { setExporting(false); }
+      await document.fonts.ready;
+      const plans = selectedFormats.map(format => {
+        const formatScenes = resolveScenesForFormat(scenes, format);
+        const segments: { scene: Scene; next?: Scene; startTicks: number; durationTicks: number }[] = [];
+        for (let sceneIndex = 0; sceneIndex < formatScenes.length; sceneIndex++) {
+          const scene = formatScenes[sceneIndex];
+          const next = formatScenes[sceneIndex + 1];
+          const boundaries = new Set<number>([0, scene.durationTicks]);
+          for (const layer of sceneTextLayers(scene)) {
+            boundaries.add(Math.min(scene.durationTicks, Math.max(0, layer.startTicks)));
+            boundaries.add(Math.min(scene.durationTicks, Math.max(0, layer.startTicks + layer.durationTicks)));
+          }
+          if (scene.transition && next) boundaries.add(Math.max(0, scene.durationTicks - secondsToTicks(scene.transition.duration, project.timebase)));
+          const points = [...boundaries].sort((a, b) => a - b);
+          for (let index = 0; index < points.length - 1; index++) {
+            const durationTicks = points[index + 1] - points[index];
+            if (durationTicks > 0) segments.push({ scene, next, startTicks: points[index], durationTicks });
+          }
+        }
+        return { format, segments };
+      });
+      const totalSegments = plans.reduce((sum, plan) => sum + plan.segments.length, 0);
+      if (!totalSegments) throw new Error('Add at least one photo before exporting.');
+      const jobs: bridge.ExportJob[] = [];
+      let rendered = 0;
+      for (const plan of plans) {
+        const frames: string[] = [], durations: number[] = [];
+        const size = formatSize(plan.format);
+        for (const segment of plan.segments) {
+          const canvas = document.createElement('canvas');
+          const localTicks = segment.startTicks + segment.durationTicks / 2;
+          const localSeconds = ticksToSeconds(localTicks, project.timebase);
+          const transition = segment.scene.transition && segment.next ? segment.scene.transition : null;
+          const transitionStart = transition ? segment.scene.durationTicks - secondsToTicks(transition.duration, project.timebase) : 0;
+          if (transition && segment.next && localTicks >= transitionStart) {
+            const progress = Math.min(1, (localTicks - transitionStart) / Math.max(1, secondsToTicks(transition.duration, project.timebase)));
+            await drawTransition(canvas, segment.scene, segment.next, transition.type, displayAspect, 'export', progress, localSeconds, 0, project.timebase, size);
+          } else {
+            await drawScene(canvas, segment.scene, displayAspect, 'export', localSeconds, project.timebase, size);
+          }
+          frames.push(canvas.toDataURL('image/png'));
+          durations.push(segment.durationTicks);
+          rendered += 1;
+          if (exportCancelled.current) throw new Error('Export cancelled.');
+          setExportProgress(Math.round(2 + rendered / totalSegments * 66));
+        }
+        jobs.push({ frames, durations, options: { width: size.width, height: size.height, fps: plan.format.fps, crf: EXPORT_QUALITY_CRF[plan.format.quality], filename: exportFilename(plan.format, selectedFormats.length > 1) } });
+      }
+      setExportProgress(72);
+      const paths = await bridge.exportVariants(project.id, jobs);
+      if (paths.length) {
+        setExportProgress(100);
+        setNotice(`${paths.length} video${paths.length === 1 ? '' : 's'} exported. Files stay on this device.`);
+        setModal(null);
+      }
+    } catch (e) {
+      if (/cancel/i.test(e instanceof Error ? e.message : String(e))) {
+        setNotice('Export cancelled. No file was written.');
+      } else {
+        setError(messageFor(e));
+      }
+      setExportProgress(0);
+    } finally { setExporting(false); setCancellingExport(false); }
+  }
+
+  function cancelExport() {
+    exportCancelled.current = true;
+    setCancellingExport(true);
+    bridge.cancelExport().catch(() => { /* the export promise reports the outcome */ });
   }
 
   useEffect(() => {
@@ -689,17 +1961,69 @@ export default function App() {
     media: 'A collection of moments, ready to become a story.',
     text: 'A few words can say a lot. Select a scene to make it yours.',
     elements: 'Shapes, stickers and overlays coming soon.',
-    transitions: 'Transition presets coming soon.',
-    effects: 'Visual effects coming soon.',
-    audio: 'Audio tracks coming soon.',
-    templates: 'Bundled templates coming soon.',
+    transitions: 'Blend the selected scene into the next clip.',
+    effects: 'Quick looks for the selected scene.',
+    audio: 'Multiple local audio clips, trimmed and mixed into your export.',
+    templates: 'Bundled stories with real scenes, timing, and looks.',
   } as const;
-  const wideModal = modal === 'shortcuts' || modal === 'palette' || (modal === 'settings' && settingsTab === 'shortcuts');
-  const modalEyebrow = modal === 'export' ? 'READY WHEN YOU ARE' : modal === 'shortcuts' ? 'FIND YOUR FLOW' : modal === 'palette' ? 'EVERY ACTION, ONE PLACE' : modal === 'settings' ? 'MAKE PIXCUT YOURS' : 'YOUR NEXT STORY';
+  const wideModal = modal === 'shortcuts' || modal === 'palette' || modal === 'templates' || (modal === 'settings' && settingsTab === 'shortcuts');
+  const mediumModal = modal === 'new' || modal === 'formats';
+  const modalEyebrow = modal === 'export' ? 'READY WHEN YOU ARE' : modal === 'shortcuts' ? 'FIND YOUR FLOW' : modal === 'palette' ? 'EVERY ACTION, ONE PLACE' : modal === 'settings' ? 'MAKE PIXCUT YOURS' : modal === 'delete' ? 'REMOVE FROM THIS DEVICE' : modal === 'rename' ? 'PROJECT DETAILS' : modal === 'group' ? 'ORGANIZE YOUR LIBRARY' : modal === 'groups' ? 'ORGANIZE YOUR LIBRARY' : modal === 'formats' ? 'DELIVERABLES' : 'YOUR NEXT STORY';
+  const projectGroupsList = projectGroups();
+  const matchingProjects = projects
+    .filter(entry => {
+      const query = libraryQuery.trim().toLowerCase();
+      return (!query || `${entry.name} ${entry.group ?? ''}`.toLowerCase().includes(query)) && (!favoriteOnly || entry.favorite);
+    })
+    .sort((a, b) => librarySort === 'name' ? a.name.localeCompare(b.name) : librarySort === 'duration' ? b.duration - a.duration : b.updatedAt - a.updatedAt);
+  const visibleProjects = groupFilter === 'all' ? matchingProjects : groupFilter === 'ungrouped' ? matchingProjects.filter(entry => !entry.group) : matchingProjects.filter(entry => entry.group === groupFilter);
+  const templateMatches = TEMPLATES.filter(template => {
+    const category = templateCategory === 'All' || template.category === templateCategory;
+    const haystack = `${template.name} ${template.category} ${template.description}`.toLowerCase();
+    return category && haystack.includes(templateQuery.trim().toLowerCase());
+  });
+
+  function templateImage(template: TemplateDefinition) { return templateThumbs[template.id] ?? templatePreview(template); }
+
+  function renderProjectCard(entry: ProjectSummary) {
+    const active = entry.id === project.id;
+    return <div className={`project-card ${active ? 'active' : ''} ${projectMenu === entry.id ? 'menu-open' : ''}`} key={entry.id}>
+      <button className="project-open" onClick={() => void openLibraryProject(entry)} disabled={!libraryReady || !canEdit}>
+        <div className="project-thumb">
+          <div className="project-frame" style={{ aspectRatio: entry.width && entry.height ? `${entry.width} / ${entry.height}` : entry.aspect.replace(':', ' / ') }}>
+            {entry.thumbnail ? <img src={entry.thumbnail} alt="" /> : <span className="project-thumb-fallback"><Clapperboard size={24} /></span>}
+          </div>
+          <span className="project-aspect">{entry.aspect}</span>
+          {entry.group && <span className="project-group-badge"><FolderOpen size={10} />{entry.group}</span>}
+          <span className="project-play"><Play size={15} fill="currentColor" /></span>
+        </div>
+        <div className="project-meta">
+          <strong>{entry.name}</strong>
+          <small>{entry.sceneCount} scene{entry.sceneCount === 1 ? '' : 's'} · {timecode(entry.duration, entry.timebase)}</small>
+          <span className="project-status"><span className="status-dot" /> {active ? 'Open now' : `Edited ${relativeTime(entry.updatedAt)}`}</span>
+        </div>
+      </button>
+      <button className={`project-favorite ${entry.favorite ? 'active' : ''}`} aria-label={entry.favorite ? `Remove ${entry.name} from favorites` : `Add ${entry.name} to favorites`} aria-pressed={Boolean(entry.favorite)} onClick={() => void toggleProjectFavorite(entry)}><Star size={15} fill={entry.favorite ? 'currentColor' : 'none'} /></button>
+      <button className="project-actions" data-project-actions={entry.id} aria-label={`Actions for ${entry.name}`} aria-haspopup="menu" aria-expanded={projectMenu === entry.id} onClick={() => setProjectMenu(id => id === entry.id ? null : entry.id)}><MoreHorizontal size={16} /></button>
+      {projectMenu === entry.id && <div className="project-menu" data-project-menu={entry.id} role="menu" aria-label={`${entry.name} actions`}>
+        <span className="project-menu-heading">{entry.name}</span>
+        <button role="menuitem" onClick={() => void openLibraryProject(entry)}><FolderOpen size={14} /><span>Open project</span></button>
+        <button role="menuitem" disabled={!canEdit} onClick={() => askRenameProject(entry)}><Pencil size={14} /><span>Rename…</span></button>
+        <button role="menuitem" onClick={() => void toggleProjectFavorite(entry)}><Star size={14} /><span>{entry.favorite ? 'Remove from favorites' : 'Add to favorites'}</span></button>
+        <button role="menuitem" disabled={!canEdit} onClick={() => askGroupProject(entry)}><Layers size={14} /><span>{entry.group ? `Group: ${entry.group}` : 'Move to group…'}</span></button>
+        <button role="menuitem" disabled={!canEdit} onClick={() => void duplicateProject(entry)}><Copy size={14} /><span>Duplicate</span></button>
+        <button role="menuitem" onClick={() => void exportLibraryProject(entry)}><Download size={14} /><span>Export project file</span></button>
+        <button role="menuitem" className="danger" onClick={() => askDeleteProject(entry)}><Trash2 size={14} /><span>Delete from device…</span></button>
+      </div>}
+    </div>;
+  }
 
   return (
-    <div className={`app ${screen}`}>
-      <input ref={mediaInput} type="file" hidden multiple accept="image/jpeg,image/png,image/webp" onChange={e => void importFiles(e.target.files)} />
+    <div className={`app ${screen} theme-${preferences.theme} ${preferences.compact ? 'compact' : ''} ${preferences.reduceMotion ? 'reduce-motion' : ''}`}>
+      <input ref={mediaInput} type="file" hidden multiple accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" onChange={e => void importFiles(e.target.files)} />
+      <input ref={replaceInput} type="file" hidden accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" onChange={e => { const file = e.target.files?.[0]; const id = replaceTargetId.current; e.target.value = ''; if (file && id) void replaceImageForScene(id, file); }} />
+      <input ref={audioInput} type="file" hidden accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,.mp3,.wav,.m4a,.aac,.ogg,.oga,.webm" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void importAudio(file); }} />
+      {audio.map(clip => <audio key={clip.id} src={clip.data} preload="metadata" hidden ref={element => { if (element) audioElements.current.set(clip.id, element); else audioElements.current.delete(clip.id); }} />)}
       <input ref={projectInput} type="file" hidden accept=".json,.pixcut" onChange={e => void openBrowserProject(e)} />
 
       {screen === 'home' ? <>
@@ -718,8 +2042,8 @@ export default function App() {
           </div>
           <div className="sidebar-bottom">
             <button className="sidebar-link" onClick={() => setModal('shortcuts')}><Keyboard size={16} /><span>Keyboard shortcuts</span></button>
-            <button className="sidebar-link" onClick={() => setNotice(`PixCut 0.1 · Local photo movies · ${shortcutText('playback.toggle')} to play · ${shortcutText('project.save')} to save · ${shortcutText('history.undo')} to undo`)}><Info size={16} /><span>About this build</span></button>
-            <div className="sidebar-version"><span>PIXCUT DESKTOP</span><span>0.1 · EARLY BUILD</span></div>
+            <button className="sidebar-link" onClick={() => setNotice(`PixCut ${appVersion} · Local photo movies · ${shortcutText('playback.toggle')} to play · ${shortcutText('project.save')} to save · ${shortcutText('history.undo')} to undo`)}><Info size={16} /><span>About this build</span></button>
+            <div className="sidebar-version"><span>PIXCUT DESKTOP</span><span>v{appVersion}</span></div>
           </div>
         </aside>
 
@@ -732,17 +2056,17 @@ export default function App() {
             </div>
             <div className="home-actions">
               <button className="button subtle" onClick={() => void open()} disabled={!canEdit}><FolderOpen size={16} /> Open project</button>
-              <button className="button primary" disabled={!ready} onClick={() => project.scenes.length ? setModal('new') : void start()}><Plus size={16} /> New project</button>
+              <button className="button primary" disabled={!ready} onClick={() => setModal('new')}><Plus size={16} /> New project</button>
             </div>
           </header>
 
           {homeSection === 'home' && <section className="create-grid" aria-label="Create something new">
-            <button className="create-card new-video" disabled={!ready} onClick={() => project.scenes.length ? setModal('new') : void start()}>
+            <button className="create-card new-video" disabled={!ready} onClick={() => setModal('new')}>
               <span className="create-icon"><Plus size={25} /></span>
               <span className="create-copy"><strong>New Video</strong><small>Start with an empty timeline.</small></span>
               <span className="create-arrow"><ArrowUpRight size={19} /></span>
             </button>
-            <button className="create-card photo-movie" disabled={!ready} onClick={() => mediaInput.current?.click()}>
+            <button className="create-card photo-movie" disabled={!ready} onClick={() => void chooseImages()}>
               <span className="create-icon"><Images size={24} /></span>
               <span className="create-copy"><strong>Photo Movie</strong><small>Turn photos into a story.</small></span>
               <span className="create-arrow"><ArrowUpRight size={19} /></span>
@@ -757,35 +2081,54 @@ export default function App() {
           <section className="recent-section">
             <div className="section-title">
               <div><h2>{homeSection === 'home' ? 'Recent projects' : 'Your projects'}</h2><p>{homeSection === 'home' ? 'Pick up where you left off.' : 'Stored locally, recovered automatically.'}</p></div>
-              <span className="count-label">{project.scenes.length ? '1 project' : 'Nothing yet'}</span>
+              <span className="count-label">{projects.length ? `${projects.length} project${projects.length === 1 ? '' : 's'}` : 'Nothing yet'}</span>
             </div>
-            {project.scenes.length ? <div className="project-grid">
-              <button className="project-card" onClick={() => { setScreen('editor'); setPlaying(false); }}>
-                <div className="project-thumb">
-                  <img src={project.scenes[0].image} alt="" />
-                  <span className="project-aspect">{project.aspect}</span>
-                  <span className="project-play"><Play size={15} fill="currentColor" /></span>
-                </div>
-                <div className="project-meta">
-                  <strong>{project.name}</strong>
-                  <small>{project.scenes.length} scenes · {timecode(duration)}</small>
-                  <span className="project-status"><span className="status-dot" /> Recovered on this device</span>
-                </div>
-              </button>
-              <button className="project-card ghost" onClick={() => setModal('new')} disabled={!canEdit}>
-                <span className="ghost-art"><span><Plus size={24} /></span><small>Blank canvas</small></span>
-                <div className="project-meta"><strong>Start something new</strong><small>A fresh story, ready for your photos.</small></div>
-              </button>
-            </div> : <div className="empty-projects">
+            {projects.length ? <>
+              {homeSection === 'projects' && <div className="library-controls">
+                <label className="search-field"><Search size={14} /><input aria-label="Search projects" placeholder="Search projects or groups…" value={libraryQuery} onChange={event => setLibraryQuery(event.target.value)} /></label>
+                <select aria-label="Sort projects" value={librarySort} onChange={event => setLibrarySort(event.target.value as 'recent' | 'name' | 'duration')}><option value="recent">Recently edited</option><option value="name">Name A–Z</option><option value="duration">Longest first</option></select>
+                <button className={`favorite-filter ${favoriteOnly ? 'active' : ''}`} aria-pressed={favoriteOnly} onClick={() => setFavoriteOnly(value => !value)}><Star size={13} fill={favoriteOnly ? 'currentColor' : 'none'} /> Favorites</button>
+              </div>}
+              {homeSection === 'projects' && <div className="group-filter" role="group" aria-label="Filter projects by group">
+                <button className={`group-chip ${groupFilter === 'all' ? 'active' : ''}`} onClick={() => setGroupFilter('all')}>All <span>{projects.length}</span></button>
+                {projectGroupsList.map(group => <button key={group} className={`group-chip ${groupFilter === group ? 'active' : ''}`} onClick={() => setGroupFilter(group)}><FolderOpen size={11} />{group} <span>{projects.filter(entry => entry.group === group).length}</span></button>)}
+                <button className={`group-chip ${groupFilter === 'ungrouped' ? 'active' : ''}`} onClick={() => setGroupFilter('ungrouped')}>Ungrouped <span>{projects.filter(entry => !entry.group).length}</span></button>
+                {projectGroupsList.length > 0 && <button className="group-manage" onClick={openGroupManager}><Settings2 size={11} /> Manage groups</button>}
+              </div>}
+
+              {homeSection === 'projects' && groupFilter === 'all' && projectGroupsList.length ? <>
+                {[...projectGroupsList, 'Ungrouped'].map(group => {
+                  const items = group === 'Ungrouped' ? matchingProjects.filter(entry => !entry.group) : matchingProjects.filter(entry => entry.group === group);
+                  if (!items.length) return null;
+                  return <div className="project-group-section" key={group}>
+                    <div className="project-group-title"><h3>{group}</h3><span>{items.length} project{items.length === 1 ? '' : 's'}</span></div>
+                    <div className="project-grid">{items.map(renderProjectCard)}</div>
+                  </div>;
+                })}
+                <div className="project-group-section"><div className="project-group-title"><h3>New</h3><span>Start a fresh story</span></div><div className="project-grid">
+                  <button className="project-card ghost" onClick={() => setModal('new')} disabled={!canEdit}>
+                    <span className="ghost-art"><span><Plus size={24} /></span><small>Blank canvas</small></span>
+                    <div className="project-meta"><strong>Start something new</strong><small>A fresh story, ready for your photos.</small></div>
+                  </button>
+                </div></div>
+              </> : <div className="project-grid">
+                {visibleProjects.map(renderProjectCard)}
+                {!visibleProjects.length && <div className="library-empty compact group-empty"><FolderOpen size={28} /><strong>No projects in this group yet.</strong><p>Use a project’s ••• menu to move it here.</p></div>}
+                <button className="project-card ghost" onClick={() => setModal('new')} disabled={!canEdit}>
+                  <span className="ghost-art"><span><Plus size={24} /></span><small>Blank canvas</small></span>
+                  <div className="project-meta"><strong>Start something new</strong><small>A fresh story, ready for your photos.</small></div>
+                </button>
+              </div>}
+            </> : <div className="empty-projects">
               <div className="empty-projects-icon"><Clapperboard size={28} /></div>
               <div><strong>Your next favorite starts here.</strong><p>Start a story above, import a photo movie, or open a saved PixCut project.</p></div>
-              <button className="button subtle" onClick={() => mediaInput.current?.click()} disabled={!canEdit}><Upload size={15} /> Import photos</button>
+              <button className="button subtle" onClick={() => void chooseImages()} disabled={!canEdit}><Upload size={15} /> Import photos</button>
             </div>}
           </section>
 
           {homeSection === 'home' && <section className="thumb-strip" aria-label="Template inspiration">
             <div className="section-title"><div><h2>Skip the blank page</h2><p>Start from a sample and make it yours.</p></div><button className="text-button" onClick={() => setModal('templates')}>Browse templates <ArrowRight size={14} /></button></div>
-            <div className="thumb-grid">{TEMPLATE_NAMES.slice(0, 3).map((templateName, index) => <button key={templateName} className="thumb-card" onClick={() => setModal('templates')}><img src={templateArt[index]} alt="" /><span><strong>{templateName}</strong><small>Sample story · 12 s</small></span></button>)}</div>
+            <div className="thumb-grid">{TEMPLATES.slice(0, 3).map(template => <button key={template.id} className="thumb-card" onClick={() => chooseTemplate(template)}><span className="thumb-art"><img src={templateImage(template)} alt="" /></span><span><strong>{template.name}</strong><small>{template.sceneCount} scenes · {template.duration.toFixed(1)} s</small></span></button>)}</div>
           </section>}
 
           {homeSection === 'home' && <section className="home-perks">
@@ -797,7 +2140,7 @@ export default function App() {
         </main>
       </> : <>
         <header className="editor-header">
-          <button className="brand-button" aria-label="Back to home" onClick={() => { setScreen('home'); setPlaying(false); }}><Brand /></button>
+          <button className="brand-button" aria-label="Back to home" onClick={goHome}><Brand /></button>
           <span className="header-divider" />
           <span className="editor-mode">Video Editor</span>
           <input className="project-name" aria-label="Project name" value={name} maxLength={120} disabled={!canEdit} onChange={e => setName(e.target.value)} onBlur={() => { if (name !== project.name) void run({ type: 'rename', name: name.trim() || 'Untitled story' }); }} />
@@ -809,11 +2152,11 @@ export default function App() {
             <IconButton label={tip('history.undo', 'Undo')} disabled={!session.canUndo || !canEdit} onClick={() => void run({ type: 'undo' })}><Undo2 size={17} /></IconButton>
             <IconButton label={tip('history.redo', 'Redo')} disabled={!session.canRedo || !canEdit} onClick={() => void run({ type: 'redo' })}><Redo2 size={17} /></IconButton>
             <button className="button subtle header-save" aria-label="Save project" title={tip('project.save', 'Save project')} disabled={!ready || exporting} onClick={() => void save()}><Save size={15} /> <span>Save</span></button>
-            <button className="button export" title={tip('export.open', 'Export video')} disabled={!project.scenes.length || !ready || exporting} onClick={() => { setPlaying(false); setModal('export'); }}><Download size={15} /> Export <ChevronDown size={12} /></button>
+            <button className="button export" title={tip('export.open', 'Export video')} disabled={!scenes.length || !ready || exporting} onClick={openExportModal}><Download size={15} /> Export <ChevronDown size={12} /></button>
           </div>
         </header>
 
-        {showHints && project.scenes.length > 0 && <div className="shortcut-hints" role="status">
+        {showHints && scenes.length > 0 && <div className="shortcut-hints" role="status">
           <span className="hint-title"><Sparkles size={13} /> Quick start</span>
           <span className="hint"><kbd>{shortcutText('playback.toggle')}</kbd> Play / pause</span>
           <span className="hint"><kbd>{shortcutText('clip.split')}</kbd> Split at playhead</span>
@@ -830,25 +2173,68 @@ export default function App() {
             <button className={tab === 'effects' ? 'active' : ''} onClick={() => setTab('effects')}><Sparkles size={20} /><span>Effects</span></button>
             <button className={tab === 'audio' ? 'active' : ''} onClick={() => setTab('audio')}><Music size={20} /><span>Audio</span></button>
             <button className={tab === 'templates' ? 'active' : ''} onClick={() => setTab('templates')}><LayoutTemplate size={20} /><span>Templates</span></button>
-            <div className="rail-bottom"><IconButton label="Back to home" onClick={() => { setScreen('home'); setPlaying(false); }}><ArrowLeft size={19} /></IconButton></div>
+            <div className="rail-bottom"><IconButton label="Back to home" onClick={goHome}><ArrowLeft size={19} /></IconButton></div>
           </nav>
 
           <aside className="library" style={{ width: libraryWidth }}>
-            <div className="panel-title"><h2>{tabTitles[tab]}</h2><span className="count">{project.scenes.length}</span></div>
+            <div className="panel-title"><h2>{tabTitles[tab]}</h2><span className="count">{tab === 'audio' ? audio.length : scenes.length}</span></div>
             <p className="panel-description">{tabDescriptions[tab]}</p>
 
             {tab === 'media' ? <>
               <label className="search-field"><Search size={14} /><input aria-label="Search project media" placeholder="Search media…" value={mediaQuery} onChange={e => setMediaQuery(e.target.value)} /></label>
-              <button className="import-button" title={tip('project.import', 'Import media')} disabled={!canEdit} onClick={() => mediaInput.current?.click()}><Upload size={16} /> Import images <span>+</span></button>
+              <button className="import-button" title={tip('project.import', 'Import media')} disabled={!canEdit} onClick={() => void chooseImages()}><Upload size={16} /> Import images <span>+</span></button>
+              <button className="replace-image-button" title={selectedCount === 1 ? 'Replace the selected scene image and keep its timing, text, and looks' : 'Select one scene to replace its image'} disabled={!canEdit || selectedCount !== 1} onClick={() => requestReplaceImage()}><RefreshCw size={13} /> Replace selected image</button>
               <div className="library-label">PROJECT MEDIA <span>JPEG · PNG · WEBP</span></div>
-              <div className="media-grid">{filteredScenes.map(scene => <button key={scene.id} className={`media-tile ${isSelected(scene.id) ? 'selected' : ''}`} onClick={event => selectScene(scene, event)}><div><img src={scene.image} alt={scene.name} /><span>{scene.duration.toFixed(1)}s</span></div><span className="media-name">{scene.name}</span><small>SCENE {String(project.scenes.indexOf(scene) + 1).padStart(2, '0')}</small></button>)}</div>
-              {!project.scenes.length && <div className="library-empty"><ImagePlus size={34} /><strong>A story starts with a photo.</strong><p>Import images from your device.<br />Nothing gets uploaded.</p></div>}
-              {project.scenes.length > 0 && !filteredScenes.length && <div className="library-empty"><Search size={30} /><strong>No matching media.</strong><p>Try a different name, or clear the search.</p></div>}
+              <div className={`media-grid ${dropTarget === 'media-grid' ? 'drop-target' : ''}`} onDragOver={event => dragOverTarget(event, 'media-grid')} onDragLeave={() => setDropTarget(current => current === 'media-grid' ? null : current)} onDrop={dropIntoMedia}>{filteredScenes.map(scene => <button key={scene.id} className={`media-tile ${isSelected(scene.id) ? 'selected' : ''} ${dropTarget === scene.id ? 'drop-target' : ''}`} onClick={event => selectScene(scene, event)} onDragOver={event => dragOverTarget(event, scene.id)} onDragLeave={() => setDropTarget(current => current === scene.id ? null : current)} onDrop={event => void dropReplacement(event, scene)}><div><img src={scene.image} alt={scene.name} /><span>{sceneSeconds(scene, project.timebase).toFixed(1)}s</span></div><span className="media-name">{scene.name}</span><small>SCENE {String(scenes.indexOf(scene) + 1).padStart(2, '0')}</small></button>)}</div>
+              {!scenes.length && <div className="library-empty"><ImagePlus size={34} /><strong>A story starts with a photo.</strong><p>Import images from your device.<br />Nothing gets uploaded.</p></div>}
+              {scenes.length > 0 && !filteredScenes.length && <div className="library-empty"><Search size={30} /><strong>No matching media.</strong><p>Try a different name, or clear the search.</p></div>}
             </> : tab === 'text' ? <div className="text-presets">
               <div className="type-card"><span>THE EVERYDAY</span><strong>Make it<br />memorable.</strong><small>Clean title + subtitle</small></div>
               <p>Select a scene in the timeline, then add or change its title in the inspector.</p>
               <button className="button" disabled={!selectedScene || !canEdit} onClick={() => { if (selectedScene) updateSelection({ ...selectedScene, title: 'Make it memorable.', subtitle: 'A story by you' }); }}><Plus size={15} /> Add title to {selectedCount > 1 ? `${selectedCount} clips` : 'scene'}</button>
-            </div> : <div className="library-empty"><Settings2 size={34} /><strong>Coming in the next slice.</strong><p>This tool is scaffolded and will connect to the media engine later.</p></div>}
+            </div> : tab === 'audio' ? <div className="music-panel">
+              <button className="import-button" disabled={!canEdit || !projectTicks} onClick={() => { audioLaneRef.current = selectedAudio?.lane ?? 0; void chooseAudio(); }}><Plus size={16} /> Add audio at playhead <span>{audio.length}</span></button>
+              {audio.length ? <div className="audio-list">{audio.map(clip => {
+                const start = ticksToSeconds(clip.startTicks, project.timebase);
+                const length = ticksToSeconds(clip.durationTicks, project.timebase);
+                return <div className={`audio-list-item ${selectedAudio?.id === clip.id ? 'active' : ''}`} key={clip.id}>
+                  <button className="audio-list-select" onClick={() => setSelectedAudioId(clip.id)}><Music size={15} /><span><strong>{clip.name}</strong><small>{start.toFixed(1)} s · {length.toFixed(1)} s</small></span></button>
+                  <button className="icon-button" aria-label={`Remove ${clip.name}`} disabled={!canEdit} onClick={() => removeAudio(clip.id)}><Trash2 size={14} /></button>
+                </div>;
+              })}</div> : <div className="library-empty music-empty">
+                <Music size={34} />
+                <strong>Give your story a soundtrack.</strong>
+                <p>Add as many audio clips as you need.<br />Up to 50 MB each. Stays on this device.</p>
+                <button className="button primary" disabled={!canEdit || !projectTicks} onClick={() => void chooseAudio()}><Upload size={15} /> Add audio</button>
+              </div>}
+              {selectedAudio && <div className="audio-editor">
+                <div className="audio-editor-title"><strong>{selectedAudio.name}</strong><small>{formatBytes(selectedAudio.data.length * .75)} · {selectedAudio.sourceDurationSeconds.toFixed(1)} s source</small></div>
+                <label className="field">Audio track<select aria-label="Audio track" value={selectedAudio.lane} onChange={event => stageAudio({ lane: Number(event.target.value) })} onBlur={commitAudio}>{audioLanes.map((lane, index) => <option key={lane} value={lane}>Track {index + 1}</option>)}<option value={audioLanes.length}>Track {audioLanes.length + 1}</option></select></label>
+                <label className="music-control"><span>Start <b>{ticksToSeconds(selectedAudio.startTicks, project.timebase).toFixed(1)} s</b></span><input type="range" min="0" max={ticksToSeconds(Math.max(0, projectTicks - selectedAudio.durationTicks), project.timebase)} step={secondsPerTick(project.timebase)} value={ticksToSeconds(selectedAudio.startTicks, project.timebase)} disabled={!canEdit} onChange={event => stageAudio({ startTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <label className="music-control"><span>Trim in <b>{selectedAudio.sourceInSeconds.toFixed(1)} s</b></span><input type="range" min="0" max={Math.max(0, selectedAudio.sourceDurationSeconds - secondsPerTick(project.timebase))} step="0.1" value={selectedAudio.sourceInSeconds} disabled={!canEdit} onChange={event => stageAudio({ sourceInSeconds: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <label className="music-control"><span>Duration <b>{ticksToSeconds(selectedAudio.durationTicks, project.timebase).toFixed(1)} s</b></span><input type="range" min="0.1" max={Math.max(0.1, Math.min(ticksToSeconds(projectTicks - selectedAudio.startTicks, project.timebase), selectedAudio.sourceDurationSeconds - selectedAudio.sourceInSeconds))} step="0.1" value={ticksToSeconds(selectedAudio.durationTicks, project.timebase)} disabled={!canEdit} onChange={event => stageAudio({ durationTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <label className="music-control"><span>Volume <b>{Math.round(selectedAudio.volume * 100)}%</b></span><input type="range" min="0" max="100" step="1" value={Math.round(selectedAudio.volume * 100)} disabled={!canEdit} onChange={event => stageAudio({ volume: Number(event.target.value) / 100 })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <label className="music-control"><span>Fade in <b>{selectedAudio.fadeIn.toFixed(1)} s</b></span><input type="range" min="0" max={Math.min(30, Math.max(1, ticksToSeconds(selectedAudio.durationTicks, project.timebase)))} step="0.1" value={selectedAudio.fadeIn} disabled={!canEdit} onChange={event => stageAudio({ fadeIn: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <label className="music-control"><span>Fade out <b>{selectedAudio.fadeOut.toFixed(1)} s</b></span><input type="range" min="0" max={Math.min(30, Math.max(1, ticksToSeconds(selectedAudio.durationTicks, project.timebase)))} step="0.1" value={selectedAudio.fadeOut} disabled={!canEdit} onChange={event => stageAudio({ fadeOut: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <p className="note"><Music size={14} /><span>{audio.length} audio clip{audio.length === 1 ? '' : 's'} · drag a clip on the timeline to move it, or drag its edges to trim. Mixed into the MP4 at 192 kbps. Files up to 50 MB each.</span></p>
+              </div>}
+            </div> : tab === 'templates' ? <div className="template-tab">
+              <button className="import-button" onClick={() => setModal('templates')}><LayoutTemplate size={16} /> Browse the full gallery <span>{TEMPLATES.length}</span></button>
+              <div className="library-label">BUNDLED STORIES <span>OFFLINE</span></div>
+              <div className="template-tab-list">{TEMPLATES.map(template => <button key={template.id} className="template-tab-card" disabled={!canEdit} onClick={() => chooseTemplate(template)}>
+                <span className="template-tab-art"><img src={templateImage(template)} alt="" /></span>
+                <span className="template-tab-copy"><strong>{template.name}</strong><small>{template.aspect} · {template.sceneCount} scenes · {template.duration.toFixed(1)} s</small></span>
+                <Plus size={15} />
+              </button>)}</div>
+              <p className="template-tab-note">Templates include real scenes, timing, looks, and text effects. Your current story is saved before a template replaces it.</p>
+            </div> : tab === 'transitions' ? <div className="transition-panel">
+              <p className="panel-description">Choose a transition for the selected scene. It plays over the end of the scene and blends into the next clip.</p>
+              <div className="transition-grid">{TRANSITION_OPTIONS.map(option => <button key={option.id} className={`transition-card ${(selectedScene?.transition?.type ?? 'none') === option.id ? 'active' : ''}`} disabled={!selectedScene || !canEdit} onClick={() => { if (!selectedScene) return; updateSelection({ ...selectedScene, transition: option.id === 'none' ? null : { type: option.id, duration: selectedScene.transition?.duration ?? .6 } }); }}><span className={`transition-swatch ${option.id}`} /><strong>{option.label}</strong><small>{option.description}</small></button>)}</div>
+              {selectedScene && <p className="note"><Sparkles size={13} /><span>{selectedScene.transition ? `${TRANSITION_OPTIONS.find(option => option.id === selectedScene.transition?.type)?.label} for ${selectedScene.transition.duration.toFixed(1)} s. Adjust the duration in the Transition inspector tab.` : 'Hard cut. Select a transition above to blend into the next clip.'}</span></p>}
+            </div> : tab === 'effects' ? <div className="effects-panel">
+              <p className="panel-description">Apply a fast look to the selected scene. Fine-tune intensity and color in the inspector.</p>
+              <div className="effects-quick-grid"><button className={`effect-quick-card ${(selectedScene?.filter ?? 'none') === 'none' ? 'active' : ''}`} disabled={!selectedScene || !canEdit} onClick={() => { if (selectedScene) updateSelection({ ...selectedScene, filter: 'none', filterIntensity: 100 }); }}><span className="effect-swatch none" /><strong>Original</strong><small>No look</small></button>{FILTERS.filter(filter => filter.id !== 'none').map(filter => <button key={filter.id} className={`effect-quick-card ${selectedScene?.filter === filter.id ? 'active' : ''}`} disabled={!selectedScene || !canEdit} onClick={() => { if (selectedScene) updateSelection({ ...selectedScene, filter: filter.id, filterIntensity: filter.id === 'none' ? 100 : 78 }); }}><span className={`effect-swatch ${filter.id}`} /><strong>{filter.label}</strong><small>{filter.description}</small></button>)}</div>
+            </div> : <div className="library-empty"><Shapes size={34} /><strong>Elements are coming next.</strong><p>Shapes, stickers, and overlays need the media engine’s layer compositor.</p></div>}
 
             <div className="library-footer"><HardDrive size={13} /><span>Stored locally. Always yours.</span></div>
           </aside>
@@ -861,28 +2247,51 @@ export default function App() {
               <div>
                 <span className="offline"><span />Offline</span>
                 <button className="text-button" title={tip('view.safe_area', `Safe area ${safeArea ? 'on' : 'off'}`)} onClick={() => runCommandId('view.safe_area')}>Safe area {safeArea ? 'on' : 'off'}</button>
-                <select aria-label="Canvas aspect ratio" value={project.aspect} disabled={!canEdit} onChange={e => void run({ type: 'aspect', aspect: e.target.value as Project['aspect'] })}><option>16:9</option><option>9:16</option><option>1:1</option><option>4:5</option></select>
+                <select aria-label="Output format" value={activeFormat?.id ?? ''} disabled={!canEdit} onChange={event => setActiveFormatId(event.target.value)}>{project.formats.map(format => <option key={format.id} value={format.id}>{format.name} · {format.aspect}</option>)}</select>
+                <button className="format-manage-button" onClick={() => setModal('formats')}><Layers size={13} /> Formats <span>{project.formats.length}</span></button>
                 <IconButton label="Fullscreen preview" onClick={togglePreviewFullscreen}><Maximize2 size={15} /></IconButton>
               </div>
             </div>
-            <div className="preview-area" onDoubleClick={() => { if (selectedScene && canEdit) setEditingText(true); }}>
-              {previewTarget ? <canvas ref={preview} className="preview-canvas" style={{ aspectRatio: project.aspect.replace(':', ' / ') }} aria-label={`Preview: ${previewTarget.title || previewTarget.name}`} /> : <div className="empty-preview">
+            <div className="preview-area" ref={previewArea}>
+              {previewTarget ? <div className="preview-stage" ref={previewStage} style={previewSize ? { width: previewSize.width, height: previewSize.height } : undefined}>
+                <canvas ref={preview} className="preview-canvas" aria-label={`Preview: ${sceneTextTitle(previewTarget) || previewTarget.name}`} />
+                {selectedScene && framingMode && canEdit && <div className="image-framing-overlay" onPointerDown={beginImagePan} title="Drag to choose the visible part of the image">
+                  <span className="framing-grid" aria-hidden="true" />
+                  <span className="framing-hint">Drag to reposition · adjust zoom and letterbox in the inspector</span>
+                </div>}
+                {selectedScene && selectedTextLayer && textBox?.hasText && selectedTextVisible && canEdit && !editingText && !framingMode && <div
+                  className="text-box"
+                  style={{ left: `${textBox.leftPct}%`, top: `${Math.max(0, textBox.topPct - .7)}%`, width: `${textBox.widthPct}%`, height: `${Math.max(7, textBox.heightPct + 1.4)}%`, transform: `rotate(${textBox.rotation}deg)` }}
+                  title="Drag to move · drag the edge handles to resize · double-click to edit"
+                  onPointerDown={beginTextMove}
+                  onDoubleClick={event => { event.stopPropagation(); setTextDraft({ title: selectedTextLayer.title, subtitle: selectedTextLayer.subtitle }); setEditingText(true); }}
+                >
+                  <span className="text-box-handle left" onPointerDown={event => beginTextResize(event, 'left')} />
+                  <span className="text-box-handle right" onPointerDown={event => beginTextResize(event, 'right')} />
+                  <span className="text-box-label">TEXT</span>
+                </div>}
+                {editingText && selectedScene && selectedTextLayer && textBox?.hasText && <div
+                  className="text-edit-overlay"
+                  style={{ left: `${Math.min(textBox.leftPct, 56)}%`, top: `${Math.min(textBox.topPct, 42)}%`, width: 'min(340px, 74%)' }}
+                >
+                  <div className="text-edit-head"><span><Type size={12} /> Edit text</span><small>{selectedTextLayer.title ? 'Title and subtitle' : 'Add a title'}</small></div>
+                  <label className="inline-edit-field"><span>Title</span><textarea aria-label="Edit title in preview" rows={2} maxLength={120} value={textDraft.title} onChange={event => previewInlineText({ ...textDraft, title: event.target.value })} onBlur={blurInlineText} onKeyDown={event => { if (event.key === 'Escape') cancelInlineText(); }} autoFocus /></label>
+                  <label className="inline-edit-field"><span>Subtitle <em>optional</em></span><input aria-label="Edit subtitle in preview" maxLength={200} value={textDraft.subtitle} onChange={event => previewInlineText({ ...textDraft, subtitle: event.target.value })} onBlur={blurInlineText} onKeyDown={event => { if (event.key === 'Escape') cancelInlineText(); if (event.key === 'Enter') { event.preventDefault(); commitInlineText(); } }} /></label>
+                  <div className="text-edit-actions"><button className="text-button" onClick={cancelInlineText}>Cancel</button><button className="button primary" onClick={commitInlineText}><Check size={13} /> Done</button></div>
+                </div>}
+                {fadeAmount > 0.001 && <div className="preview-fade" style={{ opacity: fadeAmount }} aria-hidden="true" />}
+                {safeArea && <div className="safe-area-overlay" aria-hidden="true" />}
+              </div> : <div className="empty-preview">
                 <Film size={40} /><h2>Every story starts somewhere.</h2><p>Add a few photos. Make them your own.</p>
-                <button className="button primary" disabled={!canEdit} onClick={() => mediaInput.current?.click()}><Plus size={16} /> Add your first images</button>
-                <button className="text-button" disabled={!canEdit} onClick={() => void start(true)}>Or explore a sample story <ArrowRight size={14} /></button>
-              </div>}
-              {fadeAmount > 0.001 && <div className="preview-fade" style={{ opacity: fadeAmount }} aria-hidden="true" />}
-              {safeArea && <div className="safe-area-overlay" aria-hidden="true" />}
-              {editingText && selectedScene && <div className="text-edit-overlay">
-                <input aria-label="Edit title in preview" value={textDraft.title} onChange={e => setTextDraft(d => ({ ...d, title: e.target.value }))} onBlur={() => { if (selectedScene) void run({ type: 'update', scene: { ...selectedScene, title: textDraft.title, subtitle: textDraft.subtitle } }); setEditingText(false); }} onKeyDown={e => { if (e.key === 'Escape') setEditingText(false); }} autoFocus />
-                <input aria-label="Edit subtitle in preview" value={textDraft.subtitle} onChange={e => setTextDraft(d => ({ ...d, subtitle: e.target.value }))} onBlur={() => { if (selectedScene) void run({ type: 'update', scene: { ...selectedScene, title: textDraft.title, subtitle: textDraft.subtitle } }); setEditingText(false); }} onKeyDown={e => { if (e.key === 'Escape') setEditingText(false); }} />
+                <button className="button primary" disabled={!canEdit} onClick={() => void chooseImages()}><Plus size={16} /> Add your first images</button>
+                <button className="text-button" disabled={!canEdit} onClick={() => chooseTemplate(SAMPLE_TEMPLATE)}>Or explore a sample story <ArrowRight size={14} /></button>
               </div>}
             </div>
-            <div className="preview-scrub"><input aria-label="Preview playhead" title={`Preview playhead · ${shortcutText('timeline.prev_frame')} / ${shortcutText('timeline.next_frame')} to step frames`} type="range" min="0" max={Math.max(duration - 1 / 30, 0)} step={1 / 30} value={position} disabled={!duration} onChange={e => scrubTo(Number(e.target.value))} /></div>
+            <div className="preview-scrub"><input aria-label="Preview playhead" title={`Preview playhead · ${shortcutText('timeline.prev_frame')} / ${shortcutText('timeline.next_frame')} to step frames`} type="range" min="0" max={Math.max(duration - frameSeconds, 0)} step={frameSeconds} value={position} disabled={!duration} onChange={e => scrubTo(Number(e.target.value))} /></div>
             <div className="preview-controls">
-              <span className="timecode">{timecode(position)} <span>/ {timecode(duration)}</span></span>
+              <span className="timecode">{timecode(position, project.timebase)} <span>/ {timecode(duration, project.timebase)}</span></span>
               <div className="transport"><IconButton label="Return to start" onClick={() => { setPosition(0); setPlaying(false); }}><SkipBack size={17} /></IconButton><button className="play-button" disabled={!duration || !canEdit} title={tip('playback.toggle', playing ? 'Pause' : 'Play')} aria-label={playing ? 'Pause' : 'Play'} onClick={togglePlayback}>{playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}</button></div>
-              <span className="preview-quality">{dimensions(project.aspect).join(' × ')} <Maximize2 size={13} /></span>
+              <span className="preview-quality">{([activeSize.width, activeSize.height] as [number, number]).join(' × ')} <Maximize2 size={13} /></span>
             </div>
           </main>
 
@@ -896,9 +2305,9 @@ export default function App() {
               <button className="text-button" onClick={() => { if (selectedScene) { setSelectedIds([selectedScene.id]); setPrimarySelected(selectedScene.id); selectionAnchor.current = selectedScene.id; } }}>Edit only this clip</button>
             </div>}
             {selectedScene ? <fieldset disabled={!canEdit} className="inspector-fields">
-              <SceneForm scene={selectedScene} update={updateSelection} onPreview={setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} />
+              <SceneForm scene={resolveSceneForFormat(selectedScene, activeFormat)} timebase={project.timebase} update={updateSelection} onPreview={setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} flushRef={inspectorFlush} onReplaceImage={() => requestReplaceImage()} textLayerId={selectedTextLayerId} onSelectTextLayer={selectTextLayer} textStartTicks={textStartTicks} focusText={textFocus} framingActive={framingMode} onToggleFraming={() => { setFramingMode(value => !value); setEditingText(false); }} formatName={activeFormat?.name ?? 'Original'} formatCount={project.formats.length} onApplyFramingToAll={applyFramingToAllFormats} />
               <hr />
-              <div className="scene-actions"><button className="button" title={tip('clip.duplicate', selectedCount > 1 ? `Duplicate ${selectedCount} clips` : 'Duplicate clip')} onClick={duplicateSelected}><Copy size={14} /> {selectedCount > 1 ? `Duplicate ${selectedCount}` : 'Duplicate'}</button><IconButton label={tip('clip.delete', selectedCount > 1 ? `Delete ${selectedCount} clips` : 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>
+              <div className="scene-actions"><button className="button" title="Replace this scene image and keep its timing, text, and looks" disabled={selectedCount !== 1} onClick={() => requestReplaceImage()}><RefreshCw size={14} /> Replace image</button><button className="button" title={tip('clip.duplicate', selectedCount > 1 ? `Duplicate ${selectedCount} clips` : 'Duplicate clip')} onClick={duplicateSelected}><Copy size={14} /> {selectedCount > 1 ? `Duplicate ${selectedCount}` : 'Duplicate'}</button><IconButton label={tip('clip.delete', selectedCount > 1 ? `Delete ${selectedCount} clips` : 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>
             </fieldset> : <div className="inspector-empty"><Settings2 size={26} /><p>Select a scene to adjust its timing, framing, and text.</p></div>}
           </aside>
         </div>
@@ -907,36 +2316,70 @@ export default function App() {
 
         <section className="timeline" aria-label="Timeline" style={{ height: timelineHeight }}>
           <div className="timeline-toolbar">
-            <div><span className="timeline-heading">Your story</span><span className="tiny-label">{project.scenes.length} scenes</span></div>
-            <div className="timeline-tools"><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene earlier'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || project.scenes[0]?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: -1 })}><ArrowLeft size={16} /></IconButton><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene later'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || project.scenes.at(-1)?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: 1 })}><ArrowRight size={16} /></IconButton><IconButton className={snapping ? 'active' : ''} label={tip('timeline.snapping', `Snapping ${snapping ? 'on' : 'off'}`)} onClick={() => runCommandId('timeline.snapping')}><Magnet size={16} /></IconButton><span className="header-divider" /><span className="timeline-total"><Clock3 size={14} />{duration.toFixed(1)}s</span></div>
+            <div><span className="timeline-heading">Your story</span><span className="tiny-label">{scenes.length} scenes</span></div>
+            <div className="timeline-tools"><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene earlier'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes[0]?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: -1 })}><ArrowLeft size={16} /></IconButton><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene later'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes.at(-1)?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: 1 })}><ArrowRight size={16} /></IconButton><IconButton className={snapping ? 'active' : ''} label={tip('timeline.snapping', `Snapping ${snapping ? 'on' : 'off'}`)} onClick={() => runCommandId('timeline.snapping')}><Magnet size={16} /></IconButton><span className="header-divider" /><div className="timeline-zoom" role="group" aria-label="Timeline zoom"><IconButton label="Zoom out timeline" disabled={timelineZoom <= 1} onClick={() => changeTimelineZoom(timelineZoom - .5)}><ZoomOut size={15} /></IconButton><input aria-label="Timeline zoom" type="range" min="1" max="6" step=".25" value={timelineZoom} onChange={event => changeTimelineZoom(Number(event.target.value))} /><button className="timeline-zoom-label" title="Fit timeline" onClick={() => changeTimelineZoom(1)}>{Math.round(timelineZoom * 100)}%</button><IconButton label="Zoom in timeline" disabled={timelineZoom >= 6} onClick={() => changeTimelineZoom(timelineZoom + .5)}><ZoomIn size={15} /></IconButton></div><span className="header-divider" /><span className="timeline-total"><Clock3 size={14} />{duration.toFixed(1)}s</span></div>
           </div>
-          <div className="timeline-content">
-            <div className="timeline-ruler-row"><span>00:00</span><span>YOUR TIMELINE · {project.aspect}</span><span>{timecode(duration)}</span></div>
-            <div className="timeline-scrub-row"><input className="scrubber" aria-label="Timeline playhead" type="range" min="0" max={Math.max(duration - 1 / 30, 0)} step={1 / 30} value={position} disabled={!duration} onChange={e => scrubTo(Number(e.target.value))} /></div>
+          <div className="timeline-content" ref={timelineScroll}>
+            <div className="timeline-inner" style={{ width: `${timelineZoom * 100}%` }}>
+            {duration > 0 && <div className="timeline-playhead" style={{ left: `calc(${timelineRatio * 100}% + ${148 - timelineRatio * 198}px)` }} aria-hidden="true"><span className="timeline-playhead-handle" /></div>}
+            <div className="timeline-ruler-row"><span>00:00</span><span>YOUR TIMELINE · {activeSize.width} × {activeSize.height}</span><span>{timecode(duration, project.timebase)}</span></div>
+            <div className="timeline-scrub-row"><input className="scrubber" aria-label="Timeline playhead" type="range" min="0" max={Math.max(duration - frameSeconds, 0)} step={frameSeconds} value={position} disabled={!duration} onChange={e => scrubTo(Number(e.target.value))} /></div>
             <div className="timeline-row">
               <div className="track-label"><Type size={14} /><span>Text</span><span className="track-number">01</span></div>
-              <div className="tracks"><div className="text-track">{project.scenes.map(scene => <button key={scene.id} className={`text-clip ${isSelected(scene.id) ? 'selected' : ''} ${scene.title ? 'has-text' : ''}`} style={{ flexGrow: scene.duration, minWidth: 60 }} onClick={event => { selectScene(scene, event); setTab('text'); }}><Type size={10} /><span>{scene.title || 'Add a title'}</span></button>)}</div></div>
+              <div className="tracks"><div className="text-track">{scenes.map(scene => { const layers = sceneTextLayers(scene); const title = sceneTextTitle(scene); return <button key={scene.id} className={`text-clip ${isSelected(scene.id) ? 'selected' : ''} ${layers.length ? 'has-text' : ''}`} style={{ flexGrow: scene.durationTicks }} onClick={event => { selectScene(scene, event); setTab('text'); setTextFocus(value => value + 1); }} title={layers.length ? `${layers.length} text layer${layers.length === 1 ? '' : 's'}` : 'Add text to this scene'}><span className="text-clip-inner"><Type size={10} /><span>{title || (layers.length ? `${layers.length} text layers` : 'Add text')}</span>{layers.length > 1 && <small>{layers.length}</small>}</span></button>; })}</div></div>
+              <div className="timeline-add-slot"><button className="add-clip text-add" aria-label="Add text layer at playhead" disabled={!canEdit || !selectedScene} onClick={addTextLayerAtPlayhead}><Plus size={16} /></button></div>
             </div>
             <div className="timeline-row video-row">
               <div className="track-label"><Film size={14} /><span>Visuals</span><span className="track-number">02</span></div>
-              <div className="tracks"><div className="scene-track">{project.scenes.map((scene, i) => {
+              <div className="tracks"><div className="scene-track">{scenes.map((scene, i) => {
                 const display = previewScene?.id === scene.id ? previewScene : scene;
-                const fadeIn = Math.min(display.duration, Math.max(0, display.fadeIn ?? 0));
-                const fadeOut = Math.min(display.duration, Math.max(0, display.fadeOut ?? 0));
-                return <button key={scene.id} className={`timeline-clip ${isSelected(scene.id) ? 'selected' : ''} ${selectedScene?.id === scene.id ? 'primary' : ''} ${active?.id === scene.id ? 'current' : ''}`} style={{ flexGrow: scene.duration, minWidth: 100 }} onClick={event => selectScene(scene, event)} onContextMenu={event => { event.preventDefault(); if (!selectedIds.includes(scene.id)) { setSelectedIds([scene.id]); setPrimarySelected(scene.id); selectionAnchor.current = scene.id; } setPlaying(false); setContextMenu({ x: event.clientX, y: event.clientY }); }}>
-                  <img src={scene.image} alt="" />
-                  <div><span>{String(i + 1).padStart(2, '0')} <b>{scene.name}</b></span><small>{scene.duration.toFixed(1)}s</small></div>
-                  {scene.title && <span className="clip-title"><Type size={10} />{scene.title}</span>}
-                  <span className="fade-shade in" style={{ width: `${(fadeIn / display.duration) * 100}%` }} aria-hidden="true" />
-                  <span className="fade-shade out" style={{ width: `${(fadeOut / display.duration) * 100}%` }} aria-hidden="true" />
-                  <span className="fade-handle in" style={{ left: `calc(${Math.min((fadeIn / display.duration) * 100, 96)}% + 3px)` }} title={`Fade in ${fadeIn.toFixed(1)} s — drag to adjust`} aria-hidden="true" onPointerDown={event => beginFadeDrag(event, scene, 'in')} onClick={event => event.stopPropagation()} />
-                  <span className="fade-handle out" style={{ right: `calc(${Math.min((fadeOut / display.duration) * 100, 96)}% + 3px)` }} title={`Fade out ${fadeOut.toFixed(1)} s — drag to adjust`} aria-hidden="true" onPointerDown={event => beginFadeDrag(event, scene, 'out')} onClick={event => event.stopPropagation()} />
+                const displayDuration = sceneSeconds(display, project.timebase);
+                const fadeIn = Math.min(displayDuration, Math.max(0, display.fadeIn ?? 0));
+                const fadeOut = Math.min(displayDuration, Math.max(0, display.fadeOut ?? 0));
+                return <button key={scene.id} draggable={canEdit} className={`timeline-clip ${isSelected(scene.id) ? 'selected' : ''} ${selectedScene?.id === scene.id ? 'primary' : ''} ${active?.id === scene.id ? 'current' : ''} ${dropTarget === scene.id ? 'drop-target' : ''} ${reorderId === scene.id ? 'dragging' : ''}`} style={{ flexGrow: scene.durationTicks }} onClick={event => selectScene(scene, event)} onDragStart={event => beginReorder(event, scene)} onDragEnd={endReorder} onDragOver={event => dragOverScene(event, scene.id)} onDragLeave={() => setDropTarget(current => current === scene.id ? null : current)} onDrop={event => dropScene(event, scene)} onContextMenu={event => { event.preventDefault(); if (!selectedIds.includes(scene.id)) { setSelectedIds([scene.id]); setPrimarySelected(scene.id); selectionAnchor.current = scene.id; } setPlaying(false); setContextMenu({ x: event.clientX, y: event.clientY }); }}>
+                  <span className="timeline-filmstrip" style={{ backgroundImage: `url(${scene.image})` }} aria-hidden="true" />
+                  <div><span>{String(i + 1).padStart(2, '0')} <b>{scene.name}</b></span><small>{sceneSeconds(scene, project.timebase).toFixed(1)}s</small></div>
+                  {sceneTextTitle(scene) && <span className="clip-title"><Type size={10} />{sceneTextTitle(scene)}</span>}
+                  {scene.transition && <span className="clip-transition" title={`${TRANSITION_OPTIONS.find(option => option.id === scene.transition?.type)?.label ?? 'Transition'} · ${scene.transition.duration.toFixed(1)} s`}><Sparkles size={9} />{scene.transition.duration.toFixed(1)}s</span>}
+                  <span className="fade-shade in" style={{ width: `${(fadeIn / displayDuration) * 100}%` }} aria-hidden="true" />
+                  <span className="fade-shade out" style={{ width: `${(fadeOut / displayDuration) * 100}%` }} aria-hidden="true" />
+                  <span className="fade-handle in" style={{ left: `calc(${Math.min((fadeIn / displayDuration) * 100, 96)}% + 3px)` }} title={`Fade in ${fadeIn.toFixed(1)} s — drag to adjust`} aria-hidden="true" onPointerDown={event => beginFadeDrag(event, scene, 'in')} onClick={event => event.stopPropagation()} />
+                  <span className="fade-handle out" style={{ right: `calc(${Math.min((fadeOut / displayDuration) * 100, 96)}% + 3px)` }} title={`Fade out ${fadeOut.toFixed(1)} s — drag to adjust`} aria-hidden="true" onPointerDown={event => beginFadeDrag(event, scene, 'out')} onClick={event => event.stopPropagation()} />
                   {fadeDrag?.sceneId === scene.id && <span className="fade-drag-label" aria-hidden="true">{fadeDrag.side === 'in' ? 'Fade in' : 'Fade out'} {fadeDrag.value.toFixed(1)} s</span>}
                 </button>;
-              })}<button className="add-clip" aria-label="Add images to timeline" disabled={!canEdit} onClick={() => mediaInput.current?.click()}><Plus size={20} /></button></div></div>
+              })}</div></div><div className="timeline-add-slot"><button className="add-clip" aria-label="Add images to timeline" disabled={!canEdit} onClick={() => void chooseImages()}><Plus size={20} /></button></div>
+            </div>
+            {audioLanes.map((lane, laneIndex) => <div className="timeline-row audio-row" key={lane}>
+              <div className="track-label"><Music size={14} /><span>Audio {laneIndex + 1}</span><span className="track-number">{String(3 + laneIndex).padStart(2, '0')}</span></div>
+              <div className="tracks"><div className="audio-track">
+                {audio.filter(clip => (clip.lane ?? 0) === lane).map(clip => {
+                  const left = projectTicks ? (clip.startTicks / projectTicks) * 100 : 0;
+                  const width = projectTicks ? (clip.durationTicks / projectTicks) * 100 : 0;
+                  return <button
+                    key={clip.id}
+                    className={`audio-clip ${selectedAudio?.id === clip.id ? 'selected' : ''}`}
+                    style={{ left: `${left}%`, width: `${width}%` }}
+                    title={`${clip.name} · drag to move · drag edges to trim`}
+                    onClick={() => setSelectedAudioId(clip.id)}
+                    onPointerDown={event => beginAudioMove(event, clip)}
+                  >
+                    <span className="audio-trim left" onPointerDown={event => beginAudioTrim(event, clip, 'left')} />
+                    <Music size={10} /><span className="audio-name">{clip.name}</span><small>{Math.round(clip.volume * 100)}%</small>
+                    <span className="audio-trim right" onPointerDown={event => beginAudioTrim(event, clip, 'right')} />
+                  </button>;
+                })}
+                {!audio.some(clip => (clip.lane ?? 0) === lane) && <span className="audio-empty">Empty audio track</span>}
+              </div></div>
+              <div className="timeline-add-slot"><button className="add-clip audio-add" aria-label={`Add audio to track ${laneIndex + 1}`} disabled={!canEdit || !projectTicks} onClick={() => { audioLaneRef.current = lane; void chooseAudio(); }}><Plus size={16} /></button></div>
+            </div>)}
+            <div className="timeline-row audio-add-track-row">
+              <div className="track-label"><Music size={14} /><span>More audio</span></div>
+              <div className="tracks"><button className="add-audio-track" disabled={!canEdit || !projectTicks || audioLanes.length >= 8} onClick={() => { audioLaneRef.current = Math.max(0, ...audio.map(clip => clip.lane ?? 0)) + 1; void chooseAudio(); }}><Plus size={13} /> Add another audio track</button></div>
+              <div className="timeline-add-slot" />
+            </div>
             </div>
           </div>
-          <footer className="editor-footer"><span><span className="status-dot" />Local photo movie editor <span className="footer-separator">/</span> Originals never modified</span><span><kbd>{shortcutText('playback.toggle')}</kbd> to play <span className="footer-separator">·</span> {snapping ? 'Snap on' : 'Snap off'} <span className="footer-separator">·</span> 30 FPS</span></footer>
+          <footer className="editor-footer"><span><span className="status-dot" />Local photo movie editor <span className="footer-separator">/</span> Originals never modified</span><span><kbd>{shortcutText('playback.toggle')}</kbd> to play <span className="footer-separator">·</span> {snapping ? 'Snap on' : 'Snap off'} <span className="footer-separator">·</span> {frameRate(project.timebase).toFixed(0)} FPS</span></footer>
         </section>
       </>}
 
@@ -947,6 +2390,8 @@ export default function App() {
         aria-label="Clip actions"
       >
         <span className="context-menu-heading">Clip actions</span>
+        <button role="menuitem" disabled={!canEdit || selectedCount !== 1} title={selectedCount === 1 ? 'Replace this scene image and keep its timing, text, and looks' : 'Select one clip to replace its image'} onClick={() => { setContextMenu(null); requestReplaceImage(selectedScene?.id); }}><RefreshCw size={14} /><span>Replace image…</span><kbd>—</kbd></button>
+        <span className="context-menu-divider" aria-hidden="true" />
         {[
           { id: 'clip.split', label: 'Split at playhead', icon: <Scissors size={14} /> },
           { id: 'clip.duplicate', label: selectedCount > 1 ? `Duplicate ${selectedCount} clips` : 'Duplicate clip', icon: <Copy size={14} /> },
@@ -967,21 +2412,123 @@ export default function App() {
       </div>}
 
       {notice && <div className="toast" role="status"><Check size={17} /><span>{notice}</span><IconButton label="Dismiss notification" onClick={() => setNotice('')}><X size={15} /></IconButton></div>}
-      {error && <div className="error-banner" role="alert"><span>{error}</span><IconButton label="Dismiss error" onClick={() => setError('')}><X size={17} /></IconButton></div>}
+      {error && <div className="error-banner" role="alert">
+        <span className="error-badge"><AlertTriangle size={16} /></span>
+        <span className="error-copy"><strong>{errorTitle(error)}</strong><span>{error}</span></span>
+        <IconButton label="Dismiss error" onClick={() => setError('')}><X size={16} /></IconButton>
+      </div>}
 
-      {modal && <div className="modal-backdrop"><section className={`modal ${wideModal ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      {modal && <div className="modal-backdrop"><section className={`modal ${wideModal ? 'wide' : mediumModal ? 'medium' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div className="modal-header"><span className="eyebrow">{modalEyebrow}</span><IconButton label="Close dialog" disabled={exporting} onClick={requestCloseModal}><X size={20} /></IconButton></div>
         {modal === 'templates' ? <>
-          <h2 id="modal-title">Templates</h2><p>Bundled, ready offline. Search and use.</p>
-          <input aria-label="Search templates" placeholder="Search templates…" value={templateQuery} onChange={e => setTemplateQuery(e.target.value)} className="palette-input" />
-          {TEMPLATE_NAMES.filter(templateName => templateName.toLowerCase().includes(templateQuery.toLowerCase())).map((templateName, index) => <button key={templateName} className="template-card" disabled={!canEdit} onClick={() => { if (project.scenes.length) setModal('new'); else void start(true); }}>
-            <img src={templateArt[index % templateArt.length]} alt={templateName} />
-            <div><strong>{templateName}</strong><span>3 scenes · 12 seconds · Landscape</span><span className="button primary">Use sample <ArrowRight size={15} /></span></div>
-          </button>)}
-          {project.scenes.length > 0 && <p className="note">Save your current project before replacing it with the sample.</p>}
+          <h2 id="modal-title">Start from a story.</h2><p>Real scenes, timing, looks, and text effects — bundled and ready offline. {projects.length ? 'Your current project is saved before a template opens.' : ''}</p>
+          <label className="shortcut-search template-search"><Search size={15} /><input aria-label="Search templates" placeholder="Search templates…" value={templateQuery} onChange={e => setTemplateQuery(e.target.value)} /></label>
+          <div className="template-categories" role="tablist" aria-label="Template categories">{TEMPLATE_CATEGORIES.map(category => <button key={category} role="tab" aria-selected={templateCategory === category} className={templateCategory === category ? 'active' : ''} onClick={() => setTemplateCategory(category)}>{category}</button>)}</div>
+          {templateMatches.length ? <div className="template-grid">{templateMatches.map(template => <button key={template.id} className="template-card" disabled={!canEdit} onClick={() => chooseTemplate(template)}>
+            <div className="template-preview"><span className="template-frame"><img src={templateImage(template)} alt="" /></span><span className="template-aspect">{template.aspect}</span></div>
+            <div className="template-body">
+              <strong>{template.name}</strong>
+              <span>{template.description}</span>
+              <small>{template.sceneCount} scenes · {template.duration.toFixed(1)} s · {template.category}</small>
+              <span className="button primary">Use template <ArrowRight size={15} /></span>
+            </div>
+          </button>)}</div> : <div className="shortcut-empty"><Search size={24} /><strong>No templates match “{templateQuery}”.</strong><span>Try Travel, Family, or Social.</span></div>}
         </> : modal === 'new' ? <>
-          <h2 id="modal-title">Make room for a new story.</h2><p>Starting a new project replaces the recovery copy on this device. Save your current story first to keep it.</p>
-          <div className="modal-actions"><button className="button" onClick={() => void save()}><Save size={16} /> Save current project</button><button className="button primary" disabled={!canEdit} onClick={() => void start()}>Start blank</button><button className="button" disabled={!canEdit} onClick={() => void start(true)}>Use sample</button></div>
+          {pendingTemplate ? <>
+            <h2 id="modal-title">Start with {pendingTemplate.name}?</h2>
+            <p>Your current story is already saved in the local library. This template opens as a new project with {pendingTemplate.sceneCount} editable scenes.</p>
+            <div className="template-confirm">
+              <span className="template-confirm-art"><img src={templateImage(pendingTemplate)} alt="" /></span>
+              <div><strong>{pendingTemplate.name}</strong><small>{pendingTemplate.aspect} · {pendingTemplate.sceneCount} scenes · {pendingTemplate.duration.toFixed(1)} s</small><p>{pendingTemplate.description}</p></div>
+            </div>
+            <div className="modal-actions">
+              <button className="button primary" disabled={!canEdit} onClick={() => void startTemplate(pendingTemplate)}>Start with {pendingTemplate.name} <ArrowRight size={15} /></button>
+              <button className="button subtle" onClick={requestCloseModal}>Cancel</button>
+            </div>
+          </> : <>
+            <h2 id="modal-title">A fresh start.</h2>
+            <p>Your current story is saved in the local library automatically. Choose the formats you want to deliver.</p>
+            <label className="field new-project-fps">Project frame rate<select value={newProjectFps} onChange={event => setNewProjectFps(Number(event.target.value))}><option value={24}>24 fps · Film</option><option value={25}>25 fps · PAL</option><option value={30}>30 fps · Standard</option><option value={60}>60 fps · Smooth</option></select></label>
+            <div className="new-format-grid">{FORMAT_PRESETS.map(preset => <label key={preset.id} className={`format-card ${newFormatIds.includes(preset.id) ? 'active' : ''}`}><input type="checkbox" checked={newFormatIds.includes(preset.id)} onChange={event => setNewFormatIds(current => event.target.checked ? [...current, preset.id] : current.filter(id => id !== preset.id))} /><span className="format-check" aria-hidden="true">{newFormatIds.includes(preset.id) ? <Check size={11} /> : null}</span><span className="format-ratio">{preset.aspect}</span><strong>{preset.name}</strong><small>{preset.description}</small></label>)}</div>
+            <div className="settings-section-title">Custom size</div>
+            <div className="custom-format-form new-custom-format">
+              <label className="field">Name<input placeholder="Client 2:3" value={customFormatDraft.name} onChange={event => setCustomFormatDraft(current => ({ ...current, name: event.target.value }))} /></label>
+              <label className="field">Width<input type="number" min="240" max="3840" step="2" value={customFormatDraft.width} onChange={event => setCustomFormatDraft(current => ({ ...current, width: Number(event.target.value) }))} /></label>
+              <label className="field">Height<input type="number" min="240" max="3840" step="2" value={customFormatDraft.height} onChange={event => setCustomFormatDraft(current => ({ ...current, height: Number(event.target.value) }))} /></label>
+              <label className="field">FPS<select value={customFormatDraft.fps} onChange={event => setCustomFormatDraft(current => ({ ...current, fps: Number(event.target.value) }))}><option value={24}>24</option><option value={25}>25</option><option value={30}>30</option><option value={60}>60</option></select></label>
+              <label className="field">Quality<select value={customFormatDraft.quality} onChange={event => setCustomFormatDraft(current => ({ ...current, quality: event.target.value as 'draft' | 'standard' | 'high' }))}><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
+              <button className="button" onClick={addNewCustomFormat}><Plus size={14} /> Add</button>
+            </div>
+            {newCustomFormats.length > 0 && <div className="group-filter">{newCustomFormats.map(format => <span className="group-chip" key={format.id}><Layers size={11} />{format.name} · {format.width}×{format.height}</span>)}</div>}
+            <p className="note"><Layers size={14} /><span>Photos, text, timing, transitions, audio, and looks are common to every format. Size, FPS, quality, and framing (zoom, pan, fit, letterbox) are saved per format.</span></p>
+            <div className="modal-actions">
+              <button className="button primary" disabled={!canEdit} onClick={() => void startWithFormats()}><Plus size={16} /> Start blank</button>
+              <button className="button" disabled={!canEdit} onClick={() => void startTemplate(SAMPLE_TEMPLATE)}><LayoutTemplate size={16} /> Use Travel sample</button>
+              <button className="button subtle" onClick={requestCloseModal}>Cancel</button>
+            </div>
+          </>}
+        </> : modal === 'rename' ? <>
+          <h2 id="modal-title">Rename this project.</h2>
+          <p>Give this story a name you will recognize. It is stored only on this device.</p>
+          <label className="field rename-field">Project name<input autoFocus maxLength={120} value={renameDraft} onChange={event => setRenameDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void renameProject(); } }} /></label>
+          <div className="modal-actions">
+            <button className="button primary" disabled={!renameDraft.trim()} onClick={() => void renameProject()}><Check size={16} /> Save name</button>
+            <button className="button subtle" onClick={requestCloseModal}>Cancel</button>
+          </div>
+        </> : modal === 'group' ? <>
+          <h2 id="modal-title">Organize “{groupTarget?.name}”.</h2>
+          <p>Groups are local labels that keep related stories together. They never change the project file or move media.</p>
+          <label className="field rename-field">Group name<input autoFocus maxLength={60} placeholder="e.g. Client work, Summer 2026" value={groupDraft} onChange={event => setGroupDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && groupDraft.trim()) { event.preventDefault(); void confirmGroupProject(groupDraft); } }} /></label>
+          {projectGroupsList.length > 0 && <div className="group-suggestions"><span>Existing groups</span><div>{projectGroupsList.map(group => <button key={group} className={`group-chip ${groupDraft === group ? 'active' : ''}`} onClick={() => setGroupDraft(group)}><FolderOpen size={11} />{group}</button>)}</div></div>}
+          <div className="modal-actions">
+            <button className="button primary" disabled={!groupDraft.trim()} onClick={() => void confirmGroupProject(groupDraft)}><FolderOpen size={16} /> Move to group</button>
+            {groupTarget?.group && <button className="button" onClick={() => void confirmGroupProject(null)}>Remove from group</button>}
+            <button className="button subtle" onClick={requestCloseModal}>Cancel</button>
+          </div>
+        </> : modal === 'groups' ? <>
+          <h2 id="modal-title">Manage project groups.</h2>
+          <p>Rename a group or remove it. Removing a group keeps every project and simply moves those projects back to Ungrouped.</p>
+          {projectGroupsList.length ? <div className="group-manager-list">{projectGroupsList.map(group => <div className="group-manager-row" key={group}><input aria-label={`Name for ${group}`} maxLength={60} value={groupDrafts[group] ?? group} onChange={event => setGroupDrafts(current => ({ ...current, [group]: event.target.value }))} onKeyDown={event => { if (event.key === 'Enter') void saveGroupRename(group); }} /><button className="button" disabled={(groupDrafts[group] ?? group).trim() === group || !(groupDrafts[group] ?? '').trim()} onClick={() => void saveGroupRename(group)}><Check size={14} /> Save</button><button className="button danger" onClick={() => void removeGroup(group)}><Trash2 size={14} /> Remove</button></div>)}</div> : <p className="note">No groups yet. Use a project’s ••• menu to move it into one.</p>}
+          <div className="modal-actions"><button className="button primary" onClick={requestCloseModal}>Done</button></div>
+        </> : modal === 'formats' ? <>
+          <h2 id="modal-title">Deliverables.</h2>
+          <p>Select the social formats you publish to. Each selected format keeps its own size, frame rate, quality, and image framing.</p>
+          <div className="settings-section-title">Social formats</div>
+          <div className="format-preset-grid">{FORMAT_PRESETS.map(preset => { const active = project.formats.some(format => format.presetId === preset.id); return <label key={preset.id} className={`format-card ${active ? 'active' : ''}`}><input type="checkbox" checked={active} disabled={!canEdit || (!active && project.formats.length >= 6)} onChange={() => void toggleFormatPreset(preset.id)} /><span className="format-check" aria-hidden="true">{active ? <Check size={11} /> : null}</span><span className="format-ratio">{preset.aspect}</span><strong>{preset.name}</strong><small>{preset.description}</small></label>; })}</div>
+          <div className="settings-section-title">Selected formats</div>
+          <div className="format-current-list">{project.formats.map(format => <div className={`format-current ${activeFormat?.id === format.id ? 'active' : ''}`} key={format.id}><button className="format-current-select" onClick={() => setActiveFormatId(format.id)}><span className="format-ratio">{format.width}×{format.height}</span><span><strong>{format.name}</strong><small>{format.width}×{format.height} · {format.fps} fps · {format.quality}</small></span></button><button className="icon-button" aria-label={`Remove ${format.name}`} disabled={project.formats.length <= 1} onClick={() => void removeFormat(format.id)}><Trash2 size={14} /></button></div>)}</div>
+          {activeFormat && <div className="format-settings-card" key={activeFormat.id}>
+            <div className="settings-section-title">Settings for {activeFormat.name}</div>
+            <div className="format-settings-grid">
+              <label className="field">Name<input defaultValue={activeFormat.name} maxLength={80} onBlur={event => { if (event.target.value.trim() && event.target.value.trim() !== activeFormat.name) void updateFormatSettings(activeFormat, { name: event.target.value }); }} /></label>
+              <label className="field">Width<input type="number" min="240" max="3840" step="2" defaultValue={activeFormat.width} onBlur={event => { const value = Number(event.target.value); if (value !== activeFormat.width) void updateFormatSettings(activeFormat, { width: value }); }} /></label>
+              <label className="field">Height<input type="number" min="240" max="3840" step="2" defaultValue={activeFormat.height} onBlur={event => { const value = Number(event.target.value); if (value !== activeFormat.height) void updateFormatSettings(activeFormat, { height: value }); }} /></label>
+              <label className="field">Frame rate<select value={activeFormat.fps} onChange={event => void updateFormatSettings(activeFormat, { fps: Number(event.target.value) })}><option value={24}>24 fps</option><option value={25}>25 fps</option><option value={30}>30 fps</option><option value={60}>60 fps</option></select></label>
+              <label className="field">Quality<select value={activeFormat.quality} onChange={event => void updateFormatSettings(activeFormat, { quality: event.target.value as 'draft' | 'standard' | 'high' })}><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
+            </div>
+          </div>}
+          <div className="settings-section-title">Custom format</div>
+          <div className="custom-format-form">
+            <label className="field">Name<input placeholder="Client vertical" value={customFormatDraft.name} onChange={event => setCustomFormatDraft(current => ({ ...current, name: event.target.value }))} /></label>
+            <label className="field">Width<input type="number" min="240" max="3840" step="2" value={customFormatDraft.width} onChange={event => setCustomFormatDraft(current => ({ ...current, width: Number(event.target.value) }))} /></label>
+            <label className="field">Height<input type="number" min="240" max="3840" step="2" value={customFormatDraft.height} onChange={event => setCustomFormatDraft(current => ({ ...current, height: Number(event.target.value) }))} /></label>
+            <label className="field">FPS<select value={customFormatDraft.fps} onChange={event => setCustomFormatDraft(current => ({ ...current, fps: Number(event.target.value) }))}><option value={24}>24</option><option value={25}>25</option><option value={30}>30</option><option value={60}>60</option></select></label>
+            <label className="field">Quality<select value={customFormatDraft.quality} onChange={event => setCustomFormatDraft(current => ({ ...current, quality: event.target.value as 'draft' | 'standard' | 'high' }))}><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
+            <button className="button primary" disabled={!canEdit || project.formats.length >= 6} onClick={() => void addCustomFormat()}><Plus size={14} /> Add custom</button>
+          </div>
+          <div className="format-scope-grid"><div><span className="tiny-label">COMMON</span><p>Photos, text content, fonts, timing, transitions, audio, color, and filters.</p></div><div><span className="tiny-label">PER FORMAT</span><p>Size, frame rate, quality, image zoom/pan/fit, and letterbox color.</p></div></div>
+          <div className="modal-actions"><button className="button primary" onClick={requestCloseModal}>Done</button></div>
+        </> : modal === 'delete' ? <>
+          <h2 id="modal-title">Delete “{deleteTarget?.name}”?</h2>
+          <p>This removes the project and its embedded photos from this device. It cannot be undone. Exported videos and downloaded project backups are not affected.</p>
+          {deleteTarget && <div className="delete-summary">
+            {deleteTarget.thumbnail ? <img src={deleteTarget.thumbnail} alt="" /> : <span className="delete-summary-icon"><Clapperboard size={20} /></span>}
+            <div><strong>{deleteTarget.name}</strong><small>{deleteTarget.sceneCount} scene{deleteTarget.sceneCount === 1 ? '' : 's'} · {timecode(deleteTarget.duration, deleteTarget.timebase)} · {deleteTarget.aspect}</small></div>
+          </div>}
+          <div className="modal-actions">
+            <button className="button danger" onClick={() => void confirmDeleteProject()}><Trash2 size={16} /> Delete project</button>
+            <button className="button" onClick={requestCloseModal}>Keep project</button>
+          </div>
         </> : modal === 'shortcuts' ? <>
           <ShortcutHelp settings={shortcuts} platform={platform} onOpenSettings={() => { setModal('settings'); setSettingsTab('shortcuts'); }} />
         </> : modal === 'palette' ? <>
@@ -990,17 +2537,86 @@ export default function App() {
         </> : modal === 'settings' ? <>
           <h2 id="modal-title">Settings</h2>
           <div className="settings-tabs">{(['general', 'appearance', 'editing', 'shortcuts', 'updates', 'privacy'] as const).map(t => <button key={t} className={settingsTab === t ? 'active' : ''} onClick={() => { if (shortcutDirty && settingsTab === 'shortcuts' && t !== 'shortcuts') { setNotice('Apply or cancel your shortcut changes before leaving Shortcuts.'); return; } setSettingsTab(t); }}>{t[0].toUpperCase() + t.slice(1)}</button>)}</div>
-          {settingsTab === 'general' && <label className="field">Language<select value={language} onChange={e => { setLanguage(e.target.value); try { localStorage.setItem('pixcut-language', e.target.value); } catch {} }}><option value="en">English</option><option value="pl">Polski</option><option value="uk">Українська</option></select></label>}
-          {settingsTab === 'appearance' && <p className="note">PixCut pairs a light, focused home with a deep navy editing workspace. Theme switching is coming soon.</p>}
-          {settingsTab === 'editing' && <><p className="note">Undo history is session-only and capped at 30 edits.</p><button className="button" onClick={() => { setLayout({}); try { localStorage.removeItem('pixcut-layout'); } catch {} }}>Reset layout</button></>}
+          {settingsTab === 'general' && <div className="settings-panel">
+            <div className="settings-section-title">New project defaults</div>
+            <div className="settings-grid">
+              <label className="field">Canvas format<select value={preferences.defaultAspect} onChange={event => updatePreferences({ defaultAspect: event.target.value as Project['aspect'] })}><option value="16:9">16:9 · Landscape</option><option value="9:16">9:16 · Vertical</option><option value="1:1">1:1 · Square</option><option value="4:5">4:5 · Portrait</option></select></label>
+              <label className="field">Photo duration<input type="number" min="1" max="10" step="0.5" value={preferences.defaultSceneSeconds} onChange={event => updatePreferences({ defaultSceneSeconds: Math.min(10, Math.max(1, Number(event.target.value) || 4)) })} /></label>
+              <label className="field">Image scaling<select value={preferences.defaultFit} onChange={event => updatePreferences({ defaultFit: event.target.value as Scene['fit'] })}><option value="cover">Fill frame</option><option value="contain">Fit whole image</option><option value="blur">Blur fill</option></select></label>
+            </div>
+            <div className="settings-section-title">Language</div>
+            <label className="field">Interface language<select value={language} onChange={e => { setLanguage(e.target.value); try { localStorage.setItem('pixcut-language', e.target.value); } catch {} }}><option value="en">English</option><option value="pl">Polski</option><option value="uk">Українська</option></select></label>
+            <p className="note">Language selection is stored locally. The editing interface is currently English-first.</p>
+            <div className="settings-footer"><button className="button subtle" onClick={resetPreferences}><RefreshCw size={14} /> Reset preferences</button></div>
+          </div>}
+          {settingsTab === 'appearance' && <div className="settings-panel">
+            <div className="settings-section-title">Theme</div>
+            <label className="field">App theme<select value={preferences.theme} onChange={event => updatePreferences({ theme: event.target.value as 'dark' | 'light' })}><option value="dark">Dark gray · default</option><option value="light">Light</option></select></label>
+            <p className="note">Dark gray is the default. The light theme keeps the original bright home and navy editor.</p>
+            <div className="settings-section-title">Editor comfort</div>
+            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.compact} onChange={event => updatePreferences({ compact: event.target.checked })} /><span><strong>Compact editor</strong><small>Tighter panels and controls, more timeline space.</small></span></label>
+            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.reduceMotion} onChange={event => updatePreferences({ reduceMotion: event.target.checked })} /><span><strong>Reduce motion</strong><small>Disable interface animations and transitions.</small></span></label>
+            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={showHints && preferences.showHints} onChange={event => { setShowHints(event.target.checked); updatePreferences({ showHints: event.target.checked }); if (!event.target.checked) { try { localStorage.setItem(HINTS_KEY, '1'); } catch { /* optional */ } } else { try { localStorage.removeItem(HINTS_KEY); } catch { /* optional */ } } }} /><span><strong>Quick-start hints</strong><small>Show the shortcut strip the first time you edit.</small></span></label>
+            <div className="settings-preview"><span className="settings-preview-frame"><span /></span><div><strong>Home stays light. Editing stays focused.</strong><p>PixCut uses a light library for browsing and a deep navy workspace for editing. Media never leaves this device.</p></div></div>
+          </div>}
+          {settingsTab === 'editing' && <div className="settings-panel">
+            <div className="settings-section-title">Editing behavior</div>
+            <label className="field">Autosave delay<select value={preferences.autosaveMs} onChange={event => updatePreferences({ autosaveMs: Number(event.target.value) })}><option value={300}>Fast · 0.3 s</option><option value={700}>Balanced · 0.7 s</option><option value={1500}>Relaxed · 1.5 s</option><option value={3000}>Battery saver · 3 s</option></select></label>
+            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.snapping} onChange={event => { setSnapping(event.target.checked); updatePreferences({ snapping: event.target.checked }); }} /><span><strong>Snap timeline by default</strong><small>New sessions start with snapping enabled.</small></span></label>
+            <p className="note">Undo history is session-only and keeps up to 30 edits. Duration, speed, text, and audio edits commit as undo steps.</p>
+            <div className="settings-footer"><button className="button" onClick={() => { setLayout({}); try { localStorage.removeItem('pixcut-layout'); } catch {} setNotice('Editor layout reset.'); }}><RefreshCw size={14} /> Reset panel layout</button></div>
+          </div>}
           {settingsTab === 'shortcuts' && <ShortcutSettings settings={shortcuts} platform={platform} onApply={applyShortcuts} onDirtyChange={setShortcutDirty} onClose={closeShortcutSettings} />}
-          {settingsTab === 'updates' && <p className="note">Updates are checked locally and never interrupt editing or export.</p>}
-          {settingsTab === 'privacy' && <p className="note">All media stays on your device. No account required.</p>}
+          {settingsTab === 'updates' && <div className="settings-panel">
+            <div className="settings-section-title">Application updates</div>
+            <div className="update-card">
+              <div className="update-head">
+                <div>
+                  <strong>PixCut {appVersion}</strong>
+                  <small>{updateState === 'checking' ? 'Checking the release feed…' : updateState === 'available' ? `Version ${updateInfo?.version ?? ''} is available.` : updateState === 'downloading' ? 'Downloading and verifying the update…' : updateState === 'ready' ? 'The update is ready to install.' : updateState === 'error' ? updateMessage : updateMessage || 'Updates are checked only when you ask.'}</small>
+                </div>
+                <button className="button subtle" disabled={!bridge.native || updateState === 'checking' || updateState === 'downloading' || updateState === 'ready'} onClick={checkForUpdates}><RefreshCw size={14} className={updateState === 'checking' ? 'spin' : ''} /> Check for updates</button>
+              </div>
+              {updateState === 'available' && updateInfo && <div className="update-body">
+                <div className="update-version"><span>Version {updateInfo.version}</span>{updateInfo.date && <span>{new Date(updateInfo.date).toLocaleDateString()}</span>}</div>
+                {updateInfo.notes && <p className="update-notes">{updateInfo.notes}</p>}
+                <button className="button" onClick={downloadUpdate}><Download size={14} /> Download and install</button>
+              </div>}
+              {updateState === 'downloading' && <div className="export-progress"><div><span style={{ width: `${updateProgress}%` }} /></div><span>{updateProgress}%</span></div>}
+              {updateState === 'ready' && <div className="update-body"><p className="note">Restart PixCut to finish installing version {updateInfo?.version ?? 'the update'}.</p><button className="button" onClick={restartUpdate}><RefreshCw size={14} /> Restart to update</button></div>}
+              {updateState === 'error' && <div className="update-body"><button className="button subtle" onClick={copyDownloadLink}><Copy size={14} /> Copy download link</button></div>}
+              {!bridge.native && <p className="note">Updates are available in the installed desktop app, not the browser preview.</p>}
+              <p className="note">Updates are signed and verified before installation. PixCut never checks the internet while you edit or export.</p>
+            </div>
+            <div className="settings-section-title">Build diagnostics</div>
+            <pre className="diagnostics">{diagnostics()}</pre>
+            <div className="settings-footer"><button className="button" onClick={copyDiagnostics}><Copy size={14} /> Copy diagnostics</button><button className="button subtle" onClick={recheckExporter}><RefreshCw size={14} /> Recheck FFmpeg</button></div>
+          </div>}
+          {settingsTab === 'privacy' && <div className="settings-panel">
+            <div className="settings-section-title">Local storage</div>
+            <div className="storage-card"><HardDrive size={18} /><div><strong>{storageLabel}</strong><small>Projects, recovery, thumbnails, and preferences are stored on this device.</small></div><button className="text-button" onClick={refreshStorage}>Refresh</button></div>
+            <div className="privacy-grid"><div><WifiOff size={16} /><strong>No account</strong><span>No sign-in, cloud sync, or profile.</span></div><div><Ban size={16} /><strong>No trackers</strong><span>No analytics or remote requests while editing.</span></div><div><HardDrive size={16} /><strong>Your files</strong><span>Original photos and audio are never modified.</span></div></div>
+            <p className="note">Deleting a project removes its local library record and media assets. Exported videos and downloaded project backups are not touched.</p>
+          </div>}
         </> : <>
-          <h2 id="modal-title">A story worth sharing.</h2><p>Export your photo movie. Your images and titles, exactly as previewed.</p>
-          <div className="export-summary"><span>Format<strong>MP4 · H.264</strong></span><span>Resolution<strong>{dimensions(project.aspect).join(' × ')}</strong></span><span>Duration<strong>{duration.toFixed(1)} seconds · 30 fps</strong></span><span>Branding<strong className="accent"><Check size={15} /> No watermark</strong></span><label className="field checkbox-field"><input type="checkbox" checked={exportOutro} onChange={e => setExportOutro(e.target.checked)} /> Add “Made with PixCut” outro (off by default)</label></div>
-          <div className="note"><HardDrive size={17} /><span>{bridge.native ? exporter ? 'Rendered locally using your installed FFmpeg. This slice exports still scenes and titles without audio or transitions.' : 'FFmpeg was not found. Install FFmpeg with libx264, then restart PixCut to enable MP4 export.' : 'MP4 export runs in the native desktop app. This browser preview supports editing and saving projects.'}</span></div>
+          <h2 id="modal-title">Export your story.</h2><p>Choose a destination, quality, and filename. Everything renders locally.</p>
+          <div className="export-options">
+            <div className="export-format-list">{project.formats.map(format => <label key={format.id} className={`export-format-item ${exportFormatIds.includes(format.id) ? 'active' : ''}`}><input type="checkbox" checked={exportFormatIds.includes(format.id)} onChange={event => setExportFormatIds(current => event.target.checked ? [...current, format.id] : current.filter(id => id !== format.id))} /><span><strong>{format.name}</strong><small>{format.width}×{format.height} · {format.fps} fps · {format.quality}</small></span></label>)}</div>
+            <div className="export-options-row">
+              <label className="field">File name<input aria-label="Export file name" maxLength={100} value={exportSettings.name} onChange={event => setExportSettings(current => ({ ...current, name: event.target.value }))} placeholder={project.name} /></label>
+              <label className="field export-version">Version<input aria-label="Export version" maxLength={20} value={exportSettings.version} onChange={event => setExportSettings(current => ({ ...current, version: event.target.value }))} placeholder="v1" /></label>
+            </div>
+            <div className="export-checks">
+              <label className="checkbox-field"><input type="checkbox" checked={exportSettings.includePreset} onChange={event => setExportSettings(current => ({ ...current, includePreset: event.target.checked }))} /> Include format name</label>
+              <label className="checkbox-field"><input type="checkbox" checked={exportSettings.includeQuality} onChange={event => setExportSettings(current => ({ ...current, includeQuality: event.target.checked }))} /> Include quality</label>
+            </div>
+            <div className="export-filename"><span>FILES</span>{project.formats.filter(format => exportFormatIds.includes(format.id)).map(format => <strong key={format.id}>{exportFilename(format, exportFormatIds.length > 1)}</strong>)}{exportFormatIds.length === 0 && <strong className="warning">Choose at least one format</strong>}</div>
+          </div>
+          <div className="export-summary"><span>Format<strong>MP4 · H.264</strong></span><span>Outputs<strong>{exportFormatIds.length} format{exportFormatIds.length === 1 ? '' : 's'}</strong></span><span>Duration<strong>{duration.toFixed(1)} seconds</strong></span><span>Audio<strong>{project.audio.length ? `${project.audio.length} clip${project.audio.length === 1 ? '' : 's'}` : 'No audio'}</strong></span><span>Branding<strong className="accent"><Check size={15} /> No watermark</strong></span><span>Local<strong><WifiOff size={14} /> No account needed</strong></span></div>
+          <div className="note"><HardDrive size={17} /><span>{bridge.native ? exporter ? 'Rendered locally using your installed FFmpeg, including timed text, transitions, and mixed audio.' : 'FFmpeg was not found. Install FFmpeg with libx264, then restart PixCut to enable MP4 export.' : 'MP4 export runs in the native desktop app. This browser preview supports editing and saving projects.'}</span></div>
           <button className="button primary export-confirm" disabled={!exporter || exporting || busy} onClick={() => void exportVideo()}>{exporting ? <LoaderCircle size={17} className="spin" /> : <Download size={17} />} {exporting ? 'Rendering your story…' : 'Choose destination & export'}</button>
+          {exporting && <div className="export-progress"><div><span style={{ width: `${Math.max(3, exportProgress)}%` }} /></div><span>{exportProgress}%</span></div>}
+          {exporting && <div className="export-cancel-row"><button className="button subtle" onClick={cancelExport} disabled={cancellingExport}>{cancellingExport ? 'Cancelling…' : 'Cancel export'}</button></div>}
           {exporting && <p className="export-wait">Keep PixCut open until rendering finishes. Longer stories take more time.</p>}
         </>}
       </section></div>}

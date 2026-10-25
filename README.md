@@ -7,7 +7,7 @@ PixCut is an **open-source, local-first video editor** for Windows, macOS and Li
 - **Issues:** https://github.com/Plain-Workshop/pixcut/issues
 - **Discussions:** https://github.com/Plain-Workshop/pixcut/discussions
 
-No account. No watermark. No hosted PixCut service.
+No account. No watermark. No hosted PixCut service. Every feature is included — there are no paid tiers, license keys, or device limits.
 
 ## What is here
 

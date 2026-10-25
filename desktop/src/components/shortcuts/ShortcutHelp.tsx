@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowRight, Search } from 'lucide-react';
+import { ArrowRight, Download, Search } from 'lucide-react';
 import {
   CATEGORY_ORDER,
   COMMANDS,
@@ -42,6 +42,35 @@ export function ShortcutHelp({
   }, [query, settings, platform]);
   const count = groups.reduce((sum, group) => sum + group.commands.length, 0);
 
+  function exportReference() {
+    const platformLabel = platform === 'macos' ? 'macOS' : platform === 'windows' ? 'Windows' : 'Linux';
+    const lines = [
+      'PixCut keyboard shortcuts',
+      `Preset: ${PRESET_LABELS[settings.preset]}`,
+      `Platform: ${platformLabel}`,
+      `Exported: ${new Date().toLocaleString()}`,
+      '',
+    ];
+    for (const category of CATEGORY_ORDER) {
+      const commands = COMMANDS.filter(command => command.category === category);
+      if (!commands.length) continue;
+      lines.push(category.toUpperCase());
+      for (const command of commands) {
+        const binding = formatBinding(settings.bindings[command.id] ?? '', platform);
+        const scope = command.context === 'editor' ? ' (editor only)' : command.context === 'timeline' ? ' (timeline)' : '';
+        lines.push(`  ${command.label} — ${binding}${scope}`);
+      }
+      lines.push('');
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'pixcut-keyboard-shortcuts.txt';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   return <div className="shortcut-help">
     <h2 id="modal-title">Keyboard shortcuts</h2>
     <p>Find any action by name, synonym, or key. Binding hints across PixCut update as soon as you change them.</p>
@@ -78,7 +107,10 @@ export function ShortcutHelp({
     </div>
     <div className="shortcut-help-footer">
       <span className="shortcut-help-tip">Press <kbd>{formatBinding(settings.bindings['help.shortcuts'] ?? '', platform)}</kbd> while editing — but not while typing in a field — to reopen this reference.</span>
-      <button className="text-button" onClick={onOpenSettings}>Customize shortcuts <ArrowRight size={14} /></button>
+      <div className="shortcut-help-actions">
+        <button className="button subtle" onClick={exportReference}><Download size={14} /> Export reference</button>
+        <button className="text-button" onClick={onOpenSettings}>Customize shortcuts <ArrowRight size={14} /></button>
+      </div>
     </div>
   </div>;
 }
