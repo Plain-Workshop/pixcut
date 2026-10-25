@@ -418,13 +418,15 @@ jobs:
         run: |
           set -euo pipefail
           notes="dist/notes.md"
-          previous="$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)"
+          previous="$(git tag --sort=-v:refname | grep -v -x "$TAG" | head -1 || true)"
+          range_end="$TAG"
+          git rev-parse --verify "$TAG" >/dev/null 2>&1 || range_end=HEAD
           {
             echo "## PixCut $VERSION"
             echo
             if [ -n "$previous" ]; then
               echo "Changes since $previous:"
-              git log --no-merges --pretty='- %s' "$previous..$TAG" | head -60
+              git log --no-merges --pretty='- %s' "$previous..$range_end" | head -60
             else
               echo "First public build of PixCut Desktop."
             fi
