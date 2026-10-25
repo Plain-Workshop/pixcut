@@ -323,7 +323,7 @@ export default function App() {
   const [fadeDrag, setFadeDrag] = useState<{ sceneId: string; side: 'in' | 'out'; value: number } | null>(null);
   const [layout, setLayout] = useState(() => { try { return JSON.parse(localStorage.getItem('pixcut-layout') || '{}'); } catch { return {}; } });
   const libraryWidth = layout.libraryWidth ?? 280, inspectorWidth = layout.inspectorWidth ?? 288, timelineHeight = layout.timelineHeight ?? 340;
-  const timelineZoom = Math.min(6, Math.max(1, Number(layout.timelineZoom) || 1));
+  const timelineZoom = Math.min(6, Math.max(.5, Number(layout.timelineZoom) || 1));
 
   function beginResize(kind: 'library' | 'inspector' | 'timeline', start: number, coord: number) {
     const onMove = (e: PointerEvent) => {
@@ -343,7 +343,7 @@ export default function App() {
   }
 
   function changeTimelineZoom(value: number) {
-    const next = Math.min(6, Math.max(1, Math.round(value * 4) / 4));
+    const next = Math.min(6, Math.max(.5, Math.round(value * 4) / 4));
     setLayout((current: any) => {
       const updated = { ...current, timelineZoom: next };
       try { localStorage.setItem('pixcut-layout', JSON.stringify(updated)); } catch { /* optional */ }
@@ -2382,7 +2382,6 @@ export default function App() {
             <button onClick={() => setModal('settings')}><Settings2 size={18} /><span>Settings</span></button>
           </nav>
           <div className="sidebar-card">
-            <span className="sidebar-badge"><WifiOff size={13} /> Offline first</span>
             <strong>Your media stays with you.</strong>
             <p>No account. No cloud. Just your stories.</p>
           </div>
@@ -2684,15 +2683,17 @@ export default function App() {
         <section className="timeline" aria-label="Timeline" style={{ height: timelineHeight }}>
           <div className="timeline-toolbar">
             <div><span className="timeline-heading">Your story</span><span className="tiny-label">{scenes.length} scenes</span></div>
-            <div className="timeline-tools"><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene earlier'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes[0]?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: -1 })}><ArrowLeft size={16} /></IconButton><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene later'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes.at(-1)?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: 1 })}><ArrowRight size={16} /></IconButton><IconButton className={snapping ? 'active' : ''} label={tip('timeline.snapping', `Snapping ${snapping ? 'on' : 'off'}`)} onClick={() => runCommandId('timeline.snapping')}><Magnet size={16} /></IconButton><span className="header-divider" /><div className="timeline-zoom" role="group" aria-label="Timeline zoom"><IconButton label="Zoom out timeline" disabled={timelineZoom <= 1} onClick={() => changeTimelineZoom(timelineZoom - .5)}><ZoomOut size={15} /></IconButton><input aria-label="Timeline zoom" type="range" min="1" max="6" step=".25" value={timelineZoom} onChange={event => changeTimelineZoom(Number(event.target.value))} /><button className="timeline-zoom-label" title="Fit timeline" onClick={() => changeTimelineZoom(1)}>{Math.round(timelineZoom * 100)}%</button><IconButton label="Zoom in timeline" disabled={timelineZoom >= 6} onClick={() => changeTimelineZoom(timelineZoom + .5)}><ZoomIn size={15} /></IconButton></div><span className="header-divider" /><span className="timeline-total"><Clock3 size={14} />{duration.toFixed(1)}s</span></div>
+            <div className="timeline-tools"><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene earlier'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes[0]?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: -1 })}><ArrowLeft size={16} /></IconButton><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene later'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes.at(-1)?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: 1 })}><ArrowRight size={16} /></IconButton><IconButton className={snapping ? 'active' : ''} label={tip('timeline.snapping', `Snapping ${snapping ? 'on' : 'off'}`)} onClick={() => runCommandId('timeline.snapping')}><Magnet size={16} /></IconButton><span className="header-divider" /><div className="timeline-zoom" role="group" aria-label="Timeline zoom"><IconButton label="Zoom out timeline" disabled={timelineZoom <= .5} onClick={() => changeTimelineZoom(timelineZoom - .5)}><ZoomOut size={15} /></IconButton><input aria-label="Timeline zoom" type="range" min=".5" max="6" step=".25" value={timelineZoom} onChange={event => changeTimelineZoom(Number(event.target.value))} /><button className="timeline-zoom-label" title="Fit timeline" onClick={() => changeTimelineZoom(1)}>{Math.round(timelineZoom * 100)}%</button><IconButton label="Zoom in timeline" disabled={timelineZoom >= 6} onClick={() => changeTimelineZoom(timelineZoom + .5)}><ZoomIn size={15} /></IconButton></div><span className="header-divider" /><span className="timeline-total"><Clock3 size={14} />{duration.toFixed(1)}s</span></div>
           </div>
           <div className="timeline-content" ref={timelineScroll}>
             <div className="timeline-inner" style={{ width: `${timelineZoom * 100}%` }}>
             {duration > 0 && <div className="timeline-playhead" style={{ left: `calc(${timelineRatio * 100}% + ${148 - timelineRatio * 198}px)` }} title="Drag playhead" onPointerDown={beginPlayheadDrag}><span className="timeline-playhead-handle" /></div>}
-            <div className="timeline-ruler-row"><span>00:00</span><span>YOUR TIMELINE · {activeSize.width} × {activeSize.height}</span><span>{timecode(duration, project.timebase)}</span></div>
-            <div className="timeline-scrub-row"><input className="scrubber" aria-label="Timeline playhead" type="range" min="0" max={Math.max(duration - frameSeconds, 0)} step={frameSeconds} value={position} disabled={!duration} onChange={e => scrubTo(Number(e.target.value))} /></div>
-            <div className="timeline-row">
-              <div className="track-label"><Type size={14} /><span>Text</span><span className="track-number">01</span></div>
+            <div className="timeline-sticky">
+              <div className="timeline-ruler-row"><span>00:00</span><span>YOUR TIMELINE · {activeSize.width} × {activeSize.height}</span><span>{timecode(duration, project.timebase)}</span></div>
+              <div className="timeline-scrub-row"><input className="scrubber" aria-label="Timeline playhead" type="range" min="0" max={Math.max(duration - frameSeconds, 0)} step={frameSeconds} value={position} disabled={!duration} onChange={e => scrubTo(Number(e.target.value))} /></div>
+            </div>
+            <div className="timeline-row text-row">
+              <div className="track-label"><Type size={14} /><span>Text</span><span className="track-number">{String(2 + audioLanes.length).padStart(2, '0')}</span></div>
               <div className="tracks"><div className="text-track">{scenes.map(scene => {
                 const layers = sceneTextLayers(scene);
                 const laneEnds: number[] = [];
@@ -2716,7 +2717,7 @@ export default function App() {
               <div className="timeline-add-slot"><button className="add-clip text-add" aria-label="Add text layer at playhead" disabled={!canEdit || !selectedScene} onClick={addTextLayerAtPlayhead}><Plus size={16} /></button></div>
             </div>
             <div className="timeline-row element-row">
-              <div className="track-label"><Shapes size={14} /><span>Elements</span><span className="track-number">02</span></div>
+              <div className="track-label"><Shapes size={14} /><span>Elements</span><span className="track-number">{String(3 + audioLanes.length).padStart(2, '0')}</span></div>
               <div className="tracks"><div className="element-track">{scenes.map(scene => <div key={scene.id} className="element-scene" style={{ flexGrow: scene.durationTicks }}>{(scene.elements ?? []).map(element => {
                 const left = Math.max(0, Math.min(100, element.startTicks / Math.max(1, scene.durationTicks) * 100));
                 const width = Math.max(3, Math.min(100 - left, element.durationTicks / Math.max(1, scene.durationTicks) * 100));
@@ -2725,7 +2726,7 @@ export default function App() {
               <div className="timeline-add-slot"><button className="add-clip" aria-label="Add element" disabled={!canEdit || !selectedScene} onClick={() => setTab('elements')}><Plus size={16} /></button></div>
             </div>
             <div className="timeline-row video-row">
-              <div className="track-label"><Film size={14} /><span>Visuals</span><span className="track-number">03</span></div>
+              <div className="track-label"><Film size={14} /><span>Visuals</span><span className="track-number">01</span></div>
               <div className="tracks"><div className="scene-track">{scenes.map((scene, i) => {
                 const display = previewScene?.id === scene.id ? previewScene : scene;
                 const displayDuration = sceneSeconds(display, project.timebase);
@@ -2735,7 +2736,6 @@ export default function App() {
                   <span className="timeline-filmstrip" style={{ backgroundImage: `url(${scene.mediaKind === 'video' ? (scene.videoPoster ?? scene.image) : scene.image})` }} aria-hidden="true" />
                   <div><span>{String(i + 1).padStart(2, '0')} <b>{scene.name}</b></span><small>{sceneSeconds(scene, project.timebase).toFixed(1)}s</small></div>
                   {scene.mediaKind === 'video' && <span className="clip-media-badge"><Film size={9} /> VIDEO</span>}
-                  {sceneTextTitle(scene) && <span className="clip-title"><Type size={10} />{sceneTextTitle(scene)}</span>}
                   {scene.transition && <span className="clip-transition" title={`${TRANSITION_OPTIONS.find(option => option.id === scene.transition?.type)?.label ?? 'Transition'} · ${scene.transition.duration.toFixed(1)} s`}><Sparkles size={9} />{scene.transition.duration.toFixed(1)}s</span>}
                   <span className="fade-shade in" style={{ width: `${(fadeIn / displayDuration) * 100}%` }} aria-hidden="true" />
                   <span className="fade-shade out" style={{ width: `${(fadeOut / displayDuration) * 100}%` }} aria-hidden="true" />
@@ -2746,7 +2746,7 @@ export default function App() {
               })}</div></div><div className="timeline-add-slot"><button className="add-clip" aria-label="Add images to timeline" disabled={!canEdit} onClick={() => void chooseImages()}><Plus size={20} /></button></div>
             </div>
             {audioLanes.map((lane, laneIndex) => <div className="timeline-row audio-row" key={lane}>
-              <div className="track-label"><Music size={14} /><span>Audio {laneIndex + 1}</span><span className="track-number">{String(4 + laneIndex).padStart(2, '0')}</span></div>
+              <div className="track-label"><Music size={14} /><span>Audio {laneIndex + 1}</span><span className="track-number">{String(2 + laneIndex).padStart(2, '0')}</span></div>
               <div className="tracks"><div className="audio-track">
                 {audio.filter(clip => (clip.lane ?? 0) === lane).map(clip => {
                   const left = projectTicks ? (clip.startTicks / projectTicks) * 100 : 0;

@@ -45,7 +45,7 @@ Validated on Apple Silicon macOS. This is a photo-movie editing slice; the full 
 
 ## Usability pass: margins, audio delete, labels, blur, shortcuts, social elements, playhead
 
-- Home now has a 14 px top and left margin; the sidebar is a rounded card fixed to the viewport and only the main column scrolls. Verified at 1440×1000: sidebar `y=14`, height `986`.
+- Home is flush again: no outer margin, no rounded card, no extra border. The sidebar is fixed to the viewport and only the main column scrolls (`x=0, y=0, 250×1000`). The **Offline first** badge was removed; the status reads **Saved** and the editor badge **Local only**.
 - Clicking an audio clip now clears the scene selection, so the scene delete button disappears. `Delete`/`Backspace` with an audio clip selected removes only the audio; the scene count stayed 3 in the regression check.
 - Scene actions (replace, duplicate, delete) only appear when a clip is explicitly selected; the active scene no longer acts as an implicit selection for destructive actions.
 - Status text is now **Saved**; the editor badge says **Local only** instead of the misleading **Offline** toggle.
@@ -65,6 +65,8 @@ Validated on Apple Silicon macOS. This is a photo-movie editing slice; the full 
 - Added four transitions: Soft blur, Circle, Slide up, and Spin, alongside Crossfade, Slide, Wipe, and Zoom.
 - Audio trim handles are always visible and wider, with tooltips; the Audio panel keeps numeric start/trim-in/duration sliders. Verified a drag changed a 3.0 s clip to 2.0 s.
 - The home sidebar is fixed to the viewport; only the main content column scrolls.
+- Timeline rows are ordered Visuals → Audio → Text → Elements, with track numbers following that order. The visual clip name sits in a bottom gradient bar instead of the middle.
+- Timeline zoom goes down to 50%; the ruler and scrubber are sticky at the top of the timeline while lanes scroll vertically.
 - Fixed MP4/MOV import: the Rust validator accepted only image data URLs, so a valid video scene failed with “Invalid scene, image, or duration.” It now accepts `video/mp4`, `video/quicktime`, `video/x-m4v`, and `video/webm`, validates the poster, and raises the media budget to 140 MB. A Rust test covers a video payload and rejects a mismatched kind. A browser check imported a 2 s H.264 MP4 without an error banner.
 - Split now clips element timings on both halves, and element timings are clamped when a scene gets shorter.
 - Verification: 34 TypeScript, 26 project-model, 10 native, 4 FFmpeg tests; `tsc`, production build, and `npm run ci` pass. Screenshots: `elements-panel-chromium.png`, `element-star-chromium.png`, `motion-zoom-chromium.png`, `final-editor-chromium.png`.
