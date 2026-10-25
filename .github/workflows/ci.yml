@@ -15,10 +15,10 @@ concurrency:
 
 jobs:
   site:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -28,13 +28,13 @@ jobs:
       - run: npm audit --omit=dev --audit-level=high
 
   desktop:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: desktop
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -52,12 +52,12 @@ jobs:
       - run: cargo check -p pixcut-project
 
   security:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: desktop
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
@@ -79,15 +79,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14, bundles: app }
+          - { os: macos-15-intel, bundles: app }
           - { os: windows-latest, bundles: nsis }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: desktop
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm

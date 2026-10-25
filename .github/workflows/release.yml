@@ -38,7 +38,7 @@ env:
 jobs:
   prepare:
     name: Resolve version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -47,10 +47,10 @@ jobs:
       sign: ${{ steps.version.outputs.sign }}
       date: ${{ steps.version.outputs.date }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - id: version
@@ -91,11 +91,11 @@ jobs:
   verify:
     name: Verify before packaging
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -130,11 +130,11 @@ jobs:
       matrix:
         include:
           - { label: aarch64, runner: macos-15, target: aarch64-apple-darwin }
-          - { label: x64, runner: macos-15, target: x86_64-apple-darwin }
+          - { label: x64, runner: macos-15-intel, target: x86_64-apple-darwin }
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -238,7 +238,7 @@ jobs:
           cp "$bundle/macos/PixCut.app.tar.gz.sig" "dist/release/PixCut-$VERSION-macos-$LABEL.app.tar.gz.sig"
           cp "$dmg" "dist/release/PixCut-$VERSION-macos-$LABEL.dmg"
           shasum -a 256 dist/release/* | sed "s#dist/release/##"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-macos-${{ matrix.label }}
           path: desktop/dist/release/*
@@ -250,8 +250,8 @@ jobs:
     timeout-minutes: 90
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -323,7 +323,7 @@ jobs:
           Copy-Item $msi.FullName "dist/release/PixCut-$env:VERSION-windows-x64.msi"
           Compress-Archive -Path 'target/release/PixCut.exe' -DestinationPath "dist/release/PixCut-$env:VERSION-windows-x64-portable.zip" -Force
           Get-FileHash dist/release/* -Algorithm SHA256 | Format-Table Hash, Path
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-windows-x64
           path: desktop/dist/release/*
@@ -335,8 +335,8 @@ jobs:
     timeout-minutes: 90
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -385,7 +385,7 @@ jobs:
           cp "$appimage.sig" "dist/release/PixCut-$VERSION-linux-x86_64.AppImage.sig"
           cp "$deb" "dist/release/PixCut-$VERSION-linux-x86_64.deb"
           sha256sum dist/release/*
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-linux-x64
           path: desktop/dist/release/*
@@ -395,19 +395,19 @@ jobs:
     name: Draft GitHub Release
     needs: [prepare, verify, macos, windows, linux]
     if: needs.prepare.outputs.release == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: dist
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Assemble feed and checksums
