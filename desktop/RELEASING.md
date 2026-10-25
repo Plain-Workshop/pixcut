@@ -18,7 +18,11 @@ GitHub Actions secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KE
 
 To rotate the key, generate a new pair with `npm run tauri -- signer generate`, replace `plugins.updater.pubkey`, update both secrets, and publish a manual download. Older installs will reject updates signed with the new key.
 
-### Code signing (required for a public release)
+### Code signing (optional)
+
+Unsigned releases are supported and are the default for this project. macOS users must right-click → **Open** the first time, and Windows SmartScreen asks for confirmation. Tag builds publish unsigned unless `PIXCUT_SIGN=true` is set as a repository variable or `sign` is checked in a manual run.
+
+To enable signing, add the secrets below and set `PIXCUT_SIGN=true`.
 
 macOS:
 
@@ -40,7 +44,7 @@ Windows:
 | `WINDOWS_CERTIFICATE` | base64 of the code-signing `.pfx` |
 | `WINDOWS_CERTIFICATE_PASSWORD` | password for that `.pfx` |
 
-Tag builds fail fast when these are missing, so an unsigned build can never reach users through a tag. Manual runs are allowed to be unsigned.
+When signing is enabled, tag builds fail fast if these are missing. With signing disabled, the workflow builds and publishes unsigned installers with a warning in the release notes.
 
 ## Cut a release
 
@@ -75,7 +79,7 @@ Tag builds fail fast when these are missing, so an unsigned build can never reac
 
 ### Dry run
 
-Run **Actions → Release → Run workflow** with `release` unchecked. The workflow builds and uploads workflow artifacts without creating a release, and signing secrets are optional.
+Run **Actions → Release → Run workflow** with `release` unchecked. The workflow builds and uploads workflow artifacts without creating a release. Leave `sign` unchecked for an unsigned dry run.
 
 ## How updates reach users
 
@@ -115,6 +119,6 @@ MP4 export shells out to a system FFmpeg. The macOS and Windows installers do no
 | Symptom | Cause |
 | --- | --- |
 | `A public key has been found, but no private key` | `TAURI_SIGNING_PRIVATE_KEY` is not set. Export it locally before `tauri build`. |
-| Release job fails at "Require signing secrets" | A tag build has no Apple or Windows certificate. Use a dry run, or add the secrets. |
+| Release job fails at "Require signing secrets" | `PIXCUT_SIGN=true` or `sign` is set but certificates are missing. Add them, or disable signing. |
 | Updater says it is up to date right after publishing | The release is still a draft, or `latest.json` is missing a platform entry. |
 | DMG build fails with `Resource busy` | Run locally with `CI=true` so the bundler skips Finder styling. GitHub Actions sets this automatically. |

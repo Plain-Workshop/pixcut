@@ -37,9 +37,10 @@ Validated on Apple Silicon macOS. This is a photo-movie editing slice; the full 
 - The preview uses a hidden `<video>` element, keeps it within 120 ms of the playhead, pauses on scrub, and draws the current frame into the existing canvas compositor so text layers, framing, and color grading still apply.
 - Media tiles and timeline clips show the poster frame with a **VIDEO** badge; library thumbnails use the poster through the existing `drawScene` path.
 - Native persistence stores video bytes in the content-addressed asset store (`assets/<sha>.mp4`) and hydrates them back to data URLs; the `.pixcut` bundle already handles the same MIME types. A new roundtrip test covers it.
-- Export for video projects is deliberately blocked with a clear message until the FFmpeg scene pipeline lands. Image-only projects export exactly as before.
+- Video export uses a new FFmpeg plan path: image segments stay as rendered PNGs, video segments are trimmed and normalized, text overlays are composited as transparent PNGs, and the existing audio mix is preserved. Transitions touching video become hard cuts; video color grading, fades, and speed changes are not applied yet.
 - Verification: imported a 2 s VP9 WebM through the browser preview; the poster rendered, the timeline showed `VIDEO`, the recovery record contained `mediaKind: 'video'` and a JPEG poster, and there were no console errors. Screenshot: `output/playwright/video-import-chromium.png`.
-- Tests: 34 TypeScript, 24 project-model, 9 native, 3 FFmpeg. `tsc` and production build pass.
+- Ignored FFmpeg test `plan_export_encodes_video_and_image_segments` mixes one image segment, one trimmed video segment, and a timed transparent text overlay; the output is H.264, exactly 1.00 s, and includes the audio mix when present.
+- Tests: 34 TypeScript, 24 project-model, 9 native, 4 FFmpeg. `tsc` and production build pass.
 
 ## Open-source plan removal
 

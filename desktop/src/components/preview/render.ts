@@ -357,6 +357,24 @@ export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect:
   }
 }
 
+export async function drawTextOverlay(canvas: HTMLCanvasElement, scene: Scene, layerId: string, localSeconds: number, aspect: Project['aspect'], timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }) {
+  const [w, h] = size ? [size.width, size.height] : dimensions(aspect);
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, w, h);
+  const layer = (scene.textLayers ?? []).find(item => item.id === layerId);
+  if (!layer || !layerVisibleAt(layer, localSeconds, timebase)) return;
+  const local = localSeconds - layerStartSeconds(layer, timebase);
+  const remaining = layerDurationSeconds(layer, timebase) - local;
+  const animationDuration = Math.max(.05, layer.animationDuration ?? .5);
+  await drawTextLayer(ctx, layer, w, h, canvas, {
+    type: layer.animation ?? 'none',
+    in: local / animationDuration,
+    out: remaining / animationDuration,
+  });
+}
+
 export async function drawTransition(canvas: HTMLCanvasElement, from: Scene, to: Scene, type: TransitionType, aspect: Project['aspect'], quality: 'preview' | 'thumb' | 'export', progress: number, fromLocalSeconds: number, toLocalSeconds: number, timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }) {
   const fromCanvas = document.createElement('canvas');
   const toCanvas = document.createElement('canvas');

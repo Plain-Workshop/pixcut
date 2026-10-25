@@ -29,12 +29,6 @@ npm run preview
 node scripts/check-links.mjs
 ```
 
-Optional configuration:
-
-```sh
-PUBLIC_GITHUB_URL=https://github.com/Plain-Workshop/pixcut
-```
-
 The site links downloads to GitHub Releases, support to Issues/Discussions, and describes the desktop editor.
 
 ## Desktop app

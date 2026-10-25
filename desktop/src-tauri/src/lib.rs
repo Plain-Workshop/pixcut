@@ -812,6 +812,357 @@ async fn export_variants(
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlanOverlay {
+    png: String,
+    start_ticks: u64,
+    duration_ticks: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlanSegment {
+    kind: String,
+    png: Option<String>,
+    video: Option<String>,
+    source_in_seconds: Option<f64>,
+    fit: Option<String>,
+    duration_ticks: u64,
+    #[serde(default)]
+    overlays: Vec<PlanOverlay>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportPlan {
+    segments: Vec<PlanSegment>,
+    options: ExportOptions,
+}
+
+fn validate_plan(project: &Project, plan: &ExportPlan) -> Result<(), String> {
+    let options = &plan.options;
+    if options.width < 240
+        || options.height < 240
+        || options.width > 3840
+        || options.height > 3840
+        || options.width % 2 != 0
+        || options.height % 2 != 0
+        || !(15..=60).contains(&options.fps)
+        || !(10..=35).contains(&options.crf)
+    {
+        return Err("Invalid export settings.".into());
+    }
+    if plan.segments.is_empty() || plan.segments.len() > 200 {
+        return Err("The export plan is empty or too long.".into());
+    }
+    let mut total = 0u64;
+    for segment in &plan.segments {
+        if segment.duration_ticks == 0 {
+            return Err("An export segment has no duration.".into());
+        }
+        total += segment.duration_ticks;
+        match segment.kind.as_str() {
+            "image" => {
+                if !segment.png.as_deref().is_some_and(|value| value.starts_with("data:image/png;base64,")) {
+                    return Err("An image segment is missing its render.".into());
+                }
+            }
+            "video" => {
+                if !segment.video.as_deref().is_some_and(|value| value.starts_with("data:video/")) {
+                    return Err("A video segment is missing its source.".into());
+                }
+            }
+            _ => return Err("An export segment has an unknown type.".into()),
+        }
+        for overlay in &segment.overlays {
+            if overlay.duration_ticks == 0 || !overlay.png.starts_with("data:image/png;base64,") {
+                return Err("A text overlay is invalid.".into());
+            }
+        }
+    }
+    if total != project.total_ticks() {
+        return Err("The project changed. Please try exporting again.".into());
+    }
+    Ok(())
+}
+
+fn write_plan_payload(directory: &Path, name: &str, data: &str, prefix: &str) -> Result<PathBuf, String> {
+    let payload = data.strip_prefix(prefix).ok_or("A media payload has an unsupported format.")?;
+    if payload.len() > 160_000_000 {
+        return Err("A media payload exceeds the export size limit.".into());
+    }
+    let bytes = STANDARD.decode(payload).map_err(|e| e.to_string())?;
+    let path = directory.join(name);
+    fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+fn encode_plan(
+    project: &Project,
+    plan: ExportPlan,
+    binary: PathBuf,
+    destination: PathBuf,
+    cancel: Arc<AtomicBool>,
+    progress: impl Fn(u8) + Send + 'static,
+) -> Result<Option<String>, String> {
+    if cancel.load(Ordering::SeqCst) {
+        return Err("Export cancelled.".into());
+    }
+    let temp = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let mut command = Process::new(binary);
+    command.current_dir(temp.path());
+    command.args(["-y", "-nostdin", "-hide_banner", "-loglevel", "error"]);
+    let mut visual: Vec<(usize, f64, String)> = Vec::new();
+    let mut overlays: Vec<(usize, f64, f64)> = Vec::new();
+    let mut input_index = 0usize;
+    for (index, segment) in plan.segments.iter().enumerate() {
+        if cancel.load(Ordering::SeqCst) {
+            return Err("Export cancelled.".into());
+        }
+        let duration = project.timebase.ticks_to_seconds(segment.duration_ticks);
+        match segment.kind.as_str() {
+            "image" => {
+                let path = write_plan_payload(temp.path(), &format!("frame-{index}.png"), segment.png.as_deref().unwrap_or_default(), "data:image/png;base64,")?;
+                command.args(["-loop", "1", "-t", &format!("{duration:.6}"), "-i"]).arg(path);
+            }
+            "video" => {
+                let data = segment.video.as_deref().unwrap_or_default();
+                let mime = data.split_once(',').map(|(meta, _)| meta).unwrap_or_default();
+                let extension = if mime.starts_with("data:video/mp4") {
+                    "mp4"
+                } else if mime.starts_with("data:video/quicktime") {
+                    "mov"
+                } else if mime.starts_with("data:video/x-m4v") {
+                    "m4v"
+                } else {
+                    "webm"
+                };
+                let payload = data.split_once(',').map(|(_, payload)| payload).ok_or("A video payload is invalid.")?;
+                let path = temp.path().join(format!("video-{index}.{extension}"));
+                let bytes = STANDARD.decode(payload).map_err(|e| e.to_string())?;
+                fs::write(&path, bytes).map_err(|e| e.to_string())?;
+                let start = segment.source_in_seconds.unwrap_or(0.0).max(0.0);
+                command.args(["-ss", &format!("{start:.6}"), "-t", &format!("{duration:.6}"), "-i"]).arg(path);
+            }
+            _ => return Err("An export segment has an unknown type.".into()),
+        }
+        visual.push((input_index, duration, segment.fit.clone().unwrap_or_else(|| "cover".into())));
+        input_index += 1;
+        for overlay in &segment.overlays {
+            let start = project.timebase.ticks_to_seconds(overlay.start_ticks);
+            let length = project.timebase.ticks_to_seconds(overlay.duration_ticks);
+            let path = write_plan_payload(temp.path(), &format!("overlay-{input_index}.png"), &overlay.png, "data:image/png;base64,")?;
+            command.args(["-loop", "1", "-t", &format!("{length:.6}"), "-i"]).arg(path);
+            overlays.push((input_index, start, start + length));
+            input_index += 1;
+        }
+    }
+    let audio_files = project
+        .audio
+        .iter()
+        .enumerate()
+        .map(|(index, clip)| write_audio(temp.path(), clip, index).map(|path| (path, clip)))
+        .collect::<Result<Vec<_>, _>>()?;
+    let audio_start = input_index;
+    for (path, clip) in &audio_files {
+        let duration = project.timebase.ticks_to_seconds(clip.duration_ticks);
+        command
+            .arg("-ss")
+            .arg(format!("{:.6}", clip.source_in_seconds))
+            .arg("-t")
+            .arg(format!("{duration:.6}"))
+            .arg("-i")
+            .arg(path);
+        input_index += 1;
+    }
+
+    let width = plan.options.width;
+    let height = plan.options.height;
+    let fps = plan.options.fps;
+    let mut filters = Vec::new();
+    for (index, (input, duration, fit)) in visual.iter().enumerate() {
+        let geometry = if fit == "contain" {
+            format!("scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2")
+        } else {
+            format!("scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}")
+        };
+        filters.push(format!(
+            "[{input}:v]{geometry},setsar=1,fps={fps},tpad=stop_mode=clone:stop_duration=2,trim=duration={duration:.6},setpts=PTS-STARTPTS[v{index}]"
+        ));
+    }
+    let mut current = if visual.len() == 1 {
+        "v0".to_string()
+    } else {
+        let labels: String = (0..visual.len()).map(|index| format!("[v{index}]")).collect();
+        filters.push(format!("{labels}concat=n={}:v=1:a=0[base]", visual.len()));
+        "base".to_string()
+    };
+    for (index, (input, start, end)) in overlays.iter().enumerate() {
+        let next = format!("ov{index}");
+        filters.push(format!("[{current}][{input}:v]overlay=0:0:enable='between(t,{start:.6},{end:.6})'[{next}]"));
+        current = next;
+    }
+    if !audio_files.is_empty() {
+        let mut nodes = Vec::new();
+        for (index, (_, clip)) in audio_files.iter().enumerate() {
+            let input = audio_start + index;
+            let duration = project.timebase.ticks_to_seconds(clip.duration_ticks);
+            let mut node = format!("[{input}:a]asetpts=PTS-STARTPTS,aresample=48000,volume={:.3}", clip.volume);
+            if clip.fade_in > 0.0 {
+                node.push_str(&format!(",afade=t=in:st=0:d={:.3}", clip.fade_in.min(duration)));
+            }
+            if clip.fade_out > 0.0 {
+                let start = (duration - clip.fade_out).max(0.0);
+                node.push_str(&format!(",afade=t=out:st={start:.3}:d={:.3}", clip.fade_out.min(duration)));
+            }
+            let delay = (project.timebase.ticks_to_seconds(clip.start_ticks) * 1000.0).round() as u64;
+            node.push_str(&format!(",adelay={delay}:all=1[a{}]", index + 1));
+            nodes.push(node);
+        }
+        let mix = if audio_files.len() == 1 {
+            "[a1]anull[aout]".to_string()
+        } else {
+            let inputs: String = (1..=audio_files.len()).map(|index| format!("[a{index}]")).collect();
+            format!("{inputs}amix=inputs={}:duration=longest:dropout_transition=0:normalize=0[aout]", audio_files.len())
+        };
+        filters.push(format!("{};{mix}", nodes.join(";")));
+    }
+
+    let duration = project.timebase.ticks_to_seconds(project.total_ticks());
+    let output = tempfile::Builder::new()
+        .suffix(".mp4")
+        .tempfile_in(destination.parent().ok_or("Invalid output path")?)
+        .map_err(|e| e.to_string())?;
+    command
+        .args(["-filter_complex", &filters.join(";"), "-map"])
+        .arg(format!("[{current}]"));
+    if !audio_files.is_empty() {
+        command.args(["-map", "[aout]", "-c:a", "aac", "-b:a", "192k", "-ar", "48000"]);
+    }
+    command.args([
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        &plan.options.crf.to_string(),
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        "-progress",
+        "pipe:1",
+        "-nostats",
+        "-t",
+        &format!("{duration:.6}"),
+    ]);
+    command.arg(output.path()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn().map_err(|e| e.to_string())?;
+    let stdout = child.stdout.take().ok_or("FFmpeg progress stream is unavailable.")?;
+    let stderr = child.stderr.take().ok_or("FFmpeg error stream is unavailable.")?;
+    let progress_thread = std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().flatten() {
+            let micros = line
+                .strip_prefix("out_time_us=")
+                .or_else(|| line.strip_prefix("out_time_ms="))
+                .and_then(|value| value.trim().parse::<f64>().ok());
+            if let Some(micros) = micros {
+                let percent = (micros / 1_000_000.0 / duration.max(0.001) * 100.0).clamp(0.0, 99.0) as u8;
+                progress(percent);
+            }
+        }
+    });
+    let error_thread = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = BufReader::new(stderr).read_to_string(&mut text);
+        text
+    });
+    let status = loop {
+        if cancel.load(Ordering::SeqCst) {
+            let _ = child.kill();
+        }
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(status) => break status,
+            None => std::thread::sleep(std::time::Duration::from_millis(120)),
+        }
+    };
+    let _ = progress_thread.join();
+    let error = error_thread.join().unwrap_or_default();
+    if cancel.load(Ordering::SeqCst) {
+        return Err("Export cancelled.".into());
+    }
+    if !status.success() {
+        return Err(format!(
+            "FFmpeg export failed: {}",
+            error.chars().take(1000).collect::<String>()
+        ));
+    }
+    output.persist(&destination).map_err(|e| e.to_string())?;
+    Ok(Some(destination.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+async fn export_plan_variants(
+    app: tauri::AppHandle,
+    editor: State<'_, Editor>,
+    project_id: String,
+    plans: Vec<ExportPlan>,
+) -> Result<Vec<String>, String> {
+    if plans.is_empty() || plans.len() > 6 {
+        return Err("Choose between one and six export formats.".into());
+    }
+    if editor
+        .exporting
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("An export is already running.".into());
+    }
+    let _guard = ExportGuard(&editor.exporting);
+    let cancel = Arc::clone(&editor.cancel_export);
+    cancel.store(false, Ordering::SeqCst);
+    let project = editor.session.lock().map_err(|e| e.to_string())?.project.clone();
+    if project.id != project_id || project.visual_clips().is_empty() {
+        return Err("The project changed. Please try exporting again.".into());
+    }
+    for plan in &plans {
+        validate_plan(&project, plan)?;
+    }
+    let binary = ffmpeg().ok_or(
+        "Install FFmpeg with the libx264 encoder to export MP4 in this development build.",
+    )?;
+    let Some(folder) = rfd::AsyncFileDialog::new()
+        .set_title("Choose a folder for your exports")
+        .pick_folder()
+        .await
+    else {
+        return Ok(vec![]);
+    };
+    let directory = folder.path().to_path_buf();
+    tauri::async_runtime::spawn_blocking(move || {
+        let total = plans.len() as f64;
+        let mut written = Vec::new();
+        for (index, plan) in plans.into_iter().enumerate() {
+            if cancel.load(Ordering::SeqCst) {
+                return Err("Export cancelled.".into());
+            }
+            let stem = plan.options.filename.trim().trim_end_matches(".mp4");
+            let filename = format!("{}.mp4", safe_filename(stem));
+            let destination = directory.join(filename);
+            let progress_app = app.clone();
+            encode_plan(&project, plan, binary.clone(), destination.clone(), Arc::clone(&cancel), move |percent| {
+                let overall = ((index as f64 + percent as f64 / 100.0) / total * 100.0).clamp(0.0, 99.0) as u8;
+                let _ = progress_app.emit("export-progress", overall);
+            })?;
+            written.push(destination.to_string_lossy().to_string());
+        }
+        Ok(written)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn write_audio(dir: &Path, clip: &AudioClip, index: usize) -> Result<PathBuf, String> {
     let (meta, payload) = clip.data.split_once(',').ok_or("Invalid audio data.")?;
     let mime = meta
@@ -1048,6 +1399,7 @@ pub fn run() {
             exporter_available,
             export_movie,
             export_variants,
+            export_plan_variants,
             cancel_export
         ])
         .build(tauri::generate_context!())
@@ -1285,6 +1637,71 @@ mod integration_tests {
         bytes.extend(vec![0u8; data_len as usize]);
         bytes
     }
+    #[test]
+    #[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+    fn plan_export_encodes_video_and_image_segments() {
+        let binary = ffmpeg().expect("FFmpeg must be installed for this test");
+        let temp = tempfile::tempdir().unwrap();
+        let clip = temp.path().join("clip.mp4");
+        let status = Process::new(&binary)
+            .args(["-y", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=30", "-t", "1", "-pix_fmt", "yuv420p"])
+            .arg(&clip)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let video = format!(
+            "data:video/mp4;base64,{}",
+            STANDARD.encode(fs::read(&clip).unwrap())
+        );
+        let overlay_path = temp.path().join("overlay.png");
+        let overlay_status = Process::new(&binary)
+            .args(["-y", "-f", "lavfi", "-i", "color=c=black@0.0:s=640x360", "-frames:v", "1"])
+            .arg(&overlay_path)
+            .status()
+            .unwrap();
+        assert!(overlay_status.success());
+        let overlay = format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(fs::read(&overlay_path).unwrap())
+        );
+        let (mut project, frames) = fixture_project();
+        project.tracks[0].clips[1].media_kind = Some("video".into());
+        let plan = ExportPlan {
+            segments: vec![
+                PlanSegment {
+                    kind: "image".into(),
+                    png: Some(frames[0].clone()),
+                    video: None,
+                    source_in_seconds: None,
+                    fit: Some("cover".into()),
+                    duration_ticks: 15,
+                    overlays: vec![],
+                },
+                PlanSegment {
+                    kind: "video".into(),
+                    png: None,
+                    video: Some(video),
+                    source_in_seconds: Some(0.0),
+                    fit: Some("cover".into()),
+                    duration_ticks: 15,
+                    overlays: vec![PlanOverlay { png: overlay, start_ticks: 15, duration_ticks: 15 }],
+                },
+            ],
+            options: export_options(),
+        };
+        let output = temp.path().join("plan.mp4");
+        encode_plan(&project, plan, binary.clone(), output.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        assert!(output.exists());
+        let probe = Process::new(&binary)
+            .args(["-hide_banner", "-i"])
+            .arg(&output)
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&probe.stderr);
+        assert!(text.contains("Video: h264"), "{text}");
+        assert!(text.contains("Duration: 00:00:01.00"), "{text}");
+    }
+
     #[test]
     #[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
     fn real_mp4_includes_multiple_audio_clips() {

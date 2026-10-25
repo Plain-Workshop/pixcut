@@ -1,9 +1,10 @@
 name: Release
 
-# Tag pushes build signed, notarized installers, updater artifacts, and a draft
-# GitHub Release. Manual runs are dry runs unless "Create a draft release" is
-# checked, and dry runs are allowed to be unsigned so the pipeline can be
-# exercised before certificates exist.
+# Tag pushes build installers, updater artifacts and a draft GitHub Release.
+# Unsigned builds are the default for this open-source project; set the repo
+# variable PIXCUT_SIGN=true (or dispatch with sign=true) once certificates are
+# available. Manual runs without "Create a draft release" only upload workflow
+# artifacts.
 on:
   push:
     tags: ["v*"]
@@ -14,7 +15,11 @@ on:
         type: string
         default: ""
       release:
-        description: "Create a draft GitHub Release (requires signing secrets)"
+        description: "Create a draft GitHub Release"
+        type: boolean
+        default: false
+      sign:
+        description: "Sign and notarize installers (requires Apple/Windows certificates)"
         type: boolean
         default: false
 
@@ -39,6 +44,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       release: ${{ steps.version.outputs.release }}
+      sign: ${{ steps.version.outputs.sign }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,6 +57,8 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
           INPUT_RELEASE: ${{ inputs.release }}
+          INPUT_SIGN: ${{ inputs.sign }}
+          PIXCUT_SIGN: ${{ vars.PIXCUT_SIGN }}
         run: |
           set -euo pipefail
           version="$INPUT_VERSION"
@@ -67,12 +75,16 @@ jobs:
           release="false"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then release="true"; fi
           if [ "$INPUT_RELEASE" = "true" ]; then release="true"; fi
+          sign="false"
+          if [ "$INPUT_SIGN" = "true" ]; then sign="true"; fi
+          if [ "${PIXCUT_SIGN:-}" = "true" ]; then sign="true"; fi
           {
             echo "version=$version"
             echo "tag=v$version"
             echo "release=$release"
+            echo "sign=$sign"
           } >> "$GITHUB_OUTPUT"
-          echo "Building PixCut $version (release: $release, ref: $GITHUB_REF)"
+          echo "Building PixCut $version (release: $release, sign: $sign, ref: $GITHUB_REF)"
 
   verify:
     name: Verify before packaging
@@ -133,7 +145,7 @@ jobs:
           workspaces: desktop -> desktop/target
           key: release-macos-${{ matrix.label }}
       - name: Require signing secrets
-        if: needs.prepare.outputs.release == 'true'
+        if: needs.prepare.outputs.sign == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -163,7 +175,7 @@ jobs:
         working-directory: desktop
         run: node scripts/version.mjs set "${{ needs.prepare.outputs.version }}"
       - name: Build bundle (signed)
-        if: needs.prepare.outputs.release == 'true'
+        if: needs.prepare.outputs.sign == 'true'
         working-directory: desktop
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -178,8 +190,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri -- build --target "${{ matrix.target }}" --bundles app,dmg
-      - name: Build bundle (dry run)
-        if: needs.prepare.outputs.release != 'true'
+      - name: Build bundle (unsigned)
+        if: needs.prepare.outputs.sign != 'true'
         working-directory: desktop
         env:
           # Do not expose empty Apple variables: Tauri treats their presence as
@@ -193,7 +205,7 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
           LABEL: ${{ matrix.label }}
           TARGET: ${{ matrix.target }}
-          RELEASE: ${{ needs.prepare.outputs.release }}
+          SIGN: ${{ needs.prepare.outputs.sign }}
         run: |
           set -euo pipefail
           bundle="target/$TARGET/release/bundle"
@@ -201,7 +213,7 @@ jobs:
           dmg="$(find "$bundle/dmg" -name '*.dmg' -print -quit)"
           test -d "$app"
           test -n "$dmg"
-          if [ "$RELEASE" = "true" ]; then
+          if [ "$SIGN" = "true" ]; then
             codesign --verify --deep --strict --verbose=2 "$app"
             spctl --assess --type execute --verbose=4 "$app"
             xcrun stapler validate "$dmg" || {
@@ -209,7 +221,7 @@ jobs:
               exit 1
             }
           else
-            echo "::warning::Dry run: skipping signature and notarization checks."
+            echo "::warning::Unsigned build: skipping signature and notarization checks."
           fi
           mount="$(mktemp -d)"
           hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null
@@ -244,7 +256,7 @@ jobs:
           workspaces: desktop -> desktop/target
           key: release-windows-x64
       - name: Require signing secrets
-        if: needs.prepare.outputs.release == 'true'
+        if: needs.prepare.outputs.sign == 'true'
         shell: bash
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -260,11 +272,19 @@ jobs:
       - name: Apply version
         working-directory: desktop
         run: node scripts/version.mjs set "${{ needs.prepare.outputs.version }}"
-      - name: Build bundle
+      - name: Build bundle (signed)
+        if: needs.prepare.outputs.sign == 'true'
         working-directory: desktop
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri -- build --bundles nsis,msi
+      - name: Build bundle (unsigned)
+        if: needs.prepare.outputs.sign != 'true'
+        working-directory: desktop
+        env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri -- build --bundles nsis,msi
@@ -273,19 +293,19 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
-          RELEASE: ${{ needs.prepare.outputs.release }}
+          SIGN: ${{ needs.prepare.outputs.sign }}
         run: |
           $ErrorActionPreference = 'Stop'
           $setup = Get-ChildItem 'target/release/bundle/nsis/*.exe' | Select-Object -First 1
           $msi = Get-ChildItem 'target/release/bundle/msi/*.msi' | Select-Object -First 1
           if (-not $setup -or -not $msi) { throw 'Missing NSIS or MSI installer.' }
-          if ($env:RELEASE -eq 'true') {
+          if ($env:SIGN -eq 'true') {
             foreach ($file in @($setup.FullName, $msi.FullName)) {
               $sig = Get-AuthenticodeSignature $file
               if ($sig.Status -ne 'Valid') { throw "$file is not signed: $($sig.Status)" }
             }
           } else {
-            Write-Host '::warning::Dry run: skipping Authenticode checks.'
+            Write-Host '::warning::Unsigned build: skipping Authenticode checks.'
           }
           New-Item -ItemType Directory -Force -Path 'dist/release' | Out-Null
           Copy-Item $setup.FullName "dist/release/PixCut-$env:VERSION-windows-x64-setup.exe"
@@ -382,6 +402,7 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           TAG: ${{ needs.prepare.outputs.tag }}
+          SIGN: ${{ needs.prepare.outputs.sign }}
         run: |
           set -euo pipefail
           notes="dist/notes.md"
@@ -396,6 +417,12 @@ jobs:
               echo "First public build of PixCut Desktop."
             fi
             echo
+            if [ "$SIGN" != "true" ]; then
+              echo "> **Unsigned build.** These installers are not code-signed or notarized."
+              echo "> macOS: right-click PixCut.app and choose **Open** the first time."
+              echo "> Windows: SmartScreen may ask you to confirm the publisher."
+              echo
+            fi
             echo "### Install"
             echo "- macOS: drag PixCut.app to Applications."
             echo "- Windows: run the setup installer (NSIS supports in-app updates)."

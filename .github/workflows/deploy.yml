@@ -32,7 +32,6 @@ jobs:
           # Set repository variables SITE_URL / BASE_PATH for a custom domain.
           SITE_URL: ${{ vars.SITE_URL || format('https://{0}.github.io', github.repository_owner) }}
           BASE_PATH: ${{ vars.BASE_PATH || format('/{0}', github.event.repository.name) }}
-          PUBLIC_GITHUB_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
           npm run build
           node scripts/apply-base.mjs

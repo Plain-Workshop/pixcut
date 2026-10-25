@@ -60,7 +60,7 @@ import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import { ShortcutSettings } from '../components/shortcuts/ShortcutSettings';
 import * as bridge from './bridge';
 import { MAX_AUDIO_FILE_BYTES, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type TransitionType, type SceneFormatOverride, type FormatVariant } from '../stores/model';
-import { drawScene, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
+import { drawScene, drawTextOverlay, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
 import { probeVideo, videoFileData } from '../components/preview/video';
 import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers, sceneTextTitle } from '../components/text/layers';
 import { clampWeight, fontOption } from '../components/text/fonts';
@@ -1941,17 +1941,87 @@ export default function App() {
     return `${parts.join(' - ')}.mp4`;
   }
 
+  async function buildVideoPlan(format: FormatVariant, progressRef: { count: number; total: number }): Promise<bridge.ExportPlan> {
+    const formatScenes = resolveScenesForFormat(scenes, format);
+    const size = formatSize(format);
+    const segments: bridge.PlanSegment[] = [];
+    const tick = () => {
+      progressRef.count += 1;
+      if (exportCancelled.current) throw new Error('Export cancelled.');
+      setExportProgress(Math.round(2 + progressRef.count / Math.max(1, progressRef.total) * 66));
+    };
+    for (let sceneIndex = 0; sceneIndex < formatScenes.length; sceneIndex++) {
+      const scene = formatScenes[sceneIndex];
+      const next = formatScenes[sceneIndex + 1];
+      if (scene.mediaKind === 'video') {
+        const overlays: bridge.PlanOverlay[] = [];
+        for (const layer of sceneTextLayers(scene)) {
+          if (layer.durationTicks <= 0) continue;
+          const canvas = document.createElement('canvas');
+          const localTicks = layer.startTicks + layer.durationTicks / 2;
+          await drawTextOverlay(canvas, scene, layer.id, ticksToSeconds(localTicks, project.timebase), displayAspect, project.timebase, size);
+          overlays.push({ png: canvas.toDataURL('image/png'), startTicks: scene.startTicks + layer.startTicks, durationTicks: layer.durationTicks });
+        }
+        segments.push({
+          kind: 'video', video: scene.image,
+          sourceInSeconds: ticksToSeconds(scene.sourceInTicks, project.timebase),
+          fit: scene.fit, durationTicks: scene.durationTicks, overlays,
+        });
+        tick();
+        continue;
+      }
+      const transitionAllowed = Boolean(scene.transition && next && next.mediaKind !== 'video');
+      const boundaries = new Set<number>([0, scene.durationTicks]);
+      for (const layer of sceneTextLayers(scene)) {
+        boundaries.add(Math.min(scene.durationTicks, Math.max(0, layer.startTicks)));
+        boundaries.add(Math.min(scene.durationTicks, Math.max(0, layer.startTicks + layer.durationTicks)));
+      }
+      if (scene.transition && transitionAllowed) boundaries.add(Math.max(0, scene.durationTicks - secondsToTicks(scene.transition.duration, project.timebase)));
+      const points = [...boundaries].sort((a, b) => a - b);
+      for (let index = 0; index < points.length - 1; index++) {
+        const durationTicks = points[index + 1] - points[index];
+        if (durationTicks <= 0) continue;
+        const canvas = document.createElement('canvas');
+        const localTicks = points[index] + durationTicks / 2;
+        const localSeconds = ticksToSeconds(localTicks, project.timebase);
+        const transition = scene.transition && transitionAllowed ? scene.transition : null;
+        const transitionStart = transition ? scene.durationTicks - secondsToTicks(transition.duration, project.timebase) : 0;
+        if (transition && localTicks >= transitionStart) {
+          const progress = Math.min(1, (localTicks - transitionStart) / Math.max(1, secondsToTicks(transition.duration, project.timebase)));
+          await drawTransition(canvas, scene, next!, transition.type, displayAspect, 'export', progress, localSeconds, 0, project.timebase, size);
+        } else {
+          await drawScene(canvas, scene, displayAspect, 'export', localSeconds, project.timebase, size);
+        }
+        segments.push({ kind: 'image', png: canvas.toDataURL('image/png'), durationTicks, overlays: [] });
+        tick();
+      }
+    }
+    return {
+      segments,
+      options: { width: size.width, height: size.height, fps: format.fps, crf: EXPORT_QUALITY_CRF[format.quality], filename: exportFilename(format, false) },
+    };
+  }
+
   async function exportVideo() {
     const selectedFormats = project.formats.filter(format => exportFormatIds.includes(format.id));
     if (!selectedFormats.length) { setError('Choose at least one output format.'); return; }
-    if (scenes.some(scene => scene.mediaKind === 'video')) {
-      setError('Video clips can be previewed and edited, but MP4 export for video is the next media-engine step. Remove the video clips to export this project.');
-      return;
-    }
     exportCancelled.current = false; setCancellingExport(false);
     setExporting(true); setExportProgress(1); setPlaying(false); setError('');
     try {
       await document.fonts.ready;
+      if (hasVideoScenes) {
+        const progressRef = { count: 0, total: Math.max(1, selectedFormats.length * scenes.length) };
+        const jobs: bridge.ExportPlan[] = [];
+        for (const format of selectedFormats) jobs.push(await buildVideoPlan(format, progressRef));
+        setExportProgress(72);
+        const paths = await bridge.exportPlanVariants(project.id, jobs);
+        if (paths.length) {
+          setExportProgress(100);
+          setNotice(`${paths.length} video${paths.length === 1 ? '' : 's'} exported. Files stay on this device.`);
+          setModal(null);
+        }
+        return;
+      }
       const plans = selectedFormats.map(format => {
         const formatScenes = resolveScenesForFormat(scenes, format);
         const segments: { scene: Scene; next?: Scene; startTicks: number; durationTicks: number }[] = [];
@@ -2701,8 +2771,8 @@ export default function App() {
             <div className="export-filename"><span>FILES</span>{project.formats.filter(format => exportFormatIds.includes(format.id)).map(format => <strong key={format.id}>{exportFilename(format, exportFormatIds.length > 1)}</strong>)}{exportFormatIds.length === 0 && <strong className="warning">Choose at least one format</strong>}</div>
           </div>
           <div className="export-summary"><span>Format<strong>MP4 · H.264</strong></span><span>Outputs<strong>{exportFormatIds.length} format{exportFormatIds.length === 1 ? '' : 's'}</strong></span><span>Duration<strong>{duration.toFixed(1)} seconds</strong></span><span>Audio<strong>{project.audio.length ? `${project.audio.length} clip${project.audio.length === 1 ? '' : 's'}` : 'No audio'}</strong></span><span>Branding<strong className="accent"><Check size={15} /> No watermark</strong></span><span>Local<strong><WifiOff size={14} /> No account needed</strong></span></div>
-          <div className="note"><HardDrive size={17} /><span>{hasVideoScenes ? 'This project contains video clips. Video export is the next media-engine step; image-only projects can export now.' : bridge.native ? exporter ? 'Rendered locally using your installed FFmpeg, including timed text, transitions, and mixed audio.' : <>FFmpeg was not found. Install it with <code>{FFMPEG_INSTALL[platform]}</code>, then restart PixCut to enable MP4 export.</> : 'MP4 export runs in the native desktop app. This browser preview supports editing and saving projects.'}</span></div>
-          <button className="button primary export-confirm" disabled={!exporter || exporting || busy || hasVideoScenes} onClick={() => void exportVideo()}>{exporting ? <LoaderCircle size={17} className="spin" /> : <Download size={17} />} {exporting ? 'Rendering your story…' : 'Choose destination & export'}</button>
+          <div className="note"><HardDrive size={17} /><span>{hasVideoScenes ? 'Video clips render at their trimmed range with text overlays. Scene transitions touching video become hard cuts; video color grading, fades, and speed changes are not applied yet.' : bridge.native ? exporter ? 'Rendered locally using your installed FFmpeg, including timed text, transitions, and mixed audio.' : <>FFmpeg was not found. Install it with <code>{FFMPEG_INSTALL[platform]}</code>, then restart PixCut to enable MP4 export.</> : 'MP4 export runs in the native desktop app. This browser preview supports editing and saving projects.'}</span></div>
+          <button className="button primary export-confirm" disabled={!exporter || exporting || busy} onClick={() => void exportVideo()}>{exporting ? <LoaderCircle size={17} className="spin" /> : <Download size={17} />} {exporting ? 'Rendering your story…' : 'Choose destination & export'}</button>
           {exporting && <div className="export-progress"><div><span style={{ width: `${Math.max(3, exportProgress)}%` }} /></div><span>{exportProgress}%</span></div>}
           {exporting && <div className="export-cancel-row"><button className="button subtle" onClick={cancelExport} disabled={cancellingExport}>{cancellingExport ? 'Cancelling…' : 'Cancel export'}</button></div>}
           {exporting && <p className="export-wait">Keep PixCut open until rendering finishes. Longer stories take more time.</p>}

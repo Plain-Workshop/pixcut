@@ -47,8 +47,12 @@ export type PickedMedia = { name: string; mime: string; data: string };
 export async function pickMedia(kind: 'image' | 'audio' | 'video'): Promise<PickedMedia[] | null> { return native ? invoke('pick_media', { kind }) : null; }
 export type ExportOptions = { width: number; height: number; fps: number; crf: number; filename: string };
 export type ExportJob = { frames: string[]; durations: number[]; options: ExportOptions };
+export type PlanOverlay = { png: string; startTicks: number; durationTicks: number };
+export type PlanSegment = { kind: 'image' | 'video'; png?: string; video?: string; sourceInSeconds?: number; fit?: 'cover' | 'contain' | 'blur'; durationTicks: number; overlays: PlanOverlay[] };
+export type ExportPlan = { segments: PlanSegment[]; options: ExportOptions };
 export async function exportMovie(projectId: string, frames: string[], durations: number[], options: ExportOptions): Promise<string | null> { return invoke('export_movie', { projectId, frames, durations, options }); }
 export async function exportVariants(projectId: string, jobs: ExportJob[]): Promise<string[]> { return invoke('export_variants', { projectId, jobs }); }
+export async function exportPlanVariants(projectId: string, plans: ExportPlan[]): Promise<string[]> { return invoke('export_plan_variants', { projectId, plans }); }
 export async function cancelExport(): Promise<void> { if (native) await invoke('cancel_export'); }
 export function onExportProgress(handler: (percent: number) => void): Promise<UnlistenFn> | null { return native ? listen<number>('export-progress', event => handler(event.payload)) : null; }
 

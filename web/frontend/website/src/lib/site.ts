@@ -1,9 +1,6 @@
-const configuredGithub = import.meta.env.PUBLIC_GITHUB_URL?.trim();
-const github = configuredGithub && /^https?:\/\//.test(configuredGithub)
-  ? configuredGithub
-  : 'https://github.com/Plain-Workshop/pixcut';
+const github = 'https://github.com/Plain-Workshop/pixcut';
 
-export const GITHUB_URL = github.replace(/\/$/, '');
+export const GITHUB_URL = github;
 export const RELEASES_URL = `${GITHUB_URL}/releases/latest`;
 export const ISSUES_URL = `${GITHUB_URL}/issues`;
 export const DISCUSSIONS_URL = `${GITHUB_URL}/discussions`;
