@@ -176,7 +176,7 @@ jobs:
           APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri -- build -- --target "${{ matrix.target }}" --bundles app,dmg
+        run: npm run tauri -- build --target "${{ matrix.target }}" --bundles app,dmg
       - name: Verify and stage
         working-directory: desktop
         env:
@@ -257,7 +257,7 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri -- build -- --bundles nsis,msi
+        run: npm run tauri -- build --bundles nsis,msi
       - name: Verify and stage
         working-directory: desktop
         shell: pwsh
@@ -323,7 +323,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri -- build -- --bundles appimage,deb
+        run: npm run tauri -- build --bundles appimage,deb
       - name: Verify and stage
         working-directory: desktop
         env:
