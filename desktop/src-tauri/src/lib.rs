@@ -996,7 +996,6 @@ fn encode_plan(
             .arg(format!("{duration:.6}"))
             .arg("-i")
             .arg(path);
-        input_index += 1;
     }
 
     let width = plan.options.width;
