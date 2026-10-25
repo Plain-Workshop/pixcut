@@ -1,0 +1,49 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { GITHUB_URL } from '../lib/site';
+
+const updated = 'October 25, 2026';
+---
+
+<BaseLayout title="Privacy — PixCut" description="PixCut is local-first. This website is static, has no analytics, and the desktop editor keeps projects on your device.">
+  <section class="page-hero">
+    <div class="container">
+      <span class="eyebrow">Privacy</span>
+      <h1>Privacy policy</h1>
+      <p class="lede">PixCut is local-first. Editing, preview and export happen on your device. This website is static and does not include analytics or advertising trackers.</p>
+      <p class="small muted">Last updated {updated}</p>
+    </div>
+  </section>
+
+  <div class="container">
+    <article class="prose">
+      <h2>The short version</h2>
+      <ul>
+        <li>Your media stays on your device.</li>
+        <li>There is no PixCut account, license key or hosted service in the open-source build.</li>
+        <li>This website does not load third-party analytics or advertising trackers.</li>
+        <li>Optional AI is off by default and only uses a local model or a provider you configure.</li>
+      </ul>
+
+      <h2>1. The desktop app</h2>
+      <p>The app works offline. Projects, recovery snapshots, preferences and logs are stored on your device. Without a configured AI provider, no project data is transmitted. Crash reports are opt-in and can be reviewed before sending.</p>
+
+      <h2>2. This website</h2>
+      <p>This is a static site. It does not set analytics cookies, run advertising trackers or build a profile of you. The hosting provider may process standard request logs such as IP address, user agent and requested URL for security and reliability. Those logs are controlled by the hosting provider, normally GitHub Pages.</p>
+
+      <h2>3. Optional AI providers</h2>
+      <p>AI features are disabled by default. If you connect a provider or local runtime, the consent screen shows what will be sent. Third-party providers process data under their own terms and retention policies. PixCut does not operate a hosted AI service in this project.</p>
+
+      <h2>4. Support and community</h2>
+      <p>If you open a GitHub issue or discussion, GitHub processes your account and content under its own privacy policy. Do not post project files, personal media or secrets in a public issue. Use the <a href={`${GITHUB_URL}/security/policy`} rel="noreferrer">security policy</a> for private vulnerability reports.</p>
+
+      <h2>5. Children</h2>
+      <p>PixCut is not directed at children under 13. The project does not knowingly collect personal data from children.</p>
+
+      <h2>6. Changes</h2>
+      <p>Material changes will be posted on this page and in the repository history.</p>
+
+      <p class="small muted" style="margin-top:2.5rem;">This page describes the open-source project, not a commercial hosted service. If you fork or deploy PixCut as a service, you are responsible for your own privacy policy.</p>
+    </article>
+  </div>
+</BaseLayout>

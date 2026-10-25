@@ -1,0 +1,10 @@
+{
+  "name": "pixcut-web-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "npm run dev -w pixcut-website",
+    "build": "npm run build -w pixcut-website",
+    "preview": "npm run preview -w pixcut-website"
+  }
+}

@@ -1,0 +1,79 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+import { DISCUSSIONS_URL, GITHUB_URL, ISSUES_URL } from '../lib/site';
+---
+
+<BaseLayout title="Support — PixCut" description="Get help with PixCut through documentation, GitHub Discussions and issues.">
+  <section class="page-hero center">
+    <div class="container">
+      <span class="eyebrow">Support</span>
+      <h1>How can we help?</h1>
+      <p class="lede">Start with the docs, search existing issues, or ask the community. PixCut is supported in public.</p>
+      <div class="filter-bar" style="justify-content:center;margin-top:1.8rem;margin-bottom:0;">
+        <a class="chip active" href="#guides">Guides</a>
+        <a class="chip" href="#troubleshooting">Troubleshooting</a>
+        <a class="chip" href="#community">Community</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="guides" style="padding-top:2.4rem;">
+    <div class="container">
+      <div class="grid cols-3">
+        <a class="card help-card card-hover" href="/docs">
+          <span class="icon-badge"><Icon name="book" size={22} /></span>
+          <h3>Documentation</h3>
+          <p>Install, import, edit, add captions and export your first project.</p>
+          <span class="link-arrow">Open docs <Icon name="arrow-right" size={15} /></span>
+        </a>
+        <a class="card help-card card-hover" href={DISCUSSIONS_URL} rel="noreferrer">
+          <span class="icon-badge blue"><Icon name="chat" size={22} /></span>
+          <h3>Ask the community</h3>
+          <p>Questions, workflows and feature ideas belong in GitHub Discussions.</p>
+          <span class="link-arrow">Open discussions <Icon name="external" size={14} /></span>
+        </a>
+        <a class="card help-card card-hover" href={ISSUES_URL} rel="noreferrer">
+          <span class="icon-badge green"><Icon name="alert" size={22} /></span>
+          <h3>Report a bug</h3>
+          <p>Include your OS, version and reproduction steps. Search before opening.</p>
+          <span class="link-arrow">Open issues <Icon name="external" size={14} /></span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="troubleshooting">
+    <div class="container split">
+      <div>
+        <span class="eyebrow">Troubleshooting</span>
+        <h2 class="section-title">Common fixes, first</h2>
+        <p class="section-copy">These solve most reports. If they do not, include the diagnostics output in your issue.</p>
+        <ul class="feature-list" style="margin-top:1.3rem;">
+          <li><Icon name="check" size={16} /> Update your graphics driver, then restart PixCut</li>
+          <li><Icon name="check" size={16} /> Keep at least 2 GB free for export scratch files</li>
+          <li><Icon name="check" size={16} /> Try exporting to a local folder, not a network drive</li>
+          <li><Icon name="check" size={16} /> Confirm FFmpeg is available on your PATH for MP4 export</li>
+        </ul>
+      </div>
+      <div class="faq">
+        <details open><summary>The app will not open after an update</summary><p>Reinstall the latest release from GitHub. On macOS, remove the old app from Applications before installing the new one. Projects are stored separately and are not deleted.</p></details>
+        <details><summary>Export stops at 99%</summary><p>Usually a disk-space or codec issue. Free some space, export locally, and check the FFmpeg diagnostics in Settings → Updates.</p></details>
+        <details><summary>Video import is missing</summary><p>Video-file import and video overlays are still on the roadmap. The current build focuses on photo and still-image projects.</p></details>
+        <details><summary>Does PixCut require an account?</summary><p>No. There is no account, license key or subscription in the open-source build.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="community">
+    <div class="container center">
+      <span class="eyebrow">Community</span>
+      <h2 class="section-title">There is no ticket queue</h2>
+      <p class="section-copy">PixCut is maintained by contributors. Asking in Discussions helps others with the same problem, and public issues keep fixes searchable.</p>
+      <div class="hero-actions" style="justify-content:center;margin-top:1.4rem;">
+        <a class="btn btn-primary" href={DISCUSSIONS_URL} rel="noreferrer"><Icon name="chat" size={17} /> Discussions</a>
+        <a class="btn btn-secondary" href={GITHUB_URL} rel="noreferrer"><Icon name="github" size={17} /> GitHub</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

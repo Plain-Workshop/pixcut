@@ -1,0 +1,10 @@
+node_modules/
+dist/
+target/
+.astro/
+*.log
+.DS_Store
+*.tsbuildinfo
+backups/
+artifacts/
+template-assets/

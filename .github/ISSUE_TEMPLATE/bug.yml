@@ -1,0 +1,41 @@
+name: Bug report
+description: Something in PixCut does not work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. Search existing issues first, and never attach private media.
+  - type: input
+    id: version
+    attributes:
+      label: PixCut version
+      placeholder: 1.0.0 or commit hash
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: macOS 14, Windows 11, Ubuntu 24.04
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: 1. Open ... 2. Click ... 3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics or logs
+      description: Remove personal paths and project names before posting.
+    validations:
+      required: false

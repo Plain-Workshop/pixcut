@@ -1,0 +1,133 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+
+const guides = [
+  { title: 'Your first video in 10 minutes', href: '/docs#install', category: 'Getting started', copy: 'Import photos, arrange the timeline, add a title and export your first MP4.', time: '10 min', level: 'Beginner', image: '/images/travel.jpg' },
+  { title: 'Make a 9:16 version for Shorts and Reels', href: '/docs#export', category: 'Social', copy: 'Duplicate a landscape project, reframe with safe-area guides and batch export.', time: '8 min', level: 'Beginner', image: '/images/vlog.jpg' },
+  { title: 'Add captions that people actually read', href: '/docs#text', category: 'Captions', copy: 'Style, time and position subtitles, then check readability before export.', time: '12 min', level: 'Beginner', image: '/images/family.jpg' },
+  { title: 'Sync cuts to the beat of your music', href: '/docs#timeline', category: 'Editing', copy: 'Read the waveform, place markers and use beat-matched transitions.', time: '7 min', level: 'Intermediate', image: '/images/birthday.jpg' },
+  { title: 'Build a reusable brand kit', href: '/docs#export', category: 'Business', copy: 'Save colors, fonts and a logo, then apply them consistently across videos.', time: '15 min', level: 'Intermediate', image: '/images/product.jpg' },
+  { title: 'Restore a project and relink media', href: '/docs#project', category: 'Troubleshooting', copy: 'Recover autosaves, move projects between computers and relink missing files.', time: '9 min', level: 'Beginner', image: '/images/business.jpg' },
+  { title: 'Choose a local or BYOK AI provider', href: '/ai#compare', category: 'AI', copy: 'Understand privacy, cost and quality trade-offs before running a job.', time: '11 min', level: 'Intermediate', image: '/images/why.jpg' },
+  { title: 'Export for YouTube, TikTok and Instagram', href: '/docs#export', category: 'Social', copy: 'Resolution, frame rate, bitrate and safe zones for each platform.', time: '10 min', level: 'Beginner', image: '/images/wedding.jpg' },
+  { title: 'Fix a slow preview or export', href: '/support#troubleshooting', category: 'Troubleshooting', copy: 'Proxy media, free disk space and avoid GPU driver bottlenecks.', time: '6 min', level: 'Intermediate', image: '/images/holiday.jpg' },
+];
+
+const categories = ['All', 'Getting started', 'Editing', 'Captions', 'Social', 'AI', 'Business', 'Troubleshooting'];
+---
+
+<BaseLayout title="Learn — PixCut" description="PixCut guides and tutorials: first video, social versions, captions, music sync, brand kits and troubleshooting.">
+  <section class="page-hero">
+    <div class="container">
+      <span class="eyebrow">Learn</span>
+      <h1>Make better videos,<br /><span class="gradient-text">one guide at a time</span></h1>
+      <p class="lede">Short, practical tutorials for the things you actually do in PixCut. No 40-minute webinars, no upsell at the end.</p>
+      <div class="catalog-search" style="max-width:520px;margin-top:1.6rem;">
+        <Icon name="sparkles" size={17} />
+        <input class="input" id="guide-search" type="search" placeholder="Search guides..." aria-label="Search guides" />
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:2.2rem;">
+    <div class="container">
+      <div class="filter-bar" id="guide-categories">
+        {categories.map((category) => <button class={`chip ${category === 'All' ? 'active' : ''}`} type="button" data-category={category}>{category}</button>)}
+      </div>
+      <p class="small muted" id="guide-count">{guides.length} guides</p>
+      <div class="grid cols-3" id="guide-grid">
+        {guides.map((guide) => (
+          <a class="card guide-card card-hover" href={guide.href} data-category={guide.category} data-title={guide.title}>
+            <div class="guide-thumb"><img src={guide.image} alt="" loading="lazy" width="900" height="700" /><span class="pill pill-neutral">{guide.level}</span></div>
+            <div class="guide-body">
+              <span class="eyebrow" style="font-size:.65rem;">{guide.category}</span>
+              <h3>{guide.title}</h3>
+              <p>{guide.copy}</p>
+              <span class="small muted"><Icon name="clock" size={14} /> {guide.time} read</span>
+              <span class="link-arrow" style="margin-top:.4rem;">Read guide <Icon name="arrow-right" size={14} /></span>
+            </div>
+          </a>
+        ))}
+      </div>
+      <div class="empty-state" id="guide-empty" hidden>
+        <h3 style="margin:0 0 .3rem;">No guides match that search</h3>
+        <p>Try a different category or a shorter query.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container split">
+      <div>
+        <span class="eyebrow">Documentation</span>
+        <h2 class="section-title">Need the reference?</h2>
+        <p class="section-copy">The docs cover every screen, shortcut and export option, plus the project file format and license behavior.</p>
+        <a class="btn btn-secondary" href="/docs" style="margin-top:1.2rem;">Open documentation</a>
+      </div>
+      <div class="card">
+        <span class="icon-badge green"><Icon name="users" size={21} /></span>
+        <h3>Learn together</h3>
+        <p>Use the PixCut templates as a starting point, then change every scene, title and color. The best way to learn is to finish a small video and export it.</p>
+        <a class="link-arrow" href="/templates">Browse templates <Icon name="arrow-right" size={15} /></a>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const search = document.getElementById('guide-search') as HTMLInputElement | null;
+    const chips = document.getElementById('guide-categories');
+    const grid = document.getElementById('guide-grid');
+    const count = document.getElementById('guide-count');
+    const empty = document.getElementById('guide-empty');
+    const cards = Array.from(document.querySelectorAll<HTMLAnchorElement>('.guide-card'));
+    let category = 'All';
+
+    const params = new URLSearchParams(window.location.search);
+    const requestedCategory = params.get('category');
+    if (requestedCategory) {
+      const match = Array.from(chips?.querySelectorAll<HTMLButtonElement>('.chip') ?? []).find(
+        (chip) => chip.dataset.category?.toLowerCase() === requestedCategory.toLowerCase(),
+      );
+      if (match) {
+        category = match.dataset.category || 'All';
+        chips?.querySelectorAll('.chip').forEach((chip) => chip.classList.remove('active'));
+        match.classList.add('active');
+      }
+    }
+    if (search && params.get('q')) search.value = params.get('q') || '';
+
+    function syncUrl() {
+      const next = new URLSearchParams();
+      if (category !== 'All') next.set('category', category);
+      if (search && search.value.trim()) next.set('q', search.value.trim());
+      const qs = next.toString();
+      window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+    }
+
+    function filterGuides() {
+      const query = (search?.value || '').trim().toLowerCase();
+      let visible = 0;
+      cards.forEach((card) => {
+        const matchesCategory = category === 'All' || card.dataset.category === category;
+        const matchesQuery = !query || (card.dataset.title || '').toLowerCase().includes(query) || (card.dataset.category || '').toLowerCase().includes(query);
+        const show = matchesCategory && matchesQuery;
+        card.hidden = !show;
+        if (show) visible += 1;
+      });
+      if (count) count.textContent = `${visible} guide${visible === 1 ? '' : 's'}`;
+      if (empty) empty.hidden = visible !== 0;
+      syncUrl();
+    }
+    chips?.addEventListener('click', (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('.chip');
+      if (!button) return;
+      category = button.dataset.category || 'All';
+      chips.querySelectorAll('.chip').forEach((chip) => chip.classList.remove('active'));
+      button.classList.add('active');
+      filterGuides();
+    });
+    search?.addEventListener('input', filterGuides);
+    filterGuides();
+  </script>
+</BaseLayout>

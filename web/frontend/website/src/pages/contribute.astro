@@ -1,0 +1,85 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+import { CONTRIBUTING_URL, GITHUB_URL, ISSUES_URL } from '../lib/site';
+
+const steps = [
+  ['Pick something small', 'Look for good-first-issue, documentation fixes or a bug you can reproduce.'],
+  ['Read the guides', 'CONTRIBUTING.md covers setup, code style, tests and commit sign-off.'],
+  ['Fork and build', 'Fork the repository, create a branch and run the desktop app locally.'],
+  ['Open a pull request', 'Explain the problem and the change. Include screenshots for UI work.'],
+];
+---
+
+<BaseLayout title="Contribute — PixCut" description="Contribute to PixCut: report bugs, improve docs, build features and join the open-source community.">
+  <section class="page-hero center">
+    <div class="container">
+      <span class="eyebrow">Contribute</span>
+      <h1>Make PixCut<br /><span class="gradient-text">better with us</span></h1>
+      <p class="lede">Code, docs, design and bug reports all matter. The project is maintained in public and every contribution is credited.</p>
+      <div class="hero-actions" style="justify-content:center;margin-top:1.5rem;">
+        <a class="btn btn-primary" href={`${GITHUB_URL}/contribute`} rel="noreferrer"><Icon name="github" size={18} /> Find an issue</a>
+        <a class="btn btn-secondary" href={CONTRIBUTING_URL} rel="noreferrer"><Icon name="book" size={18} /> Contributing guide</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:2.4rem;">
+    <div class="container">
+      <div class="grid cols-4">
+        {steps.map(([title, copy], index) => <article class="card"><span class="icon-badge">{index + 1}</span><h3>{title}</h3><p>{copy}</p></article>)}
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container split">
+      <div>
+        <span class="eyebrow">Development setup</span>
+        <h2 class="section-title">Run it locally</h2>
+        <pre class="email-body" style="margin-top:1.2rem;">git clone {GITHUB_URL}.git
+cd pixcut/desktop
+npm ci
+npm run dev      # browser preview
+npm run desktop  # native Tauri app</pre>
+        <p class="section-copy" style="margin-top:1rem;">Use Rust stable and Node.js 22+. MP4 export needs FFmpeg with H.264 support on your PATH. The website lives in <code>web/frontend/website</code> and builds with Astro.</p>
+      </div>
+      <div>
+        <span class="eyebrow">Ways to help</span>
+        <h2 class="section-title">Not only code</h2>
+        <ul class="feature-list" style="margin-top:1.2rem;">
+          <li><Icon name="check" size={16} /> Reproduce and triage bug reports</li>
+          <li><Icon name="check" size={16} /> Improve tutorials and screenshots</li>
+          <li><Icon name="check" size={16} /> Test on Windows, Linux and older macOS</li>
+          <li><Icon name="check" size={16} /> Review pull requests and design proposals</li>
+          <li><Icon name="check" size={16} /> Share projects made with PixCut</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container split">
+      <div>
+        <span class="eyebrow">Rules</span>
+        <h2 class="section-title">Keep it respectful</h2>
+        <p class="section-copy">Be constructive, assume good intent and keep discussions focused on the work. Harassment and discrimination are not welcome.</p>
+        <div class="grid" style="gap:.6rem;margin-top:1rem;">
+          <a class="link-arrow" href={`${GITHUB_URL}/blob/main/CODE_OF_CONDUCT.md`} rel="noreferrer">Code of conduct <Icon name="external" size={13} /></a>
+          <a class="link-arrow" href={`${GITHUB_URL}/blob/main/SECURITY.md`} rel="noreferrer">Security policy <Icon name="external" size={13} /></a>
+          <a class="link-arrow" href={`${GITHUB_URL}/blob/main/TRADEMARK.md`} rel="noreferrer">Trademark policy <Icon name="external" size={13} /></a>
+        </div>
+      </div>
+      <div>
+        <span class="eyebrow">Licensing</span>
+        <h2 class="section-title">DCO, not a CLA</h2>
+        <p class="section-copy">Sign off commits with <code>git commit -s</code>. Your contribution is licensed under MIT OR Apache-2.0, the same terms as the project. There is no copyright assignment.</p>
+        <div class="card" style="margin-top:1rem;">
+          <strong>First pull request?</strong>
+          <p class="small muted" style="margin:.4rem 0 .8rem;">Open an issue describing what you plan to change before writing a large patch. It saves rework and keeps the roadmap aligned.</p>
+          <a class="btn btn-secondary btn-sm" href={ISSUES_URL} rel="noreferrer">Open an issue</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

@@ -1,0 +1,21 @@
+{
+  "title": "PixCut unified product plan",
+  "date": "2026-10-24",
+  "documents": [
+    "03-ENGINE-AND-DATA.md",
+    "04-WATERMARK-AND-EXPORT.md",
+    "06-LOCAL-AI-AND-PRIVACY.md",
+    "02-FEATURE-MATRIX.md",
+    "08-RELEASE-PLAN-AND-TESTS.md",
+    "05-UPDATER.md",
+    "07-WEBSITE-LICENSING.md",
+    "01-USER-EXPERIENCE.md",
+    "00-START-HERE.md"
+  ],
+  "assets": [
+    "pixcut-feature-board.png",
+    "pixcut-logo-concept.png",
+    "pixcut-ui-overview.png"
+  ],
+  "reference_sources": "Older desktop and website specs copied for implementation depth; unified specs override conflicts."
+}

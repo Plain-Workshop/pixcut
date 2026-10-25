@@ -1,0 +1,69 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+import { GITHUB_URL } from '../lib/site';
+---
+
+<BaseLayout title="License — PixCut" description="PixCut is open source under MIT OR Apache-2.0. Website content is CC BY 4.0; the name and logo are reserved.">
+  <section class="page-hero center">
+    <div class="container">
+      <span class="eyebrow">License</span>
+      <h1>Open source,<br /><span class="gradient-text">with clear terms</span></h1>
+      <p class="lede">Use PixCut, inspect it, modify it and share it. The code is dual-licensed; the brand stays protected.</p>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:2.4rem;">
+    <div class="container">
+      <div class="grid cols-2">
+        <article class="card">
+          <span class="icon-badge"><Icon name="book" size={21} /></span>
+          <h3>Source code: MIT OR Apache-2.0</h3>
+          <p>You may use, copy, modify, merge, publish, distribute, sublicense and sell copies of the software. Choose either license when redistributing.</p>
+          <ul class="feature-list">
+            <li><Icon name="check" size={16} /> MIT for a short, permissive license</li>
+            <li><Icon name="check" size={16} /> Apache-2.0 includes an explicit patent grant</li>
+            <li><Icon name="check" size={16} /> Keep copyright and license notices</li>
+          </ul>
+          <p style="margin-top:1rem;"><a class="link-arrow" href={`${GITHUB_URL}/blob/main/LICENSE-MIT`} rel="noreferrer">LICENSE-MIT <Icon name="external" size={13} /></a><br /><a class="link-arrow" href={`${GITHUB_URL}/blob/main/LICENSE-APACHE`} rel="noreferrer">LICENSE-APACHE <Icon name="external" size={13} /></a></p>
+        </article>
+        <article class="card">
+          <span class="icon-badge blue"><Icon name="photo" size={21} /></span>
+          <h3>Website content: CC BY 4.0</h3>
+          <p>Written guides, page copy and original screenshots may be shared and adapted with attribution. This does not cover the PixCut name or logo.</p>
+          <ul class="feature-list">
+            <li><Icon name="check" size={16} /> Credit “PixCut contributors” with a link</li>
+            <li><Icon name="check" size={16} /> Link to the license text</li>
+            <li><Icon name="check" size={16} /> Indicate if you changed the material</li>
+          </ul>
+          <p style="margin-top:1rem;"><a class="link-arrow" href={`${GITHUB_URL}/blob/main/LICENSE-CONTENT`} rel="noreferrer">LICENSE-CONTENT <Icon name="external" size={13} /></a></p>
+        </article>
+        <article class="card">
+          <span class="icon-badge orange"><Icon name="shield" size={21} /></span>
+          <h3>Name and logo: all rights reserved</h3>
+          <p>The open-source licenses do not grant permission to use the PixCut name or logo as your own product branding. See the trademark policy for allowed references.</p>
+          <p style="margin-top:1rem;"><a class="link-arrow" href={`${GITHUB_URL}/blob/main/TRADEMARK.md`} rel="noreferrer">TRADEMARK.md <Icon name="external" size={13} /></a></p>
+        </article>
+        <article class="card">
+          <span class="icon-badge green"><Icon name="layers" size={21} /></span>
+          <h3>Third-party components</h3>
+          <p>Dependencies keep their own licenses. The desktop app uses Rust, Tauri and other open-source packages, and expects FFmpeg to be installed separately.</p>
+          <p style="margin-top:1rem;"><a class="link-arrow" href={`${GITHUB_URL}/blob/main/THIRD_PARTY_NOTICES.md`} rel="noreferrer">Third-party notices <Icon name="external" size={13} /></a></p>
+        </article>
+      </div>
+      <div class="notice" style="margin-top:1.5rem;">
+        <Icon name="alert" size={16} />
+        <span>FFmpeg can be built with GPL components such as x264. If you redistribute a bundled FFmpeg build, review its exact configure flags and comply with the corresponding license. PixCut’s own source license does not override third-party obligations.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container center">
+      <span class="eyebrow">Contributions</span>
+      <h2 class="section-title">Contributions use the same license</h2>
+      <p class="section-copy">By opening a pull request you agree that your contribution is licensed under MIT OR Apache-2.0. Sign off commits with the Developer Certificate of Origin.</p>
+      <a class="btn btn-primary" href="/contribute"><Icon name="github" size={17} /> Contribution guide</a>
+    </div>
+  </section>
+</BaseLayout>

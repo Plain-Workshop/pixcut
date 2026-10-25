@@ -1,0 +1,62 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+import { CONTACT_EMAIL, DISCUSSIONS_URL, GITHUB_URL, ISSUES_URL, SECURITY_URL } from '../lib/site';
+---
+
+<BaseLayout title="Contact — PixCut" description="Contact the PixCut open-source project through GitHub or email.">
+  <section class="page-hero center">
+    <div class="container">
+      <span class="eyebrow">Contact</span>
+      <h1>Talk to the project</h1>
+      <p class="lede">PixCut is maintained in public. Use GitHub for bugs and ideas so the whole community can follow along.</p>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:2.4rem;">
+    <div class="container">
+      <div class="grid cols-2">
+        <a class="card help-card card-hover" href={ISSUES_URL} rel="noreferrer">
+          <span class="icon-badge"><Icon name="alert" size={22} /></span>
+          <h3>Report a bug</h3>
+          <p>Open an issue with your OS, PixCut version and reproduction steps. Search existing issues first.</p>
+          <span class="link-arrow">Open issues <Icon name="external" size={14} /></span>
+        </a>
+        <a class="card help-card card-hover" href={DISCUSSIONS_URL} rel="noreferrer">
+          <span class="icon-badge blue"><Icon name="chat" size={22} /></span>
+          <h3>Ask a question</h3>
+          <p>Use GitHub Discussions for help, workflows, feature ideas and showing what you made.</p>
+          <span class="link-arrow">Open discussions <Icon name="external" size={14} /></span>
+        </a>
+        <a class="card help-card card-hover" href={`mailto:${CONTACT_EMAIL}`}>
+          <span class="icon-badge green"><Icon name="mail" size={22} /></span>
+          <h3>Email</h3>
+          <p>For private or project-level questions that do not belong in a public issue.</p>
+          <span class="link-arrow">{CONTACT_EMAIL} <Icon name="arrow-right" size={14} /></span>
+        </a>
+        <a class="card help-card card-hover" href={SECURITY_URL} rel="noreferrer">
+          <span class="icon-badge orange"><Icon name="shield" size={22} /></span>
+          <h3>Security</h3>
+          <p>Do not open a public issue for vulnerabilities. Follow the security policy and report privately.</p>
+          <span class="link-arrow">Security policy <Icon name="external" size={14} /></span>
+        </a>
+      </div>
+      <div class="notice" style="margin-top:1.5rem;">
+        <Icon name="users" size={16} />
+        <span>The project is volunteer-maintained. There is no guaranteed response time, but complete reports get attention faster.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container center">
+      <span class="eyebrow">Contribute</span>
+      <h2 class="section-title">The fastest way to improve PixCut</h2>
+      <p class="section-copy">Documentation fixes, bug reports and pull requests are all welcome. Start with a good-first-issue.</p>
+      <div class="hero-actions" style="justify-content:center;margin-top:1.4rem;">
+        <a class="btn btn-primary" href="/contribute"><Icon name="github" size={17} /> Contribution guide</a>
+        <a class="btn btn-secondary" href={GITHUB_URL} rel="noreferrer"><Icon name="star" size={17} /> Star the project</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

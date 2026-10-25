@@ -1,0 +1,31 @@
+{
+  "name": "PixCut change-only handoff",
+  "date": "2026-10-24",
+  "supersedes": "Only matching conflicting requirements from previous plan",
+  "docs": [
+    "00-READ-ME-FIRST.md",
+    "01-shortcuts-discovery.md",
+    "02-shortcut-editor-and-engine.md",
+    "03-editor-controls-and-timeline.md",
+    "04-screen-by-screen-design.md",
+    "05-website-delta.md",
+    "06-brand-asset-policy.md",
+    "07-acceptance-tests.md"
+  ],
+  "screens": [
+    "APP-01",
+    "APP-02",
+    "APP-03",
+    "APP-04",
+    "APP-05",
+    "APP-06",
+    "APP-07",
+    "APP-08",
+    "APP-09",
+    "APP-10",
+    "APP-11",
+    "APP-12"
+  ],
+  "brand_master": "brand/pixcut-symbol.svg",
+  "notes": "Design boards are inspiration, written documents are normative."
+}

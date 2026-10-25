@@ -1,0 +1,154 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+
+const sections = [
+  {
+    id: 'install',
+    title: 'Install and update',
+    category: 'Getting started',
+    body: [
+      ['Download the build for your platform', 'Use the download page. Windows uses an installer, macOS uses a signed disk image, and Linux ships an AppImage, deb and rpm.'],
+      ['First launch', 'PixCut opens on Home. Choose New Video, Photo Movie or a template. No account or license key is required.'],
+      ['Updates', 'Download the latest release from GitHub. There is no in-app paywall or subscription; the project is open source.'],
+    ],
+  },
+  {
+    id: 'project',
+    title: 'Create and manage projects',
+    category: 'Getting started',
+    body: [
+      ['Start a project', 'New Video creates an empty timeline. Photo Movie asks for a folder of photos. Templates open a pre-built project you can edit.'],
+      ['Save format', 'Projects are portable JSON files with embedded media. Save with Cmd/Ctrl+S, or let the local recovery file protect unsaved work.'],
+      ['Recovery', 'On launch, PixCut offers the last recovery snapshot. Recovery is stored in the app data folder and is separate from your explicit save.'],
+    ],
+  },
+  {
+    id: 'timeline',
+    title: 'Timeline and scenes',
+    category: 'Editing',
+    body: [
+      ['Import media', 'Use Import or drop JPEG, PNG or WebP files into the media panel. Up to 100 scenes are supported in the current release.'],
+      ['Trim and reorder', 'Drag scene edges to change duration, drag cards to reorder, and use the toolbar to duplicate or delete. Undo history covers 30 edits per session.'],
+      ['Preview', 'Space plays or pauses. Scrub the playhead for frame-accurate preview. The preview and timeline always show the same scene.'],
+    ],
+  },
+  {
+    id: 'text',
+    title: 'Titles, captions and overlays',
+    category: 'Editing',
+    body: [
+      ['Edit on the canvas', 'Select a scene, click the title in the preview and type. Click outside the field to commit the change.'],
+      ['Style', 'Choose a text color and fit. Long subtitles are fitted to one line in the current release; multi-line captions are on the roadmap.'],
+      ['Readability', 'Enable safe-area guides and use PixCut Polish to catch text that overlaps a sticker or sits too close to the edge.'],
+    ],
+  },
+  {
+    id: 'export',
+    title: 'Export',
+    category: 'Export',
+    body: [
+      ['Formats', 'PixCut exports H.264 MP4 at 30 fps. Landscape is 1920×1080, portrait 1080×1920 and square 1080×1080.'],
+      ['No watermark', 'Exports never include a watermark or a PixCut outro. Your originals are never modified.'],
+      ['Troubleshooting', 'Keep at least 2 GB free. Export to a local folder. If encoding fails, the previous destination file is preserved.'],
+    ],
+  },
+  {
+    id: 'license',
+    title: 'Licensing and builds',
+    category: 'Account',
+    body: [
+      ['No license key', 'The open-source build has no account, activation server or device limit. Install it and start editing.'],
+      ['Build from source', 'Clone the repository and follow desktop/README.md. Rust stable, Node.js 22+ and Tauri prerequisites are required.'],
+      ['Updates', 'Releases are published on GitHub with source archives and checksums. Choose when to update.'],
+    ],
+  },
+  {
+    id: 'privacy',
+    title: 'Privacy and AI',
+    category: 'Account',
+    body: [
+      ['Local by default', 'Editing, preview and export run locally. PixCut does not upload project media unless you explicitly use a hosted AI feature.'],
+      ['AI providers', 'AI is optional and off by default. Use a local runtime or connect your own provider key. The consent dialog shows what will be sent.'],
+      ['No hosted PixCut service', 'This project does not include a PixCut account or hosted AI credits. Third-party provider terms apply.'],
+    ],
+  },
+];
+---
+
+<BaseLayout title="Documentation — PixCut" description="PixCut documentation for install, projects, timeline, titles, export, licenses and privacy.">
+  <section class="page-hero">
+    <div class="container">
+      <span class="eyebrow">Documentation</span>
+      <h1>Everything,<br /><span class="gradient-text">written down</span></h1>
+      <p class="lede">Reference guides for the desktop app, projects and export pipeline. Use the search to jump to a topic.</p>
+      <div class="catalog-search" style="max-width:520px;margin-top:1.5rem;">
+        <Icon name="book" size={17} />
+        <input class="input" id="doc-search" type="search" placeholder="Search documentation..." aria-label="Search documentation" />
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:2.4rem;">
+    <div class="container docs-layout">
+      <aside class="docs-toc">
+        <strong class="small">On this page</strong>
+        {sections.map((section) => <a href={`#${section.id}`} data-toc={section.id}>{section.title}</a>)}
+        <div class="card" style="margin-top:1.2rem;padding:1rem;">
+          <span class="small muted">Need more help?</span>
+          <p class="small" style="margin:.4rem 0 .8rem;">Send us your OS, version and steps.</p>
+          <a class="btn btn-secondary btn-sm btn-block" href="/support">Contact support</a>
+        </div>
+      </aside>
+      <div class="docs-body">
+        {sections.map((section) => (
+          <details class="doc-section" id={section.id} data-doc data-title={`${section.title} ${section.category}`} open>
+            <summary><span><span class="eyebrow" style="font-size:.62rem;">{section.category}</span><strong>{section.title}</strong></span><Icon name="chevron-down" size={18} /></summary>
+            <div class="doc-content">
+              {section.body.map(([heading, text]) => (
+                <div><h4>{heading}</h4><p>{text}</p></div>
+              ))}
+            </div>
+          </details>
+        ))}
+        <div class="empty-state" id="doc-empty" hidden>
+          <h3 style="margin:0 0 .3rem;">No documentation matches that search</h3>
+          <p>Try a broader term, or ask support.</p>
+        </div>
+        <p style="margin-top:1.4rem;"><a class="btn btn-ghost btn-sm" href="#main">Back to top <Icon name="arrow-right" size={14} /></a></p>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const search = document.getElementById('doc-search') as HTMLInputElement | null;
+    const docs = Array.from(document.querySelectorAll<HTMLDetailsElement>('[data-doc]'));
+    const empty = document.getElementById('doc-empty');
+    search?.addEventListener('input', () => {
+      const query = search.value.trim().toLowerCase();
+      let visible = 0;
+      docs.forEach((doc) => {
+        const show = !query || (doc.dataset.title || '').toLowerCase().includes(query) || doc.textContent?.toLowerCase().includes(query);
+        doc.hidden = !show;
+        if (show) visible += 1;
+      });
+      if (empty) empty.hidden = visible !== 0;
+    });
+
+    const tocLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('[data-toc]'));
+    if (tocLinks.length && 'IntersectionObserver' in window) {
+      const setActive = (id: string) => {
+        tocLinks.forEach((link) => link.classList.toggle('active', link.dataset.toc === id));
+      };
+      const observer = new IntersectionObserver(
+        (entries) => {
+          const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+          if (visible[0]) setActive(visible[0].target.id);
+        },
+        { rootMargin: '-12% 0px -68% 0px', threshold: 0 },
+      );
+      docs.forEach((section) => observer.observe(section));
+      setActive(docs.find((section) => !section.hidden)?.id ?? '');
+    }
+  </script>
+</BaseLayout>

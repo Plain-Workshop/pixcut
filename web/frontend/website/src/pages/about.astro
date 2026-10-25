@@ -1,0 +1,86 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+
+const values = [
+  { icon: 'shield', title: 'Privacy by default', copy: 'Your media stays on your device. Cloud features are optional, explicit and off until you choose them.' },
+  { icon: 'zap', title: 'Simple is a feature', copy: 'A smaller set of tools that work well beats a wall of settings. We remove friction before adding buttons.' },
+  { icon: 'devices', title: 'Independent and cross-platform', copy: 'Windows, macOS and Linux get the same editor. No platform gets a watered-down build.' },
+  { icon: 'users', title: 'Made for real creators', copy: 'Families, students, small businesses and solo filmmakers. Not just professional editors.' },
+];
+---
+
+<BaseLayout title="About — PixCut" description="PixCut is an independent, local-first video editor for Windows, macOS and Linux.">
+  <section class="page-hero">
+    <div class="container split" style="align-items:center;">
+      <div>
+        <span class="eyebrow">About PixCut</span>
+        <h1>Simple video editing<br /><span class="gradient-text">for everyone</span></h1>
+        <p class="lede">PixCut is an open-source video editor for Windows, macOS and Linux. Our goal is to give everyone the tools to create amazing videos, without watermarks, without accounts and without unnecessary complexity.</p>
+      </div>
+      <div class="card" style="text-align:center;padding:2.4rem;">
+        <img src="/brand/pixcut-symbol.svg" alt="" width="96" height="96" style="margin:0 auto 1rem;" />
+        <h3 style="margin-top:0;">PixCut 1.0</h3>
+        <p>Built in the open under MIT OR Apache-2.0, shipped for the desktop, and designed to stay out of your way.</p>
+        <div class="about-stats" style="justify-content:center;">
+          <div><strong>3</strong><span>platforms</span></div>
+          <div><strong>0</strong><span>watermarks</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head center">
+        <span class="eyebrow">What we believe</span>
+        <h2 class="section-title">A video editor should respect you</h2>
+        <p class="section-copy">No watermark tax. No mandatory account. No uploading your family videos to a server farm just to trim a clip.</p>
+      </div>
+      <div class="grid cols-2">
+        {values.map((value) => (
+          <article class="card card-hover">
+            <span class="icon-badge"><Icon name={value.icon} size={21} /></span>
+            <h3>{value.title}</h3>
+            <p>{value.copy}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container split">
+      <div>
+        <span class="eyebrow">The product</span>
+        <h2 class="section-title">Start with one photo. Finish with a film.</h2>
+        <p class="section-copy">PixCut began as a photo-movie tool and is growing into a full editor. The first release focuses on the parts people use every day: a clear timeline, readable titles, music, transitions and an export that looks the same as the preview.</p>
+        <ul class="feature-list" style="margin-top:1.4rem;">
+          <li><Icon name="check" size={16} /> Offline-first architecture, no render server</li>
+          <li><Icon name="check" size={16} /> Projects are portable JSON files with embedded media</li>
+          <li><Icon name="check" size={16} /> Native save, recovery and export on each platform</li>
+          <li><Icon name="check" size={16} /> Optional AI with local, BYOK and hosted providers</li>
+        </ul>
+      </div>
+      <div class="card">
+        <span class="eyebrow">Where we are going</span>
+        <h2 style="font-size:1.6rem;letter-spacing:-.03em;margin:.6rem 0 .8rem;">The roadmap, without the hype</h2>
+        <div class="requirements">
+          <div class="req-row"><span>Next</span><span>Batch social versions, brand kits, richer captions</span></div>
+          <div class="req-row"><span>Later</span><span>Video/audio tracks, keyframes, plugin sandbox</span></div>
+          <div class="req-row"><span>Always</span><span>No watermark, offline editing, local privacy</span></div>
+        </div>
+        <a class="link-arrow" href="/changelog">Read the changelog <Icon name="arrow-right" size={15} /></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="cta-band">
+        <div><span class="eyebrow">Say hello</span><h2>Questions, ideas, bug reports?</h2><p>We read every message. Tell us what you are making.</p></div>
+        <a class="btn btn-primary" href="/contact">Contact us</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

@@ -1,0 +1,101 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Icon from '../components/Icon.astro';
+import { GITHUB_URL, RELEASES_URL } from '../lib/site';
+
+const platforms = [
+  { id: 'windows', name: 'Windows', icon: 'windows', requirement: 'Windows 10 or later (64-bit)', formats: 'Installer or portable archive', tone: 'blue' },
+  { id: 'macos', name: 'macOS', icon: 'apple', requirement: 'macOS 13 Ventura or later', formats: 'Apple Silicon and Intel', tone: 'dark' },
+  { id: 'linux', name: 'Linux', icon: 'linux', requirement: 'Ubuntu 22.04 / Fedora 38 or later', formats: 'AppImage, deb or rpm', tone: 'orange' },
+];
+
+const steps = [
+  ['Download', 'Open the latest GitHub release and pick the asset for your platform.'],
+  ['Verify', 'Compare the published SHA-256 checksum before installing.'],
+  ['Build', 'Optional: clone the repository and build from source with Rust and Node.js.'],
+];
+---
+
+<BaseLayout title="Download PixCut — Windows, macOS and Linux" description="Download PixCut, the open-source local-first video editor, for Windows, macOS or Linux. No account or watermark.">
+  <section class="page-hero center">
+    <div class="container">
+      <span class="eyebrow">Download</span>
+      <h1>Get PixCut for<br /><span class="gradient-text">your platform</span></h1>
+      <p class="lede">Open source, local-first and free. Releases are published on GitHub with checksums and source archives.</p>
+      <div class="hero-actions" style="justify-content:center;margin-top:1.5rem;">
+        <a class="btn btn-primary" href={RELEASES_URL} rel="noreferrer"><Icon name="download" size={18} /> Open latest release</a>
+        <a class="btn btn-secondary" href={GITHUB_URL} rel="noreferrer"><Icon name="github" size={18} /> View source</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:2.4rem;">
+    <div class="container">
+      <div class="os-grid">
+        {platforms.map((platform) => (
+          <article class={`card os-card card-hover`} id={platform.id}>
+            <span class={`os-icon os-${platform.tone}`}><Icon name={platform.icon} size={34} /></span>
+            <div>
+              <h3 style="margin:0 0 .25rem;">{platform.name}</h3>
+              <p class="small muted">{platform.requirement}</p>
+            </div>
+            <p class="small muted" style="margin:0;">{platform.formats}</p>
+            <a class="btn btn-primary btn-block" href={RELEASES_URL} rel="noreferrer">
+              <Icon name="download" size={17} /> Download for {platform.name}
+            </a>
+            <p class="small muted" style="margin:0;">Checksums are listed on the release page.</p>
+          </article>
+        ))}
+      </div>
+      <p class="center small muted" style="margin-top:1.2rem;">No build is bundled with this website. Every link points to the official GitHub release.</p>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container split">
+      <div>
+        <span class="eyebrow">Before you install</span>
+        <h2 class="section-title">What you need</h2>
+        <div class="requirements" style="margin-top:1.2rem;">
+          <div class="req-row req-head"><span>Component</span><span>Minimum</span></div>
+          <div class="req-row"><span>Operating system</span><span>Windows 10 (64-bit), macOS 13, Ubuntu 22.04</span></div>
+          <div class="req-row"><span>Processor</span><span>Intel Core i3 / AMD Ryzen 3 or better</span></div>
+          <div class="req-row"><span>Memory</span><span>8 GB RAM (16 GB recommended for 4K)</span></div>
+          <div class="req-row"><span>Storage</span><span>2 GB free space (SSD recommended)</span></div>
+          <div class="req-row"><span>MP4 export</span><span>FFmpeg with H.264 support on your PATH</span></div>
+        </div>
+        <p class="form-note" style="margin-top:.8rem;">The editor does not require an account or an internet connection after installation.</p>
+      </div>
+      <div>
+        <span class="eyebrow">Build from source</span>
+        <h2 class="section-title">Compile it yourself</h2>
+        <div class="card" style="margin-top:1.2rem;">
+          <pre class="email-body" style="margin:0;">git clone {GITHUB_URL}.git
+cd pixcut/desktop
+npm ci
+npm run desktop</pre>
+        </div>
+        <p class="section-copy" style="margin-top:1rem;">Rust stable, Node.js 22+ and the Tauri platform prerequisites are required. See the desktop README for packaging, FFmpeg and platform notes.</p>
+        <a class="link-arrow" href={`${GITHUB_URL}/blob/main/desktop/README.md`} rel="noreferrer">Desktop build guide <Icon name="arrow-right" size={15} /></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head center">
+        <span class="eyebrow">Install</span>
+        <h2 class="section-title">Three steps, no sign-in</h2>
+      </div>
+      <div class="grid cols-3">
+        {steps.map(([title, copy], index) => (
+          <div class="card"><span class="icon-badge">{index + 1}</span><h3>{title}</h3><p>{copy}</p></div>
+        ))}
+      </div>
+      <div class="cta-band" style="margin-top:2.5rem;">
+        <div><span class="eyebrow">Something broken?</span><h2>Open an issue.</h2><p>Include your OS, PixCut version and reproduction steps. The project is maintained in public.</p></div>
+        <a class="btn btn-secondary" href={`${GITHUB_URL}/issues`} rel="noreferrer">Report an issue</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
