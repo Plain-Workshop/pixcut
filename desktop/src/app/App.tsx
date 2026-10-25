@@ -78,6 +78,7 @@ import {
   loadShortcutSettings,
   saveShortcutSettings,
   type CommandAvailability,
+  type ShortcutPlatform,
   type ShortcutSettings as ShortcutSettingsData,
 } from '../shortcuts/registry';
 import '../styles/styles.css';
@@ -89,6 +90,7 @@ const RANGE_NAVIGATION_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'Ar
 const TEMPLATE_CATEGORIES = ['All', 'Travel', 'Family', 'Birthday', 'Product', 'Social'] as const;
 const EXPORT_QUALITY_CRF: Record<'draft' | 'standard' | 'high', number> = { draft: 28, standard: 23, high: 18 };
 const RELEASES_URL = 'https://github.com/Plain-Workshop/pixcut/releases/latest';
+const FFMPEG_INSTALL: Record<ShortcutPlatform, string> = { macos: 'brew install ffmpeg', windows: 'winget install Gyan.FFmpeg', linux: 'sudo apt install ffmpeg' };
 const TRANSITION_OPTIONS: { id: TransitionType; label: string; description: string }[] = [
   { id: 'none', label: 'Hard cut', description: 'No transition' },
   { id: 'fade', label: 'Crossfade', description: 'Smooth dissolve' },
@@ -2613,7 +2615,7 @@ export default function App() {
             <div className="export-filename"><span>FILES</span>{project.formats.filter(format => exportFormatIds.includes(format.id)).map(format => <strong key={format.id}>{exportFilename(format, exportFormatIds.length > 1)}</strong>)}{exportFormatIds.length === 0 && <strong className="warning">Choose at least one format</strong>}</div>
           </div>
           <div className="export-summary"><span>Format<strong>MP4 · H.264</strong></span><span>Outputs<strong>{exportFormatIds.length} format{exportFormatIds.length === 1 ? '' : 's'}</strong></span><span>Duration<strong>{duration.toFixed(1)} seconds</strong></span><span>Audio<strong>{project.audio.length ? `${project.audio.length} clip${project.audio.length === 1 ? '' : 's'}` : 'No audio'}</strong></span><span>Branding<strong className="accent"><Check size={15} /> No watermark</strong></span><span>Local<strong><WifiOff size={14} /> No account needed</strong></span></div>
-          <div className="note"><HardDrive size={17} /><span>{bridge.native ? exporter ? 'Rendered locally using your installed FFmpeg, including timed text, transitions, and mixed audio.' : 'FFmpeg was not found. Install FFmpeg with libx264, then restart PixCut to enable MP4 export.' : 'MP4 export runs in the native desktop app. This browser preview supports editing and saving projects.'}</span></div>
+          <div className="note"><HardDrive size={17} /><span>{bridge.native ? exporter ? 'Rendered locally using your installed FFmpeg, including timed text, transitions, and mixed audio.' : <>FFmpeg was not found. Install it with <code>{FFMPEG_INSTALL[platform]}</code>, then restart PixCut to enable MP4 export.</> : 'MP4 export runs in the native desktop app. This browser preview supports editing and saving projects.'}</span></div>
           <button className="button primary export-confirm" disabled={!exporter || exporting || busy} onClick={() => void exportVideo()}>{exporting ? <LoaderCircle size={17} className="spin" /> : <Download size={17} />} {exporting ? 'Rendering your story…' : 'Choose destination & export'}</button>
           {exporting && <div className="export-progress"><div><span style={{ width: `${Math.max(3, exportProgress)}%` }} /></div><span>{exportProgress}%</span></div>}
           {exporting && <div className="export-cancel-row"><button className="button subtle" onClick={cancelExport} disabled={cancellingExport}>{cancellingExport ? 'Cancelling…' : 'Cancel export'}</button></div>}

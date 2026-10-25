@@ -24,6 +24,7 @@ Validated on Apple Silicon macOS. This is a photo-movie editing slice; the full 
 - New native test `cancelled_export_writes_nothing` covers the pre-cancelled path; total non-ignored native tests are now 8.
 - The new-project dialog offers **24, 25, 30, or 60 fps**. `emptyProject(name, aspect, fps)` derives the rational timebase, unknown rates fall back to 30, and per-format FPS also lists 25 fps. Tests cover 24/60 fps and the fallback.
 - Updates gain a **Copy download link** fallback when the feed cannot be reached or verified.
+- The export dialog shows a platform-specific FFmpeg install command (`brew install ffmpeg`, `winget install Gyan.FFmpeg`, or `sudo apt install ffmpeg`) when the encoder is missing.
 - CI now runs a packaging smoke build on macOS (`app`) and Windows (`nsis`) for main pushes and manual runs, using `src-tauri/tauri.ci.conf.json` to disable updater signing. It also runs `cargo audit` and desktop `npm audit`.
 - `cargo audit` reports three `zip` extraction advisories (RUSTSEC-2026-0367/0368/0369) in `zip` 2.6.1 and the updater's 4.6.1. PixCut never calls `ZipArchive::extract`; it reads entries with `by_name` and writes with `ZipWriter`, so the advisories are documented and ignored in CI until upstream ships `zip >= 9`.
 - Verification: 34 TypeScript tests, 24 project-model tests, 8 native tests, and 3 FFmpeg tests pass; `actionlint` is clean on all workflows.

@@ -6,7 +6,7 @@ Every feature is included. There are no paid tiers, license keys, activation ser
 
 ## Run
 
-Requirements: Node.js 22+, Rust stable, and the platform prerequisites for [Tauri](https://v2.tauri.app/start/prerequisites/). Native MP4 export additionally needs FFmpeg with the `libx264` encoder available on PATH (Homebrew's standard paths are also checked on macOS).
+Requirements: Node.js 22+, Rust stable, and the platform prerequisites for [Tauri](https://v2.tauri.app/start/prerequisites/). Native MP4 export additionally needs FFmpeg with the `libx264` encoder available on PATH (Homebrew's standard paths are also checked on macOS). When FFmpeg is missing, the export dialog shows the install command for the current platform.
 
 ```sh
 cd desktop
