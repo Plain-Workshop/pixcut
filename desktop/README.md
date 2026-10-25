@@ -54,6 +54,8 @@ CI=true npm run tauri -- build --bundles app,dmg
 - Windows updates use the NSIS installer; MSI is for managed installs only.
 - The version lives in `src-tauri/tauri.conf.json`; `npm run version:set <version>` keeps `package.json`, `Cargo.toml`, and both lockfiles in sync.
 - `npm run version:check` and `.github/workflows/packaging-lint.yml` catch manifest drift, invalid workflow syntax, and a broken updater config before a release is tagged.
+- `npm run ci` at the repository root runs the same checks as GitHub: site build and links, desktop tests/build, version consistency, the Rust model and native suites, and optional `actionlint`/`cargo audit` when installed.
+- The latest **published** GitHub Release is the update feed. A running install sees the next published version under Settings → Updates; drafts and prereleases are ignored.
 
 ## What works
 

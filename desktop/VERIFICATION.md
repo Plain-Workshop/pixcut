@@ -43,6 +43,18 @@ Validated on Apple Silicon macOS. This is a photo-movie editing slice; the full 
 - Ignored FFmpeg test `plan_export_encodes_video_and_image_segments` mixes one image segment, one trimmed video segment, and a timed transparent text overlay; the output is H.264, exactly 1.00 s, and includes the audio mix when present.
 - Tests: 34 TypeScript, 24 project-model, 9 native, 4 FFmpeg. `tsc` and production build pass.
 
+## Engineering guardrails and the first live release
+
+- Added `AGENTS.md` with architecture, commands, and the rules that matter: never crash, stay offline, no paid tiers, schema migrations in both models, preview/export parity, tests and screenshots, release safety.
+- Added `npm run ci` (`scripts/ci.mjs`): site build and link check, desktop tests and build, version consistency, project-model and native Rust tests, plus optional `actionlint` and `cargo audit` when installed.
+- Added a `guard()` wrapper around command dispatch and both FFmpeg export paths. A panic now returns a friendly "PixCut recovered… your work is still saved" error instead of taking down the editor. New test `guard_turns_a_panic_into_a_friendly_error`.
+- Diagnostics now include the build commit and build date (`VITE_BUILD_SHA` / `VITE_BUILD_DATE` from CI; `dev` and the local build time otherwise).
+- Added the OpenSSF Scorecard workflow.
+- Removed `PUBLIC_GITHUB_URL`; `site.ts` uses the repository URL directly.
+- Published the first unsigned release: [v0.1.0](https://github.com/Plain-Workshop/pixcut/releases/tag/v0.1.0) with macOS arm64/x64 DMGs, Windows NSIS/MSI/portable, Linux AppImage/deb, `latest.json` and `SHA256SUMS.txt`.
+- Verified the live update feed: `https://github.com/Plain-Workshop/pixcut/releases/latest/download/latest.json` returns `200` with version `0.1.0` and all four platform keys.
+- Tests: 34 TypeScript, 24 project-model, 10 native, 4 FFmpeg.
+
 ## Open-source plan removal
 
 - Removed the legacy paid portal (customer and admin builds) from the workspace. It was untracked build output from the old Free / Pro monthly / Pro annual / Perpetual plans, including license activation, device slots, Stripe checkout and subscription management. It is recoverable from the macOS Trash.
