@@ -49,6 +49,7 @@ CI=true npm run tauri -- build --bundles app,dmg
 ## Releases and updates
 
 - Tags matching `v*` build every platform and open a **draft** release. Publishing the draft is what enables updates.
+- Releases are **unsigned by default** so the project can ship without paid certificates. Set `PIXCUT_SIGN=true` and add the Apple/Windows secrets to sign and notarize. Unsigned macOS builds need right-click → Open; Windows shows a SmartScreen prompt.
 - Settings → Updates checks `releases/latest/download/latest.json`, verifies the Tauri signature, and installs after an explicit restart. Nothing is fetched while editing or exporting.
 - Windows updates use the NSIS installer; MSI is for managed installs only.
 - The version lives in `src-tauri/tauri.conf.json`; `npm run version:set <version>` keeps `package.json`, `Cargo.toml`, and both lockfiles in sync.
