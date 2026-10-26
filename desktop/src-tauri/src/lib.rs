@@ -2040,6 +2040,22 @@ fn atempo_chain(speed: f64) -> String {
         .join(",")
 }
 
+/// Three-band EQ matching the preview's shelf/peaking filters. Bands at 0 dB
+/// are omitted so a flat track keeps the old, shorter filter graph.
+fn eq_filters(low: f64, mid: f64, high: f64) -> String {
+    let mut chain = String::new();
+    if low.abs() > 0.01 {
+        chain.push_str(&format!(",equalizer=f=120:width_type=q:width=0.7:g={low:.2}"));
+    }
+    if mid.abs() > 0.01 {
+        chain.push_str(&format!(",equalizer=f=1000:width_type=q:width=1:g={mid:.2}"));
+    }
+    if high.abs() > 0.01 {
+        chain.push_str(&format!(",equalizer=f=6000:width_type=q:width=0.7:g={high:.2}"));
+    }
+    chain
+}
+
 /// Splits the soundtrack into equal output slices and applies one `atempo`
 /// value per slice, so a linear speed ramp keeps picture and sound together.
 fn ramp_atempo_nodes(input: &str, start: f64, end: f64, duration: f64, tag: &str) -> (Vec<String>, String) {
@@ -2315,6 +2331,7 @@ fn encode_plan(
         let input = audio_start + index;
         let duration = project.timebase.ticks_to_seconds(clip.duration_ticks);
         let mut node = format!("[{input}:a]asetpts=PTS-STARTPTS,aresample=48000,volume={:.3}", clip.volume);
+        node.push_str(&eq_filters(clip.low, clip.mid, clip.high));
         if ducking > 0.0 && !duck_windows.is_empty() {
             let clip_start = project.timebase.ticks_to_seconds(clip.start_ticks);
             node.push_str(&format!(",volume='{}':eval=frame", ducking_expression(&duck_windows, clip_start, ducking)));
@@ -2649,6 +2666,7 @@ fn encode_movie(
                 index + 1,
                 clip.volume
             );
+            node.push_str(&eq_filters(clip.low, clip.mid, clip.high));
             if clip.fade_in > 0.0 {
                 node.push_str(&format!(",afade=t=in:st=0:d={:.3}", clip.fade_in.min(clip_duration)));
             }
@@ -2987,7 +3005,7 @@ mod integration_tests {
                 source_duration_seconds: 1.0,
                 volume: 0.8,
                 fade_in: 0.0,
-                fade_out: 0.0,
+                fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
             }];
             let mut options = export_options();
             options.width = 320; options.height = 240; options.codec = codec;
@@ -3039,6 +3057,17 @@ mod integration_tests {
             }
         }
     }
+    #[test]
+    fn audio_eq_only_emits_bands_that_change() {
+        assert_eq!(eq_filters(0.0, 0.0, 0.0), "");
+        let bass = eq_filters(6.0, 0.0, 0.0);
+        assert!(bass.contains("equalizer=f=120") && bass.contains("g=6.00"), "{bass}");
+        assert!(!bass.contains("f=1000") && !bass.contains("f=6000"));
+        let all = eq_filters(-3.0, 4.0, 2.0);
+        assert!(all.contains("f=120") && all.contains("f=1000") && all.contains("f=6000"), "{all}");
+        assert!(all.contains("g=-3.00") && all.contains("g=4.00") && all.contains("g=2.00"));
+    }
+
     #[test]
     fn ramp_and_reverse_arguments_are_well_formed() {
         assert!(ramp_setpts(1.0, 1.0, 2.0).is_none());
@@ -3193,7 +3222,7 @@ mod integration_tests {
             source_duration_seconds: 1.0,
             volume: 0.8,
             fade_in: 0.0,
-            fade_out: 0.0,
+            fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
         }];
         project.ducking = Some(60.0);
         let plan = |include_audio: bool| ExportPlan {
@@ -3680,7 +3709,7 @@ mod integration_tests {
             source_duration_seconds: 1.0,
             volume: 0.8,
             fade_in: 0.0,
-            fade_out: 0.0,
+            fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
         }];
         let plan = ExportPlan {
             segments: vec![
@@ -3903,7 +3932,7 @@ mod integration_tests {
             source_duration_seconds: 1.0,
             volume: 0.8,
             fade_in: 0.2,
-            fade_out: 0.2,
+            fade_out: 0.2, low: 0.0, mid: 0.0, high: 0.0,
         }, AudioClip {
             id: "audio-2".into(),
             name: "Bed 2.wav".into(),
@@ -3919,7 +3948,7 @@ mod integration_tests {
             source_duration_seconds: 1.0,
             volume: 0.6,
             fade_in: 0.0,
-            fade_out: 0.1,
+            fade_out: 0.1, low: 0.0, mid: 0.0, high: 0.0,
         }];
         let binary = ffmpeg().expect("FFmpeg must be installed for this test");
         encode_movie(project, frames, vec![15, 15], export_options(), binary.clone(), path.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
@@ -3962,7 +3991,7 @@ mod integration_tests {
             source_duration_seconds: 1.0,
             volume: 0.8,
             fade_in: 0.2,
-            fade_out: 0.2,
+            fade_out: 0.2, low: 0.0, mid: 0.0, high: 0.0,
         }, AudioClip {
             id: "audio-2".into(),
             name: "Bed 2.wav".into(),
@@ -3978,7 +4007,7 @@ mod integration_tests {
             source_duration_seconds: 1.0,
             volume: 0.6,
             fade_in: 0.0,
-            fade_out: 0.1,
+            fade_out: 0.1, low: 0.0, mid: 0.0, high: 0.0,
         }];
         write_project_bundle(&path, &project, None).unwrap();
         let manifest_text = {
@@ -4031,7 +4060,7 @@ mod integration_tests {
             source_duration_seconds: 1.0,
             volume: 0.8,
             fade_in: 0.0,
-            fade_out: 0.0,
+            fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
         }];
         project.validate().unwrap();
         let path = temp.path().join("overlay.pixcut");
@@ -4105,7 +4134,7 @@ mod integration_tests {
             source_duration_seconds: 1.0,
             volume: 0.8,
             fade_in: 0.2,
-            fade_out: 0.2,
+            fade_out: 0.2, low: 0.0, mid: 0.0, high: 0.0,
         }, AudioClip {
             id: "audio-2".into(),
             name: "Bed 2.wav".into(),
@@ -4121,7 +4150,7 @@ mod integration_tests {
             source_duration_seconds: 1.0,
             volume: 0.6,
             fade_in: 0.0,
-            fade_out: 0.1,
+            fade_out: 0.1, low: 0.0, mid: 0.0, high: 0.0,
         }];
         let original = project.clone();
         persist_project(&directory, &mut project).unwrap();
@@ -4159,7 +4188,7 @@ mod integration_tests {
             source_duration_seconds: 1.0,
             volume: 0.8,
             fade_in: 0.0,
-            fade_out: 0.0,
+            fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
         }];
         let original = project.clone();
         persist_project(&directory, &mut project).unwrap();

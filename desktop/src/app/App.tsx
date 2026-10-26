@@ -32,6 +32,7 @@ import { LatestRenderQueue } from '../components/preview/render-queue';
 import { loadMediaBin, saveMediaBin, uniqueMediaSources } from '../stores/media-bin';
 import { missingAssets, projectAssetRefs, replaceAssetRef, type MissingAsset } from '../stores/missing-assets';
 import { syncAudioElement } from '../components/preview/audio';
+import { applyClipEq } from '../components/preview/eq';
 import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
 import { shouldCheckForUpdates, showUpdateNotice } from './updates';
@@ -77,6 +78,7 @@ import {
   Maximize2,
   MoreHorizontal,
   Music,
+  Mic,
   Pause,
   Pencil,
   Play,
@@ -84,6 +86,7 @@ import {
   Plus,
   Redo2,
   RefreshCw,
+  RotateCcw,
   Repeat,
   Save,
   Scissors,
@@ -431,6 +434,11 @@ export default function App() {
   const [fileDragActive, setFileDragActive] = useState(false);
   const [audioDraft, setAudioDraft] = useState<AudioClip | null>(null);
   const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordChunks = useRef<Blob[]>([]);
+  const recordTimer = useRef<number | null>(null);
   const [beatBusy, setBeatBusy] = useState(false), [beatTempo, setBeatTempo] = useState<number | null>(null);
   const [previewAudio, setPreviewAudio] = useState<AudioClip[] | null>(null);
   const [previewSize, setPreviewSize] = useState<{ width: number; height: number } | null>(null);
@@ -866,6 +874,7 @@ export default function App() {
       const element = audioElements.current.get(clip.id);
       if (!element) continue;
       syncAudioElement(element, clip, position, playing && playDirection > 0, project.timebase, undefined, duck);
+      applyClipEq(element, clip);
     }
     for (const clip of cueAudio) {
       const element = audioElements.current.get(clip.id);
@@ -873,7 +882,7 @@ export default function App() {
       syncAudioElement(element, clip, position, playing && playDirection > 0, project.timebase);
     }
   }, [position, playing, playDirection, audio, cueAudio, project.timebase, videoDuckWindows, project.ducking]);
-  useEffect(() => () => { for (const element of audioElements.current.values()) element.pause(); }, []);
+  useEffect(() => () => { for (const element of audioElements.current.values()) element.pause(); recorderRef.current?.state !== 'inactive' && recorderRef.current?.stop(); if (recordTimer.current) clearInterval(recordTimer.current); }, []);
   useEffect(() => {
     if (!projectMenu) return;
     const close = (event: Event) => {
@@ -2687,6 +2696,86 @@ export default function App() {
     } catch (e) { setError(messageFor(e)); } finally { if (audioInput.current) audioInput.current.value = ''; }
   }
 
+  async function startVoiceover() {
+    if (!canEdit) return;
+    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setError('Voiceover recording is not available in this build. Import an audio file instead.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find(type => MediaRecorder.isTypeSupported(type)) ?? '';
+      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      recordChunks.current = [];
+      recorder.ondataavailable = event => { if (event.data.size) recordChunks.current.push(event.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach(track => track.stop());
+        void finishVoiceover(recorder.mimeType || mime || 'audio/webm');
+      };
+      recorder.start();
+      recorderRef.current = recorder;
+      setRecording(true); setRecordSeconds(0);
+      const started = performance.now();
+      recordTimer.current = window.setInterval(() => setRecordSeconds((performance.now() - started) / 1000), 200);
+    } catch {
+      setError('Microphone access is needed for voiceover. Allow it in your system settings and try again.');
+    }
+  }
+
+  function stopVoiceover() {
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    setRecording(false);
+    if (recordTimer.current) { clearInterval(recordTimer.current); recordTimer.current = null; }
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+  }
+
+  async function finishVoiceover(mime: string) {
+    try {
+      const chunks = recordChunks.current;
+      recordChunks.current = [];
+      const blob = new Blob(chunks, { type: mime.split(';')[0] || 'audio/webm' });
+      if (!blob.size) throw new Error('The recording was empty. Try again.');
+      if (blob.size > MAX_AUDIO_FILE_BYTES) throw new Error('The recording is larger than the voiceover limit.');
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('The recording could not be read.'));
+        reader.readAsDataURL(blob);
+      });
+      const snapshot = latestProject.current;
+      const total = totalTicks(snapshot);
+      if (!total) throw new Error('Add a scene before recording a voiceover.');
+      const sourceDuration = Math.round((await audioDuration(data)) * 100) / 100;
+      const desiredStart = secondsToTicks(positionRef.current, snapshot.timebase);
+      const startTicks = desiredStart >= total ? 0 : Math.min(desiredStart, total - 1);
+      const remaining = ticksToSeconds(total - startTicks, snapshot.timebase);
+      const length = Math.max(secondsPerTick(snapshot.timebase), Math.min(sourceDuration || remaining, remaining));
+      const clip = constrainAudio({
+        id: crypto.randomUUID(),
+        name: `Voiceover ${snapshot.audio.filter(item => item.name.startsWith('Voiceover')).length + 1}`,
+        data,
+        lane: 0,
+        startTicks,
+        durationTicks: secondsToTicks(length, snapshot.timebase),
+        sourceInSeconds: 0,
+        sourceDurationSeconds: sourceDuration || length,
+        volume: 1,
+        fadeIn: 0,
+        fadeOut: 0,
+        low: 0,
+        mid: 0,
+        high: 0,
+      });
+      if (await run({ type: 'audio', audio: [...snapshot.audio, clip] })) {
+        setEditTarget('audio'); setSelectedAudioId(clip.id); setTab('audio');
+        setNotice('Voiceover added at the playhead. It stays on this device.');
+      }
+    } catch (error) {
+      setError(messageFor(error));
+    }
+  }
+
   function removeAudio(id: string) {
     const next = project.audio.filter(clip => clip.id !== id);
     audioDraftRef.current = null;
@@ -3497,6 +3586,15 @@ export default function App() {
                 {(project.ducking ?? 0) > 0 && <label className="music-control"><span>Reduce music by <b>{duckDraft ?? project.ducking}%</b></span><input type="range" aria-label="Music ducking amount" min="10" max="90" step="5" value={duckDraft ?? project.ducking ?? 60} disabled={!canEdit} onChange={event => setDuckDraft(Number(event.target.value))} onPointerUp={event => commitDucking(Number(event.currentTarget.value))} onKeyUp={event => commitDucking(Number(event.currentTarget.value))} onBlur={event => commitDucking(Number(event.currentTarget.value))} /></label>}
                 <p className="note"><AudioLines size={14} /><span>{hasVideoScenes ? 'Lowers all music tracks while video audio is playing.' : 'Add a video clip to duck music under its sound.'}</span></p>
               </details>
+              <div className="voiceover-panel">
+                <div className="beat-sync-head"><strong>Voiceover</strong>{recording ? <span>{recordSeconds.toFixed(1)} s</span> : null}</div>
+                <div className="beat-sync-actions">
+                  {recording
+                    ? <button className="button danger" onClick={stopVoiceover}><Square size={13} /> Stop and add</button>
+                    : <button className="button" disabled={!canEdit || !projectTicks} onClick={() => void startVoiceover()}><Mic size={14} /> Record voiceover</button>}
+                </div>
+                <small>{recording ? 'Speak now. The take is added at the playhead when you stop.' : 'Records from your microphone at the playhead. Nothing is uploaded.'}</small>
+              </div>
               {selectedAudio && <div className="audio-editor">
                 <div className="audio-editor-title"><small>{isAssetRef(selectedAudio.data) ? 'Stored locally' : formatBytes(selectedAudio.data.length * .75)} · {selectedAudio.sourceDurationSeconds.toFixed(1)} s source</small></div>
                 <label className="field">Audio track<select aria-label="Audio track" value={selectedAudio.lane} onChange={event => stageAudio({ lane: Number(event.target.value) })} onBlur={commitAudio}>{audioLanes.map((lane, index) => <option key={lane} value={lane}>Track {index + 1}</option>)}{audioLanes.length < 8 && <option value={audioLanes.length}>Track {audioLanes.length + 1}</option>}</select></label>
@@ -3506,6 +3604,13 @@ export default function App() {
                 <label className="music-control"><span>Volume <b>{Math.round(selectedAudio.volume * 100)}%</b></span><input aria-label="Audio volume" type="range" min="0" max="100" step="1" value={Math.round(selectedAudio.volume * 100)} disabled={!canEdit} onChange={event => stageAudio({ volume: Number(event.target.value) / 100 })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
                 <label className="music-control"><span>Fade in <b>{selectedAudio.fadeIn.toFixed(1)} s</b></span><input aria-label="Audio fade in" type="range" min="0" max={Math.min(30, ticksToSeconds(selectedAudio.durationTicks, project.timebase))} step="0.1" value={selectedAudio.fadeIn} disabled={!canEdit} onChange={event => stageAudio({ fadeIn: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
                 <label className="music-control"><span>Fade out <b>{selectedAudio.fadeOut.toFixed(1)} s</b></span><input aria-label="Audio fade out" type="range" min="0" max={Math.min(30, ticksToSeconds(selectedAudio.durationTicks, project.timebase))} step="0.1" value={selectedAudio.fadeOut} disabled={!canEdit} onChange={event => stageAudio({ fadeOut: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <details className="inspector-section" open>
+                  <summary>Three-band EQ</summary>
+                  {([['low', 'Bass · 120 Hz'], ['mid', 'Voice · 1 kHz'], ['high', 'Treble · 6 kHz']] as const).map(([key, label]) => (
+                    <label className="music-control" key={key}><span>{label} <b>{(selectedAudio[key] ?? 0) > 0 ? '+' : ''}{selectedAudio[key] ?? 0} dB</b></span><input aria-label={`Audio ${key} EQ`} type="range" min="-12" max="12" step="1" value={selectedAudio[key] ?? 0} disabled={!canEdit} onChange={event => stageAudio({ [key]: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                  ))}
+                  <button className="button" disabled={!canEdit || !selectedAudio.low && !selectedAudio.mid && !selectedAudio.high} onClick={() => { stageAudio({ low: 0, mid: 0, high: 0 }); window.setTimeout(commitAudio, 0); }}><RotateCcw size={13} /> Reset EQ</button>
+                </details>
                 <div className="beat-sync">
                   <div className="beat-sync-head"><strong>Beat tools</strong>{beatTempo ? <span>{beatTempo} BPM</span> : null}</div>
                   <div className="beat-sync-actions">

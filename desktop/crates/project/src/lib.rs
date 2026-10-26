@@ -818,6 +818,13 @@ pub struct AudioClip {
     pub fade_in: f64,
     #[serde(default)]
     pub fade_out: f64,
+    /// Three-band EQ in dB (−12…12). Missing means flat.
+    #[serde(default)]
+    pub low: f64,
+    #[serde(default)]
+    pub mid: f64,
+    #[serde(default)]
+    pub high: f64,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1304,7 +1311,7 @@ impl Project {
                     source_duration_seconds: source_duration.max(duration_seconds),
                     volume: music.volume,
                     fade_in: music.fade_in,
-                    fade_out: music.fade_out,
+                    fade_out: music.fade_out, low: 0.0, mid: 0.0, high: 0.0,
                 }]
             } else {
                 vec![]
@@ -1346,6 +1353,12 @@ impl Project {
                 || !(0.0..=30.0).contains(&clip.fade_in)
                 || !clip.fade_out.is_finite()
                 || !(0.0..=30.0).contains(&clip.fade_out)
+                || !clip.low.is_finite()
+                || !(-12.0..=12.0).contains(&clip.low)
+                || !clip.mid.is_finite()
+                || !(-12.0..=12.0).contains(&clip.mid)
+                || !clip.high.is_finite()
+                || !(-12.0..=12.0).contains(&clip.high)
             {
                 return Err("Invalid audio level.".into());
             }
@@ -1924,7 +1937,7 @@ mod tests {
             source_duration_seconds: 30.0,
             volume: 0.8,
             fade_in: 1.0,
-            fade_out: 1.0,
+            fade_out: 1.0, low: 0.0, mid: 0.0, high: 0.0,
         }];
         p.validate().unwrap();
         let mut bad_volume = p.clone();
@@ -1936,6 +1949,14 @@ mod tests {
         let mut bad_trim = p.clone();
         bad_trim.audio[0].source_in_seconds = 29.0;
         assert!(bad_trim.validate().is_err());
+        let mut eq = p.clone();
+        eq.audio[0].low = 12.0; eq.audio[0].mid = -12.0; eq.audio[0].high = 6.0;
+        eq.validate().unwrap();
+        for bad in [(13.0, 0.0, 0.0), (0.0, -13.0, 0.0), (0.0, 0.0, f64::NAN)] {
+            let mut invalid = p.clone();
+            invalid.audio[0].low = bad.0; invalid.audio[0].mid = bad.1; invalid.audio[0].high = bad.2;
+            assert!(invalid.validate().is_err(), "{bad:?} should be rejected");
+        }
         let mut s = Session::default();
         s.apply(Command::Add { scenes: vec![scene()] }).unwrap();
         s.apply(Command::Audio { audio: p.audio.clone() }).unwrap();
@@ -2330,7 +2351,7 @@ mod tests {
             source_duration_seconds: 10.0,
             volume: 0.8,
             fade_in: 0.0,
-            fade_out: 0.0,
+            fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
         }];
         p.validate().unwrap();
     }

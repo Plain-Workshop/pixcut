@@ -299,6 +299,10 @@ export type AudioClip = {
   volume: number;
   fadeIn: number;
   fadeOut: number;
+  /** Three-band EQ in dB, -12…12. Missing means flat. */
+  low?: number;
+  mid?: number;
+  high?: number;
 };
 type LegacyMusic = {
   id: string;
@@ -561,6 +565,9 @@ function readAudioClip(value: unknown, total: number, timebase: Timebase): Audio
     volume: clip.volume,
     fadeIn: clip.fadeIn,
     fadeOut: clip.fadeOut,
+    ...(readNumber(clip.low, -12, 12, 0, 'bass') ? { low: clip.low } : {}),
+    ...(readNumber(clip.mid, -12, 12, 0, 'mid') ? { mid: clip.mid } : {}),
+    ...(readNumber(clip.high, -12, 12, 0, 'treble') ? { high: clip.high } : {}),
   };
 }
 function readFormats(value: unknown, aspect: Project['aspect'], clipIds: Set<string>): FormatVariant[] {

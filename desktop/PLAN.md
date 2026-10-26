@@ -13,7 +13,7 @@ Status legend: **shipped** · **in progress** · **planned** · **deferred**
 | 1 | Video-to-video transitions | shipped | no |
 | 2 | Cross-scene (project-level) text | planned | yes (v15) |
 | 3 | Speed ramps and reverse | shipped | no |
-| 4 | Audio EQ and voiceover | planned | yes (v15) |
+| 4 | Audio EQ and voiceover | shipped | no |
 | 5 | QSV / AMF / VAAPI hardware encoders | shipped* | no |
 | 6 | Multi-track and picture-in-picture | planned | yes (v16) |
 | 7 | i18n: translatable interface | planned | no |
