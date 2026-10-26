@@ -5,6 +5,7 @@ import { framingTravel } from './framing';
 import { applyMaskAlpha } from './mask';
 import { elementTransform } from '../elements/transform';
 import { applyElementMotion, applyTextMotion, framingAt } from '../animation/keyframes';
+import { resolveMediaSource } from './media-url';
 import { overlayVideoFrame } from './overlay-video';
 import { drawElementSymbol, ELEMENT_LABEL_DEFAULTS, elementForeground } from '../elements/symbols';
 import { DEFAULT_TIMEBASE, sceneSeconds, secondsToTicks, ticksToSeconds, type AudioClip, type ElementLayer, type Project, type Scene, type TextAnimation, type TextLayer, type Timebase, type TransitionType } from '../../stores/model';
@@ -40,18 +41,18 @@ function decodeImage(src: string): Promise<HTMLImageElement> {
 
 export async function loadImage(src: string): Promise<HTMLImageElement> {
   if (!src) throw new Error('An image is missing from this project. Replace the photo to continue.');
-  // Unresolved references are shown as an empty frame while the editor offers
-  // to relink them; do not ask the browser to fetch an unknown scheme.
-  const source = src.startsWith('pixcut-asset:') ? MISSING_IMAGE : src;
-  const cached = imageCache.get(source);
+  const cached = imageCache.get(src);
   if (cached) return cached.promise;
-  const entry: CachedImage = { promise: decodeImage(source) };
-  imageCache.set(source, entry, 0);
+  // Streamed media references resolve to the asset protocol on native; an
+  // unresolved reference is drawn as an empty frame while relinking is offered.
+  const resolved = src.startsWith('pixcut-asset:') ? await resolveMediaSource(src) : src;
+  const entry: CachedImage = { promise: decodeImage(resolved ?? MISSING_IMAGE) };
+  imageCache.set(src, entry, 0);
   entry.promise.then(img => {
     const width = img.naturalWidth || img.width || 0;
     const height = img.naturalHeight || img.height || 0;
-    imageCache.weigh(source, width * height * 4);
-  }, () => { imageCache.delete(source); });
+    imageCache.weigh(src, width * height * 4);
+  }, () => { imageCache.delete(src); });
   return entry.promise;
 }
 

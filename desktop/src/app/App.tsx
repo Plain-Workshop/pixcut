@@ -9,6 +9,7 @@ import { parseCaptions, placeCaptions } from '../components/text/captions';
 import { applyElementMotion, applyTextMotion } from '../components/animation/keyframes';
 import { KeyframeControls } from '../components/animation/KeyframeControls';
 import { snapOverlayTiming } from '../components/timeline/beats';
+import { resolveAssetUrl, resolveMediaSource } from '../components/preview/media-url';
 import { beatMarkerTicks, detectBeats, snapScenesToBeats } from '../components/timeline/beat-sync';
 import { MaskControls } from '../components/inspector/MaskControls';
 import { videoGain } from '../components/preview/video-audio';
@@ -19,7 +20,7 @@ import { actionAudio } from '../components/elements/sound';
 import { playbackPosition } from '../components/preview/playback-clock';
 import { LatestRenderQueue } from '../components/preview/render-queue';
 import { loadMediaBin, saveMediaBin, uniqueMediaSources } from '../stores/media-bin';
-import { missingAssets, replaceAssetRef, type MissingAsset } from '../stores/missing-assets';
+import { missingAssets, projectAssetRefs, replaceAssetRef, type MissingAsset } from '../stores/missing-assets';
 import { syncAudioElement } from '../components/preview/audio';
 import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
@@ -478,7 +479,30 @@ export default function App() {
   useEffect(() => { if (!exporting) return; const start = performance.now(); const timer = setInterval(() => setExportElapsed((performance.now() - start) / 1000), 500); return () => clearInterval(timer); }, [exporting]);
   const project = session.project, duration = totalDuration(project);
   const scenes = projectScenes(project);
-  const missing = useMemo(() => missingAssets(project), [project]);
+  // Streamed media keeps a reference in the project, so ask the local store
+  // which references are still on disk before calling anything missing. New
+  // references are treated as present until the check answers, so importing a
+  // clip never flashes a missing-media banner.
+  const [presentRefs, setPresentRefs] = useState<Set<string>>(() => new Set(projectAssetRefs(project)));
+  useEffect(() => {
+    if (!bridge.native) { setPresentRefs(new Set()); return; }
+    const refs = projectAssetRefs(project);
+    if (!refs.length) { setPresentRefs(new Set()); return; }
+    setPresentRefs(current => new Set([...current, ...refs]));
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      bridge.missingAssetRefs(refs).then(missingRefs => {
+        if (cancelled) return;
+        setPresentRefs(current => {
+          const next = new Set(current);
+          for (const reference of missingRefs) next.delete(reference);
+          return next;
+        });
+      }).catch(() => { /* keep optimistic presence; export still validates */ });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [project]);
+  const missing = useMemo(() => missingAssets(project, presentRefs), [project, presentRefs]);
   const importedMedia = mediaBin.projectId === project.id ? mediaBin.items : [];
   const sourceMedia = useMemo(() => uniqueMediaSources(importedMedia, scenes), [importedMedia, scenes]);
   useEffect(() => {
@@ -885,8 +909,13 @@ export default function App() {
       element.dataset.sceneId = videoScene.id;
       // Keep the new source silent until the play effect decides otherwise.
       element.muted = true;
-      element.src = videoScene.image;
-      element.load();
+      const sceneId = videoScene.id;
+      void resolveMediaSource(videoScene.image).then(url => {
+        if (!url) { setError('That video is missing from the local store. Relink the clip.'); return; }
+        if (element.dataset.sceneId !== sceneId) return;
+        element.src = url;
+        element.load();
+      }, error => setError(messageFor(error)));
     }
   }, [videoScene?.id, videoScene?.image]);
 
@@ -955,7 +984,7 @@ export default function App() {
   }, [activeSize.width, activeSize.height, screen]);
 
   const save = useCallback(async () => {
-    if (missingAssets(latestProject.current).length) { setError('Relink missing media before saving this project.'); return; }
+    if (missingAssets(latestProject.current, presentRefs).length) { setError('Relink missing media before saving this project.'); return; }
     try { await pending.current; await persistCurrent(); if (await bridge.saveProject(latestProject.current)) setNotice(bridge.native ? 'Project saved as a .pixcut package with its media files.' : 'Project file downloaded. A local copy is also saved on this device.'); } catch (e) { setError(messageFor(e)); }
   }, [persistCurrent]);
 
@@ -2085,7 +2114,7 @@ export default function App() {
     if (allOverlays.length >= 64) { setNotice('This project already has 64 overlays.'); return; }
     const startTicks = Math.max(0, Math.min(projectTicks - 1, secondsToTicks(position, project.timebase)));
     let width = 1, height = 1, sourceDuration = ticksToSeconds(source.sourceInTicks + source.durationTicks, project.timebase);
-    if (source.mediaKind === 'video') { const probe = await probeVideo(source.image); width = probe.width; height = probe.height; sourceDuration = probe.duration; }
+    if (source.mediaKind === 'video') { const probe = await probeVideo((await resolveMediaSource(source.image)) ?? source.image); width = probe.width; height = probe.height; sourceDuration = probe.duration; }
     else { const image = await loadImage(source.image); width = image.naturalWidth; height = image.naturalHeight; }
     const occupied = new Set(allOverlays.map(element => (element.x < .5 ? 1 : 0) + (element.y >= .5 ? 2 : 0)));
     const corner = [0, 1, 2, 3].find(candidate => !occupied.has(candidate)) ?? allOverlays.length % 4;
@@ -2138,12 +2167,36 @@ export default function App() {
     if (!canEdit) return;
     if (bridge.native) {
       try {
-        const picked = await bridge.pickMedia('video');
-        if (picked?.length) await importVideos(picked.map(fileFromPicked));
+        const imported = await bridge.importVideoAsset();
+        if (imported) await importStreamedVideo(imported);
       } catch (e) { setError(messageFor(e)); }
       return;
     }
     videoInput.current?.click();
+  }
+
+  /**
+   * Native video import keeps the file in the local asset store and writes only
+   * a reference into the project, so long clips no longer live in memory.
+   */
+  async function importStreamedVideo(imported: bridge.ImportedVideo) {
+    if (operation.current) return;
+    setPlaying(false); setBusy(true); operation.current = true;
+    try {
+      if (scenes.length >= 100) throw new Error('Add up to 100 clips per project.');
+      const url = await resolveAssetUrl(imported.reference);
+      const probe = await probeVideo(url);
+      const seconds = Math.min(600, Math.max(0.5, probe.duration));
+      const scene: Scene = {
+        id: crypto.randomUUID(), startTicks: 0, sourceInTicks: 0, name: imported.name,
+        image: imported.reference, mediaKind: 'video', videoPoster: probe.poster,
+        sourceDurationSeconds: Math.min(3600, Math.max(.01, probe.duration)),
+        durationTicks: secondsToTicks(seconds, project.timebase),
+        title: '', subtitle: '', color: '#ffffff', fit: preferences.defaultFit, transition: null,
+      };
+      await stageImportedMedia([scene]);
+    } catch (e) { setError(messageFor(e)); }
+    finally { setBusy(false); operation.current = false; }
   }
 
   async function importVideos(files: FileList | File[] | null) {
@@ -2714,7 +2767,7 @@ export default function App() {
   }
 
   async function exportVideo() {
-    if (missingAssets(latestProject.current).length) { setError('Relink missing media before exporting this project.'); return; }
+    if (missingAssets(latestProject.current, presentRefs).length) { setError('Relink missing media before exporting this project.'); return; }
     if (!exportCodecs.includes(exportCodec)) { setError('Choose an available video codec before exporting.'); return; }
     commitElement(); inspectorFlush.current();
     await pending.current;
@@ -3444,7 +3497,15 @@ export default function App() {
           <label className="shortcut-search template-search"><Search size={15} /><input aria-label="Search templates" placeholder="Search templates…" value={templateQuery} onChange={e => setTemplateQuery(e.target.value)} /></label>
           <div className="template-categories" role="tablist" aria-label="Template categories">{['All', ...TEMPLATE_CATEGORIES].map(category => <button key={category} role="tab" aria-selected={templateCategory === category} className={templateCategory === category ? 'active' : ''} onClick={() => setTemplateCategory(category as typeof templateCategory)}>{category}</button>)}</div>
           {templateMatches.length ? <div className="template-grid">{templateMatches.map(template => <button key={template.id} className="template-card" disabled={!canEdit} onClick={() => chooseTemplate(template)}>
-            <div className="template-preview"><span className="template-frame"><img src={templateImage(template)} alt="" /></span><span className="template-aspect">{template.aspect}</span></div>
+            <div className="template-preview"><span className="template-frame">
+              <img src={templateImage(template)} alt="" />
+              <span className="template-frame-title" aria-hidden="true" style={{
+                left: `${(template.x ?? .08) * 100}%`, top: `${(template.y ?? .6) * 100}%`, width: `${(template.width ?? .8) * 100}%`,
+                fontFamily: fontOption(template.font).family, fontWeight: clampWeight(template.weight ?? 600, template.font),
+                fontStyle: template.italic ? 'italic' : 'normal', fontSize: `calc(${(template.size ?? .1) * 100}cqh)`,
+                lineHeight: template.lineHeight ?? 1.04, letterSpacing: `${(template.letterSpacing ?? 0) * 100}cqw`, textAlign: template.align ?? 'left',
+              }}>{template.titles[0]}</span>
+            </span><span className="template-aspect">{template.aspect}</span></div>
             <div className="template-body">
               <strong>{template.name}</strong>
               <span>{template.description}</span>

@@ -25,7 +25,7 @@ function accentBar(spec: StorySpec, durationTicks: number): ElementLayer | null 
   if (!spec.accent) return null;
   return {
     id: crypto.randomUUID(), kind: 'rectangle', x: (spec.x ?? .08) + .02, y: (spec.y ?? .6) - .045,
-    width: .06, height: .008, rotation: 0, opacity: 90, color: spec.accent,
+    width: .07, height: .02, rotation: 0, opacity: 90, color: spec.accent,
     startTicks: 0, durationTicks, animation: 'fade', animationDuration: .5,
   };
 }

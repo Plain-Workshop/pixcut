@@ -350,6 +350,18 @@ pub struct Scene {
     pub temperature: f64,
     #[serde(default)]
     pub tint: f64,
+    #[serde(default)]
+    pub hue: f64,
+    #[serde(default)]
+    pub vibrance: f64,
+    #[serde(default = "default_black")]
+    pub shadow_tint_color: String,
+    #[serde(default)]
+    pub shadow_tint_amount: f64,
+    #[serde(default = "default_black")]
+    pub highlight_tint_color: String,
+    #[serde(default)]
+    pub highlight_tint_amount: f64,
     #[serde(default = "default_filter")]
     pub filter: String,
     #[serde(default = "default_intensity")]
@@ -1144,6 +1156,16 @@ impl Project {
                     || !(-1.0..=1.0).contains(&s.temperature)
                     || !s.tint.is_finite()
                     || !(-1.0..=1.0).contains(&s.tint)
+                    || !s.hue.is_finite()
+                    || !(-180.0..=180.0).contains(&s.hue)
+                    || !s.vibrance.is_finite()
+                    || !(-100.0..=100.0).contains(&s.vibrance)
+                    || !is_hex_color(&s.shadow_tint_color)
+                    || !s.shadow_tint_amount.is_finite()
+                    || !(0.0..=100.0).contains(&s.shadow_tint_amount)
+                    || !is_hex_color(&s.highlight_tint_color)
+                    || !s.highlight_tint_amount.is_finite()
+                    || !(0.0..=100.0).contains(&s.highlight_tint_amount)
                     || !FILTER_IDS.contains(&s.filter.as_str())
                     || !s.filter_intensity.is_finite()
                     || !(0.0..=100.0).contains(&s.filter_intensity)
@@ -1756,6 +1778,12 @@ mod tests {
             shadows: 0.0,
             temperature: 0.0,
             tint: 0.0,
+            hue: 0.0,
+            vibrance: 0.0,
+            shadow_tint_color: "#000000".into(),
+            shadow_tint_amount: 0.0,
+            highlight_tint_color: "#000000".into(),
+            highlight_tint_amount: 0.0,
             filter: "none".into(),
             filter_intensity: 100.0,
             speed: 1.0,
@@ -2499,6 +2527,30 @@ mod tests {
         let mut feather_invalid = p.clone();
         feather_invalid.tracks[0].clips[0].elements[0].mask.as_mut().unwrap().feather = 101.0;
         assert!(feather_invalid.validate().is_err());
+    }
+
+    #[test]
+    fn colour_balance_fields_round_trip_and_validate() {
+        let mut p = Project::default();
+        let mut clip = scene();
+        clip.hue = 24.0;
+        clip.vibrance = 18.0;
+        clip.shadow_tint_color = "#203050".into();
+        clip.shadow_tint_amount = 30.0;
+        clip.highlight_tint_color = "#f0d0a0".into();
+        clip.highlight_tint_amount = 45.0;
+        p.tracks[0].clips.push(clip);
+        p.validate().unwrap();
+        let restored: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        let clip = &restored.tracks[0].clips[0];
+        assert_eq!((clip.hue, clip.vibrance, clip.shadow_tint_amount, clip.highlight_tint_amount), (24.0, 18.0, 30.0, 45.0));
+        assert_eq!(clip.shadow_tint_color, "#203050");
+        let mut invalid = p.clone();
+        invalid.tracks[0].clips[0].hue = 200.0;
+        assert!(invalid.validate().is_err());
+        let mut invalid = p.clone();
+        invalid.tracks[0].clips[0].shadow_tint_amount = -1.0;
+        assert!(invalid.validate().is_err());
     }
 
     #[test]

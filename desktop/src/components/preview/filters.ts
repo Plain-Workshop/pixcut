@@ -49,6 +49,11 @@ export function thumbnailFilterCss(id: FilterId, intensity = 100) {
   return `brightness(${look.brightness}) contrast(${look.contrast}) saturate(${look.saturate}) sepia(${look.sepia}) grayscale(${look.grayscale}) hue-rotate(${look.hue}deg)`;
 }
 
+function hexRgb(value: string): [number, number, number] {
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(value);
+  return match ? [parseInt(match[1], 16), parseInt(match[2], 16), parseInt(match[3], 16)] : [0, 0, 0];
+}
+
 type Matrix = [number, number, number, number, number, number, number, number, number];
 const IDENTITY: Matrix = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const SEPIA: Matrix = [0.393, 0.769, 0.189, 0.349, 0.686, 0.168, 0.272, 0.534, 0.131];
@@ -97,6 +102,10 @@ export function hasColorGrade(scene: Scene) {
     || (scene.tint ?? 0) !== 0
     || (scene.highlights ?? 0) !== 0
     || (scene.shadows ?? 0) !== 0
+    || (scene.hue ?? 0) !== 0
+    || (scene.vibrance ?? 0) !== 0
+    || (scene.shadowTintAmount ?? 0) > 0
+    || (scene.highlightTintAmount ?? 0) > 0
     || ((scene.filter ?? 'none') !== 'none' && (scene.filterIntensity ?? 100) > 0);
 }
 
@@ -119,6 +128,7 @@ export function applyColorGrade(data: Uint8ClampedArray, scene: Scene) {
   }
   let matrix = saturationMatrix(saturation);
   if (look.hue) matrix = multiply(hueMatrix(look.hue), matrix);
+  if (scene.hue) matrix = multiply(hueMatrix(scene.hue), matrix);
   if (look.sepia) matrix = multiply(mix(IDENTITY, SEPIA, look.sepia), matrix);
   if (look.grayscale) matrix = multiply(mix(IDENTITY, GRAYSCALE, look.grayscale), matrix);
   const [m0, m1, m2, m3, m4, m5, m6, m7, m8] = matrix;
@@ -130,6 +140,12 @@ export function applyColorGrade(data: Uint8ClampedArray, scene: Scene) {
   const highlights = scene.highlights ?? 0;
   const shadows = scene.shadows ?? 0;
   const tone = highlights !== 0 || shadows !== 0;
+  const vibrance = (scene.vibrance ?? 0) / 100;
+  const shadowTint = hexRgb(scene.shadowTintColor ?? '#000000');
+  const highlightTint = hexRgb(scene.highlightTintColor ?? '#000000');
+  const shadowAmount = (scene.shadowTintAmount ?? 0) / 100;
+  const highlightAmount = (scene.highlightTintAmount ?? 0) / 100;
+  const tinted = shadowAmount > 0 || highlightAmount > 0;
   for (let index = 0; index < data.length; index += 4) {
     const r = lut[data[index]], g = lut[data[index + 1]], b = lut[data[index + 2]];
     let nr = m0 * r + m1 * g + m2 * b + offsetR;
@@ -141,6 +157,25 @@ export function applyColorGrade(data: Uint8ClampedArray, scene: Scene) {
       const shadowWeight = Math.max(0, 0.5 - luma) * 2;
       const lift = (highlights * highlightWeight * 0.25 + shadows * shadowWeight * 0.25) * 255;
       nr += lift; ng += lift; nb += lift;
+    }
+    if (vibrance !== 0) {
+      const luma = nr * 0.2126 + ng * 0.7152 + nb * 0.0722;
+      const chroma = Math.min(1, (Math.max(nr, ng, nb) - Math.min(nr, ng, nb)) / 255);
+      const factor = Math.max(0, 1 + vibrance * (1 - chroma) * 0.9);
+      nr = luma + (nr - luma) * factor;
+      ng = luma + (ng - luma) * factor;
+      nb = luma + (nb - luma) * factor;
+    }
+    if (tinted) {
+      const luma = Math.max(0, Math.min(1, (nr * 0.2126 + ng * 0.7152 + nb * 0.0722) / 255));
+      const shadowWeight = (1 - luma) ** 2 * shadowAmount;
+      const highlightWeight = luma ** 2 * highlightAmount;
+      nr = nr * (1 - shadowWeight) + shadowTint[0] * shadowWeight;
+      ng = ng * (1 - shadowWeight) + shadowTint[1] * shadowWeight;
+      nb = nb * (1 - shadowWeight) + shadowTint[2] * shadowWeight;
+      nr = nr * (1 - highlightWeight) + highlightTint[0] * highlightWeight;
+      ng = ng * (1 - highlightWeight) + highlightTint[1] * highlightWeight;
+      nb = nb * (1 - highlightWeight) + highlightTint[2] * highlightWeight;
     }
     data[index] = nr;
     data[index + 1] = ng;

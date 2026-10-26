@@ -1,5 +1,7 @@
 type Entry = { video: HTMLVideoElement; ready: Promise<void>; pending: Promise<void> | null };
 const cache = new Map<string, Entry>();
+import { resolveMediaSource } from './media-url';
+
 export async function overlayVideoFrame(source: string, seconds: number, precise: boolean): Promise<HTMLVideoElement> {
   const key = `${precise ? 'export' : 'preview'}:${source}`;
   let entry = cache.get(key);
@@ -9,8 +11,12 @@ export async function overlayVideoFrame(source: string, seconds: number, precise
       const timer = setTimeout(() => reject(new Error('The overlay video took too long to load. Try an H.264 MP4.')), 15_000);
       video.onloadeddata = () => { clearTimeout(timer); resolve(); };
       video.onerror = () => { clearTimeout(timer); reject(new Error('The overlay video could not be decoded. Try an H.264 MP4.')); };
+      void resolveMediaSource(source).then(url => {
+        if (!url) { clearTimeout(timer); reject(new Error('This overlay video is missing from the local store. Relink it.')); return; }
+        video.src = url; video.load();
+      }, error => { clearTimeout(timer); reject(error); });
     });
-    entry = { video, ready, pending: null }; cache.set(key, entry); video.src = source; video.load();
+    entry = { video, ready, pending: null }; cache.set(key, entry);
     if (cache.size > 16) { const oldest = cache.keys().next().value; if (oldest && oldest !== key) { const old = cache.get(oldest); old?.video.pause(); old?.video.removeAttribute('src'); cache.delete(oldest); } }
   }
   await entry.ready;

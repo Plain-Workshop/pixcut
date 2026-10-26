@@ -65,6 +65,14 @@ describe('cut snapping', () => {
     expect(result.scenes[0].durationTicks).toBe(secondsToTicks(1.8, DEFAULT_TIMEBASE));
   });
 
+  it('clamps fades when a cut shortens a scene', () => {
+    const scene = { ...clip(2.3), fadeIn: 2.5, fadeOut: 2.5 };
+    const result = snapScenesToBeats([scene, clip(2)], [2], 0, DEFAULT_TIMEBASE);
+    expect(result.scenes[0].durationTicks).toBe(secondsToTicks(2, DEFAULT_TIMEBASE));
+    expect(result.scenes[0].fadeIn).toBe(2);
+    expect(result.scenes[0].fadeOut).toBe(2);
+  });
+
   it('returns the same order and count for a one-scene story', () => {
     const scenes = [clip(2)];
     const result = snapScenesToBeats(scenes, [2], 0, DEFAULT_TIMEBASE);

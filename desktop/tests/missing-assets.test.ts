@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { edit, emptyProject, type AudioClip, type ElementLayer } from '../src/stores/model';
-import { missingAssets, replaceAssetRef } from '../src/stores/missing-assets';
+import { missingAssets, projectAssetRefs, replaceAssetRef } from '../src/stores/missing-assets';
 
 const IMAGE_REF = `pixcut-asset:${'a'.repeat(64)}`;
 const AUDIO_REF = `pixcut-asset:${'b'.repeat(64)}`;
@@ -33,6 +33,13 @@ describe('missing media', () => {
       { ref: IMAGE_REF, kind: 'image', label: 'image asset' },
       { ref: AUDIO_REF, kind: 'audio', label: 'Lapel mic.wav' },
     ]);
+  });
+
+  it('treats references the store still has as present', () => {
+    const present = new Set([IMAGE_REF]);
+    expect(missingAssets(project(), present).map(asset => asset.ref)).toEqual([AUDIO_REF]);
+    expect(missingAssets(project(), new Set([IMAGE_REF, AUDIO_REF]))).toEqual([]);
+    expect(projectAssetRefs(project()).sort()).toEqual([IMAGE_REF, AUDIO_REF].sort());
   });
 
   it('reports nothing once every reference is media data', () => {

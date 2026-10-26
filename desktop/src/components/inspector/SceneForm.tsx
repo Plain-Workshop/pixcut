@@ -11,7 +11,7 @@ import { StackOrder } from './StackOrder';
 import { FILTERS, clamp, thumbnailFilterCss } from '../preview/filters';
 
 type Tab = 'elements' | 'video' | 'text' | 'transition' | 'color' | 'speed' | 'fade' | 'filters';
-type ColorKey = 'brightness' | 'contrast' | 'saturation' | 'exposure' | 'highlights' | 'shadows' | 'temperature' | 'tint';
+type ColorKey = 'brightness' | 'contrast' | 'saturation' | 'exposure' | 'highlights' | 'shadows' | 'temperature' | 'tint' | 'hue' | 'vibrance';
 
 const COLOR_CONTROLS: { key: ColorKey; label: string; min: number; max: number; step: number }[] = [
   { key: 'brightness', label: 'Brightness', min: 0, max: 2.5, step: 0.01 },
@@ -22,9 +22,11 @@ const COLOR_CONTROLS: { key: ColorKey; label: string; min: number; max: number; 
   { key: 'saturation', label: 'Saturation', min: 0, max: 2.5, step: 0.01 },
   { key: 'temperature', label: 'Temperature', min: -1, max: 1, step: 0.01 },
   { key: 'tint', label: 'Tint', min: -1, max: 1, step: 0.01 },
+  { key: 'hue', label: 'Hue', min: -180, max: 180, step: 1 },
+  { key: 'vibrance', label: 'Vibrance', min: -100, max: 100, step: 1 },
 ];
 
-const COLOR_DEFAULTS: Partial<Scene> = { brightness: 1, contrast: 1, saturation: 1, exposure: 0, highlights: 0, shadows: 0, temperature: 0, tint: 0 };
+const COLOR_DEFAULTS: Partial<Scene> = { brightness: 1, contrast: 1, saturation: 1, exposure: 0, highlights: 0, shadows: 0, temperature: 0, tint: 0, hue: 0, vibrance: 0, shadowTintColor: '#000000', shadowTintAmount: 0, highlightTintColor: '#000000', highlightTintAmount: 0 };
 const COLOR_KEYS: ScenePatchKey[] = COLOR_CONTROLS.map(control => control.key);
 const TEXT_STYLE_DEFAULTS: Partial<TextLayer> = { ...TEXT_LAYER_STYLE_DEFAULTS };
 const LEGIBLE_TEXT: Partial<TextLayer> = {
@@ -786,6 +788,13 @@ export function SceneForm({
         onChange={value => stageColor(control.key, value)}
         onCommit={() => commit()}
       />)}
+      <div className="split-tone">
+        <div className="split-tone-head"><strong>Split toning</strong><span>Shadows and highlights</span></div>
+        <label className="field color-field">Shadow tint<input aria-label="Shadow tint color" type="color" value={draft.shadowTintColor ?? '#000000'} onChange={event => preview(stage({ shadowTintColor: event.target.value }))} onBlur={() => commit()} /><span>{(draft.shadowTintColor ?? '#000000').toUpperCase()}</span></label>
+        <RangeField label="Shadow strength" value={draft.shadowTintAmount ?? 0} min={0} max={100} step={1} unit="%" onChange={value => preview(stage({ shadowTintAmount: value }))} onCommit={() => commit()} />
+        <label className="field color-field">Highlight tint<input aria-label="Highlight tint color" type="color" value={draft.highlightTintColor ?? '#000000'} onChange={event => preview(stage({ highlightTintColor: event.target.value }))} onBlur={() => commit()} /><span>{(draft.highlightTintColor ?? '#000000').toUpperCase()}</span></label>
+        <RangeField label="Highlight strength" value={draft.highlightTintAmount ?? 0} min={0} max={100} step={1} unit="%" onChange={value => preview(stage({ highlightTintAmount: value }))} onCommit={() => commit()} />
+      </div>
       <div className="property-actions">
         <button className="button" onClick={() => apply(COLOR_DEFAULTS, COLOR_KEYS)}><RotateCcw size={13} /> Reset color</button>
         <button className="button" onClick={() => onCopyProperties(draftRef.current)}><Copy size={13} /> Copy</button>

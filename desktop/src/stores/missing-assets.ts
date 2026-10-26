@@ -14,10 +14,30 @@ function isRef(value: string | undefined): value is string {
  * store no longer has the bytes. One entry per reference keeps the relink list
  * short even when a file is reused by several scenes.
  */
-export function missingAssets(project: Project): MissingAsset[] {
+/** Every asset reference the project uses, once each. */
+export function projectAssetRefs(project: Project): string[] {
+  const refs = new Set<string>();
+  const add = (source: string | undefined) => { if (isRef(source)) refs.add(source); };
+  for (const element of project.overlays ?? []) add(element.source);
+  for (const track of project.tracks) {
+    for (const scene of track.clips) {
+      for (const element of scene.elements ?? []) add(element.source);
+      add(scene.image);
+    }
+  }
+  for (const clip of project.audio) add(clip.data);
+  return [...refs];
+}
+
+/**
+ * `present` lists references the local store confirmed it still has. Video is
+ * intentionally kept as a reference on native, so presence has to be checked
+ * rather than assumed from the reference surviving hydration.
+ */
+export function missingAssets(project: Project, present: ReadonlySet<string> = new Set()): MissingAsset[] {
   const found = new Map<string, MissingAsset>();
   const add = (source: string | undefined, kind: MissingMediaKind, label: string) => {
-    if (!isRef(source) || found.has(source)) return;
+    if (!isRef(source) || found.has(source) || present.has(source)) return;
     found.set(source, { ref: source, kind, label: label.trim() || 'Untitled media' });
   };
   for (const element of project.overlays ?? []) add(element.source, element.kind === 'video' ? 'video' : 'image', element.label ?? element.kind);

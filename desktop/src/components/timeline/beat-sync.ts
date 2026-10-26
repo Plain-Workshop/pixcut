@@ -119,6 +119,9 @@ export function snapScenesToBeats(scenes: Scene[], beats: number[], startSeconds
       const duration = secondsToTicks(target, timebase) - offset;
       if (duration >= minimum && duration <= maxSceneTicks(scene, timebase) && duration !== scene.durationTicks) {
         scene.durationTicks = duration;
+        const seconds = ticksToSeconds(duration, timebase);
+        scene.fadeIn = Math.min(scene.fadeIn ?? 0, seconds);
+        scene.fadeOut = Math.min(scene.fadeOut ?? 0, seconds);
         moved += 1;
       }
     }
