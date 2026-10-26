@@ -56,6 +56,23 @@ pub struct Transition {
     pub kind: String,
     pub duration: f64,
 }
+/// One motion keyframe: seconds from the layer start, with optional overrides.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Keyframe {
+    pub at: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scale: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<f64>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TextLayer {
@@ -103,6 +120,8 @@ pub struct TextLayer {
     pub glow_intensity: f64,
     pub animation: String,
     pub animation_duration: f64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keyframes: Vec<Keyframe>,
 }
 impl Default for TextLayer {
     fn default() -> Self {
@@ -149,6 +168,7 @@ impl Default for TextLayer {
             glow_intensity: default_glow_intensity(),
             animation: "none".into(),
             animation_duration: 0.5,
+            keyframes: Vec::new(),
         }
     }
 }
@@ -183,6 +203,19 @@ impl ElementBehavior {
         && self.variant.as_ref().is_none_or(|s| ["click", "double-click", "drag", "phone", "browser"].contains(&s.as_str()))
     }
 }
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Mask {
+    pub shape: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub rotation: f64,
+    pub feather: f64,
+    pub invert: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ElementLayer {
@@ -232,6 +265,10 @@ pub struct ElementLayer {
     pub duration_ticks: u64,
     #[serde(default)]
     pub animation: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keyframes: Vec<Keyframe>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask: Option<Mask>,
 }
 fn default_hundred() -> f64 {
     100.0
@@ -378,7 +415,25 @@ pub struct Scene {
     #[serde(default = "default_text_subtitle_scale")]
     pub text_subtitle_scale: f64,
 }
-fn validate_elements(elements: &mut Vec<ElementLayer>, total: u64, limit: usize) -> bool {
+fn validate_keyframes(frames: &mut Vec<Keyframe>, duration_seconds: f64) -> bool {
+    if frames.len() > 24 { return false; }
+    let valid = frames.iter().all(|frame| {
+        frame.at.is_finite()
+            && frame.at >= 0.0
+            && frame.at <= duration_seconds + 1e-6
+            && frame.x.is_none_or(|value| value.is_finite() && (0.0..=1.0).contains(&value))
+            && frame.y.is_none_or(|value| value.is_finite() && (0.0..=1.0).contains(&value))
+            && frame.scale.is_none_or(|value| value.is_finite() && (0.05..=5.0).contains(&value))
+            && frame.rotation.is_none_or(|value| value.is_finite() && (-180.0..=180.0).contains(&value))
+            && frame.opacity.is_none_or(|value| value.is_finite() && (0.0..=100.0).contains(&value))
+    });
+    if valid {
+        frames.sort_by(|a, b| a.at.partial_cmp(&b.at).unwrap_or(std::cmp::Ordering::Equal));
+    }
+    valid
+}
+
+fn validate_elements(elements: &mut Vec<ElementLayer>, total: u64, limit: usize, timebase: &Timebase) -> bool {
     if total == 0 { elements.clear(); return true; }
     for element in elements.iter_mut() {
         element.start_ticks = element.start_ticks.min(total.saturating_sub(1));
@@ -386,6 +441,9 @@ fn validate_elements(elements: &mut Vec<ElementLayer>, total: u64, limit: usize)
         if let Some(action) = &mut element.action {
             action.start_ticks = action.start_ticks.min(element.duration_ticks.saturating_sub(1));
             action.duration_ticks = action.duration_ticks.min(element.duration_ticks.saturating_sub(action.start_ticks));
+        }
+        if !validate_keyframes(&mut element.keyframes, timebase.ticks_to_seconds(element.duration_ticks)) {
+            return false;
         }
     }
     elements.len() <= limit && {
@@ -417,6 +475,16 @@ fn validate_elements(elements: &mut Vec<ElementLayer>, total: u64, limit: usize)
                             && element.opacity.is_finite() && (0.0..=100.0).contains(&element.opacity)
                             && element.duration_ticks > 0
                             && element.start_ticks + element.duration_ticks <= total
+                            && element.mask.as_ref().is_none_or(|mask| {
+                                (element.kind == "image" || element.kind == "video")
+                                    && ["rectangle", "ellipse", "triangle", "star"].contains(&mask.shape.as_str())
+                                    && mask.x.is_finite() && (0.0..=1.0).contains(&mask.x)
+                                    && mask.y.is_finite() && (0.0..=1.0).contains(&mask.y)
+                                    && mask.width.is_finite() && (0.01..=1.0).contains(&mask.width)
+                                    && mask.height.is_finite() && (0.01..=1.0).contains(&mask.height)
+                                    && mask.rotation.is_finite() && (-180.0..=180.0).contains(&mask.rotation)
+                                    && mask.feather.is_finite() && (0.0..=100.0).contains(&mask.feather)
+                            })
                             && ["", "none", "fade", "pop", "slide-up", "pulse", "float", "slide-down", "slide-left", "slide-right", "zoom-out", "bounce", "spin", "swing"].contains(&element.animation.as_str())
                     })
                 }
@@ -452,7 +520,7 @@ impl Scene {
         });
         Ok(())
     }
-    fn normalize_text_layers(&mut self) -> Result<(), String> {
+    fn normalize_text_layers(&mut self, timebase: &Timebase) -> Result<(), String> {
         let duration = self.duration_ticks;
         if self.text_layers.is_empty() && (!self.title.is_empty() || !self.subtitle.is_empty()) {
             self.text_layers.push(TextLayer {
@@ -498,6 +566,7 @@ impl Scene {
                 glow_intensity: self.text_glow_intensity,
                 animation: "none".into(),
                 animation_duration: 0.5,
+                keyframes: Vec::new(),
             });
         }
         if self.text_layers.len() > 8 {
@@ -505,7 +574,9 @@ impl Scene {
         }
         let mut ids = std::collections::HashSet::new();
         for layer in &mut self.text_layers {
-            let valid = !layer.id.is_empty()
+            let keyframes_ok = validate_keyframes(&mut layer.keyframes, timebase.ticks_to_seconds(layer.duration_ticks));
+            let valid = keyframes_ok
+                && !layer.id.is_empty()
                 && ids.insert(layer.id.clone())
                 && layer.title.chars().count() <= 120
                 && layer.subtitle.chars().count() <= 200
@@ -994,7 +1065,7 @@ impl Project {
                     .source_duration_seconds
                     .is_none_or(|seconds| seconds.is_finite() && seconds > 0.0 && seconds <= 3600.0);
                 s.normalize_elements();
-                let elements_ok = validate_elements(&mut s.elements, s.duration_ticks, 12);
+                let elements_ok = validate_elements(&mut s.elements, s.duration_ticks, 12, &timebase);
                 let motion_ok = s.motion.as_deref().is_none_or(|motion| {
                     ["none", "zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down", "ken-burns"].contains(&motion)
                 }) && s.motion_amount.is_none_or(|amount| amount.is_finite() && (0.0..=0.6).contains(&amount));
@@ -1099,7 +1170,7 @@ impl Project {
                 {
                     return Err("Invalid scene, image, or duration.".into());
                 }
-                s.normalize_text_layers()?;
+                s.normalize_text_layers(&timebase)?;
                 s.normalize_transition(&timebase)?;
                 bytes += s.image.len() + s.elements.iter().map(|e| e.source.as_ref().map_or(0, String::len)).sum::<usize>();
             }
@@ -1117,7 +1188,7 @@ impl Project {
             .map(|clip| clip.start_ticks + clip.duration_ticks)
             .max()
             .unwrap_or(0);
-        if !validate_elements(&mut self.overlays, total_ticks, 64) { return Err("Invalid project overlay or action.".into()); }
+        if !validate_elements(&mut self.overlays, total_ticks, 64, &timebase) { return Err("Invalid project overlay or action.".into()); }
         bytes += self.overlays.iter().map(|e| e.source.as_ref().map_or(0, String::len)).sum::<usize>();
         if bytes > 140_000_000 { return Err("Project exceeds the 100 MB media budget.".into()); }
         let mut audio = if migrating_music {
@@ -1747,6 +1818,42 @@ mod tests {
         assert!(s.apply(Command::Formats { formats: bad_override }).is_err());
     }
     #[test]
+    fn validates_text_layer_keyframes() {
+        let mut s = Session::default();
+        let layer = |keyframes: Vec<Keyframe>| TextLayer {
+            id: "layer-1".into(),
+            title: "Hello".into(),
+            start_ticks: 0,
+            duration_ticks: 90,
+            x: 0.2,
+            y: 0.3,
+            width: 0.7,
+            size: 0.06,
+            keyframes,
+            ..Default::default()
+        };
+        let mut clip = scene();
+        clip.duration_ticks = 90;
+        clip.text_layers = vec![layer(vec![
+            Keyframe { at: 1.0, x: Some(0.4), scale: Some(1.2), ..Default::default() },
+            Keyframe { at: 2.0, opacity: Some(40.0), ..Default::default() },
+        ])];
+        s.apply(Command::Add { scenes: vec![clip.clone()] }).unwrap();
+        assert_eq!(s.project.visual_clips()[0].text_layers[0].keyframes.len(), 2);
+
+        for bad in [
+            vec![Keyframe { at: 99.0, ..Default::default() }],
+            vec![Keyframe { at: 1.0, scale: Some(9.0), ..Default::default() }],
+            vec![Keyframe { at: f64::NAN, ..Default::default() }],
+            (0..25).map(|index| Keyframe { at: index as f64 * 0.05, ..Default::default() }).collect(),
+        ] {
+            let mut next = clip.clone();
+            next.text_layers = vec![layer(bad)];
+            assert!(s.apply(Command::Update { scene: next }).is_err());
+        }
+    }
+
+    #[test]
     fn video_clips_allow_longer_durations_and_a_clip_sound_level() {
         let mut session = Session::default();
         // 120 s at 30 fps: rejected for a photo, accepted for a video.
@@ -1914,6 +2021,7 @@ mod tests {
         let mut p = Project::default();
         let mut clip = scene();
         clip.elements.push(ElementLayer {
+            mask: None,
             id: "element".into(),
             kind: "star".into(),
             behavior: None, exit: None, z: None, action: None, label: None, source: None, poster: None, source_in_seconds: None, source_duration_seconds: None, loop_animation: None, animation_duration: None,
@@ -1927,6 +2035,7 @@ mod tests {
             start_ticks: 0,
             duration_ticks: clip.duration_ticks,
             animation: "none".into(),
+            keyframes: Vec::new(),
         });
         p.tracks[0].clips.push(clip);
         p.validate().unwrap();
@@ -2256,10 +2365,44 @@ mod tests {
         assert_eq!(parsed.speed, 1.0);
     }
     #[test]
+    fn shape_masks_round_trip_and_stay_on_media_layers() {
+        let mut p = Project::default();
+        let mut clip = scene();
+        clip.elements.push(ElementLayer {
+            mask: Some(Mask {
+                shape: "star".into(), x: 0.4, y: 0.6, width: 0.7, height: 0.7, rotation: 22.0, feather: 18.0, invert: true,
+            }),
+            keyframes: Vec::new(),
+            id: "masked".into(),
+            kind: "image".into(),
+            behavior: None, exit: None, z: None, action: None, label: None,
+            source: Some("data:image/png;base64,AA==".into()), poster: None,
+            source_in_seconds: None, source_duration_seconds: None, loop_animation: None, animation_duration: None,
+            x: 0.5, y: 0.5, width: 0.4, height: 0.4, rotation: 0.0,
+            color: "#FFFFFF".into(), opacity: 100.0, start_ticks: 0, duration_ticks: 120, animation: "none".into(),
+        });
+        p.tracks[0].clips.push(clip);
+        p.validate().unwrap();
+        let mask = p.tracks[0].clips[0].elements[0].mask.as_ref().unwrap();
+        assert_eq!(mask.shape, "star");
+        assert_eq!((mask.x, mask.y, mask.feather, mask.invert), (0.4, 0.6, 18.0, true));
+
+        p.tracks[0].clips[0].elements[0].kind = "star".into();
+        p.tracks[0].clips[0].elements[0].source = None;
+        assert!(p.validate().is_err());
+        p.tracks[0].clips[0].elements[0].kind = "image".into();
+        p.tracks[0].clips[0].elements[0].source = Some("data:image/png;base64,AA==".into());
+        p.tracks[0].clips[0].elements[0].mask.as_mut().unwrap().feather = 101.0;
+        assert!(p.validate().is_err());
+    }
+
+    #[test]
     fn keeps_layer_stack_order_and_rejects_out_of_range_values() {
         let mut p = Project::default();
         let mut clip = scene();
         clip.elements.push(ElementLayer {
+            mask: None,
+            keyframes: Vec::new(),
             id: "element".into(),
             kind: "star".into(),
             behavior: None, exit: None, z: Some(9_000.0), action: None, label: None, source: None, poster: None, source_in_seconds: None, source_duration_seconds: None, loop_animation: None, animation_duration: None,
@@ -2304,6 +2447,8 @@ mod tests {
         // 8 MB of media per snapshot: 30 copies would pin 240 MB in memory.
         clip.image = format!("data:image/png;base64,{}", "A".repeat(8_000_000)).into();
         clip.elements.push(ElementLayer {
+            mask: None,
+            keyframes: Vec::new(),
             id: "element".into(),
             kind: "star".into(),
             behavior: None, exit: None, z: None, action: None, label: None, source: None, poster: None, source_in_seconds: None, source_duration_seconds: None, loop_animation: None, animation_duration: None,
@@ -2345,6 +2490,8 @@ mod tests {
         let mut project = Project::default();
         let mut clip = scene();
         clip.elements.push(ElementLayer {
+            mask: None,
+            keyframes: Vec::new(),
             id: "element".into(),
             kind: "star".into(),
             behavior: None, exit: None, z: None, action: None, label: None, source: None, poster: None, source_in_seconds: None, source_duration_seconds: None, loop_animation: None, animation_duration: None,
@@ -2355,6 +2502,8 @@ mod tests {
         let scene_id = clip.id.clone();
         project.tracks[0].clips.push(clip);
         project.overlays.push(ElementLayer {
+            mask: None,
+            keyframes: Vec::new(),
             id: "overlay".into(),
             kind: "rectangle".into(),
             behavior: None, exit: None, z: None, action: None, label: None, source: None, poster: None, source_in_seconds: None, source_duration_seconds: None, loop_animation: None, animation_duration: None,

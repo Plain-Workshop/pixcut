@@ -3,6 +3,7 @@ import { AlignCenter, AlignLeft, AlignRight, Blend, Crop, Maximize2, SlidersHori
 import { sceneSeconds, secondsToTicks, setSceneSeconds, ticksToSeconds, type ElementLayer, type Scene, type ScenePatchKey, type TextAnimation, type TextLayer, type Timebase, type TransitionType } from '../../stores/model';
 import { DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TEXT_SIZE, DEFAULT_TEXT_SUBTITLE_SCALE, DEFAULT_TEXT_WEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_X, DEFAULT_TEXT_Y, FONTS, clampWeight, fontOption, fontWeights } from '../text/fonts';
 import { MAX_TEXT_LAYERS, TEXT_LAYER_STYLE_DEFAULTS, createTextLayer, layerTimingLabel } from '../text/layers';
+import { KeyframeControls } from '../animation/KeyframeControls';
 import { sceneStack, stackIndex, stackZ, overlaysForScene, type StackMove } from '../elements/stack';
 import { StackOrder } from './StackOrder';
 import { FILTERS, clamp, thumbnailFilterCss } from '../preview/filters';
@@ -310,6 +311,7 @@ export function SceneForm({
   textLayerId,
   onSelectTextLayer,
   textStartTicks = 0,
+  playheadSeconds = 0,
   focusText = 0,
   framingActive = false,
   onToggleFraming = () => {},
@@ -333,6 +335,8 @@ export function SceneForm({
   textLayerId: string | null;
   onSelectTextLayer: (id: string | null) => void;
   textStartTicks?: number;
+  /** Scene-local playhead, used to capture keyframes. */
+  playheadSeconds?: number;
   focusText?: number;
   framingActive?: boolean;
   onToggleFraming?: () => void;
@@ -652,6 +656,13 @@ export function SceneForm({
           <RangeField label="Visible for" value={ticksToSeconds(selectedLayer.durationTicks, timebase)} min={Math.max(0.1, ticksToSeconds(1, timebase))} max={ticksToSeconds(Math.max(1, sceneDurationTicks - selectedLayer.startTicks), timebase)} step={0.1} unit="sec" onChange={stageLayerDuration} onCommit={() => commit()} />
           <button className="text-button" onClick={resetTextTiming}>Reset timing</button>
         </details>
+
+        <KeyframeControls
+          layer={selectedLayer}
+          playheadSeconds={Math.max(0, playheadSeconds - ticksToSeconds(selectedLayer.startTicks, timebase))}
+          durationSeconds={ticksToSeconds(selectedLayer.durationTicks, timebase)}
+          onChange={keyframes => applyLayer({ keyframes })}
+        />
 
         <details className="advanced-disclosure text-layout-panel">
           <summary>Animation</summary>

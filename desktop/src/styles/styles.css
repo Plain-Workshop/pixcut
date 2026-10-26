@@ -1811,3 +1811,22 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .caption-import { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #2A3052; }
 .caption-import .button { justify-content: center; }
 .caption-import small { color: #858CAC; font-size: 8.5px; line-height: 1.5; text-align: center; }
+
+/* Keyframes in the inspector. */
+.keyframe-list { display: grid; gap: 4px; margin-top: 8px; }
+.keyframe-row { display: grid; grid-template-columns: 58px minmax(0, 1fr) 24px; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 6px; border: 1px solid #262C4C; background: #12162E; font-size: 9px; }
+.keyframe-time { color: #E7E8FA; font-variant-numeric: tabular-nums; }
+.keyframe-values { color: #8B93B4; overflow-wrap: anywhere; line-height: 1.4; }
+.keyframe-controls .button { width: 100%; justify-content: center; margin-top: 6px; }
+
+/* Shape masks on image and video overlays. */
+.mask-controls .mask-row { display: flex; align-items: flex-end; gap: 8px; margin-top: 8px; }
+.mask-controls .mask-row .field { flex: 1; margin: 0; }
+.mask-controls .mask-row .text-button { padding: 0 2px 7px; }
+.mask-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px; margin: 10px 0; }
+.mask-slider { display: flex; flex-direction: column; gap: 2px; }
+.mask-slider > span { display: flex; justify-content: space-between; gap: 5px; color: #8B93B4; font-size: 8.5px; }
+.mask-slider > span b { color: #DCDDF0; font-weight: 500; font-variant-numeric: tabular-nums; }
+.mask-slider input { width: 100%; height: auto; padding: 0; }
+.mask-controls .checkbox-field { margin: 4px 0 8px; }
+.mask-controls .text-button.danger { color: #E49AA3; }

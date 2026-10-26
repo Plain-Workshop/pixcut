@@ -2,7 +2,9 @@ import { drawCardElement } from '../elements/cards';
 import { waveformBars } from '../elements/dynamic';
 import { drawModernElement } from '../elements/modern';
 import { framingTravel } from './framing';
+import { applyMaskAlpha } from './mask';
 import { elementTransform } from '../elements/transform';
+import { applyElementMotion, applyTextMotion } from '../animation/keyframes';
 import { overlayVideoFrame } from './overlay-video';
 import { drawElementSymbol, ELEMENT_LABEL_DEFAULTS, elementForeground } from '../elements/symbols';
 import { DEFAULT_TIMEBASE, sceneSeconds, secondsToTicks, ticksToSeconds, type AudioClip, type ElementLayer, type Project, type Scene, type TextAnimation, type TextLayer, type Timebase, type TransitionType } from '../../stores/model';
@@ -535,7 +537,10 @@ function elementVisibleAt(element: ElementLayer, localSeconds: number, timebase:
   return localSeconds >= start && localSeconds < start + duration;
 }
 
-async function drawMediaOrShape(ctx: CanvasRenderingContext2D, element: ElementLayer, w: number, h: number, local: number, precise: boolean, timebase: Timebase = DEFAULT_TIMEBASE, audio: AudioClip[] = [], projectSeconds = local, sample = false) {
+async function drawMediaOrShape(ctx: CanvasRenderingContext2D, raw: ElementLayer, w: number, h: number, local: number, precise: boolean, timebase: Timebase = DEFAULT_TIMEBASE, audio: AudioClip[] = [], projectSeconds = local, sample = false) {
+  // Keyframes replace the layer's geometry before the entrance/exit motion is
+  // combined with it, so preview, still frames and exported overlay frames agree.
+  const element = raw.keyframes?.length ? applyElementMotion(raw, local) : raw;
   const motion = elementTransform(element, local, timebase);
   if (element.kind !== 'image' && element.kind !== 'video') {
     const bars = element.kind === 'waveform' ? sample ? Array.from({ length: 32 }, (_, i) => .12 + .65 * Math.abs(Math.sin(i * .63 + local * 6)) * Math.abs(Math.cos(i * .19 - local * 3))) : await waveformBars(element, projectSeconds, audio, timebase) : [];
@@ -545,10 +550,26 @@ async function drawMediaOrShape(ctx: CanvasRenderingContext2D, element: ElementL
   if (!element.source) throw new Error('This overlay is missing its local media. Import the file again.');
   if (element.source.startsWith('pixcut-asset:')) return;
   const source = element.kind === 'video' ? await overlayVideoFrame(element.source, (element.sourceInSeconds ?? 0) + local, precise) : await loadImage(element.source);
+  const drawWidth = Math.max(1, Math.round(element.width * w));
+  const drawHeight = Math.max(1, Math.round(element.height * h));
+  let painted: CanvasImageSource = source;
+  if (element.mask) {
+    // The mask is baked into the overlay's own alpha so preview, still frames
+    // and exported overlay PNGs all use exactly the same cutout.
+    const layer = document.createElement('canvas');
+    layer.width = drawWidth;
+    layer.height = drawHeight;
+    const layerContext = layer.getContext('2d');
+    if (layerContext) {
+      layerContext.drawImage(source, 0, 0, drawWidth, drawHeight);
+      applyMaskAlpha(layer, element.mask);
+      painted = layer;
+    }
+  }
   ctx.save(); ctx.translate((element.x + motion.x) * w, (element.y + motion.y) * h);
   ctx.rotate((element.rotation + motion.rotation) * Math.PI / 180); ctx.scale(motion.scale, motion.scale);
   ctx.globalAlpha = element.opacity / 100 * motion.alpha;
-  ctx.drawImage(source, -element.width * w / 2, -element.height * h / 2, element.width * w, element.height * h); ctx.restore();
+  ctx.drawImage(painted, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight); ctx.restore();
 }
 
 async function drawElements(ctx: CanvasRenderingContext2D, scene: Scene, w: number, h: number, localSeconds: number, timebase: Timebase, precise: boolean, audio: AudioClip[] = [], projectOffset = 0) {
@@ -576,10 +597,11 @@ async function drawStack(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElemen
       const local = localSeconds - ticksToSeconds(entry.layer.startTicks, timebase);
       await drawMediaOrShape(ctx, entry.layer, w, h, local, precise, timebase, audio, projectOffset + localSeconds);
     } else {
-      const layer = entry.layer;
-      if (!layerVisibleAt(layer, localSeconds, timebase)) continue;
-      const local = localSeconds - layerStartSeconds(layer, timebase);
-      const remaining = layerDurationSeconds(layer, timebase) - local;
+      const stored = entry.layer;
+      if (!layerVisibleAt(stored, localSeconds, timebase)) continue;
+      const local = localSeconds - layerStartSeconds(stored, timebase);
+      const layer = stored.keyframes?.length ? applyTextMotion(stored, local) : stored;
+      const remaining = layerDurationSeconds(stored, timebase) - local;
       const animationDuration = Math.max(.05, layer.animationDuration ?? .5);
       await drawTextLayer(ctx, layer, w, h, canvas, {
         type: layer.animation ?? 'none',
@@ -672,9 +694,10 @@ export async function drawTextOverlay(canvas: HTMLCanvasElement, scene: Scene, l
   canvas.height = h;
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, w, h);
-  const layer = (scene.textLayers ?? []).find(item => item.id === layerId);
-  if (!layer || !layerVisibleAt(layer, localSeconds, timebase)) return;
-  const local = localSeconds - layerStartSeconds(layer, timebase);
+  const stored = (scene.textLayers ?? []).find(item => item.id === layerId);
+  if (!stored || !layerVisibleAt(stored, localSeconds, timebase)) return;
+  const local = localSeconds - layerStartSeconds(stored, timebase);
+  const layer = stored.keyframes?.length ? applyTextMotion(stored, local) : stored;
   const remaining = layerDurationSeconds(layer, timebase) - local;
   const animationDuration = Math.max(.05, layer.animationDuration ?? .5);
   await drawTextLayer(ctx, layer, w, h, canvas, {

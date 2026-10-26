@@ -65,6 +65,26 @@ export const trimSceneWindow = (scene: Scene, deltaTicks: number, side: 'left' |
 export type TransitionType = 'none' | 'fade' | 'slide' | 'wipe' | 'zoom' | 'blur' | 'circle' | 'slide-up' | 'spin';
 export type ElementKind = 'caption' | 'chapter' | 'callout' | 'keycaps' | 'mouse' | 'device' | 'comparison' | 'checklist' | 'rating' | 'countdown' | 'waveform' | 'message' | 'qr' | 'end-screen' | 'image' | 'video' | 'label' | 'name-tag' | 'link' | 'quote' | 'counter' | 'status' | 'burst' | 'frame' | 'dots' | 'tape' | 'chevron' | 'rectangle' | 'ellipse' | 'triangle' | 'star' | 'sparkle' | 'line' | 'arrow' | 'heart' | 'subscribe' | 'like' | 'bell' | 'comment' | 'share' | 'play' | 'progress' | 'location' | 'music' | 'check' | 'cross' | 'ring' | 'cursor' | 'underline';
 export type ElementAction = { kind: 'ring' | 'pulse' | 'float' | 'spin'; startTicks: number; durationTicks: number; repeat: boolean; sound: boolean };
+export const MASK_SHAPES = ['rectangle', 'ellipse', 'triangle', 'star'] as const;
+export type MaskShape = typeof MASK_SHAPES[number];
+/**
+ * A shape mask on an image or video overlay. Geometry is relative to the
+ * overlay's own box, so masks follow moves, keyframes and scale changes.
+ */
+export type LayerMask = {
+  shape: MaskShape;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  /** 0–100; softens the mask edge without touching the source media. */
+  feather: number;
+  invert: boolean;
+};
+export const defaultLayerMask = (shape: MaskShape = 'rectangle'): LayerMask => ({
+  shape, x: .5, y: .5, width: .82, height: .82, rotation: 0, feather: 0, invert: false,
+});
 export type ElementBehavior = {
   atSeconds?: number; intervalSeconds?: number; countFrom?: number; countTo?: number;
   repeat?: boolean; audioId?: string; variant?: 'click' | 'double-click' | 'drag' | 'phone' | 'browser';
@@ -95,6 +115,8 @@ export type ElementLayer = {
   startTicks: number;
   durationTicks: number;
   animation: 'none' | 'fade' | 'pop' | 'slide-up' | 'pulse' | 'float' | 'slide-down' | 'slide-left' | 'slide-right' | 'zoom-out' | 'bounce' | 'spin' | 'swing';
+  keyframes?: Keyframe[];
+  mask?: LayerMask;
 };
 export type MotionType = 'none' | 'zoom-in' | 'zoom-out' | 'pan-left' | 'pan-right' | 'pan-up' | 'pan-down' | 'ken-burns';
 export type Transition = { type: TransitionType; duration: number };
@@ -102,6 +124,20 @@ export type TextAnimation = 'none' | 'fade' | 'slide-up' | 'slide-left' | 'pop';
 export type SceneFormatOverride = { imageX?: number; imageY?: number; imageZoom?: number; fit?: Scene['fit']; framingBackground?: string };
 export type FormatQuality = 'draft' | 'standard' | 'high';
 export type FormatVariant = { id: string; name: string; platform: string; aspect: string; width: number; height: number; fps: number; quality: FormatQuality; presetId?: string; overrides: Record<string, SceneFormatOverride> };
+/**
+ * One motion keyframe on a text or element layer. Times are seconds from the
+ * layer's own start; missing properties fall back to the layer's static value.
+ */
+export type Keyframe = {
+  at: number;
+  x?: number;
+  y?: number;
+  scale?: number;
+  rotation?: number;
+  opacity?: number;
+};
+/** Keyframes per layer. Enough for a move, a punch-in, and a settle. */
+export const MAX_KEYFRAMES = 24;
 export type TextLayer = {
   id: string;
   title: string;
@@ -146,6 +182,7 @@ export type TextLayer = {
   glowIntensity: number;
   animation: TextAnimation;
   animationDuration: number;
+  keyframes?: Keyframe[];
 };
 export type Scene = {
   id: string;
@@ -328,6 +365,44 @@ function readTextColor(value: unknown, fallback: string, label: string) {
   if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) throw new Error(`Invalid ${label}.`);
   return value;
 }
+function readKeyframes(value: unknown, durationTicks: number, label: string): Keyframe[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error(`${label} has invalid motion keyframes.`);
+  if (value.length > MAX_KEYFRAMES) throw new Error(`${label} supports up to ${MAX_KEYFRAMES} keyframes.`);
+  const maxAt = ticksToSeconds(durationTicks);
+  const frames: Keyframe[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') throw new Error(`${label} has invalid motion keyframes.`);
+    const frame = entry as Partial<Keyframe>;
+    if (typeof frame.at !== 'number' || !Number.isFinite(frame.at) || frame.at < 0 || frame.at > maxAt) throw new Error(`${label} has a keyframe outside its duration.`);
+    const next: Keyframe = { at: Math.round(frame.at * 1000) / 1000 };
+    const bounds: [keyof Keyframe, number, number][] = [['x', 0, 1], ['y', 0, 1], ['scale', .05, 5], ['rotation', -180, 180], ['opacity', 0, 100]];
+    for (const [key, min, max] of bounds) {
+      const raw = frame[key];
+      if (raw === undefined) continue;
+      if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < min || raw > max) throw new Error(`${label} has an invalid keyframe value.`);
+      (next as Record<string, number>)[key] = raw;
+    }
+    frames.push(next);
+  }
+  frames.sort((a, b) => a.at - b.at);
+  return frames.length ? frames : undefined;
+}
+
+function readMask(value: unknown): LayerMask | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('An overlay has an invalid shape mask.');
+  const mask = value as Partial<LayerMask>;
+  if (!MASK_SHAPES.includes(mask.shape as MaskShape)) throw new Error('An overlay mask has an unknown shape.');
+  const numbers: [keyof LayerMask, number, number][] = [['x', 0, 1], ['y', 0, 1], ['width', .01, 1], ['height', .01, 1], ['rotation', -180, 180], ['feather', 0, 100]];
+  for (const [key, min, max] of numbers) {
+    const raw = mask[key];
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < min || raw > max) throw new Error('An overlay mask has an invalid value.');
+  }
+  if (typeof mask.invert !== 'boolean') throw new Error('An overlay mask needs an invert setting.');
+  return { shape: mask.shape as MaskShape, x: mask.x!, y: mask.y!, width: mask.width!, height: mask.height!, rotation: mask.rotation!, feather: mask.feather!, invert: mask.invert };
+}
+
 function readTextLayers(value: unknown, scene: Scene, durationTicks: number): TextLayer[] {
   if (value === undefined || (Array.isArray(value) && value.length === 0 && (scene.title || scene.subtitle))) {
     const legacy = legacyTextLayer({ ...scene, durationTicks });
@@ -354,6 +429,7 @@ function readTextLayers(value: unknown, scene: Scene, durationTicks: number): Te
     if (!['none', 'fade', 'slide-up', 'slide-left', 'pop'].includes(animation)) throw new Error('A text layer has an invalid animation.');
     if (typeof (layer.font ?? defaults.font) !== 'string') throw new Error('A text layer has an invalid font.');
     const z = layer.z === undefined ? undefined : readNumber(layer.z, 0, STACK_Z_MAX, 0, `text layer order in layer ${index + 1}`);
+    const keyframes = readKeyframes(layer.keyframes, durationTicks, `Text layer ${index + 1}`);
     return {
       id: layer.id,
       title: layer.title,
@@ -397,6 +473,7 @@ function readTextLayers(value: unknown, scene: Scene, durationTicks: number): Te
       glowIntensity: readNumber(layer.glowIntensity, 0, 100, defaults.glowIntensity, 'glow intensity'),
       animation,
       animationDuration: readNumber(layer.animationDuration, .1, 2, defaults.animationDuration, 'text animation duration'),
+      ...(keyframes ? { keyframes } : {}),
     };
   });
 }
@@ -579,6 +656,9 @@ function readElements(value: unknown, durationTicks: number, limit = 12): Elemen
       const start = Math.min(a.startTicks, elementTicks - 1);
       action = { ...a, startTicks: start, durationTicks: Math.min(a.durationTicks, elementTicks - start) };
     }
+    const keyframes = readKeyframes(element.keyframes, elementTicks, 'An element');
+    const mask = readMask(element.mask);
+    if (mask && element.kind !== 'image' && element.kind !== 'video') throw new Error('Shape masks apply to image and video overlays.');
     return {
       ...(action ? { action } : {}),
       ...(behavior ? { behavior } : {}),
@@ -591,6 +671,8 @@ function readElements(value: unknown, durationTicks: number, limit = 12): Elemen
       ...(element.sourceDurationSeconds !== undefined ? { sourceDurationSeconds: element.sourceDurationSeconds } : {}),
       ...(element.loop !== undefined ? { loop: element.loop } : {}),
       ...(element.animationDuration !== undefined ? { animationDuration: element.animationDuration } : {}),
+      ...(keyframes ? { keyframes } : {}),
+      ...(mask ? { mask } : {}),
       id: element.id, kind: element.kind as ElementKind,
       x: element.x!, y: element.y!, width: element.width!, height: element.height!,
       rotation: element.rotation, color: element.color, opacity: element.opacity,
