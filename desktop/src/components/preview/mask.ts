@@ -51,11 +51,28 @@ export function traceMask(ctx: CanvasRenderingContext2D, mask: LayerMask, width:
 export function applyMaskAlpha(canvas: HTMLCanvasElement, mask: LayerMask) {
   const ctx = canvas.getContext('2d');
   if (!ctx || canvas.width < 1 || canvas.height < 1) return canvas;
+  const matte = maskMatte(mask, canvas.width, canvas.height);
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-in';
+  ctx.drawImage(matte, 0, 0);
+  ctx.restore();
+  return canvas;
+}
+
+// Video overlays reuse the same matte for every frame. The cache is keyed by
+// geometry and pixel size so a resize or a mask edit produces a fresh matte.
+const mattes = new Map<string, HTMLCanvasElement>();
+const MATTE_CACHE_LIMIT = 24;
+
+function maskMatte(mask: LayerMask, width: number, height: number) {
+  const key = `${mask.shape}:${mask.x}:${mask.y}:${mask.width}:${mask.height}:${mask.rotation}:${mask.feather}:${mask.invert}:${width}x${height}`;
+  const cached = mattes.get(key);
+  if (cached) return cached;
   const alpha = document.createElement('canvas');
-  alpha.width = canvas.width;
-  alpha.height = canvas.height;
+  alpha.width = width;
+  alpha.height = height;
   const maskCtx = alpha.getContext('2d');
-  if (!maskCtx) return canvas;
+  if (!maskCtx) return alpha;
   maskCtx.fillStyle = '#ffffff';
   if (mask.invert) {
     maskCtx.fillRect(0, 0, alpha.width, alpha.height);
@@ -66,9 +83,11 @@ export function applyMaskAlpha(canvas: HTMLCanvasElement, mask: LayerMask) {
   maskCtx.fillStyle = '#ffffff';
   traceMask(maskCtx, mask, alpha.width, alpha.height);
   maskCtx.fill();
-  ctx.save();
-  ctx.globalCompositeOperation = 'destination-in';
-  ctx.drawImage(alpha, 0, 0);
-  ctx.restore();
-  return canvas;
+  mattes.set(key, alpha);
+  while (mattes.size > MATTE_CACHE_LIMIT) {
+    const oldest = mattes.keys().next().value;
+    if (oldest === undefined) break;
+    mattes.delete(oldest);
+  }
+  return alpha;
 }

@@ -832,3 +832,23 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Tests: `tests/keyframes.test.ts` (13) covers interpolation before/between/after keys, per-property fallback, single-key holds, text and element transforms, editing/capping, and model validation. Totals: 167 TypeScript tests, 35 project-model tests, 21 native tests.
 - Browser checks: a text layer keyframed from x 15 % to 60 % moved its selection box (15 → 37.5 → 60) and its canvas glyphs (minX 36 → 58 → 81, minY 31 → 41 → 51) across 0 s, 2 s and 4 s; the inspector added a third key (2 → 3 rows, "Motion keyframes · 3"). An element keyframed from 30 % to 70 % moved its hitbox (12.5 % → 52.5 %) and showed "Motion keyframes · 2". Reviewed `output/playwright/keyframes-preview.png` and `keyframes-element.png`.
 - Boundary: keyframes animate text and element geometry only. Photo framing (zoom/pan) and per-format framing still use the existing presets plus static values; easing curves, per-character effects, and keyframes on audio levels are not implemented.
+
+## Shape masks for media overlays — 2026-10-26
+
+- Image and video overlays accept an optional shape mask: rectangle, ellipse, triangle, or star, with centre, width, height, rotation, feather (0–100), and inversion. Geometry is relative to the overlay's own box, so masks follow drag, scale, and keyframe animation without a separate mask track.
+- The mask is baked into the overlay's alpha before it is transformed onto the canvas. `applyMaskAlpha()` builds a blurred white alpha matte and applies it with `destination-in`; inverted masks punch the shape out of a full matte. Because the transparent overlay frames used by the MP4 exporter come from the same compositor, preview, still frames, thumbnails, and exported overlay frames share the cutout.
+- The element inspector exposes **Shape mask** for image/video overlays only. Slider drags stage one overlay edit and commit on release; shape changes, inversion, centring, and removal are immediate undoable commands. Shape elements, captions, and text layers do not offer masks.
+- Validation in TypeScript and Rust rejects unknown shapes, out-of-range geometry or feather, and masks attached to non-media layers. Older projects omit the field and keep working.
+- Tests: `tests/mask.test.ts` (4) covers defaults, polygon geometry, validation round-trips, and rejected shapes/values/non-media targets. Rust adds `shape_masks_round_trip_and_stay_on_media_layers`. Totals: 175 TypeScript tests in 23 files, 36 project-model tests, and 21 non-ignored native tests.
+- Browser check: a red 80 %-wide image overlay with a 40 % ellipse mask over a blue scene sampled `[226,59,59,255]` at the centre and `[27,79,216,255]` at the overlay edge; the exported overlay frame sampled alpha `255` at the centre and `0` at the edge/corner. Selecting Star and inverting swapped the centre back to blue and the edge to red. No console errors.
+- Reviewed `output/playwright/shape-mask-ellipse.png` and `output/playwright/shape-mask-star-inverted.png`.
+- Boundary: masks cover overlay images and videos only. Base photo-scene masks, blend modes, chroma key, mask animation as a separate property, and polygon/pen masks are not implemented.
+
+## Photo framing keyframes — 2026-10-26
+
+- Photos gain up to 24 framing keyframes (`at`, optional `x`, `y`, `zoom`) stored on the scene and validated in TypeScript and Rust (time inside the scene, pan −1…1, zoom 1–4). Missing values fall back to the scene's static framing, and a single key holds.
+- `framingAt()` resolves the pan/zoom before the motion presets are combined, so hand-authored keys work with Fill, Fit, Blur fill, and the camera-movement presets. The result is used by the canvas compositor, so preview, thumbnails, still frames, and the baked photo frames in every export format share it.
+- The Framing inspector gained **Framing keyframes** with the playhead-capture workflow, per-key values, delete, and clear. The panel is hidden for video scenes, whose framing is encoded by FFmpeg rather than the canvas.
+- Tests: framing interpolation/fallback/capture/validation in `tests/keyframes.test.ts` (now 17), plus the Rust `validates_framing_keyframes`. Totals: 175 TypeScript tests, 37 project-model tests, 21 native tests.
+- Browser check: a red/white/blue split photo keyframed from x −0.6 to +0.6 moved its centre sample from red to blue between 0 s and 3 s, and the inspector added a third key at 1.5 s (“Framing keyframes · 3”). Reviewed `output/playwright/framing-keyframes.png`.
+- Boundary: framing keys apply to photos only; video clip framing stays static because the encoder path crops in FFmpeg. Easing is linear.

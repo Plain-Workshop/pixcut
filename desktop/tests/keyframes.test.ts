@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   applyElementMotion,
   applyTextMotion,
+  framingAt,
+  framingKeyframeAt,
   keyframeAtPlayhead,
   motionAt,
+  removeFramingKeyframe,
   removeKeyframe,
+  upsertFramingKeyframe,
   upsertKeyframe,
 } from '../src/components/animation/keyframes';
 import { edit, emptyProject, type ElementLayer, type Keyframe, type TextLayer } from '../src/stores/model';
@@ -138,5 +142,50 @@ describe('keyframe validation', () => {
     expect(() => edit(project, { type: 'add', scenes: [clip([text([{ at: 1, x: .4 }, { at: 2, x: 2 }])])] })).toThrow(/keyframe/i);
     const many = Array.from({ length: 25 }, (_, index) => ({ at: index / 10, x: .5 }));
     expect(() => edit(project, { type: 'add', scenes: [clip([text(many)])] })).toThrow(/keyframes/i);
+  });
+});
+
+describe('framing keyframes', () => {
+  const photo = (framingKeyframes?: { at: number; x?: number; y?: number; zoom?: number }[]) => ({
+    imageX: 0, imageY: 0, imageZoom: 1, framingKeyframes,
+  });
+
+  it('interpolates pan and zoom, holding the first and last values', () => {
+    const scene = photo([{ at: 1, x: -.4, y: .2, zoom: 1 }, { at: 3, x: .4, y: -.2, zoom: 2 }]);
+    expect(framingAt(scene, 0)).toEqual({ x: -.4, y: .2, zoom: 1 });
+    const middle = framingAt(scene, 2);
+    expect(middle.x).toBeCloseTo(0);
+    expect(middle.y).toBeCloseTo(0);
+    expect(middle.zoom).toBeCloseTo(1.5);
+    expect(framingAt(scene, 9)).toEqual({ x: .4, y: -.2, zoom: 2 });
+  });
+
+  it('falls back to the static framing when there are no keys', () => {
+    expect(framingAt({ imageX: .2, imageY: -.1, imageZoom: 1.5 }, 4)).toEqual({ x: .2, y: -.1, zoom: 1.5 });
+    expect(framingAt(photo([{ at: 1, zoom: 2 }]), 0)).toEqual({ x: 0, y: 0, zoom: 2 });
+  });
+
+  it('captures, replaces and removes keys', () => {
+    let keys = upsertFramingKeyframe(undefined, 1, { x: .2, y: .1, zoom: 1.2 });
+    keys = upsertFramingKeyframe(keys, 2.004, { x: .3, y: .1, zoom: 1.4 });
+    expect(keys).toHaveLength(2);
+    keys = removeFramingKeyframe(keys, 1)!;
+    expect(keys).toHaveLength(1);
+    expect(removeFramingKeyframe(keys, 2)).toBeUndefined();
+    const captured = framingKeyframeAt(photo([{ at: 0, zoom: 1 }, { at: 2, zoom: 2 }]), 1, 5);
+    expect(captured.at).toBe(1);
+    expect(captured.zoom).toBeCloseTo(1.5);
+  });
+
+  it('validates framing keys in the project model', () => {
+    const project = emptyProject('Framing');
+    const clip = (framingKeyframes: { at: number; x?: number; y?: number; zoom?: number }[]) => ({
+      id: 'one', name: 'One', image: 'data:image/png;base64,AA==', startTicks: 0, sourceInTicks: 0,
+      durationTicks: 90, title: '', subtitle: '', color: '#FFFFFF', fit: 'cover' as const, framingKeyframes,
+    });
+    expect(() => edit(project, { type: 'add', scenes: [clip([{ at: 1, x: -.3, zoom: 1.6 }])] })).not.toThrow();
+    expect(() => edit(project, { type: 'add', scenes: [clip([{ at: 99, zoom: 1.5 }])] })).toThrow(/keyframe/i);
+    expect(() => edit(project, { type: 'add', scenes: [clip([{ at: 1, zoom: 9 }])] })).toThrow(/keyframe/i);
+    expect(() => edit(project, { type: 'add', scenes: [clip(Array.from({ length: 25 }, (_, index) => ({ at: index / 10, zoom: 1.2 })))] })).toThrow(/keyframes/i);
   });
 });

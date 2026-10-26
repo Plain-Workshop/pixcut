@@ -1,4 +1,5 @@
-import { MAX_KEYFRAMES, type ElementLayer, type Keyframe, type TextLayer } from '../../stores/model';
+import { MAX_KEYFRAMES, type ElementLayer, type FramingKeyframe, type Keyframe, type TextLayer } from '../../stores/model';
+import { sampleTrack } from './sample';
 
 /**
  * Keyframes animate the layer's own geometry over its visible time. Times are
@@ -10,35 +11,16 @@ export type MotionFrame = { x: number; y: number; rotation: number; opacity: num
 
 type Animatable = { x: number; y: number; rotation: number; opacity: number; keyframes?: Keyframe[] };
 
-function sample(frames: Keyframe[], property: keyof Omit<Keyframe, 'at'>, at: number, fallback: number): number {
-  const points = frames.filter(frame => typeof frame[property] === 'number');
-  if (!points.length) return fallback;
-  const first = points[0];
-  if (at <= first.at) return first[property] as number;
-  const last = points[points.length - 1];
-  if (at >= last.at) return last[property] as number;
-  for (let index = 1; index < points.length; index += 1) {
-    const right = points[index];
-    if (at > right.at) continue;
-    const left = points[index - 1];
-    const span = right.at - left.at;
-    const progress = span <= 0 ? 1 : (at - left.at) / span;
-    const from = left[property] as number, to = right[property] as number;
-    return from + (to - from) * progress;
-  }
-  return last[property] as number;
-}
-
 /** The layer's animated geometry at `at` seconds from its start. */
 export function motionAt(layer: Animatable, at: number): MotionFrame {
   const frames = (layer.keyframes ?? []).filter(frame => Number.isFinite(frame.at)).sort((a, b) => a.at - b.at);
   if (!frames.length || !Number.isFinite(at)) return { x: layer.x, y: layer.y, rotation: layer.rotation, opacity: layer.opacity, scale: 1 };
   return {
-    x: sample(frames, 'x', at, layer.x),
-    y: sample(frames, 'y', at, layer.y),
-    rotation: sample(frames, 'rotation', at, layer.rotation),
-    opacity: sample(frames, 'opacity', at, layer.opacity),
-    scale: sample(frames, 'scale', at, 1),
+    x: sampleTrack(frames, 'x', at, layer.x),
+    y: sampleTrack(frames, 'y', at, layer.y),
+    rotation: sampleTrack(frames, 'rotation', at, layer.rotation),
+    opacity: sampleTrack(frames, 'opacity', at, layer.opacity),
+    scale: sampleTrack(frames, 'scale', at, 1),
   };
 }
 
@@ -72,4 +54,36 @@ export function keyframeAtPlayhead(layer: Animatable, localSeconds: number, dura
   const at = Math.min(Math.max(0, localSeconds), Math.max(0, durationSeconds));
   const frame = motionAt(layer, at);
   return { at, frame: { x: frame.x, y: frame.y, rotation: frame.rotation, opacity: frame.opacity, scale: frame.scale } };
+}
+
+export type FramingFrame = { x: number; y: number; zoom: number };
+
+/** Resolves a photo's pan/zoom at `at` seconds from the scene start. */
+export function framingAt(scene: { imageX?: number; imageY?: number; imageZoom?: number; framingKeyframes?: FramingKeyframe[] }, at: number): FramingFrame {
+  const frames = (scene.framingKeyframes ?? []).filter(frame => Number.isFinite(frame.at)).sort((a, b) => a.at - b.at);
+  return {
+    x: sampleTrack(frames, 'x', at, scene.imageX ?? 0),
+    y: sampleTrack(frames, 'y', at, scene.imageY ?? 0),
+    zoom: sampleTrack(frames, 'zoom', at, scene.imageZoom ?? 1),
+  };
+}
+
+export function upsertFramingKeyframe(frames: FramingKeyframe[] | undefined, at: number, values: Omit<FramingKeyframe, 'at'>): FramingKeyframe[] {
+  const time = Math.round(Math.max(0, Number.isFinite(at) ? at : 0) * 100) / 100;
+  const next = (frames ?? []).filter(frame => Math.abs(frame.at - time) > .005);
+  next.push({ at: time, ...values });
+  next.sort((a, b) => a.at - b.at);
+  return next.slice(0, MAX_KEYFRAMES);
+}
+
+export function removeFramingKeyframe(frames: FramingKeyframe[] | undefined, at: number): FramingKeyframe[] | undefined {
+  const next = (frames ?? []).filter(frame => Math.abs(frame.at - at) > .005);
+  return next.length ? next : undefined;
+}
+
+/** Captures the photo's current framing as a keyframe at the playhead. */
+export function framingKeyframeAt(scene: Parameters<typeof framingAt>[0], localSeconds: number, durationSeconds: number): FramingKeyframe {
+  const at = Math.min(Math.max(0, localSeconds), Math.max(0, durationSeconds));
+  const frame = framingAt(scene, at);
+  return { at, x: frame.x, y: frame.y, zoom: frame.zoom };
 }

@@ -4,7 +4,7 @@ import { drawModernElement } from '../elements/modern';
 import { framingTravel } from './framing';
 import { applyMaskAlpha } from './mask';
 import { elementTransform } from '../elements/transform';
-import { applyElementMotion, applyTextMotion } from '../animation/keyframes';
+import { applyElementMotion, applyTextMotion, framingAt } from '../animation/keyframes';
 import { overlayVideoFrame } from './overlay-video';
 import { drawElementSymbol, ELEMENT_LABEL_DEFAULTS, elementForeground } from '../elements/symbols';
 import { DEFAULT_TIMEBASE, sceneSeconds, secondsToTicks, ticksToSeconds, type AudioClip, type ElementLayer, type Project, type Scene, type TextAnimation, type TextLayer, type Timebase, type TransitionType } from '../../stores/model';
@@ -643,9 +643,12 @@ export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect:
     motionZoom = 1 + motionAmount * motionProgress;
     motionX = motionAmount * .6 * (motionProgress - .5) * 2;
   }
-  const zoom = Math.max(1, Math.min(4, (scene.imageZoom ?? 1) * motionZoom));
-  const panX = Math.max(-1, Math.min(1, (scene.imageX ?? 0) + motionX));
-  const panY = Math.max(-1, Math.min(1, (scene.imageY ?? 0) + motionY));
+  // Photo framing can be keyframed; video clips keep their static framing
+  // because FFmpeg encodes their scale/crop rather than this canvas path.
+  const framing = scene.mediaKind === 'video' ? { x: scene.imageX ?? 0, y: scene.imageY ?? 0, zoom: scene.imageZoom ?? 1 } : framingAt(scene, localSeconds);
+  const zoom = Math.max(1, Math.min(4, framing.zoom * motionZoom));
+  const panX = Math.max(-1, Math.min(1, framing.x + motionX));
+  const panY = Math.max(-1, Math.min(1, framing.y + motionY));
   let imageRect = { x: 0, y: 0, w, h };
   if (scene.fit === 'blur') {
     blurredCover(ctx, img, sourceWidth, sourceHeight, w, h);

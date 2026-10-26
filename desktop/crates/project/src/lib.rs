@@ -56,6 +56,19 @@ pub struct Transition {
     pub kind: String,
     pub duration: f64,
 }
+/// A keyframed pan/zoom on a photo: seconds from the scene start.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FramingKeyframe {
+    pub at: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<f64>,
+}
+
 /// One motion keyframe: seconds from the layer start, with optional overrides.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -315,6 +328,8 @@ pub struct Scene {
     pub image_y: f64,
     #[serde(default = "default_one")]
     pub image_zoom: f64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub framing_keyframes: Vec<FramingKeyframe>,
     #[serde(default = "default_black")]
     pub framing_background: String,
     #[serde(default = "default_one")]
@@ -415,6 +430,22 @@ pub struct Scene {
     #[serde(default = "default_text_subtitle_scale")]
     pub text_subtitle_scale: f64,
 }
+fn validate_framing_keyframes(frames: &mut Vec<FramingKeyframe>, duration_seconds: f64) -> bool {
+    if frames.len() > 24 { return false; }
+    let valid = frames.iter().all(|frame| {
+        frame.at.is_finite()
+            && frame.at >= 0.0
+            && frame.at <= duration_seconds + 1e-6
+            && frame.x.is_none_or(|value| value.is_finite() && (-1.0..=1.0).contains(&value))
+            && frame.y.is_none_or(|value| value.is_finite() && (-1.0..=1.0).contains(&value))
+            && frame.zoom.is_none_or(|value| value.is_finite() && (1.0..=4.0).contains(&value))
+    });
+    if valid {
+        frames.sort_by(|a, b| a.at.partial_cmp(&b.at).unwrap_or(std::cmp::Ordering::Equal));
+    }
+    valid
+}
+
 fn validate_keyframes(frames: &mut Vec<Keyframe>, duration_seconds: f64) -> bool {
     if frames.len() > 24 { return false; }
     let valid = frames.iter().all(|frame| {
@@ -1030,6 +1061,7 @@ impl Project {
                 }
                 s.legacy_duration = None;
                 let duration = timebase.ticks_to_seconds(s.duration_ticks);
+                let framing_ok = validate_framing_keyframes(&mut s.framing_keyframes, duration);
                 let is_video = s.media_kind.as_deref() == Some("video");
                 let maximum = if is_video { timebase.max_video_ticks() } else { maximum };
                 if s.duration_ticks < minimum || s.duration_ticks > maximum {
@@ -1167,6 +1199,7 @@ impl Project {
                     || !kind_ok
                     || !elements_ok
                     || !motion_ok
+                    || !framing_ok
                 {
                     return Err("Invalid scene, image, or duration.".into());
                 }
@@ -1675,6 +1708,7 @@ mod tests {
             image_x: 0.0,
             image_y: 0.0,
             image_zoom: 1.0,
+            framing_keyframes: Vec::new(),
             framing_background: "#000000".into(),
             brightness: 1.0,
             contrast: 1.0,
@@ -1817,6 +1851,24 @@ mod tests {
         bad_override[1].overrides.get_mut("one").unwrap().image_zoom = Some(9.0);
         assert!(s.apply(Command::Formats { formats: bad_override }).is_err());
     }
+    #[test]
+    fn validates_framing_keyframes() {
+        let mut s = Session::default();
+        let mut clip = scene();
+        clip.framing_keyframes = vec![FramingKeyframe { at: 1.0, x: Some(-0.3), y: Some(0.2), zoom: Some(1.6) }];
+        s.apply(Command::Add { scenes: vec![clip.clone()] }).unwrap();
+        assert_eq!(s.project.visual_clips()[0].framing_keyframes.len(), 1);
+        for bad in [
+            vec![FramingKeyframe { at: 99.0, ..Default::default() }],
+            vec![FramingKeyframe { at: 1.0, zoom: Some(9.0), ..Default::default() }],
+            vec![FramingKeyframe { at: 1.0, x: Some(2.0), ..Default::default() }],
+        ] {
+            let mut next = clip.clone();
+            next.framing_keyframes = bad;
+            assert!(s.apply(Command::Update { scene: next }).is_err());
+        }
+    }
+
     #[test]
     fn validates_text_layer_keyframes() {
         let mut s = Session::default();
@@ -2387,13 +2439,13 @@ mod tests {
         assert_eq!(mask.shape, "star");
         assert_eq!((mask.x, mask.y, mask.feather, mask.invert), (0.4, 0.6, 18.0, true));
 
-        p.tracks[0].clips[0].elements[0].kind = "star".into();
-        p.tracks[0].clips[0].elements[0].source = None;
-        assert!(p.validate().is_err());
-        p.tracks[0].clips[0].elements[0].kind = "image".into();
-        p.tracks[0].clips[0].elements[0].source = Some("data:image/png;base64,AA==".into());
-        p.tracks[0].clips[0].elements[0].mask.as_mut().unwrap().feather = 101.0;
-        assert!(p.validate().is_err());
+        let mut shape_invalid = p.clone();
+        shape_invalid.tracks[0].clips[0].elements[0].kind = "star".into();
+        shape_invalid.tracks[0].clips[0].elements[0].source = None;
+        assert!(shape_invalid.validate().is_err());
+        let mut feather_invalid = p.clone();
+        feather_invalid.tracks[0].clips[0].elements[0].mask.as_mut().unwrap().feather = 101.0;
+        assert!(feather_invalid.validate().is_err());
     }
 
     #[test]

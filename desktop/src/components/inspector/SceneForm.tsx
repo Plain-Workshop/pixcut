@@ -4,6 +4,7 @@ import { sceneSeconds, secondsToTicks, setSceneSeconds, ticksToSeconds, type Ele
 import { DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TEXT_SIZE, DEFAULT_TEXT_SUBTITLE_SCALE, DEFAULT_TEXT_WEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_X, DEFAULT_TEXT_Y, FONTS, clampWeight, fontOption, fontWeights } from '../text/fonts';
 import { MAX_TEXT_LAYERS, TEXT_LAYER_STYLE_DEFAULTS, createTextLayer, layerTimingLabel } from '../text/layers';
 import { KeyframeControls } from '../animation/KeyframeControls';
+import { FramingKeyframeControls } from '../animation/FramingKeyframeControls';
 import { sceneStack, stackIndex, stackZ, overlaysForScene, type StackMove } from '../elements/stack';
 import { StackOrder } from './StackOrder';
 import { FILTERS, clamp, thumbnailFilterCss } from '../preview/filters';
@@ -625,6 +626,12 @@ export function SceneForm({
         <RangeField label="Horizontal" value={Math.round((draft.imageX ?? 0) * 100)} min={-100} max={100} step={1} onChange={value => preview(stage({ imageX: value / 100 }))} onCommit={() => commit()} />
         <RangeField label="Vertical" value={Math.round((draft.imageY ?? 0) * 100)} min={-100} max={100} step={1} onChange={value => preview(stage({ imageY: value / 100 }))} onCommit={() => commit()} />
       </details>
+      {draft.mediaKind !== 'video' && <FramingKeyframeControls
+        scene={draft}
+        playheadSeconds={Math.min(ticksToSeconds(draft.durationTicks, timebase), Math.max(0, playheadSeconds))}
+        durationSeconds={ticksToSeconds(draft.durationTicks, timebase)}
+        onChange={keyframes => apply({ framingKeyframes: keyframes }, ['framingKeyframes'])}
+      />}
       {draft.mediaKind !== 'video' && <details className="inspector-disclosure"><summary>Camera movement <small>{draft.motion && draft.motion !== 'none' ? draft.motion.replaceAll('-', ' ') : 'None'}</small></summary>
         <label className="field">Motion<select value={draft.motion ?? 'none'} onChange={event => apply({ motion: event.target.value as Scene['motion'] })}><option value="none">None</option><option value="zoom-in">Zoom in</option><option value="zoom-out">Zoom out</option><option value="pan-left">Pan left</option><option value="pan-right">Pan right</option><option value="pan-up">Pan up</option><option value="pan-down">Pan down</option><option value="ken-burns">Ken Burns</option></select></label>
         {(draft.motion ?? 'none') !== 'none' && <RangeField label="Amount" value={(draft.motionAmount ?? .2) * 100} min={5} max={60} step={1} unit="%" onChange={value => preview(stage({ motionAmount: value / 100 }))} onCommit={() => commit()} />}

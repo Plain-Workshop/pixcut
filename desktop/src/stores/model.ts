@@ -138,6 +138,8 @@ export type Keyframe = {
 };
 /** Keyframes per layer. Enough for a move, a punch-in, and a settle. */
 export const MAX_KEYFRAMES = 24;
+/** A keyframed pan/zoom on a photo. Times are seconds from the scene start. */
+export type FramingKeyframe = { at: number; x?: number; y?: number; zoom?: number };
 export type TextLayer = {
   id: string;
   title: string;
@@ -221,6 +223,8 @@ export type Scene = {
   pitch?: boolean;
   /** Imported clip sound level, 0–100. Missing means 100. */
   videoVolume?: number;
+  /** Animated photo framing; video scenes keep their static framing. */
+  framingKeyframes?: FramingKeyframe[];
   fadeIn?: number;
   fadeOut?: number;
   textBackdropEnabled?: boolean;
@@ -365,6 +369,29 @@ function readTextColor(value: unknown, fallback: string, label: string) {
   if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) throw new Error(`Invalid ${label}.`);
   return value;
 }
+function readFramingKeyframes(value: unknown, durationTicks: number): FramingKeyframe[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error('A scene has invalid framing keyframes.');
+  if (value.length > MAX_KEYFRAMES) throw new Error(`A scene supports up to ${MAX_KEYFRAMES} framing keyframes.`);
+  const maxAt = ticksToSeconds(durationTicks);
+  const frames: FramingKeyframe[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') throw new Error('A scene has invalid framing keyframes.');
+    const frame = entry as Partial<FramingKeyframe>;
+    if (typeof frame.at !== 'number' || !Number.isFinite(frame.at) || frame.at < 0 || frame.at > maxAt) throw new Error('A framing keyframe sits outside the scene.');
+    const next: FramingKeyframe = { at: Math.round(frame.at * 1000) / 1000 };
+    for (const [key, min, max] of [['x', -1, 1], ['y', -1, 1], ['zoom', 1, 4]] as const) {
+      const raw = frame[key];
+      if (raw === undefined) continue;
+      if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < min || raw > max) throw new Error('A framing keyframe has an invalid value.');
+      (next as Record<string, number>)[key] = raw;
+    }
+    frames.push(next);
+  }
+  frames.sort((a, b) => a.at - b.at);
+  return frames.length ? frames : undefined;
+}
+
 function readKeyframes(value: unknown, durationTicks: number, label: string): Keyframe[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) throw new Error(`${label} has invalid motion keyframes.`);
@@ -714,6 +741,9 @@ export function validateProject(value: unknown): Project {
       s.transition = readTransition(s.transition, ticks as number, timebase);
       s.title = layers[0]?.title ?? '';
       s.subtitle = layers[0]?.subtitle ?? '';
+      const framingKeyframes = readFramingKeyframes(s.framingKeyframes, ticks as number);
+      if (framingKeyframes) s.framingKeyframes = framingKeyframes;
+      else delete s.framingKeyframes;
       clipIds.add(s.id); bytes += s.image.length + (s.elements ?? []).reduce((sum, element) => sum + (element.source?.length ?? 0), 0);
       clips.push(s as Scene);
     }
@@ -785,6 +815,7 @@ const SCENE_PATCH_FIELDS = [
   { key: 'speed', value: (scene: Scene) => scene.speed ?? 1 },
   { key: 'pitch', value: (scene: Scene) => scene.pitch ?? true },
   { key: 'videoVolume', value: (scene: Scene) => scene.videoVolume ?? 100 },
+  { key: 'framingKeyframes', value: (scene: Scene) => JSON.stringify(scene.framingKeyframes ?? []) },
   { key: 'fadeIn', value: (scene: Scene) => scene.fadeIn ?? 0 },
   { key: 'fadeOut', value: (scene: Scene) => scene.fadeOut ?? 0 },
   { key: 'textBackdropEnabled', value: (scene: Scene) => scene.textBackdropEnabled ?? false },
@@ -827,7 +858,7 @@ export function scenePatch(base: Scene, next: Scene): Partial<Scene> {
   for (const field of SCENE_PATCH_FIELDS) {
     const before = field.value(base);
     const after = field.value(next);
-    if (before !== after) (patch as Record<string, unknown>)[field.key] = field.key === 'textLayers' ? structuredClone(next.textLayers ?? []) : field.key === 'elements' ? structuredClone(next.elements ?? []) : field.key === 'transition' ? structuredClone(next.transition ?? null) : after;
+    if (before !== after) (patch as Record<string, unknown>)[field.key] = field.key === 'textLayers' ? structuredClone(next.textLayers ?? []) : field.key === 'elements' ? structuredClone(next.elements ?? []) : field.key === 'transition' ? structuredClone(next.transition ?? null) : field.key === 'framingKeyframes' ? structuredClone(next.framingKeyframes ?? []) : after;
   }
   return patch;
 }
