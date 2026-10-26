@@ -1,7 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { edit, emptyProject, trimHistory, validateProject, type Command, type Project, type Session } from '../stores/model';
-import { hydrateProjectAssets, persistProjectAssets } from '../stores/assets';
+import { persistProjectAssets } from '../stores/assets';
 export const native = isTauri();
 let current = emptyProject();
 let past: Project[] = [], future: Project[] = [];
@@ -126,6 +126,8 @@ export type ImportedMedia = { reference: string; name: string; bytes: number };
 export async function importVideoAsset(): Promise<ImportedMedia | null> { return native ? invoke('import_video') : null; }
 export async function importAudioAsset(): Promise<ImportedMedia | null> { return native ? invoke('import_audio') : null; }
 export type ImportedImage = { reference: string; name: string; bytes: number };
+export type ImportedAsset = { reference: string; name: string; bytes: number; mime: string };
+export async function importMediaAsset(): Promise<ImportedAsset | null> { return native ? invoke('import_media') : null; }
 export async function importImagesAsset(): Promise<ImportedImage[]> { return native ? invoke('import_images') : []; }
 
 export async function missingAssetRefs(references: string[]): Promise<string[]> { return native ? invoke('missing_asset_refs', { references }) : references; }

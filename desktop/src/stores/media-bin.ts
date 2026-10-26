@@ -1,4 +1,4 @@
-import { loadAssetDataUrl, storeAssetDataUrl } from './assets';
+import { storeAssetDataUrl } from './assets';
 import type { Scene } from './model';
 const open = () => new Promise<IDBDatabase>((resolve, reject) => {
   const req = indexedDB.open('pixcut-media-bin', 1);
@@ -9,18 +9,13 @@ export async function loadMediaBin(id: string): Promise<Scene[]> {
   const db = await open();
   try {
     const rows = await new Promise<Scene[]>((resolve, reject) => { const req = db.transaction('bins').objectStore('bins').get(id); req.onsuccess = () => resolve(req.result ?? []); req.onerror = () => reject(req.error); });
-    // Unresolved references stay in the bin so they can be relinked with the
-    // rest of the project instead of breaking the media panel.
-    for (const row of rows) {
-      if (!row.image.startsWith('pixcut-asset:')) continue;
-      try { row.image = await loadAssetDataUrl(row.image.slice(13)); } catch { /* relink later */ }
-    }
+    // Media stays as asset references and is resolved by the renderer/tiles.
     return rows;
   } finally { db.close(); }
 }
 export async function saveMediaBin(id: string, items: Scene[]) {
   const rows = structuredClone(items);
-  for (const row of rows) { const asset = await storeAssetDataUrl(row.image, row.name); row.image = `pixcut-asset:${asset.id}`; }
+  for (const row of rows) { if (!row.image.startsWith('data:')) continue; const asset = await storeAssetDataUrl(row.image, row.name); row.image = `pixcut-asset:${asset.id}`; }
   const db = await open();
   try { await new Promise<void>((resolve, reject) => { const tx = db.transaction('bins', 'readwrite'); tx.objectStore('bins').put(rows, id); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); }
   finally { db.close(); }

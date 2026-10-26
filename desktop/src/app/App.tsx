@@ -12,6 +12,7 @@ import { applyElementMotion, applyTextMotion } from '../components/animation/key
 import { KeyframeControls } from '../components/animation/KeyframeControls';
 import { snapOverlayTiming } from '../components/timeline/beats';
 import { isAssetRef, resolveAssetUrl, resolveMediaSource } from '../components/preview/media-url';
+import { assetExists, assetRef, storeAssetBlob } from '../stores/assets';
 import { AssetImage, ClipFilmstrip } from '../components/preview/AssetImage';
 import { beatMarkerTicks, detectBeats, snapScenesToBeats } from '../components/timeline/beat-sync';
 import { MaskControls } from '../components/inspector/MaskControls';
@@ -270,8 +271,8 @@ function imageFileData(file: File): Promise<string> {
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
     return Promise.reject(new Error(`“${file.name}” is not a JPEG, PNG, or WebP image. Choose one of those formats.`));
   }
-  if (file.size > 10 * 1024 * 1024) {
-    return Promise.reject(new Error(`“${file.name}” is larger than 10 MB. Choose a smaller image.`));
+  if (file.size > 500 * 1024 * 1024) {
+    return Promise.reject(new Error(`“${file.name}” is larger than 500 MB. Choose a smaller image.`));
   }
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -521,9 +522,20 @@ export default function App() {
   // clip never flashes a missing-media banner.
   const [presentRefs, setPresentRefs] = useState<Set<string>>(() => new Set(projectAssetRefs(project)));
   useEffect(() => {
-    if (!bridge.native) { setPresentRefs(new Set()); return; }
     const refs = projectAssetRefs(project);
     if (!refs.length) { setPresentRefs(new Set()); return; }
+    if (!bridge.native) {
+      let cancelled = false;
+      setPresentRefs(current => new Set([...current, ...refs]));
+      void Promise.all(refs.map(async reference => {
+        try { return await assetExists(reference.slice('pixcut-asset:'.length)) ? reference : null; }
+        catch { return null; }
+      })).then(present => {
+        if (cancelled) return;
+        setPresentRefs(new Set(present.filter((value): value is string => Boolean(value))));
+      });
+      return () => { cancelled = true; };
+    }
     setPresentRefs(current => new Set([...current, ...refs]));
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -1048,7 +1060,13 @@ export default function App() {
     // Full preview resolution while paused keeps text crisp; half-resolution
     // playback keeps 4K and overlay-heavy stories smooth.
     const renderLimit = draggingOverlay || playing ? 720 : 1280;
-    const renderScale = Math.min(1, renderLimit / Math.max(activeSize.width, activeSize.height));
+    // A compact deliverable (320×180, 480×854) must still preview sharply, so the
+    // canvas renders at up to 720 px on its long edge even when the output is smaller.
+    const longestSide = Math.max(activeSize.width, activeSize.height);
+    const renderScale = Math.max(
+      Math.min(1, renderLimit / longestSide),
+      Math.min(720 / longestSide, 2.5),
+    );
     const renderSize = { width: Math.max(1, Math.round(activeSize.width * renderScale)), height: Math.max(1, Math.round(activeSize.height * renderScale)) };
     previewQueue.current.enqueue(async () => {
       const layer = document.createElement('canvas');
@@ -2533,11 +2551,12 @@ export default function App() {
     setPlaying(false); setBusy(true); operation.current = true;
     try {
       const added: Scene[] = [];
-      const incomingBytes = Array.from(files).reduce((sum, file) => sum + Math.ceil(file.size / 3) * 4 + 64, 0);
-      if (incomingBytes + scenes.reduce((sum, scene) => sum + scene.image.length, 0) > 90_000_000) throw new Error('This prototype supports up to 64 MB of embedded images per project.');
       if (files.length + scenes.length > 100) throw new Error('Add up to 100 images per project.');
       for (const file of Array.from(files)) {
-        const image = await imageFileData(file);
+        if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error(`“${file.name}” is not a JPEG, PNG, or WebP image. Choose one of those formats.`);
+        if (file.size > 500 * 1024 * 1024) throw new Error(`“${file.name}” is larger than 500 MB. Choose a smaller image.`);
+        const asset = await storeAssetBlob(file, file.name);
+        const image = assetRef(asset.id);
         await loadImage(image);
         added.push({ id: crypto.randomUUID(), startTicks: 0, sourceInTicks: 0, name: file.name, image, durationTicks: secondsToTicks(preferences.defaultSceneSeconds, project.timebase), title: '', subtitle: '', color: '#ffffff', fit: preferences.defaultFit });
       }
@@ -2766,10 +2785,46 @@ export default function App() {
     window.addEventListener('pointerup', up);
   }
 
+  async function replaceSceneWithAsset(sceneId: string, asset: bridge.ImportedAsset) {
+    if (!canEdit) return;
+    setReplacingSceneId(sceneId);
+    try {
+      inspectorFlush.current();
+      await pending.current;
+      const target = projectScenes(latestProject.current).find(scene => scene.id === sceneId);
+      if (!target) throw new Error('That scene is no longer in the project.');
+      let next: Scene;
+      if (asset.mime.startsWith('video/')) {
+        const probe = await probeVideo(asset.reference);
+        const source = Math.min(3600, Math.max(.01, probe.duration));
+        const duration = Math.min(target.durationTicks, secondsToTicks(source, project.timebase));
+        next = {
+          ...target, name: asset.name, image: asset.reference, mediaKind: 'video', videoPoster: probe.poster,
+          sourceDurationSeconds: source, sourceInTicks: 0, durationTicks: Math.max(minTicks(project.timebase), duration),
+          motion: 'none', transition: null,
+          fadeIn: Math.min(target.fadeIn ?? 0, ticksToSeconds(duration, project.timebase)),
+          fadeOut: Math.min(target.fadeOut ?? 0, ticksToSeconds(duration, project.timebase)),
+        };
+      } else {
+        await loadImage(asset.reference);
+        next = replaceSceneImage(target, asset.reference, asset.name);
+      }
+      const before = optimisticScene(next);
+      const ok = await run({ type: 'update', scene: next });
+      if (ok) setNotice(asset.mime.startsWith('video/') ? 'Video replaced. Text, looks, and the scene\'s timeline position were kept.' : 'Image replaced. Timing, text, and looks were kept.');
+      else { latestProject.current = before; setSession(current => ({ ...current, project: before })); }
+    } catch (error) { setError(messageFor(error)); }
+    finally { setReplacingSceneId(null); }
+  }
+
   function requestReplaceImage(sceneId?: string) {
     const id = sceneId ?? (selectedCount === 1 ? selectedScene?.id : undefined);
-    if (!id) { setNotice('Select one scene to replace its image.'); return; }
+    if (!id) { setNotice('Select one scene to replace its media.'); return; }
     if (!canEdit) return;
+    if (bridge.native) {
+      void bridge.importMediaAsset().then(asset => { if (asset) void replaceSceneWithAsset(id, asset); }).catch(error => setError(messageFor(error)));
+      return;
+    }
     inspectorFlush.current();
     replaceTargetId.current = id;
     replaceInput.current?.click();
@@ -2812,8 +2867,17 @@ export default function App() {
     if (!canEdit) return;
     setReplacingSceneId(sceneId);
     try {
-      const image = await imageFileData(file);
-      await loadImage(image);
+      let image: string;
+      if (bridge.native) {
+        image = await imageFileData(file);
+        await loadImage(image);
+      } else {
+        if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error(`“${file.name}” is not a JPEG, PNG, or WebP image. Choose one of those formats.`);
+        if (file.size > 500 * 1024 * 1024) throw new Error(`“${file.name}” is larger than 500 MB. Choose a smaller image.`);
+        const asset = await storeAssetBlob(file, file.name);
+        image = assetRef(asset.id);
+        await loadImage(image);
+      }
       inspectorFlush.current();
       await pending.current;
       const target = projectScenes(latestProject.current).find(scene => scene.id === sceneId);
@@ -3848,7 +3912,7 @@ export default function App() {
             <input className="source-volume" aria-label="Preview volume" type="range" min="0" max="1" step=".01" value={previewVolume} onChange={event => changePreviewVolume(Number(event.target.value))} />
             <span className="source-volume-label">{Math.round(previewVolume * 100)}%</span>
           </div>}
-          <div className="source-preview-actions"><button className="button primary" disabled={!hasMedia(sourcePreview.image)} onClick={() => void appendMedia(sourcePreview)}><Plus size={15} /> Append to timeline</button><button className="button" disabled={!selectedScene || !mediaSource(sourcePreview.image)} onClick={() => void addMediaOverlay(sourcePreview).catch(error => setError(messageFor(error)))}><Layers size={15} /> Place on top</button><span className="source-keyboard-hint">{sourcePreview.mediaKind === 'video' ? '← → switch · Space play · ↑ ↓ volume' : '← → switch media'}</span></div>
+          <div className="source-preview-actions"><button className="button primary" disabled={!hasMedia(sourcePreview.image)} onClick={() => void appendMedia(sourcePreview)}><Plus size={15} /> Append to timeline</button><button className="button" disabled={!selectedScene || !hasMedia(sourcePreview.image)} onClick={() => void addMediaOverlay(sourcePreview).catch(error => setError(messageFor(error)))}><Layers size={15} /> Place on top</button><span className="source-keyboard-hint">{sourcePreview.mediaKind === 'video' ? '← → switch · Space play · ↑ ↓ volume' : '← → switch media'}</span></div>
         </> : modal === 'templates' ? <>
           <h2 id="modal-title">Start from a story.</h2><p>Photo stories, one animated video opener, and local music — all bundled and ready offline. {projects.length ? 'Your current project is saved before a template opens.' : ''}</p>
           <label className="shortcut-search template-search"><Search size={15} /><input aria-label="Search templates" placeholder="Search templates…" value={templateQuery} onChange={e => setTemplateQuery(e.target.value)} /></label>
@@ -4084,7 +4148,7 @@ export default function App() {
               <section className="export-section"><h3>Encoding</h3>
                 <div className="codec-choices" role="group" aria-label="Video codec">{EXPORT_CODEC_OPTIONS.map(({ id, label, description }) => <button type="button" key={id} aria-pressed={exportCodec === id} disabled={!exportCodecs.includes(id)} className={exportCodec === id ? 'active' : ''} onClick={() => { setExportCodec(id); setExportContainer(current => EXPORT_CONTAINERS[id].includes(current) ? current : EXPORT_CONTAINERS[id][0]); }}><strong>{label}</strong><small>{exportCodecs.includes(id) ? description : 'Encoder unavailable'}</small>{exportCodec === id && <Check size={15} />}</button>)}</div>
                 <div className="export-pair"><label className="field">Container<select aria-label="Video container" value={exportContainer} onChange={event => setExportContainer(event.target.value as bridge.ExportContainer)}>{EXPORT_CONTAINERS[exportCodec].map(id => <option key={id} value={id}>{EXPORT_CONTAINER_LABEL[id]}</option>)}</select></label><label className="field">Encoding speed<select aria-label="Encoding speed" value={exportSpeed} disabled={exportCodec === 'prores'} onChange={event => setExportSpeed(event.target.value as 'medium')}><option value="fast">Fast</option><option value="medium">Balanced</option><option value="slow">Slower · better compression</option></select></label></div>
-                <label className="export-audio-toggle"><input type="checkbox" checked={exportHardware} disabled={!hardwareAvailable || (exportCodec !== 'h264' && exportCodec !== 'hevc')} onChange={event => setExportHardware(event.target.checked)} /> Hardware encoder <small>{!hardwareAvailable ? 'Unavailable in this build' : exportCodec !== 'h264' && exportCodec !== 'hevc' ? 'H.264 and H.265 only' : 'Apple VideoToolbox · much faster'}</small></label>
+                <label className="export-audio-toggle"><input type="checkbox" checked={exportHardware} disabled={!hardwareAvailable || (exportCodec !== 'h264' && exportCodec !== 'hevc')} onChange={event => setExportHardware(event.target.checked)} /> Hardware encoder <small>{!hardwareAvailable ? 'Unavailable in this build' : exportCodec !== 'h264' && exportCodec !== 'hevc' ? 'H.264 and H.265 only' : 'Platform encoder · much faster'}</small></label>
               </section>
               <section className="export-section"><h3>Quality</h3><div className="quality-choices" role="group" aria-label="Export quality">{([['draft','Smaller','Quick drafts'],['standard','Balanced','Everyday sharing'],['high','High','Sharper details']] as const).map(([id,label,description]) => <button type="button" key={id} aria-pressed={exportQuality === id} className={exportQuality === id ? 'active' : ''} onClick={() => setExportQuality(id)}><strong>{label}</strong><small>{description}</small></button>)}</div></section>
               <section className="export-section"><h3>Picture</h3><div className="export-pair"><label className="field">Resolution<select aria-label="Export resolution" value={exportResolution} onChange={event => setExportResolution(event.target.value)}><option value="project">Project dimensions</option><option value="720">720p HD</option><option value="1080">1080p Full HD</option><option value="2160">4K UHD</option></select></label><label className="field">Frame rate<select aria-label="Export frame rate" value={exportFps} onChange={event => setExportFps(event.target.value)}><option value="project">Match each output</option>{[24,25,30,60].map(fps => <option key={fps} value={fps}>{fps} fps</option>)}</select></label></div><label className="export-audio-toggle"><input type="checkbox" checked={exportAudio} onChange={event => setExportAudio(event.target.checked)} /> Include audio <small>{exportAudio ? (exportCodec === 'vp9' ? 'Opus · 160 kbps' : exportCodec === 'prores' ? 'PCM · 48 kHz' : 'AAC · 192 kbps') : 'Silent video'}</small></label></section>

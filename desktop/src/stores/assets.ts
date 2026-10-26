@@ -149,6 +149,12 @@ export async function loadAssetDataUrl(id: string) {
   return data;
 }
 
+export async function assetExists(id: string): Promise<boolean> {
+  const db = await openDatabase();
+  const row = await requestResult(db.transaction(STORE, 'readonly').objectStore(STORE).get(id)) as AssetRow | undefined;
+  return Boolean(row);
+}
+
 export async function persistProjectAssets(project: Project): Promise<Project> {
   const persisted = structuredClone(project);
   for (const element of persisted.overlays ?? []) if (element.source?.startsWith('data:')) { const asset = await storeAssetDataUrl(element.source, element.label ?? 'Overlay'); element.source = `${PREFIX}${asset.id}`; }

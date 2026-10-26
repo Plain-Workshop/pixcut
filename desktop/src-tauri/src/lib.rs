@@ -730,6 +730,59 @@ async fn import_images(app: tauri::AppHandle) -> Result<Vec<ImportedImage>, Stri
     Ok(imported)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportedAsset {
+    reference: String,
+    name: String,
+    bytes: u64,
+    mime: String,
+}
+
+/// Imports one image or video through the native picker without ever putting
+/// the file into the project as base64. The editor receives only its reference.
+#[tauri::command]
+async fn import_media(app: tauri::AppHandle) -> Result<Option<ImportedAsset>, String> {
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .add_filter("Images and videos", &["png", "jpg", "jpeg", "webp", "mp4", "m4v", "mov", "webm"])
+        .pick_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    let source = file.path().to_path_buf();
+    let name = source
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("Media")
+        .to_string();
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime = match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "mp4" => "video/mp4",
+        "m4v" => "video/x-m4v",
+        "mov" => "video/quicktime",
+        "webm" => "video/webm",
+        _ => return Err(format!("“{name}” is not a supported image or video.")),
+    };
+    let size = fs::metadata(&source).map_err(|e| e.to_string())?.len();
+    if size == 0 {
+        return Err(format!("“{name}” is empty."));
+    }
+    let image = mime.starts_with("image/");
+    if size > if image { 500 * 1024 * 1024 } else { 4 * 1024 * 1024 * 1024 } {
+        return Err(format!("“{name}” is too large."));
+    }
+    let (id, bytes) = stream_file_into_store(&app, &source, &extension)?;
+    Ok(Some(ImportedAsset { reference: format!("pixcut-asset:{id}"), name, bytes, mime: mime.into() }))
+}
+
 #[tauri::command]
 async fn import_audio(app: tauri::AppHandle) -> Result<Option<ImportedMedia>, String> {
     let Some(file) = rfd::AsyncFileDialog::new()
@@ -878,16 +931,15 @@ fn hydrate_project(directory: &Path, project: &mut Project, keep_video_refs: boo
         let mime = extension_mime(extension).ok_or("Unsupported local asset type.")?;
         Ok(Some(format!("data:{mime};base64,{}", STANDARD.encode(&bytes))))
     };
-    for element in &mut project.overlays {
-                if let Some(id) = element.source.as_deref().and_then(|s| s.strip_prefix("pixcut-asset:")) { if let Some(data) = load(id)? { element.source = Some(data); } }
-            }
-    for track in &mut project.tracks {
-        for scene in &mut track.clips {
-            for element in &mut scene.elements {
-                if let Some(id) = element.source.as_deref().and_then(|s| s.strip_prefix("pixcut-asset:")) { if let Some(data) = load(id)? { element.source = Some(data); } }
-            }
-            // Imported media stays on disk so the editor never holds it as base64.
-            if !keep_video_refs {
+    if !keep_video_refs {
+        for element in &mut project.overlays {
+            if let Some(id) = element.source.as_deref().and_then(|s| s.strip_prefix("pixcut-asset:")) { if let Some(data) = load(id)? { element.source = Some(data); } }
+        }
+        for track in &mut project.tracks {
+            for scene in &mut track.clips {
+                for element in &mut scene.elements {
+                    if let Some(id) = element.source.as_deref().and_then(|s| s.strip_prefix("pixcut-asset:")) { if let Some(data) = load(id)? { element.source = Some(data); } }
+                }
                 if let Some(id) = scene.image.strip_prefix("pixcut-asset:") {
                     if let Some(data) = load(id)? { scene.image = data.into(); }
                 }
@@ -900,9 +952,11 @@ fn hydrate_project(directory: &Path, project: &mut Project, keep_video_refs: boo
             if let Some(data) = load(id)? { clip.data = data.into(); }
         }
     }
-    if let Some(music) = &mut project.legacy_music {
-        if let Some(id) = music.data.strip_prefix("pixcut-asset:") {
-            if let Some(data) = load(id)? { music.data = data.into(); }
+    if !keep_video_refs {
+        if let Some(music) = &mut project.legacy_music {
+            if let Some(id) = music.data.strip_prefix("pixcut-asset:") {
+                if let Some(data) = load(id)? { music.data = data.into(); }
+            }
         }
     }
     Ok(())
@@ -975,6 +1029,7 @@ fn initialize(app: tauri::AppHandle, editor: State<Editor>) -> Result<View, Stri
         session.past.clear();
         session.future.clear();
         let persisted = write_recovery(&app, &session.project)?;
+        session.project = persisted.clone();
         *editor.persisted.lock().map_err(|e| e.to_string())? = persisted;
         return Ok(session.view());
     }
@@ -982,7 +1037,9 @@ fn initialize(app: tauri::AppHandle, editor: State<Editor>) -> Result<View, Stri
         let (project, legacy) = read_recovery(&app, &path)?;
         session.project = project;
         let persisted = if legacy {
-            write_recovery(&app, &session.project)?
+            let persisted = write_recovery(&app, &session.project)?;
+            session.project = persisted.clone();
+            persisted
         } else {
             // The file is already in its persisted shape; reuse it instead of
             // decoding every photo again just to rebuild the mirror.
@@ -1017,6 +1074,7 @@ fn take_pending_project(
     }
     session.future.clear();
     let persisted = write_recovery(&app, &session.project)?;
+    session.project = persisted.clone();
     *editor.persisted.lock().map_err(|e| e.to_string())? = persisted;
     Ok(Some(session.view()))
 }
@@ -1031,6 +1089,7 @@ fn dispatch(
         let mut next = current.clone();
         next.apply(command)?;
         let persisted = write_recovery(&app, &next.project)?;
+        next.project = persisted.clone();
         *editor.persisted.lock().map_err(|e| e.to_string())? = persisted;
         *current = next;
         Ok(current.view())
@@ -1329,21 +1388,29 @@ impl EncodeSpeed {
 fn encoder_available(binary: &Path, codec: ExportCodec) -> bool {
     encoder_named(binary, codec.encoder())
 }
-/// Platform hardware encoder for a codec, when this build can offer one.
-fn hardware_encoder(codec: ExportCodec) -> Option<&'static str> {
-    #[cfg(target_os = "macos")]
-    {
-        match codec {
-            ExportCodec::H264 => return Some("h264_videotoolbox"),
-            ExportCodec::Hevc => return Some("hevc_videotoolbox"),
-            _ => return None,
-        }
+/// Hardware encoder families this build can drive, per platform.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum HardwareFamily {
+    VideoToolbox,
+    Nvenc,
+}
+
+fn hardware_candidates(codec: ExportCodec) -> &'static [(&'static str, HardwareFamily)] {
+    match codec {
+        ExportCodec::H264 if cfg!(target_os = "macos") => &[("h264_videotoolbox", HardwareFamily::VideoToolbox)],
+        ExportCodec::Hevc if cfg!(target_os = "macos") => &[("hevc_videotoolbox", HardwareFamily::VideoToolbox)],
+        ExportCodec::H264 if cfg!(any(target_os = "windows", target_os = "linux")) => &[("h264_nvenc", HardwareFamily::Nvenc)],
+        ExportCodec::Hevc if cfg!(any(target_os = "windows", target_os = "linux")) => &[("hevc_nvenc", HardwareFamily::Nvenc)],
+        _ => &[],
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = codec;
-        None
-    }
+}
+
+/// Picks the first hardware encoder this machine's FFmpeg actually provides.
+fn hardware_encoder(codec: ExportCodec, binary: &Path) -> Option<(&'static str, HardwareFamily)> {
+    hardware_candidates(codec)
+        .iter()
+        .copied()
+        .find(|(name, _)| encoder_named(binary, name))
 }
 /// Targets a comparable visual quality to the CRF presets using bits per pixel.
 fn hardware_bitrate(options: &ExportOptions) -> u64 {
@@ -1354,8 +1421,7 @@ fn hardware_bitrate(options: &ExportOptions) -> u64 {
 }
 #[tauri::command]
 fn exporter_hardware() -> bool {
-    let Some(binary) = ffmpeg() else { return false };
-    hardware_encoder(ExportCodec::H264).is_some_and(|encoder| encoder_named(&binary, encoder))
+    ffmpeg().is_some_and(|binary| hardware_encoder(ExportCodec::H264, &binary).is_some())
 }
 fn encoder_named(binary: &Path, name: &str) -> bool {
     std::process::Command::new(binary).args(["-hide_banner", "-encoders"]).output().is_ok_and(|output| {
@@ -1375,10 +1441,9 @@ async fn exporter_capabilities() -> Result<Vec<String>, String> {
 }
 fn check_encoder(binary: &Path, options: &ExportOptions) -> Result<(), String> {
     if options.hardware {
-        let encoder = hardware_encoder(options.codec).ok_or("Hardware encoding is only available for H.264 and H.265 on macOS.")?;
-        if !encoder_named(binary, encoder) {
-            return Err(format!("Your FFmpeg does not include {encoder}. Turn off hardware encoding or install a fuller FFmpeg build."));
-        }
+        let encoder = hardware_encoder(options.codec, binary)
+            .map(|(name, _)| name)
+            .ok_or("Hardware encoding is not available for this codec with your FFmpeg. Turn it off to use the software encoder.")?;
         return if encoder_named(binary, options.codec.audio_encoder()) {
             Ok(())
         } else {
@@ -1398,21 +1463,37 @@ fn export_output_name(options: &ExportOptions) -> String {
     let stem = [".mp4", ".mov", ".mkv", ".webm"].into_iter().find_map(|suffix| raw.strip_suffix(suffix)).unwrap_or(raw);
     format!("{}.{}", safe_filename(stem), options.container.extension())
 }
+/// Encoder arguments for the platform hardware path. VideoToolbox is driven by
+/// a bitrate; NVENC uses constant quality (CQ) with a VBR rate control.
+fn hardware_video_args(options: &ExportOptions, encoder: &str, family: HardwareFamily) -> Vec<String> {
+    let mut args: Vec<String> = match family {
+        HardwareFamily::VideoToolbox => vec![
+            "-c:v".into(), encoder.into(),
+            "-b:v".into(), hardware_bitrate(options).to_string(),
+            "-pix_fmt".into(), "yuv420p".into(),
+        ],
+        HardwareFamily::Nvenc => vec![
+            "-c:v".into(), encoder.into(),
+            "-preset".into(), match options.speed { EncodeSpeed::Fast => "p3", EncodeSpeed::Medium => "p5", EncodeSpeed::Slow => "p7" }.into(),
+            "-rc".into(), "vbr".into(),
+            "-cq".into(), options.crf.to_string(),
+            "-b:v".into(), "0".into(),
+            "-pix_fmt".into(), "yuv420p".into(),
+        ],
+    };
+    if options.codec == ExportCodec::Hevc && options.container.is_quicktime_family() {
+        args.extend(["-tag:v".into(), "hvc1".into()]);
+    }
+    if options.container.is_quicktime_family() {
+        args.extend(["-movflags".into(), "+faststart".into()]);
+    }
+    args
+}
+
 fn video_encoding_args(options: &ExportOptions) -> Vec<String> {
     if options.hardware {
-        if let Some(encoder) = hardware_encoder(options.codec) {
-            let mut args: Vec<String> = vec![
-                "-c:v".into(), encoder.into(),
-                "-b:v".into(), hardware_bitrate(options).to_string(),
-                "-pix_fmt".into(), "yuv420p".into(),
-            ];
-            if options.codec == ExportCodec::Hevc && options.container.is_quicktime_family() {
-                args.extend(["-tag:v".into(), "hvc1".into()]);
-            }
-            if options.container.is_quicktime_family() {
-                args.extend(["-movflags".into(), "+faststart".into()]);
-            }
-            return args;
+        if let Some((encoder, family)) = hardware_candidates(options.codec).first().copied() {
+            return hardware_video_args(options, encoder, family);
         }
     }
     let mut args: Vec<String> = match options.codec {
@@ -2451,6 +2532,7 @@ pub fn run() {
             import_video,
             import_audio,
             import_images,
+            import_media,
             asset_path,
             missing_asset_refs,
             referenced_refs,
@@ -2515,6 +2597,25 @@ mod integration_tests {
         options.height = 181;
         assert!(validate_export_options(&options).is_err());
     }
+    #[test]
+    fn nvenc_arguments_use_constant_quality() {
+        let mut options = export_options();
+        options.hardware = true;
+        options.speed = EncodeSpeed::Fast;
+        let args = hardware_video_args(&options, "h264_nvenc", HardwareFamily::Nvenc);
+        assert!(args.windows(2).any(|pair| pair[0] == "-c:v" && pair[1] == "h264_nvenc"), "{args:?}");
+        assert!(args.windows(2).any(|pair| pair[0] == "-preset" && pair[1] == "p3"));
+        assert!(args.windows(2).any(|pair| pair[0] == "-cq" && pair[1] == "20"));
+        assert!(args.windows(2).any(|pair| pair[0] == "-b:v" && pair[1] == "0"));
+        options.codec = ExportCodec::Hevc;
+        options.container = ExportContainer::Mov;
+        options.speed = EncodeSpeed::Slow;
+        let hevc = hardware_video_args(&options, "hevc_nvenc", HardwareFamily::Nvenc);
+        assert!(hevc.windows(2).any(|pair| pair[0] == "-preset" && pair[1] == "p7"));
+        assert!(hevc.windows(2).any(|pair| pair[0] == "-tag:v" && pair[1] == "hvc1"));
+        assert!(hardware_candidates(ExportCodec::Vp9).is_empty());
+    }
+
     #[test]
     #[cfg(target_os = "macos")]
     fn hardware_encoding_uses_videotoolbox_and_a_sane_bitrate() {
@@ -3590,6 +3691,9 @@ mod integration_tests {
         let mut again = original.clone();
         persist_project(&directory, &mut again).unwrap();
         assert_eq!(fs::read_dir(&directory).unwrap().count(), 3);
+        hydrate_project(&directory, &mut project, true).unwrap();
+        assert!(project.visual_clips()[0].image.starts_with("pixcut-asset:"));
+        assert!(project.audio[0].data.starts_with("pixcut-asset:"));
         // This test round-trips the stored media, so resolve every reference.
         hydrate_project(&directory, &mut project, false).unwrap();
         assert_eq!(project, original);

@@ -1,3 +1,5 @@
+import { resolveMediaSource } from './media-url';
+
 /** Read a local video file as a data URL so the preview can play it offline. */
 export function videoFileData(file: File): Promise<string> {
   return new Promise<string>((resolve, reject) => {
@@ -64,7 +66,11 @@ export function probeVideo(src: string): Promise<VideoProbe> {
         capture();
       }
     };
-    video.src = src;
-    video.load();
+    void resolveMediaSource(src).then(url => {
+      if (settled) return;
+      if (!url) { finish(new Error('That video is missing from the local store. Relink it.')); return; }
+      video.src = url;
+      video.load();
+    }, error => finish(error instanceof Error ? error : new Error(String(error))));
   });
 }
