@@ -66,9 +66,9 @@ async (page) => {
   await page.getByLabel('Element exit',{exact:true}).selectOption('fade');
   await page.getByLabel('Overlay start',{exact:true}).fill('1');await page.getByLabel('Overlay start',{exact:true}).press('Tab');
   await page.getByLabel('Overlay duration',{exact:true}).fill('8');await page.getByLabel('Overlay duration',{exact:true}).press('Tab');
-  await page.getByRole('button',{name:'Dynamic',exact:true}).click();
-  if(await page.locator('.element-grid .element-card').count()!==8)throw Error('Dynamic category missing presets');
-  await page.getByRole('button',{name:'Add Mouse interaction',exact:true}).click();
+  await page.getByRole('button',{name:'Tutorials',exact:true}).click();
+  if(await page.locator('.element-grid .element-card').count()!==20)throw Error('Dynamic category missing presets');
+  await page.getByRole('button',{name:'Add Drag gesture',exact:true}).click();
   await page.getByLabel('Mouse interaction',{exact:true}).selectOption('drag');
   await page.getByLabel('Action starts after (s)',{exact:true}).fill('2');await page.getByLabel('Action starts after (s)',{exact:true}).press('Tab');
   await page.screenshot({path:'output/playwright/dynamic-elements-editor.png'});

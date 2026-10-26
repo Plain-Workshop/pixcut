@@ -90,6 +90,7 @@ export type ElementBehavior = {
   repeat?: boolean; audioId?: string; variant?: 'click' | 'double-click' | 'drag' | 'phone' | 'browser';
 };
 export type ElementLayer = {
+  presetId?: string;
   behavior?: ElementBehavior;
   exit?: 'none' | 'fade' | 'slide-down';
   /** Stacking order; bigger draws on top. Missing means the classic order. */
@@ -302,7 +303,7 @@ type LegacyMusic = {
   fadeOut: number;
   durationSeconds: number;
 };
-export type Project = { schema_version: 13; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; overlays: ElementLayer[]; formats: FormatVariant[]; beatTicks?: number[]; ducking?: number; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
+export type Project = { schema_version: 14; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; overlays: ElementLayer[]; formats: FormatVariant[]; beatTicks?: number[]; ducking?: number; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
 export type Command =
   | { type: 'replace'; project: Project }
   | { type: 'rename'; name: string }
@@ -355,7 +356,7 @@ export function normalizeStarts(clips: Scene[]) {
   }
 }
 export const defaultFormat = (aspect: Project['aspect'] = '16:9'): FormatVariant => { const [width, height] = aspect === '9:16' ? [1080, 1920] : aspect === '4:5' ? [1080, 1350] : aspect === '1:1' ? [1080, 1080] : [1920, 1080]; return { id: crypto.randomUUID(), name: 'Original', platform: 'Original', aspect, width, height, fps: 30, quality: 'standard', overrides: {} }; };
-export const emptyProject = (name = 'Untitled story', aspect: Project['aspect'] = '16:9', fps = 30): Project => ({ schema_version: 13, id: crypto.randomUUID(), name, aspect, timebase: timebaseFor(fps), tracks: [emptyTrack()], audio: [], overlays: [], formats: [defaultFormat(aspect)], policy: { ...policy } });
+export const emptyProject = (name = 'Untitled story', aspect: Project['aspect'] = '16:9', fps = 30): Project => ({ schema_version: 14, id: crypto.randomUUID(), name, aspect, timebase: timebaseFor(fps), tracks: [emptyTrack()], audio: [], overlays: [], formats: [defaultFormat(aspect)], policy: { ...policy } });
 export const totalTicks = (project: Project) => projectScenes(project).reduce((end, scene) => Math.max(end, scene.startTicks + scene.durationTicks), 0);
 export const totalDuration = (project: Project) => ticksToSeconds(totalTicks(project), project.timebase);
 const optionalNumber = (value: unknown, min: number, max: number) => value === undefined || (typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max);
@@ -566,7 +567,7 @@ function readFormats(value: unknown, aspect: Project['aspect'], clipIds: Set<str
     if (typeof format.aspect !== 'string' || !format.aspect || format.aspect.length > 20) throw new Error('Invalid output format aspect.');
     const width = format.width ?? (format.aspect === '9:16' ? 1080 : format.aspect === '4:5' ? 1080 : format.aspect === '1:1' ? 1080 : 1920);
     const height = format.height ?? (format.aspect === '9:16' ? 1920 : format.aspect === '4:5' ? 1350 : format.aspect === '1:1' ? 1080 : 1080);
-    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 240 || height < 240 || width > 3840 || height > 3840 || width % 2 !== 0 || height % 2 !== 0) throw new Error('Invalid output format size.');
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 160 || height < 160 || width > 3840 || height > 3840 || width % 2 !== 0 || height % 2 !== 0) throw new Error('Invalid output format size.');
     const fps = format.fps ?? 30;
     if (!Number.isInteger(fps) || fps < 15 || fps > 60) throw new Error('Invalid output format frame rate.');
     const quality = format.quality ?? 'standard';
@@ -673,6 +674,7 @@ function readElements(value: unknown, durationTicks: number, limit = 12): Elemen
     if (element.sourceInSeconds !== undefined && (!Number.isFinite(element.sourceInSeconds) || element.sourceInSeconds < 0)) throw new Error('Invalid overlay source start.');
     if (element.sourceDurationSeconds !== undefined && (!Number.isFinite(element.sourceDurationSeconds) || element.sourceDurationSeconds <= 0 || element.sourceDurationSeconds > 3600)) throw new Error('Invalid overlay source duration.');
     if (element.label !== undefined && (typeof element.label !== 'string' || [...element.label].length > 80)) throw new Error('Element text must be 80 characters or fewer.');
+    if (element.presetId != null && (typeof element.presetId !== 'string' || !/^[a-z][a-z0-9-]{0,79}$/.test(element.presetId))) throw new Error('Invalid element design preset.');
     if (element.exit != null && !['none', 'fade', 'slide-down'].includes(element.exit)) throw new Error('Invalid element exit.');
     if (element.z !== undefined && (typeof element.z !== 'number' || !Number.isFinite(element.z) || element.z < 0 || element.z > STACK_Z_MAX)) throw new Error('Invalid element layer order.');
     let behavior: ElementBehavior | undefined;
@@ -700,6 +702,7 @@ function readElements(value: unknown, durationTicks: number, limit = 12): Elemen
     return {
       ...(action ? { action } : {}),
       ...(behavior ? { behavior } : {}),
+      ...(element.presetId ? { presetId: element.presetId } : {}),
       ...(element.exit ? { exit: element.exit } : {}),
       ...(element.z !== undefined ? { z: element.z } : {}),
       ...(element.label !== undefined ? { label: element.label } : {}),
@@ -735,7 +738,7 @@ function readBeats(value: unknown, totalTicks: number): number[] {
 export function validateProject(value: unknown): Project {
   if (!value || typeof value !== 'object') throw new Error('This is not a PixCut project.');
   const p = value as ProjectInput;
-  if (p.schema_version !== 1 && p.schema_version !== 2 && p.schema_version !== 3 && p.schema_version !== 4 && p.schema_version !== 5 && p.schema_version !== 6 && p.schema_version !== 7 && p.schema_version !== 8 && p.schema_version !== 9 && p.schema_version !== 10 && p.schema_version !== 11 && p.schema_version !== 12 && p.schema_version !== 13) throw new Error('Unsupported project version. Your original file has not been changed.');
+  if (p.schema_version !== 1 && p.schema_version !== 2 && p.schema_version !== 3 && p.schema_version !== 4 && p.schema_version !== 5 && p.schema_version !== 6 && p.schema_version !== 7 && p.schema_version !== 8 && p.schema_version !== 9 && p.schema_version !== 10 && p.schema_version !== 11 && p.schema_version !== 12 && p.schema_version !== 13 && p.schema_version !== 14) throw new Error('Unsupported project version. Your original file has not been changed.');
   if (typeof p.id !== 'string' || typeof p.name !== 'string' || p.name.length > 120 || !['16:9', '9:16', '1:1', '4:5'].includes(p.aspect)) throw new Error('Invalid project format.');
   const timebase = p.schema_version === 1 ? { ...DEFAULT_TIMEBASE } : readTimebase(p.timebase);
   const minimum = minTicks(timebase), photoMaximum = maxTicks(timebase);
@@ -814,7 +817,7 @@ export function validateProject(value: unknown): Project {
   const formats = readFormats(p.formats, p.aspect, clipIds);
   const beatTicks = readBeats(p.beatTicks, total);
   const ducking = p.ducking === undefined ? undefined : readNumber(p.ducking, 0, 100, 0, 'music ducking');
-  return { schema_version: 13, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, overlays, formats, ...(beatTicks.length ? { beatTicks } : {}), ...(ducking ? { ducking } : {}), policy: { ...policy } };
+  return { schema_version: 14, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, overlays, formats, ...(beatTicks.length ? { beatTicks } : {}), ...(ducking ? { ducking } : {}), policy: { ...policy } };
 }
 const SCENE_PATCH_FIELDS = [
   { key: 'durationTicks', value: (scene: Scene) => scene.durationTicks },

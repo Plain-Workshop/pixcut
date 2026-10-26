@@ -506,6 +506,35 @@ struct ImportedMedia {
     bytes: u64,
 }
 
+/// Copies a picked file into the asset store in chunks and returns its hash and
+/// size, so the editor keeps only a reference instead of a base64 copy.
+fn stream_file_into_store(app: &tauri::AppHandle, source: &Path, extension: &str) -> Result<(String, u64), String> {
+    let directory = asset_store_dir(app)?;
+    fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    let mut input = fs::File::open(source).map_err(|e| e.to_string())?;
+    let mut temporary = tempfile::Builder::new()
+        .suffix(&format!(".{extension}"))
+        .tempfile_in(&directory)
+        .map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1 << 20];
+    let mut written = 0u64;
+    loop {
+        let read = input.read(&mut buffer).map_err(|e| e.to_string())?;
+        if read == 0 { break; }
+        hasher.update(&buffer[..read]);
+        temporary.write_all(&buffer[..read]).map_err(|e| e.to_string())?;
+        written += read as u64;
+    }
+    temporary.flush().map_err(|e| e.to_string())?;
+    let id = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let destination = directory.join(format!("{id}.{extension}"));
+    if !destination.exists() {
+        temporary.persist(&destination).map_err(|e| e.to_string())?;
+    }
+    Ok((id, written))
+}
+
 /// Imports a video by streaming it into the local asset store, so the editor
 /// keeps only a reference in memory instead of a base64 copy.
 #[tauri::command]
@@ -542,30 +571,56 @@ async fn import_video(app: tauri::AppHandle) -> Result<Option<ImportedMedia>, St
     if size > 4 * 1024 * 1024 * 1024 {
         return Err("That video is larger than 4 GB. Split it into smaller clips.".into());
     }
-    let directory = asset_store_dir(&app)?;
-    fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-    let mut input = fs::File::open(&source).map_err(|e| e.to_string())?;
-    let mut temporary = tempfile::Builder::new()
-        .suffix(&format!(".{extension}"))
-        .tempfile_in(&directory)
-        .map_err(|e| e.to_string())?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0u8; 1 << 20];
-    let mut written = 0u64;
-    loop {
-        let read = input.read(&mut buffer).map_err(|e| e.to_string())?;
-        if read == 0 { break; }
-        hasher.update(&buffer[..read]);
-        temporary.write_all(&buffer[..read]).map_err(|e| e.to_string())?;
-        written += read as u64;
-    }
-    temporary.flush().map_err(|e| e.to_string())?;
-    let id = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    let destination = directory.join(format!("{id}.{extension}"));
-    if !destination.exists() {
-        temporary.persist(&destination).map_err(|e| e.to_string())?;
-    }
+    let (id, written) = stream_file_into_store(&app, &source, extension)?;
     Ok(Some(ImportedMedia { reference: format!("pixcut-asset:{id}"), name, bytes: written }))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportedImage {
+    reference: String,
+    name: String,
+    bytes: u64,
+}
+
+/// Imports photos by streaming them into the asset store; a photo story can now
+/// hold far more than the old embedded-image budget.
+#[tauri::command]
+async fn import_images(app: tauri::AppHandle) -> Result<Vec<ImportedImage>, String> {
+    let Some(files) = rfd::AsyncFileDialog::new()
+        .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
+        .pick_files()
+        .await
+    else {
+        return Ok(vec![]);
+    };
+    let mut imported = Vec::new();
+    for file in files {
+        let source = file.path().to_path_buf();
+        let name = source
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("Photo")
+            .to_string();
+        let extension = source
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if !["png", "jpg", "jpeg", "webp"].contains(&extension.as_str()) {
+            return Err(format!("“{name}” is not a PNG, JPEG, or WebP image."));
+        }
+        let size = fs::metadata(&source).map_err(|e| e.to_string())?.len();
+        if size == 0 {
+            return Err(format!("“{name}” is empty."));
+        }
+        if size > 500 * 1024 * 1024 {
+            return Err(format!("“{name}” is larger than 500 MB."));
+        }
+        let (id, bytes) = stream_file_into_store(&app, &source, &extension)?;
+        imported.push(ImportedImage { reference: format!("pixcut-asset:{id}"), name, bytes });
+    }
+    Ok(imported)
 }
 
 #[tauri::command]
@@ -598,29 +653,7 @@ async fn import_audio(app: tauri::AppHandle) -> Result<Option<ImportedMedia>, St
     if size > 1024 * 1024 * 1024 {
         return Err("That audio file is larger than 1 GB. Choose a shorter clip.".into());
     }
-    let directory = asset_store_dir(&app)?;
-    fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-    let mut input = fs::File::open(&source).map_err(|e| e.to_string())?;
-    let mut temporary = tempfile::Builder::new()
-        .suffix(&format!(".{extension}"))
-        .tempfile_in(&directory)
-        .map_err(|e| e.to_string())?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0u8; 1 << 20];
-    let mut written = 0u64;
-    loop {
-        let read = input.read(&mut buffer).map_err(|e| e.to_string())?;
-        if read == 0 { break; }
-        hasher.update(&buffer[..read]);
-        temporary.write_all(&buffer[..read]).map_err(|e| e.to_string())?;
-        written += read as u64;
-    }
-    temporary.flush().map_err(|e| e.to_string())?;
-    let id = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    let destination = directory.join(format!("{id}.{extension}"));
-    if !destination.exists() {
-        temporary.persist(&destination).map_err(|e| e.to_string())?;
-    }
+    let (id, written) = stream_file_into_store(&app, &source, &extension)?;
     Ok(Some(ImportedMedia { reference: format!("pixcut-asset:{id}"), name, bytes: written }))
 }
 
@@ -746,8 +779,8 @@ fn hydrate_project(directory: &Path, project: &mut Project, keep_video_refs: boo
             for element in &mut scene.elements {
                 if let Some(id) = element.source.as_deref().and_then(|s| s.strip_prefix("pixcut-asset:")) { if let Some(data) = load(id)? { element.source = Some(data); } }
             }
-            // Imported video stays on disk so the editor never holds it as base64.
-            if !(keep_video_refs && scene.media_kind.as_deref() == Some("video")) {
+            // Imported media stays on disk so the editor never holds it as base64.
+            if !keep_video_refs {
                 if let Some(id) = scene.image.strip_prefix("pixcut-asset:") {
                     if let Some(data) = load(id)? { scene.image = data.into(); }
                 }
@@ -781,7 +814,7 @@ fn read_recovery(app: &tauri::AppHandle, path: &Path) -> Result<(Project, bool),
     }
     let mut project: Project = serde_json::from_reader(fs::File::open(path).map_err(|e| e.to_string())?)
         .map_err(|e| format!("Cannot open recovery: {e}"))?;
-    let legacy = project.schema_version != 13 || has_inline_media(&project);
+    let legacy = project.schema_version != 14 || has_inline_media(&project);
     hydrate_project(&asset_store_dir(app)?, &mut project, true)?;
     project.validate()?;
     Ok((project, legacy))
@@ -806,7 +839,7 @@ fn read_project_with_migration(path: &Path) -> Result<(Project, bool), String> {
     }
     let mut p: Project = serde_json::from_reader(fs::File::open(path).map_err(|e| e.to_string())?)
         .map_err(|e| format!("Cannot open project: {e}"))?;
-    let legacy = p.schema_version != 13;
+    let legacy = p.schema_version != 14;
     p.validate()?;
     Ok((p, legacy))
 }
@@ -1314,8 +1347,8 @@ fn audio_encoding_args(options: &ExportOptions) -> Vec<String> {
     }
 }
 fn validate_export_options(options: &ExportOptions) -> Result<(), String> {
-    if options.width < 240
-        || options.height < 240
+    if options.width < 160
+        || options.height < 160
         || options.width > 3840
         || options.height > 3840
         || options.width % 2 != 0
@@ -2310,6 +2343,7 @@ pub fn run() {
             pick_media,
             import_video,
             import_audio,
+            import_images,
             asset_path,
             missing_asset_refs,
             exporter_available,
@@ -3034,7 +3068,7 @@ mod integration_tests {
         let before = fs::read_to_string(&path).unwrap();
         let (project, migrated) = read_project_with_migration(&path).unwrap();
         assert!(migrated);
-        assert_eq!(project.schema_version, 13);
+        assert_eq!(project.schema_version, 14);
         assert_eq!(project.visual_clips()[0].duration_ticks, 120);
         assert_eq!(fs::read_to_string(&path).unwrap(), before);
     }
@@ -3330,7 +3364,7 @@ mod integration_tests {
             write_project_bundle(&path, &project, None).unwrap();
             assert_eq!(read_project_bundle(&path).unwrap(), original);
             persist_project(temp.path(), &mut project).unwrap();
-            hydrate_project(temp.path(), &mut project, true).unwrap();
+            hydrate_project(temp.path(), &mut project, false).unwrap();
             assert_eq!(project, original);
         }
     }
@@ -3434,6 +3468,10 @@ mod integration_tests {
         persist_project(&directory, &mut project).unwrap();
         assert!(project.visual_clips().iter().all(|scene| scene.image.starts_with("pixcut-asset:")));
         assert!(project.audio[0].data.starts_with("pixcut-asset:"));
+        // Runtime hydration keeps streamed photo/audio references for the asset protocol.
+        hydrate_project(&directory, &mut project, true).unwrap();
+        assert!(project.visual_clips().iter().all(|scene| scene.image.starts_with("pixcut-asset:")));
+        assert!(project.audio[0].data.starts_with("pixcut-asset:"));
         let path = temp.path().join("streamed.pixcut");
         write_project_bundle(&path, &project, Some(&directory)).unwrap();
         // The archive is portable: reading it back resolves the references.
@@ -3450,7 +3488,8 @@ mod integration_tests {
         project.tracks[0].clips[0].image = format!("pixcut-asset:{missing}").into();
         let available = project.tracks[0].clips[1].image.clone();
         persist_project(&directory, &mut project).unwrap();
-        hydrate_project(&directory, &mut project, true).unwrap();
+        // Full hydration resolves the stored photo and leaves only the missing one.
+        hydrate_project(&directory, &mut project, false).unwrap();
         assert_eq!(project.tracks[0].clips[0].image, format!("pixcut-asset:{missing}").into());
         assert_eq!(project.tracks[0].clips[1].image, available);
         assert!(project_has_asset_refs(&project));

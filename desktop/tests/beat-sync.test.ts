@@ -78,6 +78,6 @@ describe('cut snapping', () => {
     const result = snapScenesToBeats(scenes, [2], 0, DEFAULT_TIMEBASE);
     expect(result.moved).toBe(0);
     expect(result.scenes).toEqual(scenes);
-    expect(emptyProject().schema_version).toBe(13);
+    expect(emptyProject().schema_version).toBe(14);
   });
 });

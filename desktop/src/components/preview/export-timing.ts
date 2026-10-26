@@ -11,8 +11,8 @@ export function exportBoundaries(scene: Scene, timebase: Timebase, hasNext: bool
   }
   const activeOverlays = overlays.filter(e => e.startTicks < scene.startTicks + scene.durationTicks && e.startTicks + e.durationTicks > scene.startTicks);
   for (const e of activeOverlays) { add(e.startTicks - scene.startTicks); add(e.startTicks + e.durationTicks - scene.startTicks); }
-  const animated = activeOverlays.some(e => e.animation !== 'none' || e.action || (e.exit && e.exit !== 'none') || isDynamicElement(e.kind) || e.kind === 'video') || (scene.motion && scene.motion !== 'none') || (hasNext && scene.transition) ||
-    sceneTextLayers(scene).some(layer => layer.animation !== 'none') || scene.elements?.some(layer => layer.animation !== 'none' || layer.action || (layer.exit && layer.exit !== 'none') || isDynamicElement(layer.kind) || layer.kind === 'video');
+  const animated = activeOverlays.some(e => e.presetId || e.animation !== 'none' || e.action || (e.exit && e.exit !== 'none') || isDynamicElement(e.kind) || e.kind === 'video') || (scene.motion && scene.motion !== 'none') || (hasNext && scene.transition) ||
+    sceneTextLayers(scene).some(layer => layer.animation !== 'none') || scene.elements?.some(layer => layer.animation !== 'none' || layer.presetId || layer.action || (layer.exit && layer.exit !== 'none') || isDynamicElement(layer.kind) || layer.kind === 'video');
   if (animated) for (let tick = 1; tick < scene.durationTicks; tick++) add(tick);
   if (scene.transition && hasNext) add(scene.durationTicks - secondsToTicks(scene.transition.duration, timebase));
   return [...points].sort((a, b) => a - b);

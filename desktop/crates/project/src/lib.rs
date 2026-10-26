@@ -233,6 +233,8 @@ pub struct Mask {
 #[serde(rename_all = "camelCase")]
 pub struct ElementLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub behavior: Option<ElementBehavior>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit: Option<String>,
@@ -497,6 +499,7 @@ fn validate_elements(elements: &mut Vec<ElementLayer>, total: u64, limit: usize,
                         ids.insert(element.id.clone())
                             && !element.id.is_empty()
                             && ["caption", "chapter", "callout", "keycaps", "mouse", "device", "comparison", "checklist", "rating", "countdown", "waveform", "message", "qr", "end-screen", "image", "video", "label", "name-tag", "link", "quote", "counter", "status", "burst", "frame", "dots", "tape", "chevron", "rectangle", "ellipse", "triangle", "star", "sparkle", "line", "arrow", "heart", "subscribe", "like", "bell", "comment", "share", "play", "progress", "location", "music", "check", "cross", "ring", "cursor", "underline"].contains(&element.kind.as_str())
+                            && element.preset_id.as_ref().is_none_or(|s| !s.is_empty() && s.len() <= 80 && s.as_bytes().first().is_some_and(|c| c.is_ascii_lowercase()) && s.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-'))
                             && element.behavior.as_ref().is_none_or(|b| b.valid())
                             && element.exit.as_ref().is_none_or(|s| ["none", "fade", "slide-down"].contains(&s.as_str()))
                             && element.z.is_none_or(|z| z.is_finite() && (0.0..=100_000.0).contains(&z))
@@ -888,7 +891,7 @@ pub struct Project {
 impl Default for Project {
     fn default() -> Self {
         Self {
-            schema_version: 13,
+            schema_version: 14,
             id: "new-project".into(),
             name: "Untitled story".into(),
             aspect: "16:9".into(),
@@ -1000,7 +1003,7 @@ impl Project {
         Ok(())
     }
     pub fn validate(&mut self) -> Result<(), String> {
-        if self.schema_version != 1 && self.schema_version != 2 && self.schema_version != 3 && self.schema_version != 4 && self.schema_version != 5 && self.schema_version != 6 && self.schema_version != 7 && self.schema_version != 8 && self.schema_version != 9 && self.schema_version != 10 && self.schema_version != 11 && self.schema_version != 12 && self.schema_version != 13 {
+        if self.schema_version != 1 && self.schema_version != 2 && self.schema_version != 3 && self.schema_version != 4 && self.schema_version != 5 && self.schema_version != 6 && self.schema_version != 7 && self.schema_version != 8 && self.schema_version != 9 && self.schema_version != 10 && self.schema_version != 11 && self.schema_version != 12 && self.schema_version != 13 && self.schema_version != 14 {
             return Err(
                 "Unsupported project version. The original file has not been changed.".into(),
             );
@@ -1046,7 +1049,7 @@ impl Project {
         };
         self.legacy_scenes.clear();
         let migrating_music = self.schema_version < 5;
-        self.schema_version = 13;
+        self.schema_version = 14;
         if tracks.is_empty() {
             tracks.push(Track::visual());
         }
@@ -1354,7 +1357,7 @@ impl Project {
                 return Err("Invalid output format name.".into());
             }
             if format.aspect.is_empty() || format.aspect.chars().count() > 20
-                || format.width < 240 || format.height < 240 || format.width > 3840 || format.height > 3840
+                || format.width < 160 || format.height < 160 || format.width > 3840 || format.height > 3840
                 || format.width % 2 != 0 || format.height % 2 != 0
                 || !(15..=60).contains(&format.fps)
                 || !["draft", "standard", "high"].contains(&format.quality.as_str())
@@ -2099,7 +2102,7 @@ mod tests {
             duration_seconds: 2.0,
         });
         p.validate().unwrap();
-        assert_eq!(p.schema_version, 13);
+        assert_eq!(p.schema_version, 14);
         assert_eq!(p.audio.len(), 1);
         assert_eq!(p.audio[0].start_ticks, 0);
         assert_eq!(p.audio[0].duration_ticks, 60);
@@ -2115,7 +2118,7 @@ mod tests {
         p.tracks[0].clips = vec![scene(), second];
         let overlay: ElementLayer = serde_json::from_value(serde_json::json!({"id":"global-bell","kind":"bell","x":0.5,"y":0.5,"width":0.2,"height":0.2,"rotation":0,"color":"#FFCC66","opacity":100,"startTicks":15,"durationTicks":90,"animation":"fade","loop":false,"action":{"kind":"ring","startTicks":30,"durationTicks":30,"repeat":false,"sound":true}})).unwrap();
         p.schema_version = 10; p.overlays = vec![overlay]; p.validate().unwrap();
-        assert_eq!(p.schema_version, 13); assert_eq!(p.overlays[0].duration_ticks, 90);
+        assert_eq!(p.schema_version, 14); assert_eq!(p.overlays[0].duration_ticks, 90);
         let original = p.clone();
         let mut restored: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap(); restored.validate().unwrap(); assert_eq!(original, restored);
         let mut session = Session { project: p, ..Default::default() };
@@ -2133,7 +2136,7 @@ mod tests {
         for kind in ["label", "name-tag", "link", "quote", "counter", "status"] {
             let mut project = Project::default(); project.schema_version = 11; project.tracks[0].clips = vec![scene()];
             project.overlays = vec![serde_json::from_value(serde_json::json!({"id":"modern","kind":kind,"x":0.5,"y":0.5,"width":0.4,"height":0.2,"rotation":0,"color":"#C5B4FF","opacity":100,"startTicks":0,"durationTicks":30,"label":"Za kulisami · 東京","animation":"fade"})).unwrap()];
-            project.validate().unwrap(); assert_eq!(project.schema_version, 13);
+            project.validate().unwrap(); assert_eq!(project.schema_version, 14);
             let mut restored: Project = serde_json::from_str(&serde_json::to_string(&project).unwrap()).unwrap(); restored.validate().unwrap(); assert_eq!(restored, project);
         }
     }
@@ -2142,7 +2145,7 @@ mod tests {
         for kind in ["caption", "chapter", "callout", "keycaps", "mouse", "device", "comparison", "checklist", "rating", "countdown", "waveform", "message", "qr", "end-screen"] {
             let mut p = Project::default(); p.schema_version = 12; p.tracks[0].clips = vec![scene()];
             p.overlays = vec![serde_json::from_value(serde_json::json!({"id":"dynamic","kind":kind,"x":0.5,"y":0.5,"width":0.4,"height":0.2,"rotation":0,"color":"#C5B4FF","opacity":100,"startTicks":0,"durationTicks":30,"label":"東京", "animation":"none", "exit":"fade", "behavior":{"atSeconds":1,"intervalSeconds":0.5,"countFrom":5,"countTo":0,"repeat":true,"variant":"click","audioId":"track"}})).unwrap()];
-            p.validate().unwrap(); assert_eq!(p.schema_version, 13);
+            p.validate().unwrap(); assert_eq!(p.schema_version, 14);
             let mut restored: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap(); restored.validate().unwrap(); assert_eq!(p, restored);
             restored.overlays[0].behavior.as_mut().unwrap().interval_seconds = Some(0.0); assert!(restored.validate().is_err());
             restored = p.clone(); restored.overlays[0].behavior.as_mut().unwrap().variant = Some("unknown".into()); assert!(restored.validate().is_err());
@@ -2150,10 +2153,29 @@ mod tests {
         }
     }
     #[test]
+    fn designer_presets_migrate_round_trip_and_validate_identifiers() {
+        for collection in ["creator", "lower-thirds", "captions", "chapters", "notifications", "tutorials", "timers", "audio", "screens", "travel", "food", "fitness", "shopping", "events", "reactions", "badges", "data", "callouts", "end-screens", "stories"] {
+            for variant in 1..=10 {
+                let id = format!("{collection}-{variant:02}");
+                let mut p = Project::default(); p.schema_version = 13; p.tracks[0].clips = vec![scene()];
+                p.overlays = vec![serde_json::from_value(serde_json::json!({"id":"preset","kind":"label","presetId":id,"x":0.5,"y":0.5,"width":0.4,"height":0.2,"rotation":0,"color":"#C5B4FF","opacity":100,"startTicks":0,"durationTicks":30,"label":"Twoja historia · 東京","animation":"none"})).unwrap()];
+                p.validate().unwrap(); assert_eq!(p.schema_version, 14);
+                let mut restored: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap(); restored.validate().unwrap(); assert_eq!(restored, p);
+                assert_eq!(restored.overlays[0].preset_id.as_deref(), Some(id.as_str()));
+            }
+        }
+        for invalid in ["", "../unsafe", "UPPER CASE", &"a".repeat(81)] {
+            let mut p = Project::default(); p.tracks[0].clips = vec![scene()];
+            p.overlays = vec![serde_json::from_value(serde_json::json!({"id":"preset","kind":"label","presetId":invalid,"x":0.5,"y":0.5,"width":0.4,"height":0.2,"rotation":0,"color":"#C5B4FF","opacity":100,"startTicks":0,"durationTicks":30,"animation":"none"})).unwrap()];
+            assert!(p.validate().is_err());
+        }
+    }
+    #[test]
     fn validates_element_layers() {
         let mut p = Project::default();
         let mut clip = scene();
         clip.elements.push(ElementLayer {
+            preset_id: None,
             mask: None,
             id: "element".into(),
             kind: "star".into(),
@@ -2176,7 +2198,7 @@ mod tests {
             p.schema_version = 7;
             p.tracks[0].clips[0].elements[0].animation = animation.into();
             p.validate().unwrap();
-            assert_eq!(p.schema_version, 13);
+            assert_eq!(p.schema_version, 14);
             assert_eq!(p.tracks[0].clips[0].elements[0].animation, animation);
         }
         for kind in ["burst", "frame", "dots", "tape", "chevron"] {
@@ -2197,7 +2219,7 @@ mod tests {
         p.schema_version = 8;
         p.tracks[0].clips[0].elements[0].label = Some("登録する · اشترك · Subskrybuj".into());
         p.validate().unwrap();
-        assert_eq!(p.schema_version, 13);
+        assert_eq!(p.schema_version, 14);
         let mut roundtrip: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
         roundtrip.validate().unwrap();
         assert_eq!(roundtrip.tracks[0].clips[0].elements[0].label, p.tracks[0].clips[0].elements[0].label);
@@ -2250,7 +2272,7 @@ mod tests {
     #[test]
     fn future_schema_is_rejected() {
         let mut p = Project::default();
-        p.schema_version = 14;
+        p.schema_version = 15;
         assert!(p.validate().is_err());
     }
     #[test]
@@ -2274,7 +2296,7 @@ mod tests {
         }))
         .unwrap();
         p.validate().unwrap();
-        assert_eq!(p.schema_version, 13);
+        assert_eq!(p.schema_version, 14);
         assert_eq!(p.timebase, Timebase::default());
         assert_eq!(p.tracks.len(), 1);
         assert_eq!(p.tracks[0].kind, "visual");
@@ -2301,7 +2323,7 @@ mod tests {
         }))
         .unwrap();
         p.validate().unwrap();
-        assert_eq!(p.schema_version, 13);
+        assert_eq!(p.schema_version, 14);
         assert_eq!(p.tracks.len(), 1);
         assert_eq!(p.tracks[0].kind, "visual");
         assert_eq!(p.visual_clips()[0].start_ticks, 0);
@@ -2502,6 +2524,7 @@ mod tests {
         let mut p = Project::default();
         let mut clip = scene();
         clip.elements.push(ElementLayer {
+            preset_id: None,
             mask: Some(Mask {
                 shape: "star".into(), x: 0.4, y: 0.6, width: 0.7, height: 0.7, rotation: 22.0, feather: 18.0, invert: true,
             }),
@@ -2558,6 +2581,7 @@ mod tests {
         let mut p = Project::default();
         let mut clip = scene();
         clip.elements.push(ElementLayer {
+            preset_id: None,
             mask: None,
             keyframes: Vec::new(),
             id: "element".into(),
@@ -2604,6 +2628,7 @@ mod tests {
         // 8 MB of media per snapshot: 30 copies would pin 240 MB in memory.
         clip.image = format!("data:image/png;base64,{}", "A".repeat(8_000_000)).into();
         clip.elements.push(ElementLayer {
+            preset_id: None,
             mask: None,
             keyframes: Vec::new(),
             id: "element".into(),
@@ -2647,6 +2672,7 @@ mod tests {
         let mut project = Project::default();
         let mut clip = scene();
         clip.elements.push(ElementLayer {
+            preset_id: None,
             mask: None,
             keyframes: Vec::new(),
             id: "element".into(),
@@ -2659,6 +2685,7 @@ mod tests {
         let scene_id = clip.id.clone();
         project.tracks[0].clips.push(clip);
         project.overlays.push(ElementLayer {
+            preset_id: None,
             mask: None,
             keyframes: Vec::new(),
             id: "overlay".into(),

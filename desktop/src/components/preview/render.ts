@@ -1,3 +1,4 @@
+import { drawDesignerElement, prepareDesignerFonts } from '../elements/designer';
 import { drawCardElement } from '../elements/cards';
 import { waveformBars } from '../elements/dynamic';
 import { drawModernElement } from '../elements/modern';
@@ -397,7 +398,7 @@ function drawElementShape(ctx: CanvasRenderingContext2D, element: ElementLayer, 
   ctx.scale(scale, scale);
   ctx.globalAlpha = alpha;
   ctx.fillStyle = element.color;
-  if (drawCardElement(ctx, element, bw, bh, localSeconds, bars) || drawModernElement(ctx, element, bw, bh)) { ctx.restore(); return; }
+  if (drawDesignerElement(ctx, element, bw, bh, localSeconds, bars) || drawCardElement(ctx, element, bw, bh, localSeconds, bars) || drawModernElement(ctx, element, bw, bh)) { ctx.restore(); return; }
   switch (element.kind) {
     case 'burst':
       ctx.beginPath();
@@ -544,6 +545,7 @@ function elementVisibleAt(element: ElementLayer, localSeconds: number, timebase:
 async function drawMediaOrShape(ctx: CanvasRenderingContext2D, raw: ElementLayer, w: number, h: number, local: number, precise: boolean, timebase: Timebase = DEFAULT_TIMEBASE, audio: AudioClip[] = [], projectSeconds = local, sample = false) {
   // Keyframes replace the layer's geometry before the entrance/exit motion is
   // combined with it, so preview, still frames and exported overlay frames agree.
+  if (raw.presetId) await prepareDesignerFonts();
   const element = raw.keyframes?.length ? applyElementMotion(raw, local) : raw;
   const motion = elementTransform(element, local, timebase);
   if (element.kind !== 'image' && element.kind !== 'video') {

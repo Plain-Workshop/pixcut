@@ -6,7 +6,7 @@ const clips = (project: Project) => projectScenes(project);
 describe('project commands and playback', () => {
   it('keeps original snapshots intact and selects the right scene at a cut', () => { const original = emptyProject(); const p = edit(original, { type: 'add', scenes: [scene('a'), scene('b', 2)] }); expect(clips(original)).toHaveLength(0); expect(totalDuration(p)).toBe(6); expect(sceneAt(p, 3.999)?.scene.id).toBe('a'); expect(sceneAt(p, 4)?.scene.id).toBe('b'); });
   it('moves a scene without dropping or duplicating it', () => { const p = edit(emptyProject(), { type: 'add', scenes: [scene('a'), scene('b'), scene('c')] }); expect(clips(edit(p, { type: 'move', id: 'b', offset: -1 })).map(s => s.id)).toEqual(['b', 'a', 'c']); expect(edit(p, { type: 'move', id: 'a', offset: -1 })).toEqual(p); });
-  it('rejects malformed scenes and unsupported schemas', () => { expect(() => edit(emptyProject(), { type: 'add', scenes: [scene('a', NaN)] })).toThrow(); expect(() => edit(emptyProject(), { type: 'add', scenes: [scene('a'), scene('a')] })).toThrow(); expect(() => validateProject({ ...emptyProject(), schema_version: 14 })).toThrow('Unsupported'); });
+  it('rejects malformed scenes and unsupported schemas', () => { expect(() => edit(emptyProject(), { type: 'add', scenes: [scene('a', NaN)] })).toThrow(); expect(() => edit(emptyProject(), { type: 'add', scenes: [scene('a'), scene('a')] })).toThrow(); expect(() => validateProject({ ...emptyProject(), schema_version: 15 })).toThrow('Unsupported'); });
   it('forces imported projects to remain watermark-free and local', () => { expect(validateProject({ ...emptyProject(), policy: { watermark: true, pixcut_outro: true, privacy: 'cloud' } }).policy).toEqual({ watermark: false, pixcut_outro: false, privacy: 'local' }); });
   it('does not accept remote image references inside project files', () => { expect(() => edit(emptyProject(), { type: 'add', scenes: [{ ...scene('a'), image: 'https://example.com/private.jpg' }] })).toThrow(); });
   it('splits a scene into two undoable halves at the playhead', () => {
@@ -209,7 +209,7 @@ describe('project commands and playback', () => {
     legacyScene.duration = 4;
     const legacy = { ...emptyProject(), schema_version: 1, timebase: undefined, scenes: [legacyScene] };
     const migrated = validateProject(legacy);
-    expect(migrated.schema_version).toBe(13);
+    expect(migrated.schema_version).toBe(14);
     expect(migrated.tracks).toHaveLength(1);
     expect(migrated.tracks[0].kind).toBe('visual');
     expect(migrated.timebase).toEqual({ numerator: 1, denominator: 30 });
@@ -266,7 +266,7 @@ describe('project commands and playback', () => {
   it('wraps schema v2 scenes into a visual track', () => {
     const v2 = { ...emptyProject(), schema_version: 2, tracks: undefined, scenes: [scene('a'), scene('b', 2)] };
     const migrated = validateProject(v2);
-    expect(migrated.schema_version).toBe(13);
+    expect(migrated.schema_version).toBe(14);
     expect(migrated.tracks).toHaveLength(1);
     expect(clips(migrated).map(clip => [clip.id, clip.startTicks, clip.durationTicks])).toEqual([['a', 0, 120], ['b', 120, 60]]);
   });

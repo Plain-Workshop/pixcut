@@ -981,3 +981,11 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Missing references keep blocking portable saves with the relink message; opening a bundle resolves references from its assets exactly as before.
 - Tests: the new `streamed_media_saves_into_a_portable_bundle` persists a photo and a music bed, saves the bundle from references, and asserts the reopened project equals the original (with data URLs); `missing_assets_stay_referenced_and_block_portable_saves` still covers the failure path. Totals: 209 TypeScript tests, 39 project-model tests, 25 native tests.
 - Boundary: zips still use stored (uncompressed) entries; compression is a separate trade-off.
+
+## Streamed native photos — 2026-10-26
+
+- `import_images` streams each picked PNG/JPEG/WebP into the local asset store (1 MB chunks, 500 MB per file) and returns references; the native image import path now creates scenes with `pixcut-asset:` photos instead of base64. The browser path is unchanged (10 MB per file, ~64 MB combined).
+- Runtime hydration keeps scene photo references alongside video and audio; overlays and their posters still hydrate. Missing-reference detection already covers photos, so a deleted photo still shows the relink banner.
+- Rendering resolves references through the tested asset URL path: the canvas compositor (`loadImage`), the media grid, overlay thumbnails, the timeline filmstrip, and the media preview modal now use a small `AssetImage`/`ClipFilmstrip` component that waits for the asset protocol and falls back to a “missing” state.
+- Testing: native tests keep passing after the hydration change (photo round-trip tests now use full hydration where they compare data URLs), and the browser media check confirmed two tiles, both filmstrips, the preview image at 1920 px, and no console errors. Totals: 209 TypeScript tests, 39 project-model tests, 25 native tests.
+- Boundary: the native asset-protocol image path is verified by build and Rust tests, not by driving the packaged webview; bundle saves stream photos like video/audio.

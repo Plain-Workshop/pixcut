@@ -42,7 +42,11 @@ async function readAsDataUrl(file: string) {
   if (cached) return cached;
   const response = await fetch(mediaUrl(file));
   if (!response.ok) throw new Error(`Template media ${file} could not be read.`);
-  const blob = await response.blob();
+  const source = await response.blob();
+  // WebKit/Tauri may label M4A as audio/x-m4a or octet-stream. These bundled
+  // files have known formats; canonical types keep both project validators happy.
+  const type = file.endsWith('.m4a') ? 'audio/mp4' : file.endsWith('.mp4') ? 'video/mp4' : file.endsWith('.jpg') ? 'image/jpeg' : source.type;
+  const blob = source.slice(0, source.size, type);
   const data = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);

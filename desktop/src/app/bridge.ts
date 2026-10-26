@@ -11,7 +11,7 @@ async function persist(project: Project) { const persisted = await persistProjec
 export async function initialize(): Promise<Session> {
   if (native) return invoke('initialize');
   const db = await database();
-  try { const saved = await new Promise<unknown>((resolve, reject) => { const req = db.transaction('projects').objectStore('projects').get('recovery'); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); }); if (saved) { const validated = validateProject(saved); const persisted = await persistProjectAssets(validated); current = await hydrateProjectAssets(persisted); const legacy = (saved as { schema_version?: number }).schema_version !== 13 || JSON.stringify(persisted) !== JSON.stringify(validated); if (legacy) await persist(current); } } finally { db.close(); }
+  try { const saved = await new Promise<unknown>((resolve, reject) => { const req = db.transaction('projects').objectStore('projects').get('recovery'); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); }); if (saved) { const validated = validateProject(saved); const persisted = await persistProjectAssets(validated); current = await hydrateProjectAssets(persisted); const legacy = (saved as { schema_version?: number }).schema_version !== 14 || JSON.stringify(persisted) !== JSON.stringify(validated); if (legacy) await persist(current); } } finally { db.close(); }
   return view();
 }
 export async function dispatch(command: Command): Promise<Session> {
@@ -125,6 +125,8 @@ export type ImportedMedia = { reference: string; name: string; bytes: number };
 /** Native only: streams the picked media into the local asset store. */
 export async function importVideoAsset(): Promise<ImportedMedia | null> { return native ? invoke('import_video') : null; }
 export async function importAudioAsset(): Promise<ImportedMedia | null> { return native ? invoke('import_audio') : null; }
+export type ImportedImage = { reference: string; name: string; bytes: number };
+export async function importImagesAsset(): Promise<ImportedImage[]> { return native ? invoke('import_images') : []; }
 
 export async function missingAssetRefs(references: string[]): Promise<string[]> { return native ? invoke('missing_asset_refs', { references }) : references; }
 

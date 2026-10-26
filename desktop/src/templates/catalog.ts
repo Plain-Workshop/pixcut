@@ -1,4 +1,4 @@
-import { defaultFormat, emptyProject, normalizeStarts, projectScenes, secondsToTicks, type ElementLayer, type FilterId, type Project, type Scene, type TextLayer } from '../stores/model';
+import { defaultFormat, emptyProject, normalizeStarts, projectScenes, secondsToTicks, type FilterId, type Project, type Scene, type TextLayer } from '../stores/model';
 import { bundledPhotoDataUrl, templatePhotoDataUrl, templatePhotoUrl, FALLBACK_PHOTO_FILE, type TemplatePhotoId } from './photos';
 import { TEMPLATE_AUDIO, TEMPLATE_VIDEO, templateAudioDataUrl, templateVideoDataUrl, templateVideoPosterDataUrl, templateVideoPosterUrl, type TemplateAudioId, type TemplateVideoId } from './media';
 import { createTextLayer } from '../components/text/layers';
@@ -24,15 +24,6 @@ export type TemplateDefinition = StorySpec & { sceneCount: number; duration: num
 /** A 1×1 image keeps a scene valid if even the fallback file cannot be read. */
 const BLANK_PHOTO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
 
-function accentBar(spec: StorySpec, durationTicks: number): ElementLayer | null {
-  if (!spec.accent) return null;
-  return {
-    id: crypto.randomUUID(), kind: 'rectangle', x: (spec.x ?? .08) + .02, y: (spec.y ?? .6) - .045,
-    width: .07, height: .02, rotation: 0, opacity: 90, color: spec.accent,
-    startTicks: 0, durationTicks, animation: 'fade', animationDuration: .5,
-  };
-}
-
 /** Turns a story description into three editable scenes that share one look. */
 export function buildStory(spec: StorySpec, images: string[]): Scene[] {
   const durationTicks = secondsToTicks(spec.seconds);
@@ -56,7 +47,6 @@ export function buildStory(spec: StorySpec, images: string[]): Scene[] {
       layer({ title: spec.captions[index], y: .075, size: .019, font: 'space-grotesk', fontWeight: 500, letterSpacing: .006, backdropEnabled: false, shadowEnabled: false, animation: 'fade' }),
       layer({ title: `0${index + 1} / 03`, y: .9, size: .02, font: 'dm-sans', fontWeight: 400, shadowEnabled: false, animation: 'fade' }),
     ];
-    const accent = accentBar(spec, durationTicks);
     const scene: Scene = {
       id: crypto.randomUUID(), startTicks: 0, sourceInTicks: 0, name: title.replaceAll('\n', ' '),
       image: images[index] ?? images[0] ?? BLANK_PHOTO, durationTicks, title, subtitle: '', color,
@@ -67,7 +57,7 @@ export function buildStory(spec: StorySpec, images: string[]): Scene[] {
       textLayers: layers,
       motion: spec.motion ?? 'none',
       transition: { type: spec.transition, duration: .5 },
-      elements: accent ? [accent] : [],
+      elements: [],
     };
     return scene;
   });
