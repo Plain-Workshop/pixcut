@@ -1,3 +1,4 @@
+import { textDirection } from '../text/language';
 import type { ElementLayer } from '../../stores/model';
 import { fontFamily } from '../text/fonts';
 import { ELEMENT_LABEL_DEFAULTS, elementForeground } from './symbols';
@@ -14,7 +15,7 @@ export function drawCardElement(ctx: CanvasRenderingContext2D, e: ElementLayer, 
     ctx.fillStyle = color; ctx.beginPath(); ctx.roundRect(left, top, Math.max(0, width), Math.max(0, height), radius); ctx.fill();
   };
   const text = (value: string, left: number, top: number, size: number, color = '#F8F7FC', maxWidth = w * .86, align: CanvasTextAlign = 'left', weight = 600) => {
-    ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'middle';
+    ctx.direction = textDirection(value); ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'middle';
     let fitted = size; ctx.font = `${weight} ${fitted}px ${fontFamily('inter')}`;
     while (ctx.measureText(value).width > maxWidth && fitted > size * .15) { fitted *= .94; ctx.font = `${weight} ${fitted}px ${fontFamily('inter')}`; }
     ctx.fillText(value, left, top, maxWidth);

@@ -1053,3 +1053,19 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Tests: `tests/captions-export.test.ts` (5) covers cross-scene absolute times, subtitle lines, empty layers, ordering, timestamp padding/rounding and exact SRT text. Totals: 214 TypeScript tests, 40 project-model tests, 28 native tests.
 - Browser check with two scenes: the downloaded file was `… - captions.srt` containing cues at 0.5–1.5 s and 2.0–3.5 s with the subtitle on its own line, toast “2 captions exported as an SRT file.”, no console errors. Reviewed `output/playwright/captions-export.png`.
 - Boundary: exports every text layer, not only caption-styled ones; no WebVTT output yet (import supports it).
+
+## Social Studio and multilingual element input — 2026-10-26
+
+- Added ten Social Studio presets (ticket, neon, halo, editorial underline, raised key, orbit, bookmark tab, playback capsule, heart stamp, and stacked plates), bringing the library to 220 presets across 22 collections.
+- Element text uses automatic input direction, a Unicode code-point limit matching Rust/TypeScript validation, and composition-safe editing for IMEs. The shared canvas renderer sets direction from the first strong letter and loads the label's Inter glyph subset before drawing. Other scripts use installed system font fallbacks, with no remote font requests.
+- Validation: full TypeScript suite, production frontend build, and native debug build passed. The 22 language cases cover accented Latin, Cyrillic, CJK, Korean, Arabic, Hebrew, Hindi, emoji budgets and project reopening. The browser test tests/browser/element-text.js checks Japanese composition start/end and final Unicode commits using the real React field.
+- Visual QA: inspected output/playwright/social-studio-languages.png, multilingual-inspector.png, and social-studio-export-frame.png. The Arabic label was verified in IndexedDB project recovery after editing. The representative H.264 sheet encode scored SSIM 0.998865; this is an artwork frame check, not a full native project export.
+
+## User font import — 2026-10-26
+
+- Projects can embed up to eight imported TTF/OTF/WOFF/WOFF2 fonts (2 MB each, 9 MB total) as `fonts` entries, validated in TypeScript and Rust (IDs, names, data-URL MIME and limits). The field is optional, so older projects load unchanged; the schema is shared with v14.
+- `registerCustomFonts()` adds each face to `document.fonts`, unregisters fonts removed from the project, and requests a re-render when a face finishes loading. `allFonts()` feeds the inspector picker; custom fonts fall back to Inter if loading fails.
+- The Text panel has **Import font**; files are read locally into a data URL, added with a fonts command, and the canvas, still frames, thumbnails and export share the same face.
+- Tests: `tests/font-import.test.ts` (4) covers storing fonts, bundled fallbacks outside a document, bad data/duplicate/empty names, the eight-font cap and clearing; Rust adds `validates_imported_fonts`. Totals: 218 TypeScript tests, 41 project-model tests, 28 native tests.
+- Browser check imported the system Andale Mono face: the picker gained “Andale Mono · Custom”, the FontFace registered and loaded, the canvas rendered the monospaced face, the toast confirmed, and there were no console errors. Reviewed `output/playwright/font-import.png`.
+- Boundary: fonts are embedded in the project (not subset), so very large CJK faces exceed the 2 MB limit; no font management UI beyond the cap message.

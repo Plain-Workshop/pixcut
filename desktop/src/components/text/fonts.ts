@@ -2,7 +2,7 @@ export type FontOption = {
   id: string;
   label: string;
   family: string;
-  category: 'Sans' | 'Serif' | 'Display' | 'Handwritten';
+  category: 'Sans' | 'Serif' | 'Display' | 'Handwritten' | 'Custom';
   weights: number[];
   italic: boolean;
 };
@@ -18,7 +18,7 @@ export const FONTS: FontOption[] = [
   { id: 'caveat', label: 'Caveat', family: "'Caveat Variable', 'Segoe Script', cursive", category: 'Handwritten', weights: [400, 500, 600, 700], italic: false },
 ];
 
-export const FONT_CATEGORIES = ['All', 'Sans', 'Serif', 'Display', 'Handwritten'] as const;
+export const FONT_CATEGORIES = ['All', 'Sans', 'Serif', 'Display', 'Handwritten', 'Custom'] as const;
 
 export const DEFAULT_FONT_ID = 'inter';
 export const DEFAULT_TEXT_SIZE = 0.068;
@@ -29,8 +29,52 @@ export const DEFAULT_TEXT_WEIGHT = 600;
 export const DEFAULT_TEXT_LINE_HEIGHT = 1.2;
 export const DEFAULT_TEXT_SUBTITLE_SCALE = 0.4;
 
+import type { ProjectFont } from '../../stores/model';
+
+const customFonts = new Map<string, FontOption>();
+const customFaces = new Map<string, FontFace>();
+
+/** Bundled faces plus any fonts imported by the open project. */
+export function allFonts(): FontOption[] {
+  return [...FONTS, ...customFonts.values()];
+}
+
+/**
+ * Registers a project's imported fonts with the document so CSS, the canvas and
+ * exported frames can use them. Fonts dropped from the project are unregistered
+ * again; a font that fails to load silently keeps the fallback stack.
+ */
+export function registerCustomFonts(fonts: ProjectFont[] | undefined, onLoaded?: () => void): void {
+  if (typeof document === 'undefined' || typeof FontFace === 'undefined') return;
+  const keep = new Set((fonts ?? []).map(font => font.id));
+  for (const [id, face] of [...customFaces]) {
+    if (keep.has(id)) continue;
+    try { document.fonts.delete(face); } catch { /* a detached face is harmless */ }
+    customFaces.delete(id);
+    customFonts.delete(id);
+  }
+  for (const font of fonts ?? []) {
+    if (customFaces.has(font.id)) continue;
+    try {
+      const family = `PixCut ${font.id.replace(/[^a-zA-Z0-9-]/g, '')}`;
+      const face = new FontFace(family, `url(${font.data})`);
+      document.fonts.add(face);
+      customFaces.set(font.id, face);
+      customFonts.set(font.id, {
+        id: font.id,
+        label: font.name,
+        family: `'${family}', Inter, system-ui, sans-serif`,
+        category: 'Custom',
+        weights: [300, 400, 500, 600, 700, 800, 900],
+        italic: false,
+      });
+      void face.load().then(() => onLoaded?.(), () => { /* keep the fallback */ });
+    } catch { /* unsupported font data keeps the fallback */ }
+  }
+}
+
 export function fontOption(id: string | undefined) {
-  return FONTS.find(font => font.id === id) ?? FONTS[0];
+  return (id ? customFonts.get(id) : undefined) ?? FONTS.find(font => font.id === id) ?? FONTS[0];
 }
 
 export function fontFamily(id: string | undefined) {

@@ -23,6 +23,9 @@ export const MAX_PROJECT_AUDIO_CHARS = 280_000_000;
 export const MAX_AUDIO_SECONDS = 3600;
 /** Deliverables per project. Identical renders are combined into one file. */
 export const MAX_PROJECT_FORMATS = 24;
+/** Imported fonts embedded in a project. */
+export const MAX_PROJECT_FONTS = 8;
+export type ProjectFont = { id: string; name: string; data: string };
 export const sceneSeconds = (scene: Scene, timebase: Timebase = DEFAULT_TIMEBASE) => ticksToSeconds(scene.durationTicks, timebase);
 export const setSceneSeconds = (scene: Scene, seconds: number, timebase: Timebase = DEFAULT_TIMEBASE): Scene => {
   const ticks = Math.min(maxSceneTicks(scene, timebase), Math.max(minTicks(timebase), secondsToTicks(seconds, timebase)));
@@ -303,7 +306,7 @@ type LegacyMusic = {
   fadeOut: number;
   durationSeconds: number;
 };
-export type Project = { schema_version: 14; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; overlays: ElementLayer[]; formats: FormatVariant[]; beatTicks?: number[]; ducking?: number; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
+export type Project = { schema_version: 14; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; overlays: ElementLayer[]; formats: FormatVariant[]; fonts?: ProjectFont[]; beatTicks?: number[]; ducking?: number; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
 export type Command =
   | { type: 'replace'; project: Project }
   | { type: 'rename'; name: string }
@@ -313,6 +316,7 @@ export type Command =
   | { type: 'formats'; formats: FormatVariant[] }
   | { type: 'beats'; beatTicks: number[] }
   | { type: 'ducking'; amount: number }
+  | { type: 'fonts'; fonts: ProjectFont[] }
   | { type: 'add'; scenes: Scene[] }
   | { type: 'update'; scene: Scene }
   | { type: 'remove'; id: string }
@@ -337,6 +341,7 @@ export function projectMediaBytes(project: Project) {
     for (const element of scene.elements ?? []) bytes += (element.source?.length ?? 0) + (element.poster?.length ?? 0);
   }
   for (const clip of project.audio) bytes += clip.data.length;
+  for (const font of project.fonts ?? []) bytes += font.data.length;
   return bytes;
 }
 export function trimHistory(past: Project[]): Project[] {
@@ -723,6 +728,26 @@ function readElements(value: unknown, durationTicks: number, limit = 12): Elemen
   });
 }
 
+const FONT_DATA = /^data:font\/(ttf|otf|woff2?);base64,/;
+function readFonts(value: unknown): ProjectFont[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > MAX_PROJECT_FONTS) throw new Error(`A project supports up to ${MAX_PROJECT_FONTS} imported fonts.`);
+  const ids = new Set<string>();
+  let bytes = 0;
+  const fonts = value.map(entry => {
+    const font = entry as Partial<ProjectFont>;
+    if (!font || typeof font.id !== 'string' || !font.id || ids.has(font.id)) throw new Error('An imported font has an invalid or duplicate ID.');
+    ids.add(font.id);
+    if (typeof font.name !== 'string' || !font.name.trim() || font.name.length > 60) throw new Error('An imported font has an invalid name.');
+    if (typeof font.data !== 'string' || !FONT_DATA.test(font.data)) throw new Error('An imported font is not a local TTF, OTF, or WOFF file.');
+    if (font.data.length > 3_000_000) throw new Error('An imported font is larger than 2 MB.');
+    bytes += font.data.length;
+    if (bytes > 12_000_000) throw new Error('Imported fonts exceed the 9 MB budget.');
+    return { id: font.id, name: font.name.trim(), data: font.data };
+  });
+  return fonts.length ? fonts : undefined;
+}
+
 function readBeats(value: unknown, totalTicks: number): number[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new Error('Invalid beat markers.');
@@ -817,7 +842,8 @@ export function validateProject(value: unknown): Project {
   const formats = readFormats(p.formats, p.aspect, clipIds);
   const beatTicks = readBeats(p.beatTicks, total);
   const ducking = p.ducking === undefined ? undefined : readNumber(p.ducking, 0, 100, 0, 'music ducking');
-  return { schema_version: 14, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, overlays, formats, ...(beatTicks.length ? { beatTicks } : {}), ...(ducking ? { ducking } : {}), policy: { ...policy } };
+  const fonts = readFonts(p.fonts);
+  return { schema_version: 14, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, overlays, formats, ...(fonts ? { fonts } : {}), ...(beatTicks.length ? { beatTicks } : {}), ...(ducking ? { ducking } : {}), policy: { ...policy } };
 }
 const SCENE_PATCH_FIELDS = [
   { key: 'durationTicks', value: (scene: Scene) => scene.durationTicks },
@@ -940,6 +966,7 @@ export function edit(project: Project, command: Exclude<Command, { type: 'undo' 
     case 'formats': p.formats = command.formats; break;
     case 'beats': p.beatTicks = command.beatTicks; break;
     case 'ducking': p.ducking = command.amount; break;
+    case 'fonts': p.fonts = command.fonts; break;
     case 'add': clips.push(...command.scenes); break;
     case 'update': clips = clips.map(s => s.id === command.scene.id ? command.scene : s); break;
     case 'remove': clips = clips.filter(s => s.id !== command.id); break;

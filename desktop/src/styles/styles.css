@@ -1917,3 +1917,30 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 
 .caption-import-actions { display: flex; gap: 6px; }
 .caption-import-actions .button { flex: 1; min-width: 0; }
+/* The browser creates/selects items; the inspector edits exactly one item type. */
+.inspector-heading { display: flex; align-items: center; gap: 9px; padding: 16px 0 14px; color: #b7a6df; border-bottom: 1px solid #3b3946; margin-bottom: 14px; }
+.inspector-heading h2 { margin: 0; color: #f0edf7; font-size: 15px; font-weight: 650; }
+.inspector-item-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 0; }
+.inspector-item-actions strong { min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.inspector-section { border-bottom: 1px solid #3a3743; padding: 12px 0; }
+.inspector-section > summary { cursor: pointer; color: #e1d9ed; font-size: 13px; font-weight: 650; margin-bottom: 12px; }
+.inspector-section .overlay-timing { margin: 0; }
+.element-motion h3 { margin: 14px 0 9px; font-size: 12px; color: #c5b6dd; }
+.motion-properties .library-label { display: none; }
+.overlay-action > summary { padding: 12px 0; cursor: pointer; font-size: 12px; color: #c5b6dd; }
+.animation-choices .motion-preview { height: 58px; width: 100%; overflow: hidden; }
+.animation-choices button { min-width: 0; min-height: 88px; display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 12px; white-space: normal; }
+.animation-choices canvas { width: 100%; height: 100%; object-fit: contain; }
+.library-item-list { margin-bottom: 16px; }
+.library-item-list > button { display: flex; gap: 8px; align-items: center; width: 100%; border: 1px solid transparent; padding: 9px; border-radius: 8px; text-align: left; font-size: 12px; }
+.library-item-list > button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-item-list > button.active { background: #332a4a; border-color: #8d73c5; }
+.inspector .audio-editor { margin-top: 10px; }
+.inspector .music-control { margin: 15px 0; }
+.title-library > .library-item-list, .title-library > .caption-import { grid-column: 1 / -1; min-width: 0; width: 100%; }
+.caption-import small { font-size: 11px; }
+.inspector .animation-choices { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.inspector .animation-choices button { font-size: 12px; min-height: 96px; }
+.inspector .animation-choices .motion-preview { height: 64px; }
+
+.font-import { margin-top: 10px; }

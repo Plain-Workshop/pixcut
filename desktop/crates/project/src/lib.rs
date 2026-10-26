@@ -860,6 +860,15 @@ impl FormatVariant {
         Self { id: "format-original".into(), name: "Original".into(), platform: "Original".into(), aspect: aspect.into(), width, height, fps: 30, quality: "standard".into(), preset_id: None, overrides: Default::default() }
     }
 }
+/// A user-imported font embedded in the project as a data URL.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFont {
+    pub id: String,
+    pub name: String,
+    pub data: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub schema_version: u32,
@@ -876,6 +885,8 @@ pub struct Project {
     pub overlays: Vec<ElementLayer>,
     #[serde(default)]
     pub formats: Vec<FormatVariant>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fonts: Vec<ProjectFont>,
     /// Manual beat markers, in project ticks, sorted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub beat_ticks: Vec<u64>,
@@ -900,6 +911,7 @@ impl Default for Project {
             audio: vec![],
             overlays: vec![],
             formats: vec![],
+            fonts: vec![],
             beat_ticks: vec![],
             ducking: None,
             legacy_music: None,
@@ -1377,6 +1389,30 @@ impl Project {
             }
         }
         self.tracks = tracks;
+        if self.fonts.len() > 8 {
+            return Err("A project supports up to 8 imported fonts.".into());
+        }
+        let mut font_ids = std::collections::HashSet::new();
+        let mut font_bytes = 0usize;
+        for font in &self.fonts {
+            if font.id.is_empty() || !font_ids.insert(font.id.clone()) {
+                return Err("Invalid imported font ID.".into());
+            }
+            let name = font.name.trim();
+            if name.is_empty() || name.chars().count() > 60 {
+                return Err("Invalid imported font name.".into());
+            }
+            let known = ["data:font/ttf;base64,", "data:font/otf;base64,", "data:font/woff;base64,", "data:font/woff2;base64,"]
+                .iter()
+                .any(|prefix| font.data.starts_with(prefix));
+            if !known || font.data.len() > 3_000_000 {
+                return Err("Invalid imported font data.".into());
+            }
+            font_bytes += font.data.len();
+        }
+        if font_bytes > 12_000_000 {
+            return Err("Imported fonts exceed the 9 MB budget.".into());
+        }
         if self.ducking.is_some_and(|amount| !amount.is_finite() || !(0.0..=100.0).contains(&amount)) {
             return Err("Invalid music ducking amount.".into());
         }
@@ -1457,6 +1493,7 @@ pub enum Command {
     Aspect { aspect: String },
     Audio { audio: Vec<AudioClip> },
     Formats { formats: Vec<FormatVariant> },
+    Fonts { fonts: Vec<ProjectFont> },
     Beats {
         #[serde(rename = "beatTicks")]
         beat_ticks: Vec<u64>,
@@ -1588,6 +1625,9 @@ impl Session {
         if let Command::Formats { formats } = &command {
             p.formats = formats.clone();
         }
+        if let Command::Fonts { fonts } = &command {
+            p.fonts = fonts.clone();
+        }
         if let Command::Beats { beat_ticks } = &command {
             p.beat_ticks = beat_ticks.clone();
         }
@@ -1603,7 +1643,7 @@ impl Session {
         {
             let clips = &mut p.tracks[track_index].clips;
             match command {
-                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } | Command::Beats { .. } | Command::Ducking { .. } | Command::Overlays { .. } | Command::Order { .. } => {}
+                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } | Command::Fonts { .. } | Command::Beats { .. } | Command::Ducking { .. } | Command::Overlays { .. } | Command::Order { .. } => {}
                 Command::Add { scenes } => clips.extend(scenes),
                 Command::Update { scene } => {
                     if let Some(s) = clips.iter_mut().find(|s| s.id == scene.id) {
@@ -1920,6 +1960,23 @@ mod tests {
         bad_override[1].overrides.get_mut("one").unwrap().image_zoom = Some(9.0);
         assert!(s.apply(Command::Formats { formats: bad_override }).is_err());
     }
+    #[test]
+    fn validates_imported_fonts() {
+        let font = |id: &str, data: &str| ProjectFont { id: id.into(), name: "Custom face".into(), data: data.into() };
+        let mut p = Project::default();
+        p.tracks[0].clips = vec![scene()];
+        p.fonts = vec![font("f1", "data:font/ttf;base64,AA==")];
+        p.validate().unwrap();
+        p.fonts = vec![font("", "data:font/ttf;base64,AA==")];
+        assert!(p.validate().is_err());
+        p.fonts = vec![font("f1", "data:application/octet-stream;base64,AA==")];
+        assert!(p.validate().is_err());
+        p.fonts = vec![font("f1", "data:font/ttf;base64,AA=="), font("f1", "data:font/ttf;base64,AA==")];
+        assert!(p.validate().is_err());
+        p.fonts = (0..9).map(|index| font(&format!("f{index}"), "data:font/ttf;base64,AA==")).collect();
+        assert!(p.validate().is_err());
+    }
+
     #[test]
     fn beat_markers_are_sorted_bounded_and_deduplicated() {
         let mut s = Session::default();

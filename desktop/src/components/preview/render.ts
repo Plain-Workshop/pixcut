@@ -1,3 +1,4 @@
+import { textDirection } from '../text/language';
 import { drawDesignerElement, prepareDesignerFonts } from '../elements/designer';
 import { drawCardElement } from '../elements/cards';
 import { waveformBars } from '../elements/dynamic';
@@ -397,6 +398,7 @@ function drawElementShape(ctx: CanvasRenderingContext2D, element: ElementLayer, 
   ctx.rotate((element.rotation + rotation) * Math.PI / 180);
   ctx.scale(scale, scale);
   ctx.globalAlpha = alpha;
+  ctx.direction = textDirection(element.label ?? '');
   ctx.fillStyle = element.color;
   if (drawDesignerElement(ctx, element, bw, bh, localSeconds, bars) || drawCardElement(ctx, element, bw, bh, localSeconds, bars) || drawModernElement(ctx, element, bw, bh)) { ctx.restore(); return; }
   switch (element.kind) {

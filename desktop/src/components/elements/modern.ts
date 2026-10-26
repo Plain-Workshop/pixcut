@@ -1,3 +1,4 @@
+import { textDirection } from '../text/language';
 import type { ElementLayer } from '../../stores/model';
 import { fontFamily } from '../text/fonts';
 import { ELEMENT_LABEL_DEFAULTS, elementForeground } from './symbols';
@@ -13,7 +14,7 @@ export function drawModernElement(ctx: CanvasRenderingContext2D, element: Elemen
     ctx.font = `${weight} ${fitted}px ${fontFamily('inter')}`;
     while (ctx.measureText(value).width > max && fitted > size * .18) { fitted *= .95; ctx.font = `${weight} ${fitted}px ${fontFamily('inter')}`; }
   };
-  ctx.save(); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.save(); ctx.direction = textDirection(text); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
   if (element.kind === 'name-tag') {
     card('#191B22', unit * .18);
     ctx.fillStyle = element.color; ctx.beginPath(); ctx.roundRect(left + height * .13, top + height * .2, height * .045, height * .6, height * .02); ctx.fill();

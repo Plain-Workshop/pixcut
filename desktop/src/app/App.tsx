@@ -9,6 +9,7 @@ import { exportEta, exportOutputFormat } from './export-progress';
 import { canvasPng } from '../components/preview/png';
 import { framingTravel } from '../components/preview/framing';
 import { centreGuides, edgeGuides, snapToTargets } from '../components/preview/snapping';
+import { registerCustomFonts } from '../components/text/fonts';
 import { parseCaptions, placeCaptions } from '../components/text/captions';
 import { textLayersAsCaptions, toSrt } from '../components/text/captions-export';
 import { applyElementMotion, applyTextMotion } from '../components/animation/keyframes';
@@ -116,7 +117,7 @@ import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import { ShortcutSettings } from '../components/shortcuts/ShortcutSettings';
 import * as bridge from './bridge';
-import { MAX_AUDIO_FILE_BYTES, MAX_PROJECT_FORMATS, edit, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
+import { MAX_AUDIO_FILE_BYTES, MAX_PROJECT_FONTS, MAX_PROJECT_FORMATS, edit, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawOverlayStack, drawScene, drawProjectOverlays, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
 import { gradeLutCube } from '../components/preview/filters';
 import { Waveform } from '../components/timeline/Waveform';
@@ -511,7 +512,7 @@ export default function App() {
   }, [timelineZoom]);
 
   const pending = useRef<Promise<boolean>>(Promise.resolve(true)), latestProject = useRef(INITIAL.project);
-  const mediaInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null), replaceInput = useRef<HTMLInputElement>(null), audioInput = useRef<HTMLInputElement>(null), captionInput = useRef<HTMLInputElement>(null), videoInput = useRef<HTMLInputElement>(null), sceneVideo = useRef<HTMLVideoElement>(null), preview = useRef<HTMLCanvasElement>(null), audioElements = useRef<Map<string, HTMLAudioElement>>(new Map()), previewArea = useRef<HTMLDivElement>(null), previewStage = useRef<HTMLDivElement>(null), operation = useRef(false);
+  const mediaInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null), replaceInput = useRef<HTMLInputElement>(null), audioInput = useRef<HTMLInputElement>(null), captionInput = useRef<HTMLInputElement>(null), fontInput = useRef<HTMLInputElement>(null), videoInput = useRef<HTMLInputElement>(null), sceneVideo = useRef<HTMLVideoElement>(null), preview = useRef<HTMLCanvasElement>(null), audioElements = useRef<Map<string, HTMLAudioElement>>(new Map()), previewArea = useRef<HTMLDivElement>(null), previewStage = useRef<HTMLDivElement>(null), operation = useRef(false);
   const replaceTargetId = useRef<string | null>(null), inspectorFlush = useRef<() => void>(() => {}), audioDraftRef = useRef<AudioClip | null>(null), audioLaneRef = useRef(0);
   const sceneQueue = useRef<Command[]>([]), previewQueue = useRef<LatestRenderQueue | null>(null), timelineScroll = useRef<HTMLDivElement>(null);
   const positionRef = useRef(0), closeModalRef = useRef<() => void>(() => {}), commandRef = useRef<(id: string) => void>(() => {}), fullscreenRef = useRef<() => void>(() => {});
@@ -825,6 +826,10 @@ export default function App() {
     }).catch(() => { /* the editor keeps working without menus */ });
     return () => { cancelled = true; unlisten?.(); };
   }, []);
+
+  useEffect(() => {
+    registerCustomFonts(project.fonts, () => setFontTick(value => value + 1));
+  }, [project.fonts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2508,6 +2513,37 @@ export default function App() {
     if ((project.ducking ?? 0) !== amount) void run({ type: 'ducking', amount });
   }
 
+  async function importFontFile(files: FileList | null) {
+    const file = files?.[0];
+    if (!file || !canEdit) return;
+    try {
+      const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+      if (!['ttf', 'otf', 'woff', 'woff2'].includes(extension)) throw new Error('Choose a TTF, OTF, WOFF, or WOFF2 font.');
+      if (file.size > 2 * 1024 * 1024) throw new Error('Choose a font smaller than 2 MB.');
+      if ((project.fonts?.length ?? 0) >= MAX_PROJECT_FONTS) throw new Error(`A project supports up to ${MAX_PROJECT_FONTS} imported fonts.`);
+      const mime = extension === 'woff2' ? 'font/woff2' : extension === 'woff' ? 'font/woff' : extension === 'otf' ? 'font/otf' : 'font/ttf';
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+        reader.onerror = () => reject(new Error('That font could not be read.'));
+        reader.readAsDataURL(file);
+      });
+      if (!base64) throw new Error('That font file is empty.');
+      const font = {
+        id: `custom-${crypto.randomUUID()}`,
+        name: (file.name.replace(/\.[^.]+$/, '').trim() || 'Imported font').slice(0, 60),
+        data: `data:${mime};base64,${base64}`,
+      };
+      if (await run({ type: 'fonts', fonts: [...(project.fonts ?? []), font] })) {
+        setNotice(`“${font.name}” is now in the font picker.`);
+      }
+    } catch (error) {
+      setError(messageFor(error));
+    } finally {
+      if (fontInput.current) fontInput.current.value = '';
+    }
+  }
+
   async function exportCaptions() {
     const captions = textLayersAsCaptions(projectScenes(latestProject.current), project.timebase);
     if (!captions.length) { setError('Add a title or caption layer before exporting captions.'); return; }
@@ -3357,14 +3393,14 @@ export default function App() {
   }
 
   const audioInspector = <>
-              <details className="inspector-section ducking-panel"><summary>Music mix</summary>
+              <details className="inspector-section ducking-panel"><summary>Project music mix</summary>
                 <label className="checkbox-field"><input type="checkbox" checked={(project.ducking ?? 0) > 0} disabled={!canEdit || !hasVideoScenes} onChange={event => void run({ type: 'ducking', amount: event.target.checked ? 60 : 0 })} /> Lower music under video sound</label>
                 {(project.ducking ?? 0) > 0 && <label className="music-control"><span>Reduce music by <b>{duckDraft ?? project.ducking}%</b></span><input type="range" aria-label="Music ducking amount" min="10" max="90" step="5" value={duckDraft ?? project.ducking ?? 60} disabled={!canEdit} onChange={event => setDuckDraft(Number(event.target.value))} onPointerUp={event => commitDucking(Number(event.currentTarget.value))} onKeyUp={event => commitDucking(Number(event.currentTarget.value))} onBlur={event => commitDucking(Number(event.currentTarget.value))} /></label>}
-                <p className="note"><AudioLines size={14} /><span>{hasVideoScenes ? 'Music dips while a clip\'s own sound plays, with a 150 ms ramp. Silent clips do not trigger it.' : 'Add a video clip to duck music under its sound.'}</span></p>
+                <p className="note"><AudioLines size={14} /><span>{hasVideoScenes ? 'Lowers all music tracks while video audio is playing.' : 'Add a video clip to duck music under its sound.'}</span></p>
               </details>
               {selectedAudio && <div className="audio-editor">
                 <div className="audio-editor-title"><small>{isAssetRef(selectedAudio.data) ? 'Stored locally' : formatBytes(selectedAudio.data.length * .75)} · {selectedAudio.sourceDurationSeconds.toFixed(1)} s source</small></div>
-                <label className="field">Audio track<select aria-label="Audio track" value={selectedAudio.lane} onChange={event => stageAudio({ lane: Number(event.target.value) })} onBlur={commitAudio}>{audioLanes.map((lane, index) => <option key={lane} value={lane}>Track {index + 1}</option>)}<option value={audioLanes.length}>Track {audioLanes.length + 1}</option></select></label>
+                <label className="field">Audio track<select aria-label="Audio track" value={selectedAudio.lane} onChange={event => stageAudio({ lane: Number(event.target.value) })} onBlur={commitAudio}>{audioLanes.map((lane, index) => <option key={lane} value={lane}>Track {index + 1}</option>)}{audioLanes.length < 8 && <option value={audioLanes.length}>Track {audioLanes.length + 1}</option>}</select></label>
                 <label className="music-control"><span>Start <b>{ticksToSeconds(selectedAudio.startTicks, project.timebase).toFixed(1)} s</b></span><input aria-label="Audio start" type="range" min="0" max={ticksToSeconds(Math.max(0, projectTicks - selectedAudio.durationTicks), project.timebase)} step={secondsPerTick(project.timebase)} value={ticksToSeconds(selectedAudio.startTicks, project.timebase)} disabled={!canEdit} onChange={event => stageAudio({ startTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
                 <label className="music-control"><span>Trim in <b>{selectedAudio.sourceInSeconds.toFixed(1)} s</b></span><input aria-label="Audio trim in" type="range" min="0" max={Math.max(0, selectedAudio.sourceDurationSeconds - secondsPerTick(project.timebase))} step="0.1" value={selectedAudio.sourceInSeconds} disabled={!canEdit} onChange={event => stageAudio({ sourceInSeconds: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
                 <label className="music-control"><span>Duration <b>{ticksToSeconds(selectedAudio.durationTicks, project.timebase).toFixed(1)} s</b></span><input aria-label="Audio duration" type="range" min="0.1" max={Math.max(0.1, Math.min(ticksToSeconds(projectTicks - selectedAudio.startTicks, project.timebase), selectedAudio.sourceDurationSeconds - selectedAudio.sourceInSeconds))} step="0.1" value={ticksToSeconds(selectedAudio.durationTicks, project.timebase)} disabled={!canEdit} onChange={event => stageAudio({ durationTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
@@ -3377,15 +3413,14 @@ export default function App() {
                     <button className="button" disabled={!canEdit || beatBusy} onClick={() => void detectAudioBeats()}><AudioLines size={14} />{beatBusy ? 'Listening…' : 'Detect beats'}</button>
                     <button className="button" disabled={!canEdit || beatBusy} onClick={() => void snapCutsToBeat()}><Magnet size={14} />Snap cuts</button>
                   </div>
-                  <small>All local: detects the pulse in this clip, adds timeline markers, and can move photo cuts within 0.35 s of a beat. Markers snap overlay moves and trims.</small>
+                  <small>Detect beat markers, then align cuts to the rhythm.</small>
                 </div>
-                <p className="note"><Music size={14} /><span>{audio.length} audio clip{audio.length === 1 ? '' : 's'} · drag a clip on the timeline to move it, or drag its edges to trim. Mixed into the export at 192 kbps.</span></p>
+
               </div>}
   </>;
   const propertyKind = inspectorKind(editTarget, { scene: Boolean(selectedScene), text: Boolean(selectedTextLayer), element: Boolean(selectedElement), audio: Boolean(selectedAudio) });
-  const [sceneInspectorTool, setSceneInspectorTool] = useState('video');
 
-  const elementInspector = selectedElement && selectedScene && <div className="element-controls">
+  const elementInspector = selectedElement && <div className="element-controls">
                 <div className="element-controls-head"><strong>{elementName(selectedElement)}</strong><button className="text-button danger" onClick={() => removeElement(selectedElement.id)}><Trash2 size={12} /> Delete</button></div>
                 {(selectedElement.presetId || ELEMENT_LABEL_DEFAULTS[selectedElement.kind] !== undefined) && <ElementTextField key={selectedElement.id} value={selectedElement.label ?? elementPreset(selectedElement)?.text ?? ELEMENT_LABEL_DEFAULTS[selectedElement.kind] ?? ''} stage={label => stageElement({ label })} commit={commitElement} />}
                 {selectedElement.kind !== 'image' && selectedElement.kind !== 'video' && <div className="element-color-row">{ELEMENT_COLORS.map(color => <button key={color} className={`element-color ${selectedElement.color === color ? 'active' : ''}`} style={{ background: color }} aria-label={`Element color ${color}`} onClick={() => updateElement({ color })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} />)}</div>}
@@ -3398,7 +3433,7 @@ export default function App() {
 <details className="inspector-section motion-properties" open><summary>Motion</summary>
                 <BehaviorControls canvas={activeSize} element={selectedElement} audio={project.audio} update={updateElement} stage={stageElement} commit={commitElement} preview={seconds => { commitElement(); setPosition(Math.min(ticksToSeconds(projectTicks - 1, project.timebase), ticksToSeconds(selectedElement.startTicks, project.timebase) + seconds)); setPlaying(true); }} />
                 <section className="element-motion"><h3>Entrance</h3>                <div className="library-label">ENTRANCE <span>{ELEMENT_ANIMATIONS.length - 1} motions</span></div>
-                <div className="animation-choices">{ELEMENT_ANIMATIONS.map(([id, label]) => <button key={id} aria-pressed={selectedElement.animation === id} className={selectedElement.animation === id ? 'active' : ''} onClick={() => updateElement(animationSelection(id))}><span className="motion-preview"><ElementPreview motionSample kind="name-tag" color={selectedElement.color} animation={id} label="Aa\nMotion" reduceMotion={preferences.reduceMotion} /></span><span>{label}</span></button>)}</div>
+                <div className="animation-choices">{ELEMENT_ANIMATIONS.map(([id, label]) => <button key={id} aria-pressed={selectedElement.animation === id} className={selectedElement.animation === id ? 'active' : ''} onClick={() => updateElement(animationSelection(id))}><span className="motion-preview"><ElementPreview motionSample kind="name-tag" color={selectedElement.color} animation={id} label={'Aa\nMotion'} reduceMotion={preferences.reduceMotion} /></span><span>{label}</span></button>)}</div>
                 <label className="checkbox-field element-repeat"><input type="checkbox" checked={selectedElement.loop ?? false} disabled={selectedElement.animation === 'none'} onChange={event => updateElement({ loop: event.target.checked })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /> {isContinuousMotion(selectedElement.animation) ? 'Repeat motion' : 'Repeat entrance'}</label>
                 {selectedElement.animation !== 'none' && <label className="field">Entrance duration<input aria-label="Element animation duration" type="number" min="0.1" max="5" step="0.1" value={selectedElement.animationDuration ?? .6} onChange={event => stageElement({ animationDuration: Math.max(.1, Math.min(5, Number(event.target.value) || .6)) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>}
                 </section>
@@ -3432,6 +3467,7 @@ export default function App() {
       {[...audio, ...cueAudio].map(clip => <AudioSource key={clip.id} id={clip.id} data={clip.data} register={(id, element) => { if (element) audioElements.current.set(id, element); else audioElements.current.delete(id); }} />)}
       <input ref={projectInput} type="file" hidden accept=".json,.pixcut" onChange={e => void openBrowserProject(e)} />
       <input ref={captionInput} type="file" hidden accept=".srt,.vtt,text/plain,text/vtt" onChange={e => void importCaptionFile(e.target.files)} />
+      <input ref={fontInput} type="file" hidden accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" onChange={e => void importFontFile(e.target.files)} />
 
       {screen === 'home' ? <>
         <aside className="home-sidebar">
@@ -3617,6 +3653,10 @@ export default function App() {
                 </div>
                 <small>Import SRT or WebVTT as editable layers; export every text layer back as subtitles.</small>
               </div>
+              <div className="caption-import font-import">
+                <button className="button" disabled={!canEdit || (project.fonts?.length ?? 0) >= MAX_PROJECT_FONTS} onClick={() => fontInput.current?.click()}><Type size={14} /> Import font</button>
+                <small>{project.fonts?.length ? `${project.fonts.length} custom font${project.fonts.length === 1 ? '' : 's'} in the picker` : 'TTF, OTF, or WOFF · appears in the font picker'}</small>
+              </div>
               {TITLE_PRESETS.map(preset => <button key={preset.name} className={`title-preset ${preset.id}`} disabled={!selectedScene || !canEdit || sceneTextLayers(selectedScene).length >= 8} onClick={() => addTextLayerAtPlayhead(preset.layer)} aria-label={`Add ${preset.name} title`}>
                 <span className="title-preset-art" style={{ fontFamily: fontOption(preset.layer.font ?? 'inter').family }}><span>{preset.sample}</span></span><strong>{preset.name}</strong><Plus size={13} />
               </button>)}
@@ -3740,9 +3780,9 @@ export default function App() {
             <div className="inspector-heading"><Settings2 size={16} /><h2>{({scene: selectedScene?.mediaKind === 'video' ? 'Video properties' : 'Scene properties', text:'Text properties', element:'Element properties', audio:'Audio properties', none:'Properties'})[propertyKind]}</h2></div>
             {propertyKind === 'scene' && selectedCount > 1 && <div className="multi-select-banner"><span><Layers size={13} /> Editing {selectedCount} clips</span><button className="text-button" onClick={() => { if(selectedScene){setSelectedIds([selectedScene.id]);setPrimarySelected(selectedScene.id);selectionAnchor.current=selectedScene.id;} }}>Edit only this clip</button></div>}
             {propertyKind === 'audio' && selectedAudio ? <fieldset disabled={!canEdit} className="inspector-fields"><div className="inspector-item-actions"><strong>{selectedAudio.name}</strong><button className="icon-button danger" aria-label="Delete selected audio" onClick={() => removeAudio(selectedAudio.id)}><Trash2 size={15} /></button></div>{audioInspector}</fieldset> : propertyKind === 'element' ? <fieldset disabled={!canEdit} className="inspector-fields">{elementInspector}</fieldset> : (propertyKind === 'scene' || propertyKind === 'text') && selectedScene ? <fieldset disabled={!canEdit} className="inspector-fields">
-              <SceneForm mode={propertyKind === 'text' ? 'text' : 'scene'} onToolChange={setSceneInspectorTool} scene={inspectorScene!} timebase={project.timebase} update={updateSelection} onPreview={setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} flushRef={inspectorFlush} onReplaceImage={() => requestReplaceImage()} textLayerId={selectedTextLayerId} onSelectTextLayer={selectTextLayer} textStartTicks={textStartTicks} playheadSeconds={previewLocalSeconds} focusText={textFocus} framingActive={framingMode} onToggleFraming={() => { setFramingMode(value => !value); setEditingText(false); }} formatName={activeFormat?.name ?? 'Original'} formatCount={project.formats.length} onApplyFramingToAll={applyFramingToAllFormats} overlays={renderOverlays} onReorderLayer={reorderLayer} />
+              <SceneForm mode={propertyKind === 'text' ? 'text' : 'scene'} hasNextScene={scenes.findIndex(scene => scene.id === selectedScene.id) < scenes.length - 1} scene={inspectorScene!} timebase={project.timebase} update={updateSelection} onPreview={setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} flushRef={inspectorFlush} onReplaceImage={selectedCount === 1 ? () => requestReplaceImage() : undefined} textLayerId={selectedTextLayerId} onSelectTextLayer={selectTextLayer} textStartTicks={textStartTicks} playheadSeconds={previewLocalSeconds} focusText={textFocus} framingActive={framingMode} onToggleFraming={() => { setFramingMode(value => !value); setEditingText(false); }} formatName={activeFormat?.name ?? 'Original'} formatCount={project.formats.length} onApplyFramingToAll={applyFramingToAllFormats} overlays={renderOverlays} onReorderLayer={reorderLayer} />
               {propertyKind === 'text' && <div className="inspector-item-actions"><button className="button danger" aria-label="Delete selected text layer" onClick={deleteSelected}><Trash2 size={14} /> Delete text layer</button></div>}
-              {propertyKind === 'scene' && hasSceneSelection && <div className="scene-actions compact-scene-actions">{sceneInspectorTool === 'video' && <button type="button" className="button replace-scene-image" aria-label="Replace selected scene media" onClick={() => requestReplaceImage()} disabled={selectedCount !== 1}><ImagePlus size={15} /> Replace media…</button>}<IconButton label={tip('clip.duplicate', 'Duplicate clip')} onClick={duplicateSelected}><Copy size={16} /></IconButton><IconButton label={tip('clip.delete', 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>}
+              {propertyKind === 'scene' && hasSceneSelection && <div className="scene-actions compact-scene-actions"><IconButton label={tip('clip.duplicate', 'Duplicate clip')} onClick={duplicateSelected}><Copy size={16} /></IconButton><IconButton label={tip('clip.delete', 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>}
             </fieldset> : <div className="inspector-empty"><Settings2 size={26} /><p>Select a scene, text layer, element or audio clip to edit its properties.</p></div>}
 
           </aside>
