@@ -1909,3 +1909,8 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .element-project-overlays summary { display: flex; justify-content: space-between; cursor: pointer; font-size: 12px; color: #c1b8d2; padding: 10px 0; }
 .element-project-overlays summary span { color: #9a8cb2; }
 .element-project-overlays[open] .element-list-row { margin-top: 5px; }
+
+/* Storage section in Settings. */
+.storage-section { margin: 18px 0 6px; padding-top: 14px; border-top: 1px solid var(--line); }
+.storage-usage { margin: 4px 0 6px; font-size: 12px; color: #E7E8FA; font-variant-numeric: tabular-nums; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }

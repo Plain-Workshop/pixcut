@@ -2,6 +2,7 @@ import { DEFAULT_TIMEBASE, normalizeStarts, projectScenes, sceneSeconds, ticksTo
 import { hydrateProjectAssets, persistProjectAssets } from './assets';
 import { drawScene } from '../components/preview/render';
 import { resolveSceneForFormat } from './formats';
+import { projectAssetRefs } from './missing-assets';
 
 export type ProjectSummary = {
   id: string;
@@ -207,4 +208,24 @@ export async function duplicateLibraryProject(id: string) {
     normalizeStarts(track.clips);
   }
   return saveLibraryProject(copy);
+}
+
+/**
+ * Every stored asset reference used by any project in the local library. Used by
+ * storage cleanup so saved projects never lose their media.
+ */
+export async function libraryAssetRefs(): Promise<string[]> {
+  const db = await openDatabase();
+  try {
+    const read = db.transaction(PROJECTS, 'readonly');
+    const rows = await requestResult(read.objectStore(PROJECTS).getAll()) as ProjectRow[];
+    const refs = new Set<string>();
+    for (const row of rows) {
+      if (!row?.project) continue;
+      for (const ref of projectAssetRefs(row.project)) refs.add(ref);
+    }
+    return [...refs];
+  } finally {
+    db.close();
+  }
 }

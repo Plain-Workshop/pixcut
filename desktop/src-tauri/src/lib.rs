@@ -476,6 +476,113 @@ fn asset_file(directory: &Path, id: &str) -> Option<PathBuf> {
     None
 }
 
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct AssetUsage {
+    files: u64,
+    bytes: u64,
+}
+
+fn is_store_file(path: &Path) -> bool {
+    path.extension().is_some()
+        && path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .is_some_and(|id| id.len() == 64 && id.chars().all(|character| character.is_ascii_hexdigit()))
+}
+
+fn store_usage(directory: &Path) -> AssetUsage {
+    let mut usage = AssetUsage::default();
+    let Ok(entries) = fs::read_dir(directory) else { return usage };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !is_store_file(&path) {
+            continue;
+        }
+        if let Ok(metadata) = entry.metadata() {
+            if metadata.is_file() {
+                usage.files += 1;
+                usage.bytes += metadata.len();
+            }
+        }
+    }
+    usage
+}
+
+/// Deletes stored assets whose hash is not in `keep`. Returns what was removed.
+fn prune_store(directory: &Path, keep: &std::collections::HashSet<String>) -> Result<AssetUsage, String> {
+    let mut removed = AssetUsage::default();
+    if !directory.exists() {
+        return Ok(removed);
+    }
+    for entry in fs::read_dir(directory).map_err(|e| e.to_string())?.flatten() {
+        let path = entry.path();
+        if !is_store_file(&path) {
+            continue;
+        }
+        let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else { continue };
+        if keep.contains(id) {
+            continue;
+        }
+        let bytes = entry.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+        if fs::remove_file(&path).is_ok() {
+            removed.files += 1;
+            removed.bytes += bytes;
+        }
+    }
+    Ok(removed)
+}
+
+fn project_refs(project: &Project, into: &mut std::collections::HashSet<String>) {
+    let mut add = |value: &str| {
+        if let Some(id) = value.strip_prefix("pixcut-asset:") {
+            into.insert(id.to_string());
+        }
+    };
+    for element in &project.overlays {
+        if let Some(source) = element.source.as_deref() { add(source); }
+    }
+    for track in &project.tracks {
+        for scene in &track.clips {
+            add(&scene.image);
+            for element in &scene.elements {
+                if let Some(source) = element.source.as_deref() { add(source); }
+            }
+        }
+    }
+    for clip in &project.audio {
+        add(&clip.data);
+    }
+}
+
+#[tauri::command]
+fn referenced_refs(editor: State<'_, Editor>) -> Result<Vec<String>, String> {
+    let session = editor.session.lock().map_err(|e| e.to_string())?;
+    let mut ids = std::collections::HashSet::new();
+    project_refs(&session.project, &mut ids);
+    for project in session.past.iter().chain(session.future.iter()) {
+        project_refs(project, &mut ids);
+    }
+    Ok(ids.into_iter().map(|id| format!("pixcut-asset:{id}")).collect())
+}
+
+#[tauri::command]
+fn asset_usage(app: tauri::AppHandle) -> Result<AssetUsage, String> {
+    Ok(store_usage(&asset_store_dir(&app)?))
+}
+
+#[tauri::command]
+fn prune_assets(app: tauri::AppHandle, keep: Vec<String>) -> Result<AssetUsage, String> {
+    if keep.is_empty() {
+        return Err("Refusing to remove every stored asset. Open a project first.".into());
+    }
+    let ids: std::collections::HashSet<String> = keep
+        .into_iter()
+        .filter_map(|reference| reference.strip_prefix("pixcut-asset:").map(str::to_string))
+        .collect();
+    prune_store(&asset_store_dir(&app)?, &ids)
+}
+
 #[tauri::command]
 fn missing_asset_refs(app: tauri::AppHandle, references: Vec<String>) -> Vec<String> {
     let Ok(directory) = asset_store_dir(&app) else { return references };
@@ -2346,6 +2453,9 @@ pub fn run() {
             import_images,
             asset_path,
             missing_asset_refs,
+            referenced_refs,
+            asset_usage,
+            prune_assets,
             exporter_available,
             exporter_capabilities,
             exporter_hardware,
@@ -2387,6 +2497,23 @@ mod integration_tests {
     use super::*;
     fn export_options() -> ExportOptions {
         ExportOptions { width: 1920, height: 1080, fps: 30, crf: 20, filename: "Test export".into(), codec: ExportCodec::H264, container: ExportContainer::Mp4, speed: EncodeSpeed::Medium, hardware: false }
+    }
+    #[test]
+    fn accepts_compact_exports_down_to_160_pixels() {
+        // The size ladder starts at 320×180 and 480×854, so the floor has to
+        // allow heights below the old 240-pixel rule while staying even.
+        let mut options = export_options();
+        for (width, height) in [(320, 180), (480, 854), (640, 360), (854, 480), (160, 160)] {
+            options.width = width;
+            options.height = height;
+            assert!(validate_export_options(&options).is_ok(), "{width}×{height} should be allowed");
+        }
+        options.width = 158;
+        options.height = 160;
+        assert!(validate_export_options(&options).is_err());
+        options.width = 320;
+        options.height = 181;
+        assert!(validate_export_options(&options).is_err());
     }
     #[test]
     #[cfg(target_os = "macos")]
@@ -2939,6 +3066,28 @@ mod integration_tests {
         assert_eq!(safe_filename("../../etc/passwd"), "etcpasswd");
         assert_eq!(safe_filename("   "), "PixCut project");
         assert_eq!(safe_filename(&"x".repeat(200)).chars().count(), 120);
+    }
+
+    #[test]
+    fn asset_store_reports_and_prunes_only_hashed_media() {
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path();
+        let keep_id = "a".repeat(64);
+        let drop_id = "b".repeat(64);
+        fs::write(directory.join(format!("{keep_id}.mp4")), vec![0u8; 100]).unwrap();
+        fs::write(directory.join(format!("{drop_id}.wav")), vec![0u8; 50]).unwrap();
+        fs::write(directory.join("notes.txt"), b"not an asset").unwrap();
+        let usage = store_usage(directory);
+        assert_eq!(usage.files, 2);
+        assert_eq!(usage.bytes, 150);
+        let keep = std::collections::HashSet::from([keep_id.clone()]);
+        let removed = prune_store(directory, &keep).unwrap();
+        assert_eq!(removed.files, 1);
+        assert_eq!(removed.bytes, 50);
+        assert!(directory.join(format!("{keep_id}.mp4")).exists());
+        assert!(!directory.join(format!("{drop_id}.wav")).exists());
+        assert!(directory.join("notes.txt").exists());
+        assert_eq!(store_usage(directory).files, 1);
     }
 
     #[test]

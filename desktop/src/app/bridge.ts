@@ -7,11 +7,11 @@ let current = emptyProject();
 let past: Project[] = [], future: Project[] = [];
 function view(): Session { return { project: current, canUndo: past.length > 0, canRedo: future.length > 0 }; }
 async function database() { return new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open('pixcut-local', 1); request.onupgradeneeded = () => request.result.createObjectStore('projects'); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
-async function persist(project: Project) { const persisted = await persistProjectAssets(project); const db = await database(); try { await new Promise<void>((resolve, reject) => { const tx = db.transaction('projects', 'readwrite'); tx.objectStore('projects').put(persisted, 'recovery'); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error); }); } finally { db.close(); } }
+async function persist(project: Project) { const persisted = await persistProjectAssets(project); const db = await database(); try { await new Promise<void>((resolve, reject) => { const tx = db.transaction('projects', 'readwrite'); tx.objectStore('projects').put(persisted, 'recovery'); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error); }); } finally { db.close(); } return persisted; }
 export async function initialize(): Promise<Session> {
   if (native) return invoke('initialize');
   const db = await database();
-  try { const saved = await new Promise<unknown>((resolve, reject) => { const req = db.transaction('projects').objectStore('projects').get('recovery'); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); }); if (saved) { const validated = validateProject(saved); const persisted = await persistProjectAssets(validated); current = await hydrateProjectAssets(persisted); const legacy = (saved as { schema_version?: number }).schema_version !== 14 || JSON.stringify(persisted) !== JSON.stringify(validated); if (legacy) await persist(current); } } finally { db.close(); }
+  try { const saved = await new Promise<unknown>((resolve, reject) => { const req = db.transaction('projects').objectStore('projects').get('recovery'); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); }); if (saved) { const validated = validateProject(saved); const persisted = await persistProjectAssets(validated); current = persisted; const legacy = (saved as { schema_version?: number }).schema_version !== 14 || JSON.stringify(persisted) !== JSON.stringify(validated); if (legacy) await persist(current); } } finally { db.close(); }
   return view();
 }
 export async function dispatch(command: Command): Promise<Session> {
@@ -20,7 +20,7 @@ export async function dispatch(command: Command): Promise<Session> {
   if (command.type === 'undo') { if (nextPast.length) { nextFuture.push(current); next = nextPast.pop()!; } }
   else if (command.type === 'redo') { if (nextFuture.length) { nextPast.push(current); next = nextFuture.pop()!; } }
   else { next = edit(current, command); nextPast = trimHistory([...nextPast, current]); nextFuture = []; }
-  await persist(next); current = next; past = nextPast; future = nextFuture;
+  const persisted = await persist(next); current = persisted; past = nextPast; future = nextFuture;
   return view();
 }
 export type History = { canUndo: boolean; canRedo: boolean };
@@ -131,3 +131,8 @@ export async function importImagesAsset(): Promise<ImportedImage[]> { return nat
 export async function missingAssetRefs(references: string[]): Promise<string[]> { return native ? invoke('missing_asset_refs', { references }) : references; }
 
 export function onMenu(handler: (id: string) => void): Promise<UnlistenFn> | null { return native ? listen<string>('menu', event => handler(event.payload)) : null; }
+
+export type AssetUsage = { files: number; bytes: number };
+export async function assetUsage(): Promise<AssetUsage> { return native ? invoke('asset_usage') : { files: 0, bytes: 0 }; }
+export async function referencedRefs(): Promise<string[]> { return native ? invoke('referenced_refs') : []; }
+export async function pruneAssets(keep: string[]): Promise<AssetUsage> { return native ? invoke('prune_assets', { keep }) : { files: 0, bytes: 0 }; }

@@ -106,6 +106,32 @@ export async function storeAssetDataUrl(data: string, name: string) {
   return { id, name, mime, bytes: bytes.length };
 }
 
+export const assetRef = (id: string) => `${PREFIX}${id}`;
+
+/** Stores a File/Blob without converting it to base64 first. */
+export async function storeAssetBlob(blob: Blob, name: string) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  if (!bytes.length) throw new Error(`“${name}” is empty.`);
+  const id = await hashBytes(bytes);
+  const db = await openDatabase();
+  const existing = await requestResult(db.transaction(STORE, 'readonly').objectStore(STORE).get(id)) as AssetRow | undefined;
+  if (!existing) {
+    const transaction = db.transaction(STORE, 'readwrite');
+    transaction.objectStore(STORE).put({ id, name, mime: blob.type, bytes: bytes.length, data: bytes.buffer } satisfies AssetRow);
+    await transactionDone(transaction);
+  }
+  return { id, name, mime: blob.type, bytes: bytes.length };
+}
+
+export async function loadAssetBlob(id: string): Promise<Blob> {
+  const db = await openDatabase();
+  const row = await requestResult(db.transaction(STORE, 'readonly').objectStore(STORE).get(id)) as AssetRow | undefined;
+  if (!row) throw new Error(`Missing local asset ${id.slice(0, 12)}…`);
+  const blob = row.data ? new Blob([row.data], { type: row.mime }) : row.blob;
+  if (!blob) throw new Error(`Missing local asset ${id.slice(0, 12)}…`);
+  return blob;
+}
+
 export async function loadAssetDataUrl(id: string) {
   const cached = cache.get(id);
   if (cached) return cached;
@@ -145,26 +171,10 @@ export async function persistProjectAssets(project: Project): Promise<Project> {
 }
 
 export async function hydrateProjectAssets(project: Project): Promise<Project> {
-  const hydrated = structuredClone(project);
-  // A deleted or unavailable asset must not make the whole project unopenable.
-  // Unresolved references stay in place so the editor can offer a relink.
-  const resolve = async (ref: string) => {
-    try { return await loadAssetDataUrl(ref.slice(PREFIX.length)); }
-    catch { return ref; }
-  };
-  for (const element of hydrated.overlays ?? []) if (element.source?.startsWith(PREFIX)) element.source = await resolve(element.source);
-  for (const track of hydrated.tracks) {
-    for (const clip of track.clips) {
-      for (const element of clip.elements ?? []) if (element.source?.startsWith(PREFIX)) element.source = await resolve(element.source);
-      if (!clip.image.startsWith(PREFIX)) continue;
-      clip.image = await resolve(clip.image);
-    }
-  }
-  for (const clip of hydrated.audio) {
-    if (!clip.data.startsWith(PREFIX)) continue;
-    clip.data = await resolve(clip.data);
-  }
-  return hydrated;
+  // Assets stay as `pixcut-asset:` references in the live project. The
+  // renderer, media tiles and audio elements resolve them on demand, so large
+  // photos are never copied into editor state as base64.
+  return structuredClone(project);
 }
 
 export function isAssetReference(value: string) {

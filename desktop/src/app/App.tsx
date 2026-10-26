@@ -121,7 +121,7 @@ import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers, sc
 import { clampWeight, fontOption } from '../components/text/fonts';
 import { FORMAT_FILTERS, FORMAT_PRESETS, createCustomFormat, createFormat, filterFormatGroups, formatSlug, formatSize, groupFormatsByOutput, resolveSceneForFormat, resolveScenesForFormat } from '../stores/formats';
 import { errorTitle, isImageFile, messageFor } from './errors';
-import { deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, listProjects, renameProjectGroup, saveLibraryProject, setProjectFavorite, setProjectGroup, type ProjectSummary } from '../stores/library';
+import { deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, libraryAssetRefs, listProjects, renameProjectGroup, saveLibraryProject, setProjectFavorite, setProjectGroup, type ProjectSummary } from '../stores/library';
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from '../stores/preferences';
 import { SAMPLE_TEMPLATE, TEMPLATE_CATEGORIES, TEMPLATES, buildTemplateProject, templatePreview, type TemplateDefinition } from '../templates/catalog';
 import { TEMPLATE_PHOTOS } from '../templates/photos';
@@ -369,6 +369,10 @@ export default function App() {
   const [updateProgress, setUpdateProgress] = useState(0);
   const [updateMessage, setUpdateMessage] = useState('');
   const [language, setLanguage] = useState(() => localStorage.getItem('pixcut-language') || 'en');
+  const [storageUsage, setStorageUsage] = useState<bridge.AssetUsage | null>(null);
+  const [storageBusy, setStorageBusy] = useState(false);
+  const [storageConfirm, setStorageConfirm] = useState(false);
+  const [storageNote, setStorageNote] = useState<string | null>(null);
   const [mediaBin, setMediaBin] = useState<{ projectId: string; items: Scene[] }>({ projectId: '', items: [] });
   const [sourcePreview, setSourcePreview] = useState<Scene | null>(null);
   const previewVideo = useRef<HTMLVideoElement | null>(null);
@@ -816,6 +820,11 @@ export default function App() {
     void resolveMediaSource(source).then(url => { if (!cancelled) setSourcePreviewUrl(url); }).catch(() => {});
     return () => { cancelled = true; };
   }, [sourcePreview?.image]);
+
+  useEffect(() => {
+    if (!bridge.native || modal !== 'settings' || settingsTab !== 'general') return;
+    void refreshAssetUsage();
+  }, [modal, settingsTab]);
 
   useEffect(() => { void refreshLibrary(); }, [refreshLibrary]);
   useEffect(() => { if (screen === 'home') void refreshLibrary(); }, [screen, refreshLibrary]);
@@ -2443,6 +2452,34 @@ export default function App() {
     }
   }
 
+  async function refreshAssetUsage() {
+    if (!bridge.native) return;
+    try { setStorageUsage(await bridge.assetUsage()); } catch { setStorageUsage(null); }
+  }
+
+  async function cleanStorage() {
+    if (!bridge.native || storageBusy) return;
+    if (!storageConfirm) {
+      setStorageConfirm(true);
+      setStorageNote('Click again to remove media that no saved project, open project, or undo step uses.');
+      return;
+    }
+    setStorageConfirm(false);
+    setStorageBusy(true);
+    try {
+      const keep = new Set([...(await bridge.referencedRefs()), ...(await libraryAssetRefs())]);
+      const removed = await bridge.pruneAssets([...keep]);
+      setStorageNote(removed.files
+        ? `Removed ${removed.files} unused file${removed.files === 1 ? '' : 's'} · ${formatBytes(removed.bytes)}.`
+        : 'No unused media was found.');
+      await refreshAssetUsage();
+    } catch (error) {
+      setError(messageFor(error));
+    } finally {
+      setStorageBusy(false);
+    }
+  }
+
   function commitDucking(amount: number) {
     setDuckDraft(null);
     if (!canEdit) return;
@@ -3973,6 +4010,16 @@ export default function App() {
               <label className="field">Photo duration<input type="number" min="1" max="10" step="0.5" value={preferences.defaultSceneSeconds} onChange={event => updatePreferences({ defaultSceneSeconds: Math.min(10, Math.max(1, Number(event.target.value) || 4)) })} /></label>
               <label className="field">Image scaling<select value={preferences.defaultFit} onChange={event => updatePreferences({ defaultFit: event.target.value as Scene['fit'] })}><option value="cover">Fill frame</option><option value="contain">Fit whole image</option><option value="blur">Blur fill</option></select></label>
             </div>
+            {bridge.native && <div className="settings-section storage-section">
+              <div className="settings-section-title">Local media store</div>
+              <p className="storage-usage">{storageUsage ? `${storageUsage.files} file${storageUsage.files === 1 ? '' : 's'} · ${formatBytes(storageUsage.bytes)}` : 'Checking…'}</p>
+              <p className="note">Imported photos, video and audio live in PixCut's local store. Cleanup keeps anything used by an open project, its undo steps, or a saved project.</p>
+              <div className="settings-actions">
+                <button className="button" onClick={() => void refreshAssetUsage()} disabled={storageBusy}>Refresh</button>
+                <button className="button" onClick={() => void cleanStorage()} disabled={storageBusy}>{storageBusy ? 'Cleaning…' : storageConfirm ? 'Confirm cleanup' : 'Remove unused media'}</button>
+              </div>
+              {storageNote && <p className="note" role="status">{storageNote}</p>}
+            </div>}
             <div className="settings-section-title">Language</div>
             <label className="field">Interface language<select value={language} onChange={e => { setLanguage(e.target.value); try { localStorage.setItem('pixcut-language', e.target.value); } catch {} }}><option value="en">English</option><option value="pl">Polski</option><option value="uk">Українська</option></select></label>
             <p className="note">Language selection is stored locally. The editing interface is currently English-first.</p>

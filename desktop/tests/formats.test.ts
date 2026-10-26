@@ -155,6 +155,15 @@ describe('popular sizes and the format filters', () => {
     }
   });
 
+  it('accepts compact sizes the encoder handles and rejects the rest', () => {
+    const tiny = createCustomFormat('Tiny 320', 320, 180, 30, 'draft', []);
+    expect(tiny.aspect).toBe('16:9');
+    const project = edit(emptyProject(), { type: 'formats', formats: [tiny] });
+    expect(project.formats[0]).toMatchObject({ width: 320, height: 180, quality: 'draft' });
+    expect(() => edit(emptyProject(), { type: 'formats', formats: [{ ...tiny, width: 158 }] })).toThrow(/Invalid output format size/);
+    expect(() => edit(emptyProject(), { type: 'formats', formats: [{ ...tiny, height: 181 }] })).toThrow(/Invalid output format size/);
+  });
+
   it('gives the size group a filename code instead of a long name', () => {
     const groups = groupFormatsByOutput([createFormat('tiny-320', []), createFormat('square-640', [])]);
     expect(groups).toHaveLength(2);
