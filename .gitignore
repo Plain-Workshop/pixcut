@@ -11,3 +11,7 @@ template-assets/
 
 # Local signing keys and passwords
 .secrets/
+
+# Local browser verification artifacts
+.playwright-cli/
+output/playwright/

@@ -10,7 +10,7 @@ cd desktop
 npm ci
 npm run desktop        # native Tauri app
 npm run dev            # browser preview
-npm test               # 34 TypeScript tests
+npm test               # TypeScript tests (vitest)
 npm run build          # tsc + Vite
 cargo test -p pixcut-project
 cargo test --manifest-path src-tauri/Cargo.toml
@@ -43,7 +43,7 @@ The frontend sends validated commands to Rust; Rust returns the new project snap
 ## Rules
 
 1. **Never crash.** A malformed project, odd file, full disk or bad command returns an actionable error. Do not add `unwrap()`/`expect()`/`panic!()` in non-test Rust. Command dispatch and both export paths are wrapped in `guard()`.
-2. **Stay offline.** No accounts, analytics, remote fonts, cloud sync or background network calls. Updates are checked only when the user asks.
+2. **Stay offline.** No accounts, analytics, remote fonts, cloud sync or background network calls. Optional update checks run on launch and daily while Home is open; never check while editing or exporting. Downloads require a user action.
 3. **No paid features.** Every feature is available to everyone. Do not add license checks, limits, watermarks or upgrade prompts.
 4. **Schema changes are migrations.** Update `desktop/src/stores/model.ts` and `desktop/crates/project/src/lib.rs` together, accept the old version, and add tests for both paths.
 5. **Preview and export must match.** If you change text layout, framing, transitions, timing or color, verify both the canvas preview and the FFmpeg output.

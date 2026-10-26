@@ -125,8 +125,12 @@ export async function loadAssetDataUrl(id: string) {
 
 export async function persistProjectAssets(project: Project): Promise<Project> {
   const persisted = structuredClone(project);
+  for (const element of persisted.overlays ?? []) if (element.source?.startsWith('data:')) { const asset = await storeAssetDataUrl(element.source, element.label ?? 'Overlay'); element.source = `${PREFIX}${asset.id}`; }
   for (const track of persisted.tracks) {
     for (const clip of track.clips) {
+      for (const element of clip.elements ?? []) {
+        if (element.source?.startsWith('data:')) { const asset = await storeAssetDataUrl(element.source, element.label ?? 'Overlay'); element.source = `${PREFIX}${asset.id}`; }
+      }
       if (!clip.image.startsWith('data:')) continue;
       const asset = await storeAssetDataUrl(clip.image, clip.name);
       clip.image = `${PREFIX}${asset.id}`;
@@ -142,15 +146,23 @@ export async function persistProjectAssets(project: Project): Promise<Project> {
 
 export async function hydrateProjectAssets(project: Project): Promise<Project> {
   const hydrated = structuredClone(project);
+  // A deleted or unavailable asset must not make the whole project unopenable.
+  // Unresolved references stay in place so the editor can offer a relink.
+  const resolve = async (ref: string) => {
+    try { return await loadAssetDataUrl(ref.slice(PREFIX.length)); }
+    catch { return ref; }
+  };
+  for (const element of hydrated.overlays ?? []) if (element.source?.startsWith(PREFIX)) element.source = await resolve(element.source);
   for (const track of hydrated.tracks) {
     for (const clip of track.clips) {
+      for (const element of clip.elements ?? []) if (element.source?.startsWith(PREFIX)) element.source = await resolve(element.source);
       if (!clip.image.startsWith(PREFIX)) continue;
-      clip.image = await loadAssetDataUrl(clip.image.slice(PREFIX.length));
+      clip.image = await resolve(clip.image);
     }
   }
   for (const clip of hydrated.audio) {
     if (!clip.data.startsWith(PREFIX)) continue;
-    clip.data = await loadAssetDataUrl(clip.data.slice(PREFIX.length));
+    clip.data = await resolve(clip.data);
   }
   return hydrated;
 }

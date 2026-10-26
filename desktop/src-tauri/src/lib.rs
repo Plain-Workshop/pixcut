@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
-use pixcut_project::{AudioClip, Command, Project, Session, View};
+use pixcut_project::{AudioClip, Command, History, Project, Session, View};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -33,6 +33,10 @@ fn guard<T>(what: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, Stri
 
 struct Editor {
     session: Mutex<Session>,
+    /// The same project in its on-disk shape (media as `pixcut-asset:` refs).
+    /// Recovery writes start from this copy so a stack-order press does not
+    /// base64-decode and re-hash every photo in the story.
+    persisted: Mutex<Project>,
     exporting: AtomicBool,
     cancel_export: Arc<AtomicBool>,
     pending_open: Mutex<Option<PathBuf>>,
@@ -58,6 +62,32 @@ fn is_pixcut_path(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case("pixcut"))
+}
+/// Finds the first project path in a process argument list, skipping flags and
+/// the executable itself. Used for first launches and single-instance handoff.
+fn pixcut_path_from_args<I, S>(args: I) -> Option<PathBuf>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    args.into_iter()
+        .map(|arg| PathBuf::from(arg.as_ref()))
+        .find(|path| is_pixcut_path(path))
+}
+fn focus_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+fn queue_open_project(app: &tauri::AppHandle, path: PathBuf) {
+    if let Some(editor) = app.try_state::<Editor>() {
+        if let Ok(mut pending) = editor.pending_open.lock() {
+            *pending = Some(path);
+        }
+    }
+    let _ = app.emit("project-opened", ());
 }
 const BUNDLE_FORMAT: &str = "pixcut";
 const BUNDLE_VERSION: u32 = 1;
@@ -92,6 +122,7 @@ fn asset_extension(mime: &str) -> Option<&'static str> {
         "audio/aac" => Some("aac"),
         "audio/ogg" => Some("ogg"),
         "audio/webm" => Some("webm"),
+        "video/webm" => Some("vwebm"),
         "video/mp4" => Some("mp4"),
         "video/x-m4v" => Some("m4v"),
         "video/quicktime" => Some("mov"),
@@ -142,13 +173,41 @@ fn store_asset(
     }
     Ok(id)
 }
+fn project_has_asset_refs(project: &Project) -> bool {
+    project.overlays.iter().any(|element| element.source.as_deref().is_some_and(|source| source.starts_with("pixcut-asset:")))
+        || project.tracks.iter().any(|track| track.clips.iter().any(|scene| {
+            scene.image.starts_with("pixcut-asset:")
+                || scene.elements.iter().any(|element| element.source.as_deref().is_some_and(|source| source.starts_with("pixcut-asset:")))
+        }))
+        || project.audio.iter().any(|clip| clip.data.starts_with("pixcut-asset:"))
+        || project.legacy_music.as_ref().is_some_and(|music| music.data.starts_with("pixcut-asset:"))
+}
 fn build_bundle(project: &Project) -> Result<(BundleManifest, Vec<(String, Vec<u8>)>), String> {
+    if project_has_asset_refs(project) {
+        return Err("Relink missing media before saving this project.".into());
+    }
     let mut portable = project.clone();
     let mut assets = Vec::new();
     let mut by_id = std::collections::HashMap::new();
     let mut files = Vec::new();
+    for element in &mut portable.overlays {
+                if let Some(source) = &element.source {
+                    if source.starts_with("data:") {
+                        let id = store_asset(source, element.label.as_deref().unwrap_or("Overlay"), &mut assets, &mut by_id, &mut files)?;
+                        element.source = Some(format!("pixcut-asset:{id}"));
+                    }
+                }
+            }
     for track in &mut portable.tracks {
         for scene in &mut track.clips {
+            for element in &mut scene.elements {
+                if let Some(source) = &element.source {
+                    if source.starts_with("data:") {
+                        let id = store_asset(source, element.label.as_deref().unwrap_or("Overlay"), &mut assets, &mut by_id, &mut files)?;
+                        element.source = Some(format!("pixcut-asset:{id}"));
+                    }
+                }
+            }
             if scene.image.starts_with("pixcut-asset:") {
                 continue;
             }
@@ -262,8 +321,18 @@ fn read_project_bundle(path: &Path) -> Result<Project, String> {
         hydrated.insert(asset.id.clone(), data);
     }
     let mut project = manifest.project;
+    for element in &mut project.overlays {
+                if let Some(id) = element.source.as_deref().and_then(|s| s.strip_prefix("pixcut-asset:")) {
+                    element.source = Some(hydrated.get(id).ok_or("A custom overlay asset is missing from the package.")?.clone());
+                }
+            }
     for track in &mut project.tracks {
         for scene in &mut track.clips {
+            for element in &mut scene.elements {
+                if let Some(id) = element.source.as_deref().and_then(|s| s.strip_prefix("pixcut-asset:")) {
+                    element.source = Some(hydrated.get(id).ok_or("A custom overlay asset is missing from the package.")?.clone());
+                }
+            }
             if let Some(id) = scene.image.strip_prefix("pixcut-asset:") {
                 let data = hydrated
                     .get(id)
@@ -315,6 +384,7 @@ fn extension_mime(extension: &str) -> Option<&'static str> {
         "aac" => Some("audio/aac"),
         "ogg" => Some("audio/ogg"),
         "webm" => Some("audio/webm"),
+        "vwebm" => Some("video/webm"),
         "mp4" => Some("video/mp4"),
         "m4v" => Some("video/x-m4v"),
         "mov" => Some("video/quicktime"),
@@ -347,8 +417,24 @@ fn persist_data_url(directory: &Path, data: &str, name: &str) -> Result<String, 
     Ok(id)
 }
 fn persist_project(directory: &Path, project: &mut Project) -> Result<(), String> {
+    for element in &mut project.overlays {
+                if let Some(source) = &element.source {
+                    if source.starts_with("data:") {
+                        let id = persist_data_url(directory, source, "Overlay")?;
+                        element.source = Some(format!("pixcut-asset:{id}"));
+                    }
+                }
+            }
     for track in &mut project.tracks {
         for scene in &mut track.clips {
+            for element in &mut scene.elements {
+                if let Some(source) = &element.source {
+                    if source.starts_with("data:") {
+                        let id = persist_data_url(directory, source, "Overlay")?;
+                        element.source = Some(format!("pixcut-asset:{id}"));
+                    }
+                }
+            }
             if scene.image.starts_with("data:") {
                 let id = persist_data_url(directory, &scene.image, &scene.name)?;
                 scene.image = format!("pixcut-asset:{id}").into();
@@ -377,10 +463,12 @@ fn hydrate_project(directory: &Path, project: &mut Project) -> Result<(), String
             }
         }
     }
-    let load = |id: &str| -> Result<String, String> {
-        let path = files
-            .get(id)
-            .ok_or_else(|| format!("Missing asset {id} from the local store."))?;
+    let load = |id: &str| -> Result<Option<String>, String> {
+        let Some(path) = files.get(id) else {
+            // A missing asset must not make the whole project unopenable. The
+            // reference stays in place and the editor offers to relink it.
+            return Ok(None);
+        };
         let bytes = fs::read(path).map_err(|e| e.to_string())?;
         if asset_hash(&bytes) != id {
             return Err("A local asset failed its integrity check.".into());
@@ -390,32 +478,38 @@ fn hydrate_project(directory: &Path, project: &mut Project) -> Result<(), String
             .and_then(|value| value.to_str())
             .ok_or("A local asset has no extension.")?;
         let mime = extension_mime(extension).ok_or("Unsupported local asset type.")?;
-        Ok(format!("data:{mime};base64,{}", STANDARD.encode(&bytes)))
+        Ok(Some(format!("data:{mime};base64,{}", STANDARD.encode(&bytes))))
     };
+    for element in &mut project.overlays {
+                if let Some(id) = element.source.as_deref().and_then(|s| s.strip_prefix("pixcut-asset:")) { if let Some(data) = load(id)? { element.source = Some(data); } }
+            }
     for track in &mut project.tracks {
         for scene in &mut track.clips {
+            for element in &mut scene.elements {
+                if let Some(id) = element.source.as_deref().and_then(|s| s.strip_prefix("pixcut-asset:")) { if let Some(data) = load(id)? { element.source = Some(data); } }
+            }
             if let Some(id) = scene.image.strip_prefix("pixcut-asset:") {
-                scene.image = load(id)?.into();
+                if let Some(data) = load(id)? { scene.image = data.into(); }
             }
         }
     }
     for clip in &mut project.audio {
         if let Some(id) = clip.data.strip_prefix("pixcut-asset:") {
-            clip.data = load(id)?.into();
+            if let Some(data) = load(id)? { clip.data = data.into(); }
         }
     }
     if let Some(music) = &mut project.legacy_music {
         if let Some(id) = music.data.strip_prefix("pixcut-asset:") {
-            music.data = load(id)?.into();
+            if let Some(data) = load(id)? { music.data = data.into(); }
         }
     }
     Ok(())
 }
 fn has_inline_media(project: &Project) -> bool {
-    project
+    !project.overlays.is_empty() && project.overlays.iter().any(|e| e.source.as_ref().is_some_and(|s| s.starts_with("data:"))) || project
         .tracks
         .iter()
-        .any(|track| track.clips.iter().any(|clip| clip.image.starts_with("data:")))
+        .any(|track| track.clips.iter().any(|clip| clip.image.starts_with("data:") || clip.elements.iter().any(|e| e.source.as_ref().is_some_and(|s| s.starts_with("data:")))))
         || project.audio.iter().any(|clip| clip.data.starts_with("data:"))
         || project.legacy_music.as_ref().is_some_and(|music| music.data.starts_with("data:"))
 }
@@ -425,15 +519,21 @@ fn read_recovery(app: &tauri::AppHandle, path: &Path) -> Result<(Project, bool),
     }
     let mut project: Project = serde_json::from_reader(fs::File::open(path).map_err(|e| e.to_string())?)
         .map_err(|e| format!("Cannot open recovery: {e}"))?;
-    let legacy = project.schema_version != 7 || has_inline_media(&project);
+    let legacy = project.schema_version != 13 || has_inline_media(&project);
     hydrate_project(&asset_store_dir(app)?, &mut project)?;
     project.validate()?;
     Ok((project, legacy))
 }
-fn write_recovery(app: &tauri::AppHandle, project: &Project) -> Result<(), String> {
+/// Writes the recovery file and hands back the persisted shape, so callers can
+/// keep `Editor::persisted` in step without re-cloning the hydrated project.
+fn write_recovery(
+    app: &tauri::AppHandle,
+    project: &Project,
+) -> Result<Project, String> {
     let mut persisted = project.clone();
     persist_project(&asset_store_dir(app)?, &mut persisted)?;
-    atomic_write(&recovery_path(app)?, &persisted)
+    atomic_write(&recovery_path(app)?, &persisted)?;
+    Ok(persisted)
 }
 fn read_project_with_migration(path: &Path) -> Result<(Project, bool), String> {
     if is_zip_file(path)? {
@@ -444,12 +544,18 @@ fn read_project_with_migration(path: &Path) -> Result<(Project, bool), String> {
     }
     let mut p: Project = serde_json::from_reader(fs::File::open(path).map_err(|e| e.to_string())?)
         .map_err(|e| format!("Cannot open project: {e}"))?;
-    let legacy = p.schema_version != 7;
+    let legacy = p.schema_version != 13;
     p.validate()?;
     Ok((p, legacy))
 }
 fn read_project(path: &Path) -> Result<Project, String> {
     read_project_with_migration(path).map(|(project, _)| project)
+}
+/// Reads the recovery file without hydrating media, i.e. exactly the shape that
+/// lives on disk and can be re-written without re-encoding anything.
+fn read_persisted(path: &Path) -> Result<Project, String> {
+    serde_json::from_reader(fs::File::open(path).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("Cannot open recovery: {e}"))
 }
 #[tauri::command]
 fn initialize(app: tauri::AppHandle, editor: State<Editor>) -> Result<View, String> {
@@ -466,15 +572,23 @@ fn initialize(app: tauri::AppHandle, editor: State<Editor>) -> Result<View, Stri
         session.project = project;
         session.past.clear();
         session.future.clear();
-        write_recovery(&app, &session.project)?;
+        let persisted = write_recovery(&app, &session.project)?;
+        *editor.persisted.lock().map_err(|e| e.to_string())? = persisted;
         return Ok(session.view());
     }
     if path.exists() {
         let (project, legacy) = read_recovery(&app, &path)?;
         session.project = project;
-        if legacy {
-            write_recovery(&app, &session.project)?;
-        }
+        let persisted = if legacy {
+            write_recovery(&app, &session.project)?
+        } else {
+            // The file is already in its persisted shape; reuse it instead of
+            // decoding every photo again just to rebuild the mirror.
+            read_persisted(&path)?
+        };
+        *editor.persisted.lock().map_err(|e| e.to_string())? = persisted;
+    } else {
+        *editor.persisted.lock().map_err(|e| e.to_string())? = session.project.clone();
     }
     Ok(session.view())
 }
@@ -500,7 +614,8 @@ fn take_pending_project(
         session.past.remove(0);
     }
     session.future.clear();
-    write_recovery(&app, &session.project)?;
+    let persisted = write_recovery(&app, &session.project)?;
+    *editor.persisted.lock().map_err(|e| e.to_string())? = persisted;
     Ok(Some(session.view()))
 }
 #[tauri::command]
@@ -510,15 +625,53 @@ fn dispatch(
     command: Command,
 ) -> Result<View, String> {
     guard("editing the project", || {
-        if editor.exporting.load(Ordering::SeqCst) {
-            return Err("Wait for the current export to finish.".into());
-        }
         let mut current = editor.session.lock().map_err(|e| e.to_string())?;
         let mut next = current.clone();
         next.apply(command)?;
-        write_recovery(&app, &next.project)?;
+        let persisted = write_recovery(&app, &next.project)?;
+        *editor.persisted.lock().map_err(|e| e.to_string())? = persisted;
         *current = next;
         Ok(current.view())
+    })
+}
+/// Stack-order presses answer with history flags only. Returning the project
+/// would mean shipping every photo in the story back over IPC for a number that
+/// the editor can apply itself.
+#[tauri::command]
+fn apply_order(
+    app: tauri::AppHandle,
+    editor: State<Editor>,
+    command: Command,
+) -> Result<History, String> {
+    guard("changing the layer order", || {
+        let Command::Order {
+            kind,
+            scene_id,
+            id,
+            z,
+        } = command
+        else {
+            return Err("Only layer order changes can use this command.".into());
+        };
+        let mut current = editor.session.lock().map_err(|e| e.to_string())?;
+        let mut next = current.clone();
+        next.apply(Command::Order {
+            kind: kind.clone(),
+            scene_id: scene_id.clone(),
+            id: id.clone(),
+            z,
+        })?;
+
+        let mut mirror = editor.persisted.lock().map_err(|e| e.to_string())?;
+        let mut next_mirror = mirror.clone();
+        next_mirror.reorder(&kind, scene_id.as_deref(), &id, z)?;
+        atomic_write(&recovery_path(&app)?, &next_mirror)?;
+        *mirror = next_mirror;
+        *current = next;
+        Ok(History {
+            can_undo: !current.past.is_empty(),
+            can_redo: !current.future.is_empty(),
+        })
     })
 }
 fn safe_filename(name: &str) -> String {
@@ -566,6 +719,49 @@ async fn save_project_file(app: tauri::AppHandle, project: Project) -> Result<bo
         return Ok(false);
     };
     write_project_bundle(file.path(), &project, Some(&asset_store_dir(&app)?))?;
+    Ok(true)
+}
+
+fn still_frame_extension(mime: &str) -> Option<&'static str> {
+    match mime {
+        "image/png" => Some("png"),
+        "image/jpeg" => Some("jpg"),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+async fn save_still_frame(data: String, file_name: String) -> Result<bool, String> {
+    let (mime, bytes) = parse_data_url(&data)?;
+    let extension = still_frame_extension(mime)
+        .ok_or("Still frames must be PNG or JPEG images.")?;
+    if bytes.is_empty() {
+        return Err("The still frame is empty.".into());
+    }
+    if bytes.len() > 64 * 1024 * 1024 {
+        return Err("That still frame is larger than 64 MB. Choose a smaller output format.".into());
+    }
+    let (filter, label) = if extension == "png" {
+        ("png", "PNG image")
+    } else {
+        ("jpg", "JPEG image")
+    };
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .add_filter(label, &[filter])
+        .set_file_name(format!("{}.{}", safe_filename(&file_name), extension))
+        .save_file()
+        .await
+    else {
+        return Ok(false);
+    };
+    let path = file.path();
+    let parent = path.parent().ok_or("Choose a folder for the still frame.")?;
+    let temporary = tempfile::Builder::new()
+        .suffix(&format!(".{extension}"))
+        .tempfile_in(parent)
+        .map_err(|e| e.to_string())?;
+    fs::write(temporary.path(), &bytes).map_err(|e| e.to_string())?;
+    temporary.persist(path).map_err(|e| e.to_string())?;
     Ok(true)
 }
 #[tauri::command]
@@ -673,6 +869,156 @@ async fn pick_media(kind: String) -> Result<Vec<PickedMedia>, String> {
     Ok(picked)
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum ExportCodec { #[default] H264, Hevc, Vp9, Prores }
+impl ExportCodec {
+    fn encoder(self) -> &'static str {
+        match self {
+            Self::H264 => "libx264",
+            Self::Hevc => "libx265",
+            Self::Vp9 => "libvpx-vp9",
+            Self::Prores => "prores_ks",
+        }
+    }
+    fn audio_encoder(self) -> &'static str {
+        match self {
+            Self::Vp9 => "libopus",
+            Self::Prores => "pcm_s16le",
+            Self::H264 | Self::Hevc => "aac",
+        }
+    }
+    fn supports(self, container: ExportContainer) -> bool {
+        match self {
+            Self::Vp9 => container == ExportContainer::Webm,
+            Self::Prores => container == ExportContainer::Mov,
+            Self::H264 | Self::Hevc => matches!(container, ExportContainer::Mp4 | ExportContainer::Mov | ExportContainer::Mkv),
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            Self::H264 => "H.264",
+            Self::Hevc => "H.265 / HEVC",
+            Self::Vp9 => "VP9",
+            Self::Prores => "ProRes 422",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum ExportContainer { #[default] Mp4, Mov, Mkv, Webm }
+impl ExportContainer {
+    fn extension(self) -> &'static str {
+        match self { Self::Mp4 => "mp4", Self::Mov => "mov", Self::Mkv => "mkv", Self::Webm => "webm" }
+    }
+    fn label(self) -> &'static str {
+        match self { Self::Mp4 => "MP4", Self::Mov => "QuickTime", Self::Mkv => "Matroska", Self::Webm => "WebM" }
+    }
+    fn is_quicktime_family(self) -> bool { matches!(self, Self::Mp4 | Self::Mov) }
+}
+#[derive(Clone, Copy, Debug, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+enum EncodeSpeed { Fast, #[default] Medium, Slow }
+impl EncodeSpeed {
+    fn preset(self) -> &'static str { match self { Self::Fast => "fast", Self::Medium => "medium", Self::Slow => "slow" } }
+    fn vp9_cpu_used(self) -> &'static str { match self { Self::Fast => "5", Self::Medium => "2", Self::Slow => "0" } }
+    fn prores_profile(crf: u8) -> &'static str { if crf >= 30 { "1" } else if crf >= 24 { "2" } else { "3" } }
+}
+fn encoder_available(binary: &Path, codec: ExportCodec) -> bool {
+    encoder_named(binary, codec.encoder())
+}
+fn encoder_named(binary: &Path, name: &str) -> bool {
+    std::process::Command::new(binary).args(["-hide_banner", "-encoders"]).output().is_ok_and(|output| {
+        output.status.success() && String::from_utf8_lossy(&output.stdout).lines().any(|line| line.split_whitespace().nth(1) == Some(name))
+    })
+}
+#[tauri::command]
+async fn exporter_capabilities() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let Some(binary) = ffmpeg() else { return vec![] };
+        [(ExportCodec::H264,"h264"),(ExportCodec::Hevc,"hevc"),(ExportCodec::Vp9,"vp9"),(ExportCodec::Prores,"prores")]
+            .into_iter()
+            .filter(|(codec,_)| encoder_available(&binary,*codec) && encoder_named(&binary, codec.audio_encoder()))
+            .map(|(_,name)| name.to_owned())
+            .collect()
+    }).await.map_err(|error| error.to_string())
+}
+fn check_encoder(binary: &Path, options: &ExportOptions) -> Result<(), String> {
+    if !encoder_available(binary, options.codec) {
+        return Err(format!("Your FFmpeg does not include {}. Choose another codec or install FFmpeg with this encoder.", options.codec.encoder()));
+    }
+    if !encoder_named(binary, options.codec.audio_encoder()) {
+        return Err(format!("Your FFmpeg does not include the {} audio encoder needed for this format. Choose another format or install a fuller FFmpeg build.", options.codec.audio_encoder()));
+    }
+    Ok(())
+}
+fn export_output_name(options: &ExportOptions) -> String {
+    let raw = options.filename.trim();
+    let stem = [".mp4", ".mov", ".mkv", ".webm"].into_iter().find_map(|suffix| raw.strip_suffix(suffix)).unwrap_or(raw);
+    format!("{}.{}", safe_filename(stem), options.container.extension())
+}
+fn video_encoding_args(options: &ExportOptions) -> Vec<String> {
+    let mut args: Vec<String> = match options.codec {
+        ExportCodec::H264 | ExportCodec::Hevc => vec![
+            "-c:v".into(), options.codec.encoder().into(),
+            "-preset".into(), options.speed.preset().into(),
+            "-crf".into(), options.crf.to_string(),
+            "-pix_fmt".into(), "yuv420p".into(),
+        ],
+        ExportCodec::Vp9 => vec![
+            "-c:v".into(), "libvpx-vp9".into(),
+            "-crf".into(), options.crf.to_string(),
+            "-b:v".into(), "0".into(),
+            "-row-mt".into(), "1".into(),
+            "-deadline".into(), "good".into(),
+            "-cpu-used".into(), options.speed.vp9_cpu_used().into(),
+            "-pix_fmt".into(), "yuv420p".into(),
+        ],
+        ExportCodec::Prores => vec![
+            "-c:v".into(), "prores_ks".into(),
+            "-profile:v".into(), EncodeSpeed::prores_profile(options.crf).into(),
+            "-vendor".into(), "apl0".into(),
+            "-pix_fmt".into(), "yuv422p10le".into(),
+        ],
+    };
+    if options.codec == ExportCodec::Hevc && options.container.is_quicktime_family() {
+        args.extend(["-tag:v".into(), "hvc1".into()]);
+    }
+    if options.container.is_quicktime_family() {
+        args.extend(["-movflags".into(), "+faststart".into()]);
+    }
+    args
+}
+fn audio_encoding_args(options: &ExportOptions) -> Vec<String> {
+    match options.codec {
+        ExportCodec::Vp9 => vec!["-c:a".into(), "libopus".into(), "-b:a".into(), "160k".into(), "-ar".into(), "48000".into()],
+        ExportCodec::Prores => vec!["-c:a".into(), "pcm_s16le".into(), "-ar".into(), "48000".into()],
+        ExportCodec::H264 | ExportCodec::Hevc => vec!["-c:a".into(), "aac".into(), "-b:a".into(), "192k".into(), "-ar".into(), "48000".into()],
+    }
+}
+fn validate_export_options(options: &ExportOptions) -> Result<(), String> {
+    if options.width < 240
+        || options.height < 240
+        || options.width > 3840
+        || options.height > 3840
+        || options.width % 2 != 0
+        || options.height % 2 != 0
+        || !(15..=60).contains(&options.fps)
+        || !(10..=35).contains(&options.crf)
+    {
+        return Err("Invalid export settings.".into());
+    }
+    if !options.codec.supports(options.container) {
+        return Err(format!(
+            "{} cannot be written to {}. Choose {} or another codec.",
+            options.codec.label(),
+            options.container.label(),
+            if options.codec == ExportCodec::Vp9 { "WebM" } else if options.codec == ExportCodec::Prores { "QuickTime" } else { "MP4, QuickTime or Matroska" }
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExportOptions {
@@ -681,6 +1027,12 @@ struct ExportOptions {
     fps: u32,
     crf: u8,
     filename: String,
+    #[serde(default)]
+    codec: ExportCodec,
+    #[serde(default)]
+    container: ExportContainer,
+    #[serde(default)]
+    speed: EncodeSpeed,
 }
 
 #[tauri::command]
@@ -724,16 +1076,14 @@ async fn export_movie(
     {
         return Err("The project changed. Please try exporting again.".into());
     }
-    if options.width < 240 || options.height < 240 || options.width > 3840 || options.height > 3840 || options.width % 2 != 0 || options.height % 2 != 0 || !(15..=60).contains(&options.fps) || !(10..=35).contains(&options.crf) {
-        return Err("Invalid export settings.".into());
-    }
+    validate_export_options(&options)?;
     let binary = ffmpeg().ok_or(
-        "Install FFmpeg with the libx264 encoder to export MP4 in this development build.",
+        "Install FFmpeg to export videos.",
     )?;
-    let stem = options.filename.trim().trim_end_matches(".mp4");
-    let filename = format!("{}.mp4", safe_filename(stem));
+    check_encoder(&binary, &options)?;
+    let filename = export_output_name(&options);
     let Some(file) = rfd::AsyncFileDialog::new()
-        .add_filter("MP4 video", &["mp4"])
+        .add_filter("Video", &[options.container.extension()])
         .set_file_name(&filename)
         .save_file()
         .await
@@ -761,12 +1111,19 @@ struct ExportJob {
     options: ExportOptions,
 }
 
+fn checked_export_snapshot(project_id: &str, mut project: Project) -> Result<Project, String> {
+    project.validate()?;
+    if project.id != project_id || project.visual_clips().is_empty() { return Err("The captured export project is invalid. Start the export again.".into()); }
+    Ok(project)
+}
+
 #[tauri::command]
 async fn export_variants(
     app: tauri::AppHandle,
     editor: State<'_, Editor>,
     project_id: String,
     jobs: Vec<ExportJob>,
+    snapshot: Option<Project>,
 ) -> Result<Vec<String>, String> {
     if jobs.is_empty() || jobs.len() > 6 {
         return Err("Choose between one and six export formats.".into());
@@ -781,30 +1138,22 @@ async fn export_variants(
     let _guard = ExportGuard(&editor.exporting);
     let cancel = Arc::clone(&editor.cancel_export);
     cancel.store(false, Ordering::SeqCst);
-    let project = editor.session.lock().map_err(|e| e.to_string())?.project.clone();
-    if project.id != project_id || project.visual_clips().is_empty() {
-        return Err("The project changed. Please try exporting again.".into());
-    }
+    let project = match snapshot { Some(project) => project, None => editor.session.lock().map_err(|e| e.to_string())?.project.clone() };
+    let project = checked_export_snapshot(&project_id, project)?;
     for job in &jobs {
         if job.frames.is_empty()
             || job.frames.len() != job.durations.len()
             || job.durations.iter().any(|duration| *duration == 0)
             || job.durations.iter().sum::<u64>() != project.total_ticks()
-            || job.options.width < 240
-            || job.options.height < 240
-            || job.options.width > 3840
-            || job.options.height > 3840
-            || job.options.width % 2 != 0
-            || job.options.height % 2 != 0
-            || !(15..=60).contains(&job.options.fps)
-            || !(10..=35).contains(&job.options.crf)
         {
             return Err("The project changed or export settings are invalid.".into());
         }
+        validate_export_options(&job.options)?;
     }
     let binary = ffmpeg().ok_or(
-        "Install FFmpeg with the libx264 encoder to export MP4 in this development build.",
+        "Install FFmpeg to export videos.",
     )?;
+    for job in &jobs { check_encoder(&binary, &job.options)?; }
     let Some(folder) = rfd::AsyncFileDialog::new().set_title("Choose a folder for your exports").pick_folder().await else {
         return Ok(vec![]);
     };
@@ -816,8 +1165,8 @@ async fn export_variants(
             if cancel.load(Ordering::SeqCst) {
                 return Err("Export cancelled.".into());
             }
-            let stem = job.options.filename.trim().trim_end_matches(".mp4");
-            let filename = format!("{}.mp4", safe_filename(stem));
+            check_encoder(&binary, &job.options)?;
+            let filename = export_output_name(&job.options);
             let destination = directory.join(filename);
             let progress_app = app.clone();
             guard("encoding a video", || {
@@ -838,6 +1187,8 @@ async fn export_variants(
 #[serde(rename_all = "camelCase")]
 struct PlanOverlay {
     png: String,
+    #[serde(default)]
+    frames: Vec<String>,
     start_ticks: u64,
     duration_ticks: u64,
 }
@@ -850,9 +1201,27 @@ struct PlanSegment {
     video: Option<String>,
     source_in_seconds: Option<f64>,
     fit: Option<String>,
+    /// Playback speed for imported video clips. 1.0 means real time.
+    #[serde(default)]
+    speed: Option<f64>,
+    /// A `.cube` 3D LUT baked from the same grade the preview canvas uses.
+    #[serde(default)]
+    lut: Option<String>,
+    /// Visual fade lengths for an imported video clip, used for its own audio.
+    #[serde(default)]
+    fade_in: f64,
+    #[serde(default)]
+    fade_out: f64,
+    /// The export dialog's include-audio switch. Older callers omit it.
+    #[serde(default = "default_true")]
+    include_audio: bool,
     duration_ticks: u64,
     #[serde(default)]
     overlays: Vec<PlanOverlay>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -864,17 +1233,7 @@ struct ExportPlan {
 
 fn validate_plan(project: &Project, plan: &ExportPlan) -> Result<(), String> {
     let options = &plan.options;
-    if options.width < 240
-        || options.height < 240
-        || options.width > 3840
-        || options.height > 3840
-        || options.width % 2 != 0
-        || options.height % 2 != 0
-        || !(15..=60).contains(&options.fps)
-        || !(10..=35).contains(&options.crf)
-    {
-        return Err("Invalid export settings.".into());
-    }
+    validate_export_options(options)?;
     if plan.segments.is_empty() || plan.segments.len() > 200 {
         return Err("The export plan is empty or too long.".into());
     }
@@ -884,6 +1243,13 @@ fn validate_plan(project: &Project, plan: &ExportPlan) -> Result<(), String> {
             return Err("An export segment has no duration.".into());
         }
         total += segment.duration_ticks;
+        if !segment.fade_in.is_finite()
+            || !segment.fade_out.is_finite()
+            || segment.fade_in < 0.0
+            || segment.fade_out < 0.0
+        {
+            return Err("An export segment has an invalid fade.".into());
+        }
         match segment.kind.as_str() {
             "image" => {
                 if !segment.png.as_deref().is_some_and(|value| value.starts_with("data:image/png;base64,")) {
@@ -894,11 +1260,29 @@ fn validate_plan(project: &Project, plan: &ExportPlan) -> Result<(), String> {
                 if !segment.video.as_deref().is_some_and(|value| value.starts_with("data:video/")) {
                     return Err("A video segment is missing its source.".into());
                 }
+                let speed = segment.speed.unwrap_or(1.0);
+                if !speed.is_finite() || !(0.25..=4.0).contains(&speed) {
+                    return Err("A video segment has an invalid speed.".into());
+                }
+                if let Some(lut) = segment.lut.as_deref() {
+                    if lut.is_empty()
+                        || lut.len() > 8_000_000
+                        || lut.contains('\0')
+                        || !lut.lines().any(|line| line.trim().starts_with("LUT_3D_SIZE"))
+                    {
+                        return Err("A video grade lookup table is invalid.".into());
+                    }
+                }
             }
             _ => return Err("An export segment has an unknown type.".into()),
         }
+        if segment.lut.is_some() && segment.kind != "video" {
+            return Err("Only video segments can carry a grade lookup table.".into());
+        }
         for overlay in &segment.overlays {
-            if overlay.duration_ticks == 0 || !overlay.png.starts_with("data:image/png;base64,") {
+            if overlay.duration_ticks == 0 || !overlay.png.starts_with("data:image/png;base64,")
+                || (!overlay.frames.is_empty() && (overlay.frames.len() as u64 != overlay.duration_ticks
+                    || overlay.frames.iter().any(|frame| !frame.starts_with("data:image/png;base64,")))) {
                 return Err("A text overlay is invalid.".into());
             }
         }
@@ -907,6 +1291,56 @@ fn validate_plan(project: &Project, plan: &ExportPlan) -> Result<(), String> {
         return Err("The project changed. Please try exporting again.".into());
     }
     Ok(())
+}
+
+fn filter_path(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    let escaped = text.replace('\\', "\\\\").replace('\'', "\\'");
+    format!("'{escaped}'")
+}
+
+/// True when the media file carries an audio track. A missing ffprobe is not an
+/// error: the export simply keeps behaving like it always has, without the
+/// clip's own sound.
+fn has_audio_stream(binary: &Path, media: &Path) -> bool {
+    let probe = Process::new(binary.with_file_name("ffprobe"))
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "csv=p=0",
+        ])
+        .arg(media)
+        .output();
+    match probe {
+        Ok(output) => output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty(),
+        Err(_) => false,
+    }
+}
+
+/// Chains `atempo` so every step stays inside the range older FFmpeg builds
+/// accept (0.5–2.0). The product is the requested playback speed.
+fn atempo_chain(speed: f64) -> String {
+    let mut remaining = if speed.is_finite() { speed.clamp(0.25, 4.0) } else { 1.0 };
+    let mut steps = Vec::new();
+    while remaining > 2.0 + 1e-9 {
+        steps.push(2.0);
+        remaining /= 2.0;
+    }
+    while remaining < 0.5 - 1e-9 {
+        steps.push(0.5);
+        remaining /= 0.5;
+    }
+    steps.push(remaining);
+    steps
+        .iter()
+        .map(|value| format!("atempo={value:.6}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn write_plan_payload(directory: &Path, name: &str, data: &str, prefix: &str) -> Result<PathBuf, String> {
@@ -932,17 +1366,24 @@ fn encode_plan(
         return Err("Export cancelled.".into());
     }
     let temp = tempfile::tempdir().map_err(|e| e.to_string())?;
-    let mut command = Process::new(binary);
+    let mut command = Process::new(&binary);
     command.current_dir(temp.path());
     command.args(["-y", "-nostdin", "-hide_banner", "-loglevel", "error"]);
-    let mut visual: Vec<(usize, f64, String)> = Vec::new();
+    let mut visual: Vec<(usize, f64, String, f64, Option<PathBuf>)> = Vec::new();
     let mut overlays: Vec<(usize, f64, f64)> = Vec::new();
+    // Imported video clips contribute their own soundtrack: (input, speed,
+    // duration, timeline start, fade in, fade out).
+    let mut video_audio: Vec<(usize, f64, f64, f64, f64, f64)> = Vec::new();
     let mut input_index = 0usize;
+    let mut timeline_offset = 0.0f64;
     for (index, segment) in plan.segments.iter().enumerate() {
         if cancel.load(Ordering::SeqCst) {
             return Err("Export cancelled.".into());
         }
         let duration = project.timebase.ticks_to_seconds(segment.duration_ticks);
+        let segment_start = timeline_offset;
+        let mut speed = 1.0;
+        let mut lut_path = None;
         match segment.kind.as_str() {
             "image" => {
                 let path = write_plan_payload(temp.path(), &format!("frame-{index}.png"), segment.png.as_deref().unwrap_or_default(), "data:image/png;base64,")?;
@@ -964,18 +1405,46 @@ fn encode_plan(
                 let path = temp.path().join(format!("video-{index}.{extension}"));
                 let bytes = STANDARD.decode(payload).map_err(|e| e.to_string())?;
                 fs::write(&path, bytes).map_err(|e| e.to_string())?;
+                speed = segment.speed.unwrap_or(1.0);
                 let start = segment.source_in_seconds.unwrap_or(0.0).max(0.0);
-                command.args(["-ss", &format!("{start:.6}"), "-t", &format!("{duration:.6}"), "-i"]).arg(path);
+                let source_length = (duration * speed).max(duration);
+                command.args(["-ss", &format!("{start:.6}"), "-t", &format!("{source_length:.6}"), "-i"]).arg(path.clone());
+                if segment.include_audio && has_audio_stream(&binary, &path) {
+                    video_audio.push((
+                        input_index,
+                        speed,
+                        duration,
+                        segment_start,
+                        segment.fade_in.min(duration),
+                        segment.fade_out.min(duration),
+                    ));
+                }
+                if let Some(lut) = segment.lut.as_deref() {
+                    let path = temp.path().join(format!("grade-{index}.cube"));
+                    fs::write(&path, lut.as_bytes()).map_err(|e| e.to_string())?;
+                    lut_path = Some(path);
+                }
             }
             _ => return Err("An export segment has an unknown type.".into()),
         }
-        visual.push((input_index, duration, segment.fit.clone().unwrap_or_else(|| "cover".into())));
+        visual.push((input_index, duration, segment.fit.clone().unwrap_or_else(|| "cover".into()), speed, lut_path));
+        timeline_offset += duration;
         input_index += 1;
         for overlay in &segment.overlays {
             let start = project.timebase.ticks_to_seconds(overlay.start_ticks);
             let length = project.timebase.ticks_to_seconds(overlay.duration_ticks);
-            let path = write_plan_payload(temp.path(), &format!("overlay-{input_index}.png"), &overlay.png, "data:image/png;base64,")?;
-            command.args(["-loop", "1", "-t", &format!("{length:.6}"), "-i"]).arg(path);
+            if overlay.frames.is_empty() {
+                let path = write_plan_payload(temp.path(), &format!("overlay-{input_index}.png"), &overlay.png, "data:image/png;base64,")?;
+                command.args(["-loop", "1", "-t", &format!("{length:.6}"), "-i"]).arg(path);
+            } else {
+                for (frame_index, frame) in overlay.frames.iter().enumerate() {
+                    if cancel.load(Ordering::SeqCst) { return Err("Export cancelled.".into()); }
+                    write_plan_payload(temp.path(), &format!("overlay-{input_index}-{frame_index:06}.png"), frame, "data:image/png;base64,")?;
+                }
+                let fps = project.timebase.denominator as f64 / project.timebase.numerator as f64;
+                command.args(["-framerate", &format!("{fps:.6}"), "-i"])
+                    .arg(temp.path().join(format!("overlay-{input_index}-%06d.png")));
+            }
             overlays.push((input_index, start, start + length));
             input_index += 1;
         }
@@ -1002,15 +1471,24 @@ fn encode_plan(
     let height = plan.options.height;
     let fps = plan.options.fps;
     let mut filters = Vec::new();
-    for (index, (input, duration, fit)) in visual.iter().enumerate() {
+    for (index, (input, duration, fit, speed, lut)) in visual.iter().enumerate() {
         let geometry = if fit == "contain" {
             format!("scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2")
         } else {
             format!("scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}")
         };
-        filters.push(format!(
-            "[{input}:v]{geometry},setsar=1,fps={fps},tpad=stop_mode=clone:stop_duration=2,trim=duration={duration:.6},setpts=PTS-STARTPTS[v{index}]"
+        let mut chain = format!("[{input}:v]{geometry},setsar=1");
+        if (speed - 1.0).abs() > 1e-9 {
+            chain.push_str(&format!(",setpts=(PTS-STARTPTS)/{speed:.6}"));
+        }
+        chain.push_str(&format!(
+            ",fps={fps},tpad=stop_mode=clone:stop_duration=2,trim=duration={duration:.6},setpts=PTS-STARTPTS"
         ));
+        if let Some(path) = lut {
+            chain.push_str(&format!(",lut3d=file={}", filter_path(path)));
+        }
+        chain.push_str(&format!("[v{index}]"));
+        filters.push(chain);
     }
     let mut current = if visual.len() == 1 {
         "v0".to_string()
@@ -1021,57 +1499,96 @@ fn encode_plan(
     };
     for (index, (input, start, end)) in overlays.iter().enumerate() {
         let next = format!("ov{index}");
-        filters.push(format!("[{current}][{input}:v]overlay=0:0:enable='between(t,{start:.6},{end:.6})'[{next}]"));
+        filters.push(format!("[{input}:v]setpts=PTS-STARTPTS+{start:.6}/TB[overlay{index}]"));
+        filters.push(format!("[{current}][overlay{index}]overlay=0:0:enable='gte(t,{start:.6})*lt(t,{end:.6})'[{next}]"));
         current = next;
     }
-    if !audio_files.is_empty() {
-        let mut nodes = Vec::new();
-        for (index, (_, clip)) in audio_files.iter().enumerate() {
-            let input = audio_start + index;
-            let duration = project.timebase.ticks_to_seconds(clip.duration_ticks);
-            let mut node = format!("[{input}:a]asetpts=PTS-STARTPTS,aresample=48000,volume={:.3}", clip.volume);
-            if clip.fade_in > 0.0 {
-                node.push_str(&format!(",afade=t=in:st=0:d={:.3}", clip.fade_in.min(duration)));
-            }
-            if clip.fade_out > 0.0 {
-                let start = (duration - clip.fade_out).max(0.0);
-                node.push_str(&format!(",afade=t=out:st={start:.3}:d={:.3}", clip.fade_out.min(duration)));
-            }
-            let delay = (project.timebase.ticks_to_seconds(clip.start_ticks) * 1000.0).round() as u64;
-            node.push_str(&format!(",adelay={delay}:all=1[a{}]", index + 1));
-            nodes.push(node);
+    let mut fade_index = 0usize;
+    for clip in project.visual_clips() {
+        let clip_start = project.timebase.ticks_to_seconds(clip.start_ticks);
+        let clip_end = project.timebase.ticks_to_seconds(clip.start_ticks + clip.duration_ticks);
+        let clip_length = (clip_end - clip_start).max(0.001);
+        if clip.fade_in > 0.0 {
+            let length = clip.fade_in.min(clip_length).max(0.001);
+            let next = format!("fade{fade_index}");
+            filters.push(format!("[{current}]fade=t=in:st={clip_start:.6}:d={length:.6}[{next}]"));
+            current = next;
+            fade_index += 1;
         }
-        let mix = if audio_files.len() == 1 {
-            "[a1]anull[aout]".to_string()
+        if clip.fade_out > 0.0 {
+            let length = clip.fade_out.min(clip_length).max(0.001);
+            let start = (clip_end - length).max(0.0);
+            let next = format!("fade{fade_index}");
+            filters.push(format!("[{current}]fade=t=out:st={start:.6}:d={length:.6}[{next}]"));
+            current = next;
+            fade_index += 1;
+        }
+    }
+    let mut audio_nodes: Vec<String> = Vec::new();
+    for (index, (_, clip)) in audio_files.iter().enumerate() {
+        let input = audio_start + index;
+        let duration = project.timebase.ticks_to_seconds(clip.duration_ticks);
+        let mut node = format!("[{input}:a]asetpts=PTS-STARTPTS,aresample=48000,volume={:.3}", clip.volume);
+        if clip.fade_in > 0.0 {
+            node.push_str(&format!(",afade=t=in:st=0:d={:.3}", clip.fade_in.min(duration)));
+        }
+        if clip.fade_out > 0.0 {
+            let start = (duration - clip.fade_out).max(0.0);
+            node.push_str(&format!(",afade=t=out:st={start:.3}:d={:.3}", clip.fade_out.min(duration)));
+        }
+        let delay = (project.timebase.ticks_to_seconds(clip.start_ticks) * 1000.0).round() as u64;
+        node.push_str(&format!(",adelay={delay}:all=1[am{}]", index));
+        audio_nodes.push(node);
+    }
+    for (index, (input, speed, duration, start, fade_in, fade_out)) in video_audio.iter().enumerate() {
+        let mut node = format!("[{input}:a]asetpts=PTS-STARTPTS,aresample=48000");
+        if (speed - 1.0).abs() > 1e-9 {
+            node.push_str(&format!(",{}", atempo_chain(*speed)));
+        }
+        node.push_str(&format!(",atrim=duration={duration:.6},asetpts=PTS-STARTPTS"));
+        if *fade_in > 0.0 {
+            node.push_str(&format!(",afade=t=in:st=0:d={fade_in:.3}"));
+        }
+        if *fade_out > 0.0 {
+            node.push_str(&format!(",afade=t=out:st={:.3}:d={fade_out:.3}", (duration - fade_out).max(0.0)));
+        }
+        let delay = (start * 1000.0).round() as u64;
+        node.push_str(&format!(",adelay={delay}:all=1[av{index}]"));
+        audio_nodes.push(node);
+    }
+    if !audio_nodes.is_empty() {
+        let mix = if audio_nodes.len() == 1 {
+            let label = if audio_files.is_empty() { "[av0]" } else { "[am0]" };
+            format!("{label}anull[aout]")
         } else {
-            let inputs: String = (1..=audio_files.len()).map(|index| format!("[a{index}]")).collect();
-            format!("{inputs}amix=inputs={}:duration=longest:dropout_transition=0:normalize=0[aout]", audio_files.len())
+            let mut labels = String::new();
+            for index in 0..audio_files.len() {
+                labels.push_str(&format!("[am{index}]"));
+            }
+            for index in 0..video_audio.len() {
+                labels.push_str(&format!("[av{index}]"));
+            }
+            format!(
+                "{labels}amix=inputs={}:duration=longest:dropout_transition=0:normalize=0[aout]",
+                audio_nodes.len()
+            )
         };
-        filters.push(format!("{};{mix}", nodes.join(";")));
+        filters.push(format!("{};{mix}", audio_nodes.join(";")));
     }
 
     let duration = project.timebase.ticks_to_seconds(project.total_ticks());
     let output = tempfile::Builder::new()
-        .suffix(".mp4")
+        .suffix(&format!(".{}", plan.options.container.extension()))
         .tempfile_in(destination.parent().ok_or("Invalid output path")?)
         .map_err(|e| e.to_string())?;
     command
         .args(["-filter_complex", &filters.join(";"), "-map"])
         .arg(format!("[{current}]"));
-    if !audio_files.is_empty() {
-        command.args(["-map", "[aout]", "-c:a", "aac", "-b:a", "192k", "-ar", "48000"]);
+    if !audio_files.is_empty() || !video_audio.is_empty() {
+        command.args(["-map", "[aout]"]).args(audio_encoding_args(&plan.options));
     }
+    command.args(video_encoding_args(&plan.options));
     command.args([
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-crf",
-        &plan.options.crf.to_string(),
-        "-pix_fmt",
-        "yuv420p",
-        "-movflags",
-        "+faststart",
         "-progress",
         "pipe:1",
         "-nostats",
@@ -1129,6 +1646,7 @@ async fn export_plan_variants(
     editor: State<'_, Editor>,
     project_id: String,
     plans: Vec<ExportPlan>,
+    snapshot: Option<Project>,
 ) -> Result<Vec<String>, String> {
     if plans.is_empty() || plans.len() > 6 {
         return Err("Choose between one and six export formats.".into());
@@ -1143,16 +1661,15 @@ async fn export_plan_variants(
     let _guard = ExportGuard(&editor.exporting);
     let cancel = Arc::clone(&editor.cancel_export);
     cancel.store(false, Ordering::SeqCst);
-    let project = editor.session.lock().map_err(|e| e.to_string())?.project.clone();
-    if project.id != project_id || project.visual_clips().is_empty() {
-        return Err("The project changed. Please try exporting again.".into());
-    }
+    let project = match snapshot { Some(project) => project, None => editor.session.lock().map_err(|e| e.to_string())?.project.clone() };
+    let project = checked_export_snapshot(&project_id, project)?;
     for plan in &plans {
         validate_plan(&project, plan)?;
     }
     let binary = ffmpeg().ok_or(
-        "Install FFmpeg with the libx264 encoder to export MP4 in this development build.",
+        "Install FFmpeg with libx264 or libx265 to export videos.",
     )?;
+    for plan in &plans { check_encoder(&binary, &plan.options)?; }
     let Some(folder) = rfd::AsyncFileDialog::new()
         .set_title("Choose a folder for your exports")
         .pick_folder()
@@ -1168,8 +1685,8 @@ async fn export_plan_variants(
             if cancel.load(Ordering::SeqCst) {
                 return Err("Export cancelled.".into());
             }
-            let stem = plan.options.filename.trim().trim_end_matches(".mp4");
-            let filename = format!("{}.mp4", safe_filename(stem));
+            check_encoder(&binary, &plan.options)?;
+            let filename = export_output_name(&plan.options);
             let destination = directory.join(filename);
             let progress_app = app.clone();
             guard("encoding a video", || {
@@ -1252,7 +1769,7 @@ fn encode_movie(
     fs::write(temp.path().join("scenes.txt"), list).map_err(|e| e.to_string())?;
     // Encode beside the destination, then atomically replace it after success.
     let output = tempfile::Builder::new()
-        .suffix(".mp4")
+        .suffix(&format!(".{}", options.container.extension()))
         .tempfile_in(destination.parent().ok_or("Invalid output path")?)
         .map_err(|e| e.to_string())?;
     let duration = project.timebase.ticks_to_seconds(project.total_ticks());
@@ -1288,20 +1805,23 @@ fn encode_movie(
             .arg(path);
         let _ = index;
     }
-    command.args([
-        "-vf",
-        &format!("scale={}:{}:flags=lanczos,{}", options.width, options.height, fps),
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-crf",
-        &options.crf.to_string(),
-        "-pix_fmt",
-        "yuv420p",
-        "-movflags",
-        "+faststart",
-    ]);
+    command.args(video_encoding_args(&options));
+    let mut video_filter = format!("scale={}:{}:flags=lanczos,{}", options.width, options.height, fps);
+    for clip in project.visual_clips() {
+        let clip_start = project.timebase.ticks_to_seconds(clip.start_ticks);
+        let clip_end = project.timebase.ticks_to_seconds(clip.start_ticks + clip.duration_ticks);
+        let clip_length = (clip_end - clip_start).max(0.001);
+        if clip.fade_in > 0.0 {
+            let length = clip.fade_in.min(clip_length).max(0.001);
+            video_filter.push_str(&format!(",fade=t=in:st={clip_start:.6}:d={length:.6}"));
+        }
+        if clip.fade_out > 0.0 {
+            let length = clip.fade_out.min(clip_length).max(0.001);
+            let start = (clip_end - length).max(0.0);
+            video_filter.push_str(&format!(",fade=t=out:st={start:.6}:d={length:.6}"));
+        }
+    }
+    command.args(["-vf", &video_filter]);
     if !audio_files.is_empty() {
         let mut filter_nodes = Vec::new();
         for (index, (_, clip)) in audio_files.iter().enumerate() {
@@ -1332,20 +1852,8 @@ fn encode_movie(
             )
         };
         let filter = format!("{};{mix}", filter_nodes.join(";"));
-        command.args([
-            "-filter_complex",
-            filter.as_str(),
-            "-map",
-            "0:v:0",
-            "-map",
-            "[aout]",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-ar",
-            "48000",
-        ]);
+        command.args(["-filter_complex", filter.as_str(), "-map", "0:v:0", "-map", "[aout]"])
+            .args(audio_encoding_args(&options));
     }
     command
         .args(["-progress", "pipe:1", "-nostats", "-t"])
@@ -1398,15 +1906,21 @@ fn encode_movie(
 }
 
 pub fn run() {
-    let pending = std::env::args_os()
-        .skip(1)
-        .map(PathBuf::from)
-        .find(|path| is_pixcut_path(path));
+    let pending = pixcut_path_from_args(std::env::args_os().skip(1));
     let app = tauri::Builder::default()
+        // Single-instance must be registered first: a second launch focuses the
+        // existing window and hands any .pixcut file to the running editor.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            focus_main_window(app);
+            if let Some(path) = pixcut_path_from_args(args) {
+                queue_open_project(app, path);
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(Editor {
             session: Mutex::new(Session::default()),
+            persisted: Mutex::new(Project::default()),
             exporting: AtomicBool::new(false),
             cancel_export: Arc::new(AtomicBool::new(false)),
             pending_open: Mutex::new(pending),
@@ -1414,12 +1928,15 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             initialize,
             take_pending_project,
+            apply_order,
             dispatch,
             save_project,
             save_project_file,
+            save_still_frame,
             open_project,
             pick_media,
             exporter_available,
+            exporter_capabilities,
             export_movie,
             export_variants,
             export_plan_variants,
@@ -1435,12 +1952,7 @@ pub fn run() {
                 .filter_map(|url| url.to_file_path().ok())
                 .find(|path| is_pixcut_path(path))
             {
-                if let Some(editor) = app_handle.try_state::<Editor>() {
-                    if let Ok(mut pending) = editor.pending_open.lock() {
-                        *pending = Some(path);
-                    }
-                }
-                let _ = app_handle.emit("project-opened", ());
+                queue_open_project(app_handle, path);
             }
         }
         #[cfg(not(target_os = "macos"))]
@@ -1454,8 +1966,311 @@ pub fn run() {
 mod integration_tests {
     use super::*;
     fn export_options() -> ExportOptions {
-        ExportOptions { width: 1920, height: 1080, fps: 30, crf: 20, filename: "Test export".into() }
+        ExportOptions { width: 1920, height: 1080, fps: 30, crf: 20, filename: "Test export".into(), codec: ExportCodec::H264, container: ExportContainer::Mp4, speed: EncodeSpeed::Medium }
     }
+    #[test]
+    fn export_codec_container_defaults_and_arguments() {
+        let old: ExportOptions = serde_json::from_str(r#"{"width":320,"height":240,"fps":30,"crf":23,"filename":"Story.mp4"}"#).unwrap();
+        assert_eq!(old.codec, ExportCodec::H264); assert_eq!(old.container, ExportContainer::Mp4);
+        let mut options = old; options.codec = ExportCodec::Hevc; options.container = ExportContainer::Mov;
+        assert_eq!(export_output_name(&options), "Story.mov");
+        let args = video_encoding_args(&options); assert!(args.iter().any(|a| a == "libx265")); assert!(args.iter().any(|a| a == "hvc1"));
+        options.container = ExportContainer::Mkv;
+        assert_eq!(export_output_name(&options), "Story.mkv"); assert!(!video_encoding_args(&options).iter().any(|a| a == "-movflags"));
+        assert!(serde_json::from_str::<ExportOptions>(r#"{"width":320,"height":240,"fps":30,"crf":23,"filename":"x","codec":"injected"}"#).is_err());
+    }
+    #[test]
+    fn webm_and_prores_options_use_their_own_encoders_and_containers() {
+        let mut options = export_options();
+        options.codec = ExportCodec::Vp9;
+        options.container = ExportContainer::Webm;
+        options.filename = "Story.webm".into();
+        assert_eq!(export_output_name(&options), "Story.webm");
+        assert!(validate_export_options(&options).is_ok());
+        let video = video_encoding_args(&options);
+        assert!(video.iter().any(|arg| arg == "libvpx-vp9"));
+        assert!(video.windows(2).any(|pair| pair == ["-b:v", "0"]));
+        assert!(!video.iter().any(|arg| arg == "-preset"));
+        assert!(!video.iter().any(|arg| arg == "-movflags"));
+        let audio = audio_encoding_args(&options);
+        assert!(audio.iter().any(|arg| arg == "libopus"));
+
+        options.codec = ExportCodec::Prores;
+        options.container = ExportContainer::Mov;
+        options.filename = "Story.mov".into();
+        assert_eq!(export_output_name(&options), "Story.mov");
+        assert!(validate_export_options(&options).is_ok());
+        let video = video_encoding_args(&options);
+        assert!(video.iter().any(|arg| arg == "prores_ks"));
+        assert!(video.iter().any(|arg| arg == "yuv422p10le"));
+        assert!(video.iter().any(|arg| arg == "-movflags"));
+        assert!(audio_encoding_args(&options).iter().any(|arg| arg == "pcm_s16le"));
+
+        options.codec = ExportCodec::Vp9;
+        assert!(validate_export_options(&options).is_err());
+        options.codec = ExportCodec::Prores;
+        options.container = ExportContainer::Mp4;
+        assert!(validate_export_options(&options).is_err());
+        options.codec = ExportCodec::H264;
+        options.container = ExportContainer::Webm;
+        assert!(validate_export_options(&options).is_err());
+    }
+    #[test]
+    #[ignore = "Requires FFmpeg with libvpx-vp9, libopus, prores_ks and ffprobe installed"]
+    fn real_webm_and_prores_exports_match_their_containers() {
+        let binary = ffmpeg().expect("FFmpeg is installed");
+        let temp = tempfile::tempdir().unwrap();
+        for (codec, container, expected_video, expected_audio) in [
+            (ExportCodec::Vp9, ExportContainer::Webm, "vp9", "opus"),
+            (ExportCodec::Prores, ExportContainer::Mov, "prores", "pcm_s16le"),
+        ] {
+            let (mut project, frames) = fixture_project();
+            project.audio = vec![AudioClip {
+                id: "audio-1".into(),
+                name: "Bed.wav".into(),
+                data: format!("data:audio/wav;base64,{}", STANDARD.encode(wav_silence(1.0))).into(),
+                lane: 0,
+                start_ticks: 0,
+                duration_ticks: 30,
+                source_in_seconds: 0.0,
+                source_duration_seconds: 1.0,
+                volume: 0.8,
+                fade_in: 0.0,
+                fade_out: 0.0,
+            }];
+            let mut options = export_options();
+            options.width = 320; options.height = 240; options.codec = codec;
+            options.container = container; options.speed = EncodeSpeed::Fast;
+            options.crf = if codec == ExportCodec::Vp9 { 32 } else { 24 };
+            let output = temp.path().join(format!("photo.{}", container.extension()));
+            let plan = ExportPlan {
+                segments: frames.into_iter().map(|png| PlanSegment {
+                    kind: "image".into(), png: Some(png), video: None, source_in_seconds: None,
+                    fit: None, speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, include_audio: true, duration_ticks: 15, overlays: vec![],
+                }).collect(),
+                options: options.clone(),
+            };
+            encode_plan(&project, plan, binary.clone(), output.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+            let probe = Process::new(binary.with_file_name("ffprobe"))
+                .args(["-v","error","-show_entries","stream=codec_type,codec_name:format=format_name,duration","-of","json"])
+                .arg(&output)
+                .output()
+                .unwrap();
+            assert!(probe.status.success(), "{}", String::from_utf8_lossy(&probe.stderr));
+            let info: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
+            let streams = info["streams"].as_array().unwrap();
+            let video = streams.iter().find(|stream| stream["codec_type"] == "video").unwrap();
+            let audio = streams.iter().find(|stream| stream["codec_type"] == "audio").unwrap();
+            assert_eq!(video["codec_name"], expected_video);
+            assert_eq!(audio["codec_name"], expected_audio);
+            let duration: f64 = info["format"]["duration"].as_str().unwrap().parse().unwrap();
+            assert!((duration - 1.0).abs() < 0.08);
+        }
+    }
+    #[test]
+    #[ignore = "Requires FFmpeg with libx264, libx265 and ffprobe installed"]
+    fn real_hevc_exports_all_containers_and_both_render_paths() {
+        let binary = ffmpeg().expect("FFmpeg is installed"); assert!(encoder_available(&binary, ExportCodec::Hevc));
+        let temp = tempfile::tempdir().unwrap();
+        for container in [ExportContainer::Mp4, ExportContainer::Mov, ExportContainer::Mkv] {
+            let (project, frames) = fixture_project();
+            let mut options = export_options(); options.width = 320; options.height = 240; options.codec = ExportCodec::Hevc; options.container = container; options.speed = EncodeSpeed::Fast;
+            let output = temp.path().join(format!("photo.{}", container.extension()));
+            encode_movie(project.clone(), frames.clone(), vec![15,15], options.clone(), binary.clone(), output.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+            let plan = ExportPlan { segments: frames.into_iter().map(|png| PlanSegment { kind: "image".into(), png: Some(png), video: None, source_in_seconds: None, fit: None, speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, include_audio: true, duration_ticks: 15, overlays: vec![] }).collect(), options };
+            let plan_output = temp.path().join(format!("plan.{}", container.extension()));
+            encode_plan(&project, plan, binary.clone(), plan_output.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+            for file in [output, plan_output] {
+                let probe = Process::new("ffprobe").args(["-v","error","-select_streams","v:0","-show_entries","stream=codec_name,width,height:format=duration","-of","json"]).arg(file).output().unwrap();
+                assert!(probe.status.success()); let info: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
+                assert_eq!(info["streams"][0]["codec_name"], "hevc"); assert_eq!(info["streams"][0]["width"], 320);
+                let duration: f64 = info["format"]["duration"].as_str().unwrap().parse().unwrap(); assert!((duration - 1.0).abs() < 0.05);
+            }
+        }
+    }
+    #[test]
+    fn plan_validates_video_speed_and_grade_lut() {
+        let (project, frames) = fixture_project();
+        let image = || PlanSegment {
+            kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
+            fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, include_audio: true, duration_ticks: 15, overlays: vec![],
+        };
+        let video = |speed: Option<f64>, lut: Option<String>| PlanSegment {
+            kind: "video".into(), png: None, video: Some("data:video/mp4;base64,AA==".into()),
+            source_in_seconds: Some(0.0), fit: Some("cover".into()), speed, lut,
+            fade_in: 0.0, fade_out: 0.0, include_audio: true, duration_ticks: 15, overlays: vec![],
+        };
+        let plan = |second: PlanSegment| ExportPlan { segments: vec![image(), second], options: export_options() };
+        assert!(validate_plan(&project, &plan(video(None, None))).is_ok());
+        assert!(validate_plan(&project, &plan(video(Some(2.0), Some("LUT_3D_SIZE 2\n".into())))).is_ok());
+        assert!(validate_plan(&project, &plan(video(Some(0.1), None))).is_err());
+        assert!(validate_plan(&project, &plan(video(Some(9.0), None))).is_err());
+        assert!(validate_plan(&project, &plan(video(None, Some("not a lut".into())))).is_err());
+        assert!(validate_plan(&project, &plan(video(None, Some(String::new())))).is_err());
+    }
+
+    #[test]
+    fn plan_rejects_negative_or_non_finite_fades() {
+        let (project, frames) = fixture_project();
+        let segment = |fade_in: f64, fade_out: f64| PlanSegment {
+            kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
+            fit: None, speed: None, lut: None, fade_in, fade_out, include_audio: true, duration_ticks: 15, overlays: vec![],
+        };
+        let plan = |first: PlanSegment, second: PlanSegment| ExportPlan { segments: vec![first, second], options: export_options() };
+        assert!(validate_plan(&project, &plan(segment(0.25, 0.25), segment(0.25, 0.25))).is_ok());
+        assert!(validate_plan(&project, &plan(segment(-0.1, 0.0), segment(0.0, 0.0))).is_err());
+        assert!(validate_plan(&project, &plan(segment(0.0, f64::NAN), segment(0.0, 0.0))).is_err());
+        assert!(validate_plan(&project, &plan(segment(0.0, f64::INFINITY), segment(0.0, 0.0))).is_err());
+    }
+
+    #[test]
+    fn tempo_chain_uses_supported_steps_and_keeps_the_speed() {
+        assert_eq!(atempo_chain(1.0), "atempo=1.000000");
+        assert_eq!(atempo_chain(2.0), "atempo=2.000000");
+        assert_eq!(atempo_chain(4.0), "atempo=2.000000,atempo=2.000000");
+        assert_eq!(atempo_chain(0.5), "atempo=0.500000");
+        assert_eq!(atempo_chain(0.25), "atempo=0.500000,atempo=0.500000");
+        for speed in [0.3, 0.75, 1.5, 2.5, 3.0] {
+            let steps: Vec<f64> = atempo_chain(speed)
+                .split(',')
+                .map(|step| step.trim_start_matches("atempo=").parse::<f64>().unwrap())
+                .collect();
+            let product: f64 = steps.iter().product();
+            assert!((product - speed).abs() < 1e-5, "speed {speed} became {steps:?}");
+            assert!(steps.iter().all(|step| (0.5..=2.0).contains(step)), "out-of-range step in {steps:?}");
+        }
+    }
+
+    #[test]
+    #[ignore = "Requires FFmpeg with libx264, aac and ffprobe installed"]
+    fn plan_export_keeps_imported_video_audio() {
+        let binary = ffmpeg().expect("FFmpeg must be installed for this test");
+        assert!(encoder_available(&binary, ExportCodec::H264));
+        let temp = tempfile::tempdir().unwrap();
+        let clip = temp.path().join("tone.mp4");
+        let status = Process::new(&binary)
+            .args([
+                "-y", "-v", "error",
+                "-f", "lavfi", "-i", "testsrc=size=320x240:rate=30",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+                "-t", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-shortest",
+            ])
+            .arg(&clip)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(has_audio_stream(&binary, &clip), "the fixture clip must carry audio");
+        let silent = temp.path().join("silent.mp4");
+        let silent_status = Process::new(&binary)
+            .args(["-y", "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x240:r=30:d=1", "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+            .arg(&silent)
+            .status()
+            .unwrap();
+        assert!(silent_status.success());
+        assert!(!has_audio_stream(&binary, &silent));
+
+        let video = format!("data:video/mp4;base64,{}", STANDARD.encode(fs::read(&clip).unwrap()));
+        let (project, frames) = fixture_project();
+        let plan = |include_audio: bool| ExportPlan {
+            segments: vec![
+                PlanSegment {
+                    kind: "video".into(), png: None, video: Some(video.clone()), source_in_seconds: Some(0.0),
+                    fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, include_audio,
+                    duration_ticks: 15, overlays: vec![],
+                },
+                PlanSegment {
+                    kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
+                    fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, include_audio,
+                    duration_ticks: 15, overlays: vec![],
+                },
+            ],
+            options: export_options(),
+        };
+        let output = temp.path().join("video-audio.mp4");
+        encode_plan(&project, plan(true), binary.clone(), output.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        let probe = Process::new(binary.with_file_name("ffprobe"))
+            .args(["-v", "error", "-show_entries", "stream=codec_type", "-of", "json"])
+            .arg(&output)
+            .output()
+            .unwrap();
+        assert!(probe.status.success(), "{}", String::from_utf8_lossy(&probe.stderr));
+        let info: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
+        assert!(info["streams"].as_array().unwrap().iter().any(|stream| stream["codec_type"] == "audio"));
+        let volume = Process::new(&binary)
+            .args(["-hide_banner", "-nostats", "-i"])
+            .arg(&output)
+            .args(["-af", "volumedetect", "-f", "null", "-"])
+            .output()
+            .unwrap();
+        let log = String::from_utf8_lossy(&volume.stderr);
+        let mean = log.lines().find(|line| line.contains("mean_volume:")).unwrap_or("mean_volume: -inf dB");
+        let db: f64 = mean.split("mean_volume:").nth(1).unwrap_or(" -inf ").split("dB").next().unwrap_or(" -inf ").trim().parse().unwrap_or(-100.0);
+        assert!(db > -40.0, "expected the imported tone, got {mean}");
+
+        // The export dialog's include-audio switch must silence the clip again.
+        let muted = temp.path().join("video-muted.mp4");
+        encode_plan(&project, plan(false), binary.clone(), muted.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        let muted_probe = Process::new(binary.with_file_name("ffprobe"))
+            .args(["-v", "error", "-show_entries", "stream=codec_type", "-of", "json"])
+            .arg(&muted)
+            .output()
+            .unwrap();
+        assert!(muted_probe.status.success(), "{}", String::from_utf8_lossy(&muted_probe.stderr));
+        let muted_info: serde_json::Value = serde_json::from_slice(&muted_probe.stdout).unwrap();
+        assert!(!muted_info["streams"].as_array().unwrap().iter().any(|stream| stream["codec_type"] == "audio"));
+    }
+
+    #[test]
+    #[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+    fn real_video_export_applies_grade_fade_and_speed() {
+        let binary = ffmpeg().expect("FFmpeg is installed");
+        assert!(encoder_available(&binary, ExportCodec::H264));
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source.mp4");
+        let status = Process::new(&binary)
+            .args(["-y", "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x240:r=30:d=1", "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+            .arg(&source).status().unwrap();
+        assert!(status.success());
+        let video = format!("data:video/mp4;base64,{}", STANDARD.encode(fs::read(&source).unwrap()));
+        let (mut project, _) = fixture_project();
+        project.tracks[0].clips.truncate(1);
+        project.tracks[0].clips[0].media_kind = Some("video".into());
+        project.tracks[0].clips[0].image = video.clone().into();
+        project.tracks[0].clips[0].duration_ticks = 15;
+        project.tracks[0].clips[0].speed = 2.0;
+        project.tracks[0].clips[0].fade_in = 0.2;
+        // A 2-point LUT that maps every input colour to white proves the cube reaches FFmpeg.
+        let mut lut = String::from("LUT_3D_SIZE 2\n");
+        for _ in 0..8 { lut.push_str("1.000000 1.000000 1.000000\n"); }
+        let mut options = export_options();
+        options.width = 320; options.height = 240; options.speed = EncodeSpeed::Fast; options.filename = "graded.mp4".into();
+        let plan = ExportPlan {
+            segments: vec![PlanSegment {
+                kind: "video".into(), png: None, video: Some(video), source_in_seconds: Some(0.0),
+                fit: Some("cover".into()), speed: Some(2.0), lut: Some(lut),
+                fade_in: 0.0, fade_out: 0.0, include_audio: true, duration_ticks: 15, overlays: vec![],
+            }],
+            options,
+        };
+        let output = temp.path().join("graded.mp4");
+        encode_plan(&project, plan, binary.clone(), output.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        let probe = Process::new(&binary).args(["-hide_banner", "-i"]).arg(&output).output().unwrap();
+        let text = String::from_utf8_lossy(&probe.stderr);
+        assert!(text.contains("Duration: 00:00:00.50"), "{text}");
+        let pixel_at = |seconds: &str| {
+            let result = Process::new(&binary).args(["-v", "error", "-ss", seconds, "-i"]).arg(&output)
+                .args(["-frames:v", "1", "-vf", "crop=2:2:0:0,format=rgb24", "-f", "rawvideo", "-"])
+                .output().unwrap();
+            assert!(result.status.success());
+            result.stdout
+        };
+        let faded = pixel_at("0.02");
+        let graded = pixel_at("0.4");
+        assert!(faded[0] < 140, "fade-in should darken the first frame: {faded:?}");
+        assert!(graded[0] > 240 && graded[1] > 240 && graded[2] > 240, "the LUT should turn the red clip white: {graded:?}");
+    }
+
     fn fixture_project() -> (Project, Vec<String>) {
         let frames: Vec<String> = [
             include_bytes!("../../tests/fixtures/red.png").as_slice(),
@@ -1479,6 +2294,7 @@ mod integration_tests {
                 image: frame.as_str().into(),
                 start_ticks: i as u64 * 15,
                 source_in_ticks: 0,
+                source_duration_seconds: None,
                 duration_ticks: 15,
                 legacy_duration: None,
                 title: "".into(),
@@ -1616,11 +2432,31 @@ mod integration_tests {
     }
 
     #[test]
-    fn project_filename_is_safe_and_bounded() {
-        assert_eq!(safe_filename("A little further"), "A little further");
+    fn second_instance_routes_only_project_paths() {
+        assert_eq!(pixcut_path_from_args(["/Applications/PixCut.app/Contents/MacOS/pixcut"]), None);
+        assert_eq!(pixcut_path_from_args(["--flag", "/tmp/notes.txt"]), None);
+        assert_eq!(
+            pixcut_path_from_args(["/Applications/PixCut.app/Contents/MacOS/pixcut", "/tmp/Story.PIXCUT"]),
+            Some(PathBuf::from("/tmp/Story.PIXCUT"))
+        );
+    }
+
+    #[test]
+    fn project_filename_is_safe_and_bounded() {        assert_eq!(safe_filename("A little further"), "A little further");
         assert_eq!(safe_filename("../../etc/passwd"), "etcpasswd");
         assert_eq!(safe_filename("   "), "PixCut project");
         assert_eq!(safe_filename(&"x".repeat(200)).chars().count(), 80);
+    }
+
+    #[test]
+    fn still_frames_accept_only_png_and_jpeg_payloads() {
+        assert_eq!(still_frame_extension("image/png"), Some("png"));
+        assert_eq!(still_frame_extension("image/jpeg"), Some("jpg"));
+        assert_eq!(still_frame_extension("image/webp"), None);
+        assert_eq!(still_frame_extension("audio/mpeg"), None);
+        let (mime, bytes) = parse_data_url("data:image/png;base64,iVBORw0KGgo=").unwrap();
+        assert_eq!(still_frame_extension(mime), Some("png"));
+        assert_eq!(bytes.len(), 8);
     }
     #[test]
     fn legacy_project_file_migrates_without_mutating_source() {
@@ -1647,7 +2483,7 @@ mod integration_tests {
         let before = fs::read_to_string(&path).unwrap();
         let (project, migrated) = read_project_with_migration(&path).unwrap();
         assert!(migrated);
-        assert_eq!(project.schema_version, 7);
+        assert_eq!(project.schema_version, 13);
         assert_eq!(project.visual_clips()[0].duration_ticks, 120);
         assert_eq!(fs::read_to_string(&path).unwrap(), before);
     }
@@ -1698,6 +2534,12 @@ mod integration_tests {
             "data:image/png;base64,{}",
             STANDARD.encode(fs::read(&overlay_path).unwrap())
         );
+        let red_path = temp.path().join("red-overlay.png");
+        let red_status = Process::new(&binary)
+            .args(["-y", "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=640x360", "-frames:v", "1"])
+            .arg(&red_path).status().unwrap();
+        assert!(red_status.success());
+        let red_overlay = format!("data:image/png;base64,{}", STANDARD.encode(fs::read(red_path).unwrap()));
         let (mut project, frames) = fixture_project();
         project.tracks[0].clips[1].media_kind = Some("video".into());
         let plan = ExportPlan {
@@ -1708,6 +2550,11 @@ mod integration_tests {
                     video: None,
                     source_in_seconds: None,
                     fit: Some("cover".into()),
+                    speed: None,
+                    lut: None,
+                    fade_in: 0.0,
+                    fade_out: 0.0,
+                    include_audio: true,
                     duration_ticks: 15,
                     overlays: vec![],
                 },
@@ -1717,8 +2564,13 @@ mod integration_tests {
                     video: Some(video),
                     source_in_seconds: Some(0.0),
                     fit: Some("cover".into()),
+                    speed: None,
+                    lut: None,
+                    fade_in: 0.0,
+                    fade_out: 0.0,
+                    include_audio: true,
                     duration_ticks: 15,
-                    overlays: vec![PlanOverlay { png: overlay, start_ticks: 15, duration_ticks: 15 }],
+                    overlays: vec![PlanOverlay { png: overlay.clone(), frames: (0..15).map(|index| if index < 7 { overlay.clone() } else { red_overlay.clone() }).collect(), start_ticks: 15, duration_ticks: 15 }],
                 },
             ],
             options: export_options(),
@@ -1734,6 +2586,19 @@ mod integration_tests {
         let text = String::from_utf8_lossy(&probe.stderr);
         assert!(text.contains("Video: h264"), "{text}");
         assert!(text.contains("Duration: 00:00:01.00"), "{text}");
+        // The overlay sequence begins at the video cut, not at the project origin.
+        let pixel_at = |seconds: &str| {
+            let result = Process::new(&binary).args(["-v", "error", "-ss", seconds, "-i"])
+                .arg(&output).args(["-frames:v", "1", "-vf", "crop=2:2:0:0,format=rgb24", "-f", "rawvideo", "-"])
+                .output().unwrap();
+            assert!(result.status.success());
+            result.stdout
+        };
+        let early = pixel_at("0.55");
+        let late = pixel_at("0.85");
+        assert!(early.len() >= 3 && late.len() >= 3);
+        assert!(early[0] < 40, "first overlay frame should be black: {early:?}");
+        assert!(late[0] > 180 && late[1] < 60, "later overlay frame should be red: {late:?}");
     }
 
     #[test]
@@ -1855,6 +2720,54 @@ mod integration_tests {
         assert_eq!(read_project_bundle(&path).unwrap(), project);
     }
     #[test]
+    fn captured_export_is_independent_of_later_edits_or_new_projects() {
+        let (project, _) = fixture_project(); let frozen = checked_export_snapshot(&project.id, project.clone()).unwrap();
+        let mut editor = pixcut_project::Session { project, ..Default::default() };
+        editor.apply(Command::Rename { name: "Working version".into() }).unwrap();
+        let mut other = Project::default(); other.id = "another-project".into();
+        editor.apply(Command::Replace { project: other }).unwrap();
+        assert_ne!(editor.project.id, frozen.id);
+        assert!(checked_export_snapshot(&frozen.id, frozen.clone()).is_ok());
+        assert!(checked_export_snapshot("wrong-id", frozen).is_err());
+    }
+    #[test]
+    fn custom_overlays_roundtrip_in_bundle_and_local_store() {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut project, _) = fixture_project();
+        let source = project.visual_clips()[0].image.clone();
+        let overlay = serde_json::json!({"id":"overlay", "kind":"image", "source":source, "loop":true, "animationDuration":0.8, "x":0.7,"y":0.3,"width":0.3,"height":0.2,"rotation":0,"color":"#FFFFFF","opacity":100,"startTicks":0,"durationTicks":15,"animation":"float"});
+        project.tracks[0].clips[0].elements = vec![serde_json::from_value(overlay).unwrap()];
+        project.overlays = project.tracks[0].clips[0].elements.clone();
+        project.overlays[0].id = "global-overlay".into();
+        project.validate().unwrap();
+        let path = temp.path().join("overlay.pixcut");
+        write_project_bundle(&path, &project, None).unwrap();
+        assert_eq!(read_project_bundle(&path).unwrap(), project);
+        let original = project.clone();
+        let directory = temp.path().join("assets");
+        persist_project(&directory, &mut project).unwrap();
+        assert!(project.tracks[0].clips[0].elements[0].source.as_ref().unwrap().starts_with("pixcut-asset:"));
+        assert!(project.overlays[0].source.as_ref().unwrap().starts_with("pixcut-asset:"));
+        hydrate_project(&directory, &mut project).unwrap();
+        assert_eq!(project, original);
+    }
+    #[test]
+    fn video_overlay_assets_keep_their_mime_when_reopened() {
+        for mime in ["video/mp4", "video/webm", "video/quicktime", "video/x-m4v"] {
+            let temp = tempfile::tempdir().unwrap();
+            let (mut project, _) = fixture_project();
+            let source = format!("data:{mime};base64,{}", STANDARD.encode(b"local-video-test"));
+            project.tracks[0].clips[0].elements = vec![serde_json::from_value(serde_json::json!({"id":"video", "kind":"video", "source":source, "x":0.7,"y":0.3,"width":0.3,"height":0.2,"rotation":0,"color":"#FFFFFF","opacity":100,"startTicks":0,"durationTicks":15,"animation":"none"})).unwrap()];
+            project.validate().unwrap(); let original = project.clone();
+            let path = temp.path().join("video.pixcut");
+            write_project_bundle(&path, &project, None).unwrap();
+            assert_eq!(read_project_bundle(&path).unwrap(), original);
+            persist_project(temp.path(), &mut project).unwrap();
+            hydrate_project(temp.path(), &mut project).unwrap();
+            assert_eq!(project, original);
+        }
+    }
+    #[test]
     fn project_bundle_deduplicates_identical_assets() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("duplicate.pixcut");
@@ -1931,6 +2844,26 @@ mod integration_tests {
         assert_eq!(project, original);
     }
     #[test]
+    fn missing_assets_stay_referenced_and_block_portable_saves() {
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("assets");
+        let (mut project, _) = fixture_project();
+        let missing = "a".repeat(64);
+        project.tracks[0].clips[0].image = format!("pixcut-asset:{missing}").into();
+        let available = project.tracks[0].clips[1].image.clone();
+        persist_project(&directory, &mut project).unwrap();
+        hydrate_project(&directory, &mut project).unwrap();
+        assert_eq!(project.tracks[0].clips[0].image, format!("pixcut-asset:{missing}").into());
+        assert_eq!(project.tracks[0].clips[1].image, available);
+        assert!(project_has_asset_refs(&project));
+        assert!(build_bundle(&project).is_err());
+        // Relinking replaces the reference with fresh media bytes, then both
+        // portable saves and exports are allowed again.
+        project.tracks[0].clips[0].image = "data:image/png;base64,iVBORw0KGgo=".into();
+        assert!(!project_has_asset_refs(&project));
+        assert!(build_bundle(&project).is_ok());
+    }
+    #[test]
     #[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
     fn real_export_reports_progress() {
         let temp = tempfile::tempdir().unwrap();
@@ -1982,5 +2915,30 @@ mod integration_tests {
             .parse()
             .unwrap();
         assert!((duration - 1.0).abs() < 0.04);
+    }
+    #[test]
+    #[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+    fn real_image_export_applies_fades() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("faded.mp4");
+        let (mut project, frames) = fixture_project();
+        project.tracks[0].clips[0].fade_in = 0.2;
+        project.tracks[0].clips[1].fade_out = 0.2;
+        let binary = ffmpeg().expect("FFmpeg must be installed for this test");
+        encode_movie(project, frames, vec![15, 15], export_options(), binary.clone(), path.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        let pixel_at = |seconds: &str| {
+            let result = Process::new(&binary).args(["-v", "error", "-ss", seconds, "-i"])
+                .arg(&path)
+                .args(["-frames:v", "1", "-vf", "crop=2:2:0:0,format=rgb24", "-f", "rawvideo", "-"])
+                .output().unwrap();
+            assert!(result.status.success());
+            result.stdout
+        };
+        let faded_in = pixel_at("0.02");
+        let steady = pixel_at("0.3");
+        let faded_out = pixel_at("0.94");
+        assert!(faded_in[0] < 120, "fade-in should darken the first frame: {faded_in:?}");
+        assert!(steady[0] > 200, "the middle of the clip should stay bright: {steady:?}");
+        assert!(faded_out[1] < 120, "fade-out should darken the last frame: {faded_out:?}");
     }
 }

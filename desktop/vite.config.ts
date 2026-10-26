@@ -4,12 +4,15 @@ import react from '@vitejs/plugin-react';
 // Vite config runs in Node; avoid pulling @types/node into the app tsconfig.
 declare const process: { env: Record<string, string | undefined> };
 
+import { version } from './package.json';
+
 const buildSha = process.env.VITE_BUILD_SHA || 'dev';
 const buildDate = process.env.VITE_BUILD_DATE || new Date().toISOString();
 
 export default defineConfig({
   plugins: [react()],
   define: {
+    __APP_VERSION__: JSON.stringify(version),
     __BUILD_SHA__: JSON.stringify(buildSha),
     __BUILD_DATE__: JSON.stringify(buildDate),
   },

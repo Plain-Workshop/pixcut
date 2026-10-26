@@ -9,6 +9,7 @@ export type Preferences = {
   compact: boolean;
   reduceMotion: boolean;
   showHints: boolean;
+  automaticUpdates: boolean;
   theme: 'dark' | 'light';
 };
 
@@ -22,7 +23,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   snapping: true,
   compact: false,
   reduceMotion: false,
-  showHints: true,
+  showHints: false,
+  automaticUpdates: true,
   theme: 'dark',
 };
 
@@ -42,6 +44,7 @@ export function loadPreferences(): Preferences {
       compact: typeof stored.compact === 'boolean' ? stored.compact : DEFAULT_PREFERENCES.compact,
       reduceMotion: typeof stored.reduceMotion === 'boolean' ? stored.reduceMotion : DEFAULT_PREFERENCES.reduceMotion,
       showHints: typeof stored.showHints === 'boolean' ? stored.showHints : DEFAULT_PREFERENCES.showHints,
+      automaticUpdates: typeof stored.automaticUpdates === 'boolean' ? stored.automaticUpdates : true,
       theme: stored.theme === 'light' ? 'light' : 'dark',
     };
   } catch {

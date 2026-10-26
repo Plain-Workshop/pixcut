@@ -1,4 +1,5 @@
 import { MAX_TEXT_LAYERS, TEXT_LAYER_STYLE_DEFAULTS, legacyTextLayer } from '../components/text/layers';
+import { STACK_Z_MAX } from '../components/elements/stack';
 
 export const FILTER_IDS = ['none', 'vivid', 'warm', 'cool', 'mono', 'film', 'noir', 'dream'] as const;
 export type FilterId = typeof FILTER_IDS[number];
@@ -23,11 +24,62 @@ export const setSceneSeconds = (scene: Scene, seconds: number, timebase: Timebas
   const duration = ticksToSeconds(ticks, timebase);
   return { ...scene, durationTicks: ticks, fadeIn: Math.min(scene.fadeIn ?? 0, duration), fadeOut: Math.min(scene.fadeOut ?? 0, duration) };
 };
+/**
+ * Ripple trim: moves the in-point (left edge) or the duration (right edge) of one
+ * clip. Later clips keep their order and close the gap, matching the contiguous model.
+ * Video clips stay inside their source; photos can stretch up to the 30 s cap.
+ */
+export const trimSceneWindow = (scene: Scene, deltaTicks: number, side: 'left' | 'right', timebase: Timebase = DEFAULT_TIMEBASE): Scene => {
+  const minimum = minTicks(timebase), maximum = maxTicks(timebase);
+  const initialDuration = scene.durationTicks;
+  const initialSourceIn = scene.sourceInTicks ?? 0;
+  const speed = Math.min(4, Math.max(.25, scene.speed ?? 1));
+  const video = scene.mediaKind === 'video';
+  const fallbackSourceSeconds = ticksToSeconds(initialSourceIn, timebase) + ticksToSeconds(initialDuration, timebase) * speed;
+  const sourceEnd = video ? secondsToTicks(scene.sourceDurationSeconds ?? fallbackSourceSeconds, timebase) : Number.POSITIVE_INFINITY;
+  let durationTicks = initialDuration;
+  let sourceInTicks = initialSourceIn;
+  if (side === 'right') {
+    const available = video ? Math.max(minimum, Math.min(maximum, Math.floor((sourceEnd - initialSourceIn) / speed))) : maximum;
+    durationTicks = Math.max(minimum, Math.min(available, initialDuration + deltaTicks));
+  } else {
+    const sourceRoom = video ? Math.max(0, Math.floor(initialSourceIn / speed)) : 0;
+    const shift = Math.max(-sourceRoom, Math.min(initialDuration - minimum, deltaTicks));
+    durationTicks = initialDuration - shift;
+    sourceInTicks = Math.max(0, initialSourceIn + Math.round(shift * speed));
+  }
+  const duration = ticksToSeconds(durationTicks, timebase);
+  return {
+    ...scene,
+    durationTicks,
+    sourceInTicks,
+    fadeIn: Math.min(scene.fadeIn ?? 0, duration),
+    fadeOut: Math.min(scene.fadeOut ?? 0, duration),
+  };
+};
 export type TransitionType = 'none' | 'fade' | 'slide' | 'wipe' | 'zoom' | 'blur' | 'circle' | 'slide-up' | 'spin';
-export type ElementKind = 'rectangle' | 'ellipse' | 'triangle' | 'star' | 'sparkle' | 'line' | 'arrow' | 'heart' | 'subscribe' | 'like' | 'bell' | 'comment' | 'share' | 'play' | 'progress' | 'location' | 'music' | 'check' | 'cross' | 'ring' | 'cursor' | 'underline';
+export type ElementKind = 'caption' | 'chapter' | 'callout' | 'keycaps' | 'mouse' | 'device' | 'comparison' | 'checklist' | 'rating' | 'countdown' | 'waveform' | 'message' | 'qr' | 'end-screen' | 'image' | 'video' | 'label' | 'name-tag' | 'link' | 'quote' | 'counter' | 'status' | 'burst' | 'frame' | 'dots' | 'tape' | 'chevron' | 'rectangle' | 'ellipse' | 'triangle' | 'star' | 'sparkle' | 'line' | 'arrow' | 'heart' | 'subscribe' | 'like' | 'bell' | 'comment' | 'share' | 'play' | 'progress' | 'location' | 'music' | 'check' | 'cross' | 'ring' | 'cursor' | 'underline';
+export type ElementAction = { kind: 'ring' | 'pulse' | 'float' | 'spin'; startTicks: number; durationTicks: number; repeat: boolean; sound: boolean };
+export type ElementBehavior = {
+  atSeconds?: number; intervalSeconds?: number; countFrom?: number; countTo?: number;
+  repeat?: boolean; audioId?: string; variant?: 'click' | 'double-click' | 'drag' | 'phone' | 'browser';
+};
 export type ElementLayer = {
+  behavior?: ElementBehavior;
+  exit?: 'none' | 'fade' | 'slide-down';
+  /** Stacking order; bigger draws on top. Missing means the classic order. */
+  z?: number;
+
+  action?: ElementAction;
   id: string;
   kind: ElementKind;
+  label?: string;
+  source?: string;
+  poster?: string;
+  sourceInSeconds?: number;
+  sourceDurationSeconds?: number;
+  loop?: boolean;
+  animationDuration?: number;
   x: number;
   y: number;
   width: number;
@@ -37,7 +89,7 @@ export type ElementLayer = {
   opacity: number;
   startTicks: number;
   durationTicks: number;
-  animation: 'none' | 'fade' | 'pop' | 'slide-up' | 'pulse' | 'float';
+  animation: 'none' | 'fade' | 'pop' | 'slide-up' | 'pulse' | 'float' | 'slide-down' | 'slide-left' | 'slide-right' | 'zoom-out' | 'bounce' | 'spin' | 'swing';
 };
 export type MotionType = 'none' | 'zoom-in' | 'zoom-out' | 'pan-left' | 'pan-right' | 'pan-up' | 'pan-down' | 'ken-burns';
 export type Transition = { type: TransitionType; duration: number };
@@ -50,6 +102,8 @@ export type TextLayer = {
   title: string;
   subtitle: string;
   color: string;
+  /** Stacking order; bigger draws on top. Missing means the classic order. */
+  z?: number;
   startTicks: number;
   durationTicks: number;
   x: number;
@@ -97,6 +151,7 @@ export type Scene = {
   image: string;
   mediaKind?: 'video';
   videoPoster?: string;
+  sourceDurationSeconds?: number;
   motion?: MotionType;
   motionAmount?: number;
   elements?: ElementLayer[];
@@ -190,12 +245,13 @@ type LegacyMusic = {
   fadeOut: number;
   durationSeconds: number;
 };
-export type Project = { schema_version: 7; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; formats: FormatVariant[]; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
+export type Project = { schema_version: 13; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; overlays: ElementLayer[]; formats: FormatVariant[]; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
 export type Command =
   | { type: 'replace'; project: Project }
   | { type: 'rename'; name: string }
   | { type: 'aspect'; aspect: Project['aspect'] }
   | { type: 'audio'; audio: AudioClip[] }
+  | { type: 'overlays'; overlays: ElementLayer[] }
   | { type: 'formats'; formats: FormatVariant[] }
   | { type: 'add'; scenes: Scene[] }
   | { type: 'update'; scene: Scene }
@@ -206,9 +262,29 @@ export type Command =
   | { type: 'updateMany'; scenes: Scene[] }
   | { type: 'removeMany'; ids: string[] }
   | { type: 'duplicateMany'; items: { id: string; newId: string }[] }
+  | { type: 'order'; kind: 'element' | 'text' | 'overlay'; sceneId?: string; id: string; z: number }
   | { type: 'undo' } | { type: 'redo' };
 export type Session = { project: Project; canUndo: boolean; canRedo: boolean };
 export const policy = { watermark: false, pixcut_outro: false, privacy: 'local' } as const;
+/** Undo depth: bounded by count and by the media the snapshots keep alive. */
+export const HISTORY_LIMIT = 30;
+export const HISTORY_MEDIA_BYTES = 160_000_000;
+export function projectMediaBytes(project: Project) {
+  let bytes = 0;
+  for (const element of project.overlays ?? []) bytes += (element.source?.length ?? 0) + (element.poster?.length ?? 0);
+  for (const scene of projectScenes(project)) {
+    bytes += scene.image.length;
+    for (const element of scene.elements ?? []) bytes += (element.source?.length ?? 0) + (element.poster?.length ?? 0);
+  }
+  for (const clip of project.audio) bytes += clip.data.length;
+  return bytes;
+}
+export function trimHistory(past: Project[]): Project[] {
+  const kept = past.length > HISTORY_LIMIT ? past.slice(-HISTORY_LIMIT) : [...past];
+  let bytes = kept.reduce((sum, project) => sum + projectMediaBytes(project), 0);
+  while (kept.length > 1 && bytes > HISTORY_MEDIA_BYTES) bytes -= projectMediaBytes(kept.shift()!);
+  return kept;
+}
 export const emptyTrack = (kind: TrackKind = 'visual', name = 'Visuals'): Track => ({ id: crypto.randomUUID(), kind, name, clips: [] });
 export const visualTrack = (project: Project) => project.tracks.find(track => track.kind === 'visual') ?? project.tracks[0];
 export const projectScenes = (project: Project) => visualTrack(project)?.clips ?? [];
@@ -220,7 +296,7 @@ export function normalizeStarts(clips: Scene[]) {
   }
 }
 export const defaultFormat = (aspect: Project['aspect'] = '16:9'): FormatVariant => { const [width, height] = aspect === '9:16' ? [1080, 1920] : aspect === '4:5' ? [1080, 1350] : aspect === '1:1' ? [1080, 1080] : [1920, 1080]; return { id: crypto.randomUUID(), name: 'Original', platform: 'Original', aspect, width, height, fps: 30, quality: 'standard', overrides: {} }; };
-export const emptyProject = (name = 'Untitled story', aspect: Project['aspect'] = '16:9', fps = 30): Project => ({ schema_version: 7, id: crypto.randomUUID(), name, aspect, timebase: timebaseFor(fps), tracks: [emptyTrack()], audio: [], formats: [defaultFormat(aspect)], policy: { ...policy } });
+export const emptyProject = (name = 'Untitled story', aspect: Project['aspect'] = '16:9', fps = 30): Project => ({ schema_version: 13, id: crypto.randomUUID(), name, aspect, timebase: timebaseFor(fps), tracks: [emptyTrack()], audio: [], overlays: [], formats: [defaultFormat(aspect)], policy: { ...policy } });
 export const totalTicks = (project: Project) => projectScenes(project).reduce((end, scene) => Math.max(end, scene.startTicks + scene.durationTicks), 0);
 export const totalDuration = (project: Project) => ticksToSeconds(totalTicks(project), project.timebase);
 const optionalNumber = (value: unknown, min: number, max: number) => value === undefined || (typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max);
@@ -270,11 +346,13 @@ function readTextLayers(value: unknown, scene: Scene, durationTicks: number): Te
     const animation = layer.animation ?? defaults.animation;
     if (!['none', 'fade', 'slide-up', 'slide-left', 'pop'].includes(animation)) throw new Error('A text layer has an invalid animation.');
     if (typeof (layer.font ?? defaults.font) !== 'string') throw new Error('A text layer has an invalid font.');
+    const z = layer.z === undefined ? undefined : readNumber(layer.z, 0, STACK_Z_MAX, 0, `text layer order in layer ${index + 1}`);
     return {
       id: layer.id,
       title: layer.title,
       subtitle: layer.subtitle,
       color: readTextColor(layer.color, defaults.color, `text color in layer ${index + 1}`),
+      ...(z !== undefined ? { z } : {}),
       startTicks,
       durationTicks: duration,
       x: readNumber(layer.x, 0, 1, defaults.x, 'text position'),
@@ -371,7 +449,7 @@ function readFormats(value: unknown, aspect: Project['aspect'], clipIds: Set<str
     if (!Number.isInteger(fps) || fps < 15 || fps > 60) throw new Error('Invalid output format frame rate.');
     const quality = format.quality ?? 'standard';
     if (!['draft', 'standard', 'high'].includes(quality)) throw new Error('Invalid output format quality.');
-    if (format.presetId !== undefined && typeof format.presetId !== 'string') throw new Error('Invalid output format preset.');
+    if (format.presetId != null && typeof format.presetId !== 'string') throw new Error('Invalid output format preset.');
     if (typeof format.name !== 'string' || !format.name || format.name.length > 80 || typeof format.platform !== 'string' || !format.platform || format.platform.length > 80) throw new Error('Invalid output format name.');
     const overrides: Record<string, SceneFormatOverride> = {};
     if (format.overrides && typeof format.overrides === 'object') {
@@ -379,14 +457,14 @@ function readFormats(value: unknown, aspect: Project['aspect'], clipIds: Set<str
         if (!clipIds.has(sceneId) || !override || typeof override !== 'object') continue;
         const source = override as SceneFormatOverride;
         const clean: SceneFormatOverride = {};
-        if (source.imageX !== undefined) clean.imageX = readNumber(source.imageX, -1, 1, 0, 'format image position');
-        if (source.imageY !== undefined) clean.imageY = readNumber(source.imageY, -1, 1, 0, 'format image position');
-        if (source.imageZoom !== undefined) clean.imageZoom = readNumber(source.imageZoom, 1, 4, 1, 'format image zoom');
-        if (source.fit !== undefined) {
+        if (source.imageX != null) clean.imageX = readNumber(source.imageX, -1, 1, 0, 'format image position');
+        if (source.imageY != null) clean.imageY = readNumber(source.imageY, -1, 1, 0, 'format image position');
+        if (source.imageZoom != null) clean.imageZoom = readNumber(source.imageZoom, 1, 4, 1, 'format image zoom');
+        if (source.fit != null) {
           if (!['cover', 'contain', 'blur'].includes(source.fit)) throw new Error('Invalid format image fit.');
           clean.fit = source.fit;
         }
-        if (source.framingBackground !== undefined) clean.framingBackground = readTextColor(source.framingBackground, '#000000', 'format letterbox color');
+        if (source.framingBackground != null) clean.framingBackground = readTextColor(source.framingBackground, '#000000', 'format letterbox color');
         overrides[sceneId] = clean;
       }
     }
@@ -440,15 +518,16 @@ function readTimebase(value: unknown): Timebase {
   }
   return { numerator: timebase.numerator, denominator: timebase.denominator };
 }
-function readElements(value: unknown, durationTicks: number): ElementLayer[] {
+function readElements(value: unknown, durationTicks: number, limit = 12): ElementLayer[] {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > 12) throw new Error('Invalid element layer data.');
+  if (!Array.isArray(value) || value.length > limit) throw new Error('Invalid element layer data.');
+  if (durationTicks === 0) return [];
   const ids = new Set<string>();
   return value.map(item => {
     const element = item as Partial<ElementLayer>;
     if (!element || typeof element.id !== 'string' || !element.id || ids.has(element.id)) throw new Error('Invalid element layer identity.');
     ids.add(element.id);
-    const kinds: ElementKind[] = ['rectangle', 'ellipse', 'triangle', 'star', 'sparkle', 'line', 'arrow', 'heart', 'subscribe', 'like', 'bell', 'comment', 'share', 'play', 'progress', 'location', 'music', 'check', 'cross', 'ring', 'cursor', 'underline'];
+    const kinds: ElementKind[] = ['caption', 'chapter', 'callout', 'keycaps', 'mouse', 'device', 'comparison', 'checklist', 'rating', 'countdown', 'waveform', 'message', 'qr', 'end-screen', 'image', 'video', 'label', 'name-tag', 'link', 'quote', 'counter', 'status', 'burst', 'frame', 'dots', 'tape', 'chevron', 'rectangle', 'ellipse', 'triangle', 'star', 'sparkle', 'line', 'arrow', 'heart', 'subscribe', 'like', 'bell', 'comment', 'share', 'play', 'progress', 'location', 'music', 'check', 'cross', 'ring', 'cursor', 'underline'];
     if (!kinds.includes(element.kind as ElementKind)) throw new Error('Invalid element layer kind.');
     for (const key of ['x', 'y', 'width', 'height'] as const) {
       const value = element[key];
@@ -462,8 +541,49 @@ function readElements(value: unknown, durationTicks: number): ElementLayer[] {
     if (!Number.isInteger(element.startTicks) || !Number.isInteger(element.durationTicks) || (element.startTicks as number) < 0 || (element.durationTicks as number) < 1) throw new Error('Invalid element layer timing.');
     const startTicks = Math.max(0, Math.min(element.startTicks as number, Math.max(0, durationTicks - 1)));
     const elementTicks = Math.max(1, Math.min(element.durationTicks as number, durationTicks - startTicks));
-    if (element.animation !== undefined && !['none', 'fade', 'pop', 'slide-up', 'pulse', 'float'].includes(element.animation)) throw new Error('Invalid element layer animation.');
+    if (element.animation !== undefined && !['none', 'fade', 'pop', 'slide-up', 'pulse', 'float', 'slide-down', 'slide-left', 'slide-right', 'zoom-out', 'bounce', 'spin', 'swing'].includes(element.animation)) throw new Error('Invalid element layer animation.');
+    if (element.loop !== undefined && typeof element.loop !== 'boolean') throw new Error('Invalid element animation repeat.');
+    if (element.animationDuration !== undefined && (!Number.isFinite(element.animationDuration) || element.animationDuration < .1 || element.animationDuration > 5)) throw new Error('Invalid element animation speed.');
+    const asset = (source: unknown, video = false) => typeof source === 'string' && (/^pixcut-asset:[0-9a-f]{64}$/.test(source) || (video ? /^data:video\/(mp4|webm|quicktime|x-m4v);base64,/ : /^data:image\/(png|jpeg|webp);base64,/).test(source));
+    if ((element.kind === 'image' || element.kind === 'video') && !asset(element.source, element.kind === 'video')) throw new Error('A custom element needs a local image or video.');
+    if (element.source !== undefined && !asset(element.source) && !asset(element.source, true)) throw new Error('An element source must be local media.');
+    if (element.poster !== undefined && !asset(element.poster)) throw new Error('Invalid overlay poster.');
+    if (element.sourceInSeconds !== undefined && (!Number.isFinite(element.sourceInSeconds) || element.sourceInSeconds < 0)) throw new Error('Invalid overlay source start.');
+    if (element.sourceDurationSeconds !== undefined && (!Number.isFinite(element.sourceDurationSeconds) || element.sourceDurationSeconds <= 0 || element.sourceDurationSeconds > 3600)) throw new Error('Invalid overlay source duration.');
+    if (element.label !== undefined && (typeof element.label !== 'string' || [...element.label].length > 80)) throw new Error('Element text must be 80 characters or fewer.');
+    if (element.exit != null && !['none', 'fade', 'slide-down'].includes(element.exit)) throw new Error('Invalid element exit.');
+    if (element.z !== undefined && (typeof element.z !== 'number' || !Number.isFinite(element.z) || element.z < 0 || element.z > STACK_Z_MAX)) throw new Error('Invalid element layer order.');
+    let behavior: ElementBehavior | undefined;
+    if (element.behavior != null) {
+      const b = element.behavior;
+      if (!b || typeof b !== 'object' || Array.isArray(b)) throw new Error('Invalid dynamic element settings.');
+      for (const [key, min, max] of [['atSeconds', 0, 3600], ['intervalSeconds', .1, 60], ['countFrom', 0, 9999], ['countTo', 0, 9999]] as const) {
+        if (b[key] != null && (typeof b[key] !== 'number' || !Number.isFinite(b[key]) || b[key]! < min || b[key]! > max)) throw new Error('Invalid dynamic element timing or value.');
+      }
+      if (b.repeat != null && typeof b.repeat !== 'boolean') throw new Error('Invalid dynamic element repeat.');
+      if (b.audioId != null && (typeof b.audioId !== 'string' || b.audioId.length > 200)) throw new Error('Invalid waveform audio selection.');
+      if (b.variant != null && !['click', 'double-click', 'drag', 'phone', 'browser'].includes(b.variant)) throw new Error('Invalid dynamic element style.');
+      behavior = { atSeconds: b.atSeconds ?? undefined, intervalSeconds: b.intervalSeconds ?? undefined, countFrom: b.countFrom ?? undefined, countTo: b.countTo ?? undefined, repeat: b.repeat ?? undefined, audioId: b.audioId ?? undefined, variant: b.variant ?? undefined };
+    }
+    let action: ElementAction | undefined;
+    if (element.action != null) {
+      const a = element.action;
+      if (!['ring', 'pulse', 'float', 'spin'].includes(a.kind) || !Number.isInteger(a.startTicks) || a.startTicks < 0 || !Number.isInteger(a.durationTicks) || a.durationTicks < 1 || typeof a.repeat !== 'boolean' || typeof a.sound !== 'boolean') throw new Error('Invalid element action.');
+      const start = Math.min(a.startTicks, elementTicks - 1);
+      action = { ...a, startTicks: start, durationTicks: Math.min(a.durationTicks, elementTicks - start) };
+    }
     return {
+      ...(action ? { action } : {}),
+      ...(behavior ? { behavior } : {}),
+      ...(element.exit ? { exit: element.exit } : {}),
+      ...(element.z !== undefined ? { z: element.z } : {}),
+      ...(element.label !== undefined ? { label: element.label } : {}),
+      ...(element.source !== undefined ? { source: element.source } : {}),
+      ...(element.poster !== undefined ? { poster: element.poster } : {}),
+      ...(element.sourceInSeconds !== undefined ? { sourceInSeconds: element.sourceInSeconds } : {}),
+      ...(element.sourceDurationSeconds !== undefined ? { sourceDurationSeconds: element.sourceDurationSeconds } : {}),
+      ...(element.loop !== undefined ? { loop: element.loop } : {}),
+      ...(element.animationDuration !== undefined ? { animationDuration: element.animationDuration } : {}),
       id: element.id, kind: element.kind as ElementKind,
       x: element.x!, y: element.y!, width: element.width!, height: element.height!,
       rotation: element.rotation, color: element.color, opacity: element.opacity,
@@ -476,7 +596,7 @@ function readElements(value: unknown, durationTicks: number): ElementLayer[] {
 export function validateProject(value: unknown): Project {
   if (!value || typeof value !== 'object') throw new Error('This is not a PixCut project.');
   const p = value as ProjectInput;
-  if (p.schema_version !== 1 && p.schema_version !== 2 && p.schema_version !== 3 && p.schema_version !== 4 && p.schema_version !== 5 && p.schema_version !== 6 && p.schema_version !== 7) throw new Error('Unsupported project version. Your original file has not been changed.');
+  if (p.schema_version !== 1 && p.schema_version !== 2 && p.schema_version !== 3 && p.schema_version !== 4 && p.schema_version !== 5 && p.schema_version !== 6 && p.schema_version !== 7 && p.schema_version !== 8 && p.schema_version !== 9 && p.schema_version !== 10 && p.schema_version !== 11 && p.schema_version !== 12 && p.schema_version !== 13) throw new Error('Unsupported project version. Your original file has not been changed.');
   if (typeof p.id !== 'string' || typeof p.name !== 'string' || p.name.length > 120 || !['16:9', '9:16', '1:1', '4:5'].includes(p.aspect)) throw new Error('Invalid project format.');
   const timebase = p.schema_version === 1 ? { ...DEFAULT_TIMEBASE } : readTimebase(p.timebase);
   const minimum = minTicks(timebase), maximum = maxTicks(timebase);
@@ -493,7 +613,7 @@ export function validateProject(value: unknown): Project {
       const sourceInTicks = candidate.sourceInTicks ?? 0;
       if (!Number.isInteger(startTicks) || startTicks < 0 || !Number.isInteger(sourceInTicks) || sourceInTicks < 0) throw new Error('A clip contains invalid source timing.');
       const duration = ticksToSeconds(ticks as number, timebase);
-      if (!s || typeof s.id !== 'string' || clipIds.has(s.id) || typeof s.name !== 'string' || typeof s.image !== 'string' || (s.mediaKind === 'video' ? !VIDEO_DATA.test(s.image) : (!IMAGE_DATA.test(s.image) && !ASSET_REF.test(s.image))) || (s.mediaKind !== undefined && s.mediaKind !== 'video') || (s.videoPoster !== undefined && (typeof s.videoPoster !== 'string' || !IMAGE_DATA.test(s.videoPoster))) || (s.motion !== undefined && !['none', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'ken-burns'].includes(s.motion)) || !optionalNumber(s.motionAmount, 0, .6) || typeof s.title !== 'string' || s.title.length > 120 || typeof s.subtitle !== 'string' || s.subtitle.length > 200 || !/^#[0-9a-fA-F]{6}$/.test(s.color) || !['cover', 'contain', 'blur'].includes(s.fit) || !optionalNumber(s.imageX, -1, 1) || !optionalNumber(s.imageY, -1, 1) || !optionalNumber(s.imageZoom, 1, 4) || !optionalColor(s.framingBackground) || !optionalNumber(s.brightness, 0, 2.5) || !optionalNumber(s.contrast, 0, 2.5) || !optionalNumber(s.saturation, 0, 2.5) || !optionalNumber(s.exposure, -3, 3) || !optionalNumber(s.highlights, -1, 1) || !optionalNumber(s.shadows, -1, 1) || !optionalNumber(s.temperature, -1, 1) || !optionalNumber(s.tint, -1, 1) || !optionalFilter(s.filter) || !optionalNumber(s.filterIntensity, 0, 100) || !optionalNumber(s.speed, 0.25, 4) || (s.pitch !== undefined && typeof s.pitch !== 'boolean') || !optionalNumber(s.fadeIn, 0, duration) || !optionalNumber(s.fadeOut, 0, duration) || (s.textBackdropEnabled !== undefined && typeof s.textBackdropEnabled !== 'boolean') || !optionalColor(s.textBackdropColor) || !optionalNumber(s.textBackdropOpacity, 0, 100) || !optionalNumber(s.textBackdropBlur, 0, 60) || !optionalNumber(s.textBackdropPadding, 0, 80) || !optionalNumber(s.textBackdropRadius, 0, 60) || !optionalNumber(s.textBackdropNoise, 0, 100) || !optionalColor(s.textStrokeColor) || !optionalNumber(s.textStrokeWidth, 0, 12) || (s.textOutlineEnabled !== undefined && typeof s.textOutlineEnabled !== 'boolean') || !optionalColor(s.textShadowColor) || !optionalNumber(s.textShadowBlur, 0, 60) || !optionalNumber(s.textShadowOffsetX, -40, 40) || !optionalNumber(s.textShadowOffsetY, -40, 40) || (s.textShadowEnabled !== undefined && typeof s.textShadowEnabled !== 'boolean') || !optionalNumber(s.textShadowIntensity, 0, 100) || (s.textGlowEnabled !== undefined && typeof s.textGlowEnabled !== 'boolean') || !optionalColor(s.textGlowColor) || !optionalNumber(s.textGlowBlur, 0, 80) || !optionalNumber(s.textGlowIntensity, 0, 100) || !optionalNumber(s.textX, 0, 1) || !optionalNumber(s.textY, 0, 1) || !optionalNumber(s.textWidth, 0.05, 1) || (s.textAlign !== undefined && !['left', 'center', 'right'].includes(s.textAlign)) || (s.textFont !== undefined && (typeof s.textFont !== 'string' || s.textFont.length > 60)) || !optionalNumber(s.textFontWeight, 100, 900) || (s.textFontStyle !== undefined && !['normal', 'italic'].includes(s.textFontStyle)) || !optionalNumber(s.textSize, 0.01, 0.5) || !optionalNumber(s.textLineHeight, 0.5, 3) || !optionalNumber(s.textLetterSpacing, -0.05, 0.2) || !optionalNumber(s.textRotation, -180, 180) || !optionalNumber(s.textOpacity, 0, 100) || !optionalNumber(s.textSubtitleScale, 0.2, 1)) throw new Error('A scene contains invalid image, timing, title, color, or text layout data.');
+      if (!s || typeof s.id !== 'string' || clipIds.has(s.id) || typeof s.name !== 'string' || typeof s.image !== 'string' || (s.mediaKind === 'video' ? (!VIDEO_DATA.test(s.image) && !ASSET_REF.test(s.image)) : (!IMAGE_DATA.test(s.image) && !ASSET_REF.test(s.image))) || (s.mediaKind !== undefined && s.mediaKind !== 'video') || (s.videoPoster !== undefined && (typeof s.videoPoster !== 'string' || !IMAGE_DATA.test(s.videoPoster))) || !optionalNumber(s.sourceDurationSeconds, .01, 3600) || (s.motion !== undefined && !['none', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'ken-burns'].includes(s.motion)) || !optionalNumber(s.motionAmount, 0, .6) || typeof s.title !== 'string' || s.title.length > 120 || typeof s.subtitle !== 'string' || s.subtitle.length > 200 || !/^#[0-9a-fA-F]{6}$/.test(s.color) || !['cover', 'contain', 'blur'].includes(s.fit) || !optionalNumber(s.imageX, -1, 1) || !optionalNumber(s.imageY, -1, 1) || !optionalNumber(s.imageZoom, 1, 4) || !optionalColor(s.framingBackground) || !optionalNumber(s.brightness, 0, 2.5) || !optionalNumber(s.contrast, 0, 2.5) || !optionalNumber(s.saturation, 0, 2.5) || !optionalNumber(s.exposure, -3, 3) || !optionalNumber(s.highlights, -1, 1) || !optionalNumber(s.shadows, -1, 1) || !optionalNumber(s.temperature, -1, 1) || !optionalNumber(s.tint, -1, 1) || !optionalFilter(s.filter) || !optionalNumber(s.filterIntensity, 0, 100) || !optionalNumber(s.speed, 0.25, 4) || (s.pitch !== undefined && typeof s.pitch !== 'boolean') || !optionalNumber(s.fadeIn, 0, duration) || !optionalNumber(s.fadeOut, 0, duration) || (s.textBackdropEnabled !== undefined && typeof s.textBackdropEnabled !== 'boolean') || !optionalColor(s.textBackdropColor) || !optionalNumber(s.textBackdropOpacity, 0, 100) || !optionalNumber(s.textBackdropBlur, 0, 60) || !optionalNumber(s.textBackdropPadding, 0, 80) || !optionalNumber(s.textBackdropRadius, 0, 60) || !optionalNumber(s.textBackdropNoise, 0, 100) || !optionalColor(s.textStrokeColor) || !optionalNumber(s.textStrokeWidth, 0, 12) || (s.textOutlineEnabled !== undefined && typeof s.textOutlineEnabled !== 'boolean') || !optionalColor(s.textShadowColor) || !optionalNumber(s.textShadowBlur, 0, 60) || !optionalNumber(s.textShadowOffsetX, -40, 40) || !optionalNumber(s.textShadowOffsetY, -40, 40) || (s.textShadowEnabled !== undefined && typeof s.textShadowEnabled !== 'boolean') || !optionalNumber(s.textShadowIntensity, 0, 100) || (s.textGlowEnabled !== undefined && typeof s.textGlowEnabled !== 'boolean') || !optionalColor(s.textGlowColor) || !optionalNumber(s.textGlowBlur, 0, 80) || !optionalNumber(s.textGlowIntensity, 0, 100) || !optionalNumber(s.textX, 0, 1) || !optionalNumber(s.textY, 0, 1) || !optionalNumber(s.textWidth, 0.05, 1) || (s.textAlign !== undefined && !['left', 'center', 'right'].includes(s.textAlign)) || (s.textFont !== undefined && (typeof s.textFont !== 'string' || s.textFont.length > 60)) || !optionalNumber(s.textFontWeight, 100, 900) || (s.textFontStyle !== undefined && !['normal', 'italic'].includes(s.textFontStyle)) || !optionalNumber(s.textSize, 0.01, 0.5) || !optionalNumber(s.textLineHeight, 0.5, 3) || !optionalNumber(s.textLetterSpacing, -0.05, 0.2) || !optionalNumber(s.textRotation, -180, 180) || !optionalNumber(s.textOpacity, 0, 100) || !optionalNumber(s.textSubtitleScale, 0.2, 1)) throw new Error('A scene contains invalid image, timing, title, color, or text layout data.');
       delete s.duration;
       s.durationTicks = ticks as number;
       s.startTicks = startTicks;
@@ -504,7 +624,7 @@ export function validateProject(value: unknown): Project {
       s.transition = readTransition(s.transition, ticks as number, timebase);
       s.title = layers[0]?.title ?? '';
       s.subtitle = layers[0]?.subtitle ?? '';
-      clipIds.add(s.id); bytes += s.image.length;
+      clipIds.add(s.id); bytes += s.image.length + (s.elements ?? []).reduce((sum, element) => sum + (element.source?.length ?? 0), 0);
       clips.push(s as Scene);
     }
     normalizeStarts(clips);
@@ -540,9 +660,12 @@ export function validateProject(value: unknown): Project {
   if (tracks.filter(track => track.kind === 'visual').length !== 1) throw new Error('A project needs exactly one visual track in this build.');
   if (bytes > 90_000_000) throw new Error('This prototype supports up to 64 MB of embedded images per project.');
   const total = tracks.filter(track => track.kind === 'visual').flatMap(track => track.clips).reduce((end, clip) => Math.max(end, clip.startTicks + clip.durationTicks), 0);
+  const overlays = readElements(p.overlays, total, 64);
+  bytes += overlays.reduce((sum, e) => sum + (e.source?.length ?? 0), 0);
+  if (bytes > 140_000_000) throw new Error('Project media exceeds 100 MB.');
   const audio = readAudio(p.audio, p.music, total, timebase);
   const formats = readFormats(p.formats, p.aspect, clipIds);
-  return { schema_version: 7, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, formats, policy: { ...policy } };
+  return { schema_version: 13, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, overlays, formats, policy: { ...policy } };
 }
 const SCENE_PATCH_FIELDS = [
   { key: 'durationTicks', value: (scene: Scene) => scene.durationTicks },
@@ -652,6 +775,7 @@ export function edit(project: Project, command: Exclude<Command, { type: 'undo' 
     case 'rename': p.name = command.name; break;
     case 'aspect': p.aspect = command.aspect; break;
     case 'audio': p.audio = command.audio; break;
+    case 'overlays': p.overlays = command.overlays; break;
     case 'formats': p.formats = command.formats; break;
     case 'add': clips.push(...command.scenes); break;
     case 'update': clips = clips.map(s => s.id === command.scene.id ? command.scene : s); break;
@@ -684,6 +808,18 @@ export function edit(project: Project, command: Exclude<Command, { type: 'undo' 
     case 'updateMany': {
       const updates = new Map(command.scenes.map(scene => [scene.id, scene]));
       clips = clips.map(scene => updates.get(scene.id) ?? scene);
+      break;
+    }
+    case 'order': {
+      // Only the layer's stack position travels over the wire: this is the
+      // press-a-button path, so it must never carry a scene's photo or an
+      // overlay's video along with it.
+      if (!Number.isFinite(command.z) || command.z < 0 || command.z > 100_000) throw new Error('Layer order must be between 0 and 100000.');
+      const layer = command.kind === 'overlay'
+        ? p.overlays.find(item => item.id === command.id)
+        : (clips.find(scene => scene.id === command.sceneId)?.[command.kind === 'text' ? 'textLayers' : 'elements'] ?? []).find(item => item.id === command.id);
+      if (!layer) throw new Error('That layer is no longer in the project.');
+      layer.z = command.z;
       break;
     }
     case 'removeMany': {

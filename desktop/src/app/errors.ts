@@ -25,9 +25,10 @@ export function isImageFile(file: File) {
 }
 
 export function errorTitle(message: string) {
+  if (/relink|missing media/i.test(message)) return 'Media needs relinking';
   if (/invalid audio|audio track|audio clip|unsupported project|project version|project schema|invalid project/i.test(message)) return 'This project could not be opened';
   if (/audio|image|jpeg|png|webp|mp3|wav|m4a|ogg|format|decode/i.test(message)) return 'That file needs a different format';
-  if (/could not be read|unreadable|corrupt/i.test(message)) return 'That file could not be read';
+  if (/could not be read|unreadable|corrupt|integrity/i.test(message)) return 'That file could not be read';
   if (/storage|space|quota/i.test(message)) return 'This device is out of space';
   if (/permission|access/i.test(message)) return 'PixCut needs permission';
   if (/project|version|schema/i.test(message)) return 'This project could not be opened';

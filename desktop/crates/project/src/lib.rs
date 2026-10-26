@@ -59,6 +59,9 @@ pub struct TextLayer {
     pub title: String,
     pub subtitle: String,
     pub color: String,
+    /// Stacking order; bigger draws on top. Missing keeps the classic order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub z: Option<f64>,
     pub start_ticks: u64,
     pub duration_ticks: u64,
     pub x: f64,
@@ -104,6 +107,7 @@ impl Default for TextLayer {
             title: String::new(),
             subtitle: String::new(),
             color: default_white(),
+            z: None,
             start_ticks: 0,
             duration_ticks: 0,
             x: default_text_x(),
@@ -146,9 +150,64 @@ impl Default for TextLayer {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct ElementAction { pub kind: String, pub start_ticks: u64, pub duration_ticks: u64, pub repeat: bool, pub sound: bool }
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ElementBehavior {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at_seconds: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval_seconds: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count_from: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count_to: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
+}
+impl ElementBehavior {
+    fn valid(&self) -> bool {
+        self.at_seconds.is_none_or(|n| n.is_finite() && (0.0..=3600.0).contains(&n))
+        && self.interval_seconds.is_none_or(|n| n.is_finite() && (0.1..=60.0).contains(&n))
+        && self.count_from.is_none_or(|n| n.is_finite() && (0.0..=9999.0).contains(&n))
+        && self.count_to.is_none_or(|n| n.is_finite() && (0.0..=9999.0).contains(&n))
+        && self.audio_id.as_ref().is_none_or(|s| s.chars().count() <= 200)
+        && self.variant.as_ref().is_none_or(|s| ["click", "double-click", "drag", "phone", "browser"].contains(&s.as_str()))
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ElementLayer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub behavior: Option<ElementBehavior>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit: Option<String>,
+    /// Stacking order; bigger draws on top. Missing keeps the classic order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub z: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<ElementAction>,
     pub id: String,
     pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poster: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_in_seconds: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_duration_seconds: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "loop")]
+    pub loop_animation: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animation_duration: Option<f64>,
     #[serde(default)]
     pub x: f64,
     #[serde(default)]
@@ -193,6 +252,10 @@ pub struct Scene {
     pub start_ticks: u64,
     #[serde(default)]
     pub source_in_ticks: u64,
+    /// Full length of the imported source, in seconds. Video clips use it to
+    /// bound trimming; photos leave it empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_duration_seconds: Option<f64>,
     #[serde(default)]
     pub duration_ticks: u64,
     #[serde(default, skip_serializing, rename = "duration")]
@@ -308,6 +371,49 @@ pub struct Scene {
     #[serde(default = "default_text_subtitle_scale")]
     pub text_subtitle_scale: f64,
 }
+fn validate_elements(elements: &mut Vec<ElementLayer>, total: u64, limit: usize) -> bool {
+    if total == 0 { elements.clear(); return true; }
+    for element in elements.iter_mut() {
+        element.start_ticks = element.start_ticks.min(total.saturating_sub(1));
+        element.duration_ticks = element.duration_ticks.min(total.saturating_sub(element.start_ticks)).max(1);
+        if let Some(action) = &mut element.action {
+            action.start_ticks = action.start_ticks.min(element.duration_ticks.saturating_sub(1));
+            action.duration_ticks = action.duration_ticks.min(element.duration_ticks.saturating_sub(action.start_ticks));
+        }
+    }
+    elements.len() <= limit && {
+                    let mut ids = std::collections::HashSet::new();
+                    elements.iter().all(|element| {
+                        ids.insert(element.id.clone())
+                            && !element.id.is_empty()
+                            && ["caption", "chapter", "callout", "keycaps", "mouse", "device", "comparison", "checklist", "rating", "countdown", "waveform", "message", "qr", "end-screen", "image", "video", "label", "name-tag", "link", "quote", "counter", "status", "burst", "frame", "dots", "tape", "chevron", "rectangle", "ellipse", "triangle", "star", "sparkle", "line", "arrow", "heart", "subscribe", "like", "bell", "comment", "share", "play", "progress", "location", "music", "check", "cross", "ring", "cursor", "underline"].contains(&element.kind.as_str())
+                            && element.behavior.as_ref().is_none_or(|b| b.valid())
+                            && element.exit.as_ref().is_none_or(|s| ["none", "fade", "slide-down"].contains(&s.as_str()))
+                            && element.z.is_none_or(|z| z.is_finite() && (0.0..=100_000.0).contains(&z))
+                            && element.x.is_finite() && (0.0..=1.0).contains(&element.x)
+                            && element.y.is_finite() && (0.0..=1.0).contains(&element.y)
+                            && element.width.is_finite() && (0.02..=1.0).contains(&element.width)
+                            && element.height.is_finite() && (0.02..=1.0).contains(&element.height)
+                            && element.rotation.is_finite() && (-180.0..=180.0).contains(&element.rotation)
+                            && element.action.as_ref().is_none_or(|a| ["ring", "pulse", "float", "spin"].contains(&a.kind.as_str()) && a.duration_ticks > 0 && a.start_ticks.saturating_add(a.duration_ticks) <= element.duration_ticks)
+                            && element.animation_duration.is_none_or(|n| n.is_finite() && (0.1..=5.0).contains(&n))
+                            && element.source_in_seconds.is_none_or(|n| n.is_finite() && n >= 0.0)
+                            && element.source_duration_seconds.is_none_or(|n| n.is_finite() && n > 0.0 && n <= 3600.0)
+                            && (element.kind != "image" && element.kind != "video" || element.source.as_ref().is_some_and(|source| {
+                                is_asset_ref(source) || if element.kind == "video" { ["data:video/mp4;base64,", "data:video/webm;base64,", "data:video/quicktime;base64,", "data:video/x-m4v;base64,"].iter().any(|prefix| source.starts_with(prefix)) }
+                                else { ["data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,"].iter().any(|prefix| source.starts_with(prefix)) }
+                            }))
+                            && element.source.as_ref().is_none_or(|source| is_asset_ref(source) || ["data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,", "data:video/mp4;base64,", "data:video/webm;base64,", "data:video/quicktime;base64,", "data:video/x-m4v;base64,"].iter().any(|prefix| source.starts_with(prefix)))
+                            && element.poster.as_ref().is_none_or(|source| is_asset_ref(source) || ["data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,"].iter().any(|prefix| source.starts_with(prefix)))
+                            && element.label.as_ref().is_none_or(|label| label.chars().count() <= 80)
+                            && is_hex_color(&element.color)
+                            && element.opacity.is_finite() && (0.0..=100.0).contains(&element.opacity)
+                            && element.duration_ticks > 0
+                            && element.start_ticks + element.duration_ticks <= total
+                            && ["", "none", "fade", "pop", "slide-up", "pulse", "float", "slide-down", "slide-left", "slide-right", "zoom-out", "bounce", "spin", "swing"].contains(&element.animation.as_str())
+                    })
+                }
+}
 impl Scene {
     fn normalize_elements(&mut self) {
         let total = self.duration_ticks.max(1);
@@ -347,6 +453,7 @@ impl Scene {
                 title: self.title.clone(),
                 subtitle: self.subtitle.clone(),
                 color: self.color.clone(),
+                z: None,
                 start_ticks: 0,
                 duration_ticks: duration,
                 x: self.text_x,
@@ -396,6 +503,7 @@ impl Scene {
                 && layer.title.chars().count() <= 120
                 && layer.subtitle.chars().count() <= 200
                 && is_hex_color(&layer.color)
+                && layer.z.is_none_or(|z| z.is_finite() && (0.0..=100_000.0).contains(&z))
                 && layer.x.is_finite()
                 && (0.0..=1.0).contains(&layer.x)
                 && layer.y.is_finite()
@@ -581,15 +689,15 @@ pub struct AudioClip {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SceneFormatOverride {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_x: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_y: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_zoom: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fit: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub framing_background: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -606,6 +714,7 @@ pub struct FormatVariant {
     #[serde(default = "default_export_quality")]
     pub quality: String,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub preset_id: Option<String>,
     #[serde(default)]
     pub overrides: std::collections::HashMap<String, SceneFormatOverride>,
@@ -636,6 +745,8 @@ pub struct Project {
     #[serde(default)]
     pub audio: Vec<AudioClip>,
     #[serde(default)]
+    pub overlays: Vec<ElementLayer>,
+    #[serde(default)]
     pub formats: Vec<FormatVariant>,
     #[serde(default, skip_serializing, rename = "music")]
     pub legacy_music: Option<MusicTrack>,
@@ -646,13 +757,14 @@ pub struct Project {
 impl Default for Project {
     fn default() -> Self {
         Self {
-            schema_version: 7,
+            schema_version: 13,
             id: "new-project".into(),
             name: "Untitled story".into(),
             aspect: "16:9".into(),
             timebase: Timebase::default(),
             tracks: vec![Track::visual()],
             audio: vec![],
+            overlays: vec![],
             formats: vec![],
             legacy_music: None,
             legacy_scenes: vec![],
@@ -675,8 +787,87 @@ impl Project {
             .max()
             .unwrap_or(0)
     }
+    /// Rough size of the media an undo snapshot would pin in memory, in bytes.
+    /// Used to keep history from holding many copies of a large story.
+    pub fn media_bytes(&self) -> usize {
+        let source = |value: &Option<String>| value.as_ref().map_or(0, |text| text.len());
+        let overlays = self
+            .overlays
+            .iter()
+            .map(|layer| source(&layer.source) + source(&layer.poster))
+            .sum::<usize>();
+        let scenes = self
+            .tracks
+            .iter()
+            .flat_map(|track| track.clips.iter())
+            .map(|scene| {
+                scene.image.len()
+                    + scene
+                        .elements
+                        .iter()
+                        .map(|layer| source(&layer.source) + source(&layer.poster))
+                        .sum::<usize>()
+            })
+            .sum::<usize>();
+        let audio = self
+            .audio
+            .iter()
+            .map(|clip| clip.data.len())
+            .sum::<usize>();
+        overlays + scenes + audio
+    }
+    /// Sets one layer's stack position (0–100000, bigger draws on top).
+    /// Kept separate from the other edits so the lightweight `order` command
+    /// can move a layer without touching or re-encoding any media.
+    pub fn reorder(
+        &mut self,
+        kind: &str,
+        scene_id: Option<&str>,
+        id: &str,
+        z: f64,
+    ) -> Result<(), String> {
+        if !z.is_finite() || !(0.0..=100_000.0).contains(&z) {
+            return Err("Layer order must be between 0 and 100000.".into());
+        }
+        let missing = || "That layer is no longer in the project.".to_string();
+        match kind {
+            "overlay" => {
+                self.overlays
+                    .iter_mut()
+                    .find(|layer| layer.id == id)
+                    .ok_or_else(missing)?
+                    .z = Some(z);
+            }
+            "element" | "text" => {
+                let scene_id = scene_id.ok_or("That layer's scene is missing.")?;
+                let scene = self
+                    .tracks
+                    .iter_mut()
+                    .flat_map(|track| track.clips.iter_mut())
+                    .find(|scene| scene.id == scene_id)
+                    .ok_or("That scene is no longer in the project.")?;
+                if kind == "element" {
+                    scene
+                        .elements
+                        .iter_mut()
+                        .find(|layer| layer.id == id)
+                        .ok_or_else(missing)?
+                        .z = Some(z);
+                } else {
+                    scene
+                        .text_layers
+                        .iter_mut()
+                        .find(|layer| layer.id == id)
+                        .ok_or_else(missing)?
+                        .z = Some(z);
+                }
+            }
+            _ => return Err("Unknown layer kind.".into()),
+        }
+        Ok(())
+    }
     pub fn validate(&mut self) -> Result<(), String> {
-        if self.schema_version != 1 && self.schema_version != 2 && self.schema_version != 3 && self.schema_version != 4 && self.schema_version != 5 && self.schema_version != 6 && self.schema_version != 7 {
+        if self.schema_version != 1 && self.schema_version != 2 && self.schema_version != 3 && self.schema_version != 4 && self.schema_version != 5 && self.schema_version != 6 && self.schema_version != 7 && self.schema_version != 8 && self.schema_version != 9 && self.schema_version != 10 && self.schema_version != 11 && self.schema_version != 12 && self.schema_version != 13 {
             return Err(
                 "Unsupported project version. The original file has not been changed.".into(),
             );
@@ -722,7 +913,7 @@ impl Project {
         };
         self.legacy_scenes.clear();
         let migrating_music = self.schema_version < 5;
-        self.schema_version = 7;
+        self.schema_version = 13;
         if tracks.is_empty() {
             tracks.push(Track::visual());
         }
@@ -791,30 +982,17 @@ impl Project {
                         || poster.starts_with("data:image/png;base64,")
                 });
                 let kind_ok = s.media_kind.as_deref().is_none_or(|kind| kind == "video");
+                let source_ok = s
+                    .source_duration_seconds
+                    .is_none_or(|seconds| seconds.is_finite() && seconds > 0.0 && seconds <= 3600.0);
                 s.normalize_elements();
-                let elements_ok = s.elements.len() <= 12 && {
-                    let mut ids = std::collections::HashSet::new();
-                    s.elements.iter().all(|element| {
-                        ids.insert(element.id.clone())
-                            && !element.id.is_empty()
-                            && ["rectangle", "ellipse", "triangle", "star", "sparkle", "line", "arrow", "heart", "subscribe", "like", "bell", "comment", "share", "play", "progress", "location", "music", "check", "cross", "ring", "cursor", "underline"].contains(&element.kind.as_str())
-                            && element.x.is_finite() && (0.0..=1.0).contains(&element.x)
-                            && element.y.is_finite() && (0.0..=1.0).contains(&element.y)
-                            && element.width.is_finite() && (0.02..=1.0).contains(&element.width)
-                            && element.height.is_finite() && (0.02..=1.0).contains(&element.height)
-                            && element.rotation.is_finite() && (-180.0..=180.0).contains(&element.rotation)
-                            && is_hex_color(&element.color)
-                            && element.opacity.is_finite() && (0.0..=100.0).contains(&element.opacity)
-                            && element.duration_ticks > 0
-                            && element.start_ticks + element.duration_ticks <= s.duration_ticks
-                            && ["", "none", "fade", "pop", "slide-up", "pulse", "float"].contains(&element.animation.as_str())
-                    })
-                };
+                let elements_ok = validate_elements(&mut s.elements, s.duration_ticks, 12);
                 let motion_ok = s.motion.as_deref().is_none_or(|motion| {
                     ["none", "zoom-in", "zoom-out", "pan-left", "pan-right", "pan-up", "pan-down", "ken-burns"].contains(&motion)
                 }) && s.motion_amount.is_none_or(|amount| amount.is_finite() && (0.0..=0.6).contains(&amount));
                 if !clip_ids.insert(s.id.clone())
                     || s.id.is_empty()
+                    || !source_ok
                     || s.title.chars().count() > 120
                     || s.subtitle.chars().count() > 200
                     || !["cover", "contain", "blur"].contains(&s.fit.as_str())
@@ -914,7 +1092,7 @@ impl Project {
                 }
                 s.normalize_text_layers()?;
                 s.normalize_transition(&timebase)?;
-                bytes += s.image.len();
+                bytes += s.image.len() + s.elements.iter().map(|e| e.source.as_ref().map_or(0, String::len)).sum::<usize>();
             }
         }
         if visual_count != 1 {
@@ -930,6 +1108,9 @@ impl Project {
             .map(|clip| clip.start_ticks + clip.duration_ticks)
             .max()
             .unwrap_or(0);
+        if !validate_elements(&mut self.overlays, total_ticks, 64) { return Err("Invalid project overlay or action.".into()); }
+        bytes += self.overlays.iter().map(|e| e.source.as_ref().map_or(0, String::len)).sum::<usize>();
+        if bytes > 140_000_000 { return Err("Project exceeds the 100 MB media budget.".into()); }
         let mut audio = if migrating_music {
             if let Some(music) = &self.legacy_music {
                 let total_seconds = timebase.ticks_to_seconds(total_ticks);
@@ -962,8 +1143,8 @@ impl Project {
             std::mem::take(&mut self.audio)
         };
         self.legacy_music = None;
-        if audio.len() > 32 {
-            return Err("A project supports up to 32 audio clips in this build.".into());
+        if audio.len() > 256 {
+            return Err("A project supports up to 256 audio clips in this build.".into());
         }
         let mut audio_ids = std::collections::HashSet::new();
         let mut audio_bytes = 0usize;
@@ -1098,13 +1279,13 @@ fn split_text_layers(layers: &[TextLayer], at: u64) -> (Vec<TextLayer>, Vec<Text
         .collect();
     (left, right)
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DuplicateItem {
     pub id: String,
     pub new_id: String,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Command {
     Replace { project: Project },
@@ -1112,6 +1293,7 @@ pub enum Command {
     Aspect { aspect: String },
     Audio { audio: Vec<AudioClip> },
     Formats { formats: Vec<FormatVariant> },
+    Overlays { overlays: Vec<ElementLayer> },
     Add { scenes: Vec<Scene> },
     Update { scene: Scene },
     Remove { id: String },
@@ -1131,6 +1313,14 @@ pub enum Command {
     UpdateMany { scenes: Vec<Scene> },
     RemoveMany { ids: Vec<String> },
     DuplicateMany { items: Vec<DuplicateItem> },
+    /// Stack position only, so a button press never ships media with it.
+    Order {
+        kind: String,
+        #[serde(rename = "sceneId")]
+        scene_id: Option<String>,
+        id: String,
+        z: f64,
+    },
     Undo,
     Redo,
 }
@@ -1142,12 +1332,33 @@ pub struct Session {
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct History {
+    pub can_undo: bool,
+    pub can_redo: bool,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct View {
     pub project: Project,
     pub can_undo: bool,
     pub can_redo: bool,
 }
+/// Undo depth is capped by count and by the media those snapshots keep alive,
+/// so a long story with large photos cannot pin gigabytes in memory while the
+/// editor nudges a layer up and down.
+const MAX_HISTORY: usize = 30;
+const MAX_HISTORY_MEDIA_BYTES: usize = 160_000_000;
+
 impl Session {
+    fn remember(&mut self, previous: Project) {
+        self.past.push(previous);
+        while self.past.len() > 1
+            && (self.past.len() > MAX_HISTORY
+                || self.past.iter().map(Project::media_bytes).sum::<usize>() > MAX_HISTORY_MEDIA_BYTES)
+        {
+            self.past.remove(0);
+        }
+    }
     pub fn view(&self) -> View {
         View {
             project: self.project.clone(),
@@ -1171,13 +1382,26 @@ impl Session {
             }
             _ => {}
         }
+        if let Command::Order {
+            kind,
+            scene_id,
+            id,
+            z,
+        } = &command
+        {
+            let mut next = self.project.clone();
+            next.reorder(kind, scene_id.as_deref(), id, *z)?;
+            next.validate()?;
+            let previous = std::mem::replace(&mut self.project, next);
+            self.remember(previous);
+            self.future.clear();
+            return Ok(());
+        }
         if let Command::Replace { project } = command {
             let mut next = project;
             next.validate()?;
-            self.past.push(std::mem::replace(&mut self.project, next));
-            if self.past.len() > 30 {
-                self.past.remove(0);
-            }
+            let previous = std::mem::replace(&mut self.project, next);
+            self.remember(previous);
             self.future.clear();
             return Ok(());
         }
@@ -1191,6 +1415,7 @@ impl Session {
         if let Command::Audio { audio } = &command {
             p.audio = audio.clone();
         }
+        if let Command::Overlays { overlays } = &command { p.overlays = overlays.clone(); }
         if let Command::Formats { formats } = &command {
             p.formats = formats.clone();
         }
@@ -1203,7 +1428,7 @@ impl Session {
         {
             let clips = &mut p.tracks[track_index].clips;
             match command {
-                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } => {}
+                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } | Command::Overlays { .. } | Command::Order { .. } => {}
                 Command::Add { scenes } => clips.extend(scenes),
                 Command::Update { scene } => {
                     if let Some(s) = clips.iter_mut().find(|s| s.id == scene.id) {
@@ -1336,10 +1561,8 @@ impl Session {
             })
             .collect();
         p.validate()?;
-        self.past.push(std::mem::replace(&mut self.project, p));
-        if self.past.len() > 30 {
-            self.past.remove(0);
-        }
+        let previous = std::mem::replace(&mut self.project, p);
+        self.remember(previous);
         self.future.clear();
         Ok(())
     }
@@ -1359,6 +1582,7 @@ mod tests {
             image: "data:image/png;base64,AA==".into(),
             start_ticks: 0,
             source_in_ticks: 0,
+            source_duration_seconds: None,
             duration_ticks: 120,
             legacy_duration: None,
             title: "Hello".into(),
@@ -1492,6 +1716,8 @@ mod tests {
     }
     #[test]
     fn validates_per_format_overrides() {
+        let empty: SceneFormatOverride = serde_json::from_str(r#"{"imageX":null,"imageY":null,"imageZoom":null,"fit":null,"framingBackground":null}"#).unwrap();
+        assert_eq!(serde_json::to_string(&empty).unwrap(), "{}");
         let mut s = Session::default();
         s.apply(Command::Add { scenes: vec![scene()] }).unwrap();
         let mut overrides = std::collections::HashMap::new();
@@ -1572,7 +1798,7 @@ mod tests {
             duration_seconds: 2.0,
         });
         p.validate().unwrap();
-        assert_eq!(p.schema_version, 7);
+        assert_eq!(p.schema_version, 13);
         assert_eq!(p.audio.len(), 1);
         assert_eq!(p.audio[0].start_ticks, 0);
         assert_eq!(p.audio[0].duration_ticks, 60);
@@ -1582,12 +1808,54 @@ mod tests {
         assert_eq!(serialized["audio"][0]["name"], "Bed.mp3");
     }
     #[test]
+    fn independent_overlays_span_scenes_and_preserve_actions_in_v11() {
+        let mut p = Project::default();
+        let mut second = scene(); second.id = "second".into();
+        p.tracks[0].clips = vec![scene(), second];
+        let overlay: ElementLayer = serde_json::from_value(serde_json::json!({"id":"global-bell","kind":"bell","x":0.5,"y":0.5,"width":0.2,"height":0.2,"rotation":0,"color":"#FFCC66","opacity":100,"startTicks":15,"durationTicks":90,"animation":"fade","loop":false,"action":{"kind":"ring","startTicks":30,"durationTicks":30,"repeat":false,"sound":true}})).unwrap();
+        p.schema_version = 10; p.overlays = vec![overlay]; p.validate().unwrap();
+        assert_eq!(p.schema_version, 13); assert_eq!(p.overlays[0].duration_ticks, 90);
+        let original = p.clone();
+        let mut restored: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap(); restored.validate().unwrap(); assert_eq!(original, restored);
+        let mut session = Session { project: p, ..Default::default() };
+        let mut layers = session.project.overlays.clone(); layers[0].start_ticks = 30;
+        session.apply(Command::Overlays { overlays: layers }).unwrap();
+        assert_eq!(session.project.overlays[0].start_ticks, 30);
+        session.apply(Command::Undo).unwrap(); assert_eq!(session.project, original);
+        session.apply(Command::RemoveMany { ids: session.project.tracks[0].clips.iter().map(|s| s.id.clone()).collect() }).unwrap();
+        assert!(session.project.overlays.is_empty());
+        session.apply(Command::Undo).unwrap(); assert_eq!(session.project, original);
+        restored.overlays[0].action.as_mut().unwrap().kind = "unknown".into(); assert!(restored.validate().is_err());
+    }
+    #[test]
+    fn modern_elements_migrate_and_preserve_editable_unicode_labels() {
+        for kind in ["label", "name-tag", "link", "quote", "counter", "status"] {
+            let mut project = Project::default(); project.schema_version = 11; project.tracks[0].clips = vec![scene()];
+            project.overlays = vec![serde_json::from_value(serde_json::json!({"id":"modern","kind":kind,"x":0.5,"y":0.5,"width":0.4,"height":0.2,"rotation":0,"color":"#C5B4FF","opacity":100,"startTicks":0,"durationTicks":30,"label":"Za kulisami · 東京","animation":"fade"})).unwrap()];
+            project.validate().unwrap(); assert_eq!(project.schema_version, 13);
+            let mut restored: Project = serde_json::from_str(&serde_json::to_string(&project).unwrap()).unwrap(); restored.validate().unwrap(); assert_eq!(restored, project);
+        }
+    }
+    #[test]
+    fn dynamic_elements_migrate_round_trip_and_reject_invalid_settings() {
+        for kind in ["caption", "chapter", "callout", "keycaps", "mouse", "device", "comparison", "checklist", "rating", "countdown", "waveform", "message", "qr", "end-screen"] {
+            let mut p = Project::default(); p.schema_version = 12; p.tracks[0].clips = vec![scene()];
+            p.overlays = vec![serde_json::from_value(serde_json::json!({"id":"dynamic","kind":kind,"x":0.5,"y":0.5,"width":0.4,"height":0.2,"rotation":0,"color":"#C5B4FF","opacity":100,"startTicks":0,"durationTicks":30,"label":"東京", "animation":"none", "exit":"fade", "behavior":{"atSeconds":1,"intervalSeconds":0.5,"countFrom":5,"countTo":0,"repeat":true,"variant":"click","audioId":"track"}})).unwrap()];
+            p.validate().unwrap(); assert_eq!(p.schema_version, 13);
+            let mut restored: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap(); restored.validate().unwrap(); assert_eq!(p, restored);
+            restored.overlays[0].behavior.as_mut().unwrap().interval_seconds = Some(0.0); assert!(restored.validate().is_err());
+            restored = p.clone(); restored.overlays[0].behavior.as_mut().unwrap().variant = Some("unknown".into()); assert!(restored.validate().is_err());
+            restored = p; restored.overlays[0].exit = Some("unknown".into()); assert!(restored.validate().is_err());
+        }
+    }
+    #[test]
     fn validates_element_layers() {
         let mut p = Project::default();
         let mut clip = scene();
         clip.elements.push(ElementLayer {
             id: "element".into(),
             kind: "star".into(),
+            behavior: None, exit: None, z: None, action: None, label: None, source: None, poster: None, source_in_seconds: None, source_duration_seconds: None, loop_animation: None, animation_duration: None,
             x: 0.5,
             y: 0.5,
             width: 0.3,
@@ -1601,6 +1869,42 @@ mod tests {
         });
         p.tracks[0].clips.push(clip);
         p.validate().unwrap();
+        for animation in ["slide-down", "slide-left", "slide-right", "zoom-out", "bounce", "spin", "swing", "pulse", "float"] {
+            p.schema_version = 7;
+            p.tracks[0].clips[0].elements[0].animation = animation.into();
+            p.validate().unwrap();
+            assert_eq!(p.schema_version, 13);
+            assert_eq!(p.tracks[0].clips[0].elements[0].animation, animation);
+        }
+        for kind in ["burst", "frame", "dots", "tape", "chevron"] {
+            p.tracks[0].clips[0].elements[0].kind = kind.into();
+            p.validate().unwrap();
+            assert_eq!(p.tracks[0].clips[0].elements[0].kind, kind);
+        }
+        for (kind, source) in [("image", "data:image/png;base64,AA=="), ("video", "data:video/mp4;base64,AA==")] {
+            let mut overlay = p.clone();
+            let element = &mut overlay.tracks[0].clips[0].elements[0];
+            element.kind = kind.into(); element.source = Some(source.into()); element.loop_animation = Some(true); element.animation_duration = Some(1.2);
+            overlay.validate().unwrap();
+            let mut restored: Project = serde_json::from_str(&serde_json::to_string(&overlay).unwrap()).unwrap(); restored.validate().unwrap();
+            assert_eq!(restored, overlay);
+            restored.tracks[0].clips[0].elements[0].source = Some("https://example.com/asset".into());
+            assert!(restored.validate().is_err());
+        }
+        p.schema_version = 8;
+        p.tracks[0].clips[0].elements[0].label = Some("登録する · اشترك · Subskrybuj".into());
+        p.validate().unwrap();
+        assert_eq!(p.schema_version, 13);
+        let mut roundtrip: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        roundtrip.validate().unwrap();
+        assert_eq!(roundtrip.tracks[0].clips[0].elements[0].label, p.tracks[0].clips[0].elements[0].label);
+        let mut invalid_label = p.clone();
+        invalid_label.tracks[0].clips[0].elements[0].label = Some("x".repeat(81));
+        assert!(invalid_label.validate().is_err());
+        let mut invalid = p.clone();
+        invalid.tracks[0].clips[0].elements[0].animation = "unknown".into();
+        assert!(invalid.validate().is_err());
+        p.tracks[0].clips[0].elements[0].animation = "none".into();
         p.tracks[0].clips[0].elements[0].kind = "bogus".into();
         assert!(p.validate().is_err());
     }
@@ -1643,7 +1947,7 @@ mod tests {
     #[test]
     fn future_schema_is_rejected() {
         let mut p = Project::default();
-        p.schema_version = 8;
+        p.schema_version = 14;
         assert!(p.validate().is_err());
     }
     #[test]
@@ -1667,7 +1971,7 @@ mod tests {
         }))
         .unwrap();
         p.validate().unwrap();
-        assert_eq!(p.schema_version, 7);
+        assert_eq!(p.schema_version, 13);
         assert_eq!(p.timebase, Timebase::default());
         assert_eq!(p.tracks.len(), 1);
         assert_eq!(p.tracks[0].kind, "visual");
@@ -1694,7 +1998,7 @@ mod tests {
         }))
         .unwrap();
         p.validate().unwrap();
-        assert_eq!(p.schema_version, 7);
+        assert_eq!(p.schema_version, 13);
         assert_eq!(p.tracks.len(), 1);
         assert_eq!(p.tracks[0].kind, "visual");
         assert_eq!(p.visual_clips()[0].start_ticks, 0);
@@ -1890,6 +2194,151 @@ mod tests {
         assert_eq!(parsed.filter, "none");
         assert_eq!(parsed.speed, 1.0);
     }
+    #[test]
+    fn keeps_layer_stack_order_and_rejects_out_of_range_values() {
+        let mut p = Project::default();
+        let mut clip = scene();
+        clip.elements.push(ElementLayer {
+            id: "element".into(),
+            kind: "star".into(),
+            behavior: None, exit: None, z: Some(9_000.0), action: None, label: None, source: None, poster: None, source_in_seconds: None, source_duration_seconds: None, loop_animation: None, animation_duration: None,
+            x: 0.5, y: 0.5, width: 0.3, height: 0.3, rotation: 0.0,
+            color: "#9D7CFF".into(), opacity: 100.0, start_ticks: 0, duration_ticks: 120, animation: "none".into(),
+        });
+        clip.text_layers.push(TextLayer { id: "text".into(), title: "Caption".into(), z: Some(20.0), start_ticks: 0, duration_ticks: 120, ..TextLayer::default() });
+        p.tracks[0].clips.push(clip);
+        p.validate().unwrap();
+        let serialized = serde_json::to_value(&p).unwrap();
+        assert_eq!(serialized["tracks"][0]["clips"][0]["elements"][0]["z"], 9_000.0);
+        assert_eq!(serialized["tracks"][0]["clips"][0]["textLayers"][0]["z"], 20.0);
+        let mut restored: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(restored, p);
+
+        // Projects written before stacking existed simply omit the field.
+        let mut legacy: Project = serde_json::from_value(serialized).unwrap();
+        legacy.tracks[0].clips[0].elements[0].z = None;
+        legacy.tracks[0].clips[0].text_layers[0].z = None;
+        legacy.validate().unwrap();
+        let plain = serde_json::to_value(&legacy).unwrap();
+        assert!(plain["tracks"][0]["clips"][0]["elements"][0].get("z").is_none());
+        assert!(plain["tracks"][0]["clips"][0]["textLayers"][0].get("z").is_none());
+
+        let mut bad_element = p.clone();
+        bad_element.tracks[0].clips[0].elements[0].z = Some(100_001.0);
+        assert!(bad_element.validate().is_err());
+        let mut not_finite = p.clone();
+        not_finite.tracks[0].clips[0].elements[0].z = Some(f64::NAN);
+        assert!(not_finite.validate().is_err());
+        let mut bad_text = p.clone();
+        bad_text.tracks[0].clips[0].text_layers[0].z = Some(-1.0);
+        assert!(bad_text.validate().is_err());
+    }
+
+    #[test]
+    fn keeps_undo_history_within_the_media_budget() {
+        let mut session = Session::default();
+        let mut project = Project::default();
+        let mut clip = scene();
+        // 8 MB of media per snapshot: 30 copies would pin 240 MB in memory.
+        clip.image = format!("data:image/png;base64,{}", "A".repeat(8_000_000)).into();
+        clip.elements.push(ElementLayer {
+            id: "element".into(),
+            kind: "star".into(),
+            behavior: None, exit: None, z: None, action: None, label: None, source: None, poster: None, source_in_seconds: None, source_duration_seconds: None, loop_animation: None, animation_duration: None,
+            x: 0.5, y: 0.5, width: 0.3, height: 0.3, rotation: 0.0,
+            color: "#9D7CFF".into(), opacity: 100.0, start_ticks: 0, duration_ticks: 120, animation: "none".into(),
+        });
+        let scene_id = clip.id.clone();
+        project.tracks[0].clips.push(clip);
+        session.apply(Command::Replace { project }).unwrap();
+        for step in 0..30 {
+            session
+                .apply(Command::Order {
+                    kind: "element".into(),
+                    scene_id: Some(scene_id.clone()),
+                    id: "element".into(),
+                    z: step as f64,
+                })
+                .unwrap();
+        }
+        let held: usize = session.past.iter().map(Project::media_bytes).sum();
+        assert!(held <= 160_000_000, "history media stays bounded: {held}");
+        assert!(
+            session.past.len() < 30,
+            "old snapshots are dropped: {}",
+            session.past.len()
+        );
+        assert!(session.past.len() >= 1, "the last edit is still undoable");
+        // Undo still walks back through the surviving snapshots.
+        session.apply(Command::Undo).unwrap();
+        assert_eq!(
+            session.project.tracks[0].clips[0].elements[0].z,
+            Some(28.0)
+        );
+    }
+
+    #[test]
+    fn order_command_moves_one_layer_and_keeps_undo_history() {
+        let mut session = Session::default();
+        let mut project = Project::default();
+        let mut clip = scene();
+        clip.elements.push(ElementLayer {
+            id: "element".into(),
+            kind: "star".into(),
+            behavior: None, exit: None, z: None, action: None, label: None, source: None, poster: None, source_in_seconds: None, source_duration_seconds: None, loop_animation: None, animation_duration: None,
+            x: 0.5, y: 0.5, width: 0.3, height: 0.3, rotation: 0.0,
+            color: "#9D7CFF".into(), opacity: 100.0, start_ticks: 0, duration_ticks: 120, animation: "none".into(),
+        });
+        clip.text_layers.push(TextLayer { id: "text".into(), title: "Caption".into(), z: None, start_ticks: 0, duration_ticks: 120, ..TextLayer::default() });
+        let scene_id = clip.id.clone();
+        project.tracks[0].clips.push(clip);
+        project.overlays.push(ElementLayer {
+            id: "overlay".into(),
+            kind: "rectangle".into(),
+            behavior: None, exit: None, z: None, action: None, label: None, source: None, poster: None, source_in_seconds: None, source_duration_seconds: None, loop_animation: None, animation_duration: None,
+            x: 0.5, y: 0.5, width: 0.4, height: 0.4, rotation: 0.0,
+            color: "#112233".into(), opacity: 100.0, start_ticks: 0, duration_ticks: 120, animation: "none".into(),
+        });
+        session.apply(Command::Replace { project }).unwrap();
+        let before = session.project.clone();
+
+        // The command carries no media at all, only the new stack position.
+        let order = Command::Order { kind: "text".into(), scene_id: Some(scene_id.clone()), id: "text".into(), z: 7_500.0 };
+        let encoded = serde_json::to_string(&order).unwrap();
+        assert!(encoded.len() < 120, "order command stays tiny: {encoded}");
+        session.apply(order).unwrap();
+        assert_eq!(
+            session.project.tracks[0].clips[0].text_layers[0].z,
+            Some(7_500.0)
+        );
+        assert_eq!(session.project.overlays[0].z, None);
+        assert!(session.view().can_undo);
+
+        session.apply(Command::Order { kind: "overlay".into(), scene_id: None, id: "overlay".into(), z: 12.5 }).unwrap();
+        assert_eq!(session.project.overlays[0].z, Some(12.5));
+
+        session.apply(Command::Undo).unwrap();
+        assert_eq!(session.project.tracks[0].clips[0].text_layers[0].z, Some(7_500.0));
+        session.apply(Command::Undo).unwrap();
+        assert_eq!(session.project, before);
+
+        for bad in [-1.0, 100_001.0, f64::INFINITY] {
+            assert!(session
+                .apply(Command::Order { kind: "overlay".into(), scene_id: None, id: "overlay".into(), z: bad })
+                .is_err());
+        }
+        assert!(session
+            .apply(Command::Order { kind: "text".into(), scene_id: Some(scene_id), id: "missing".into(), z: 10.0 })
+            .is_err());
+        assert!(session
+            .apply(Command::Order { kind: "text".into(), scene_id: None, id: "text".into(), z: 10.0 })
+            .is_err());
+        assert!(session
+            .apply(Command::Order { kind: "scene".into(), scene_id: None, id: "text".into(), z: 10.0 })
+            .is_err());
+    }
+
     #[test]
     fn validates_text_layout_controls() {
         let mut p = Project::default();

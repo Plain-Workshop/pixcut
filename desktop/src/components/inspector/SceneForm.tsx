@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
-import { AlignCenter, AlignLeft, AlignRight, Check, ClipboardPaste, Copy, Gauge, Layers, Move, Plus, RefreshCw, RotateCcw, Search, Sparkles, Trash2, Type } from 'lucide-react';
-import { sceneSeconds, secondsToTicks, setSceneSeconds, ticksToSeconds, type Scene, type ScenePatchKey, type TextAnimation, type TextLayer, type Timebase, type TransitionType } from '../../stores/model';
+import { AlignCenter, AlignLeft, AlignRight, Blend, Crop, Maximize2, SlidersHorizontal, SunDim, Wand2, Shapes, Check, ClipboardPaste, Copy, Gauge, Move, Plus, RotateCcw, Search, Sparkles, Trash2, Type } from 'lucide-react';
+import { sceneSeconds, secondsToTicks, setSceneSeconds, ticksToSeconds, type ElementLayer, type Scene, type ScenePatchKey, type TextAnimation, type TextLayer, type Timebase, type TransitionType } from '../../stores/model';
 import { DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TEXT_SIZE, DEFAULT_TEXT_SUBTITLE_SCALE, DEFAULT_TEXT_WEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_X, DEFAULT_TEXT_Y, FONTS, clampWeight, fontOption, fontWeights } from '../text/fonts';
 import { MAX_TEXT_LAYERS, TEXT_LAYER_STYLE_DEFAULTS, createTextLayer, layerTimingLabel } from '../text/layers';
+import { sceneStack, stackIndex, stackZ, overlaysForScene, type StackMove } from '../elements/stack';
+import { StackOrder } from './StackOrder';
 import { FILTERS, clamp, thumbnailFilterCss } from '../preview/filters';
 
-type Tab = 'video' | 'text' | 'transition' | 'color' | 'speed' | 'fade' | 'filters';
+type Tab = 'elements' | 'video' | 'text' | 'transition' | 'color' | 'speed' | 'fade' | 'filters';
 type ColorKey = 'brightness' | 'contrast' | 'saturation' | 'exposure' | 'highlights' | 'shadows' | 'temperature' | 'tint';
 
 const COLOR_CONTROLS: { key: ColorKey; label: string; min: number; max: number; step: number }[] = [
@@ -70,12 +72,16 @@ const SHADOW_PRESETS: TemplatePreset[] = [
   { label: 'Hard', patch: { shadowEnabled: true, shadowColor: '#000000', shadowIntensity: 70, shadowBlur: 0, shadowOffsetX: 0, shadowOffsetY: 4 } },
 ];
 const SPEED_PRESETS = [0.5, 1, 1.5, 2];
-const TRANSITION_OPTIONS: { id: TransitionType; label: string; description: string }[] = [
+export const TRANSITION_OPTIONS: { id: TransitionType; label: string; description: string }[] = [
   { id: 'none', label: 'None', description: 'Hard cut' },
   { id: 'fade', label: 'Crossfade', description: 'Smooth dissolve' },
   { id: 'slide', label: 'Slide', description: 'Push to the next scene' },
   { id: 'wipe', label: 'Wipe', description: 'Reveal left to right' },
   { id: 'zoom', label: 'Zoom', description: 'Push in and blend' },
+  { id: 'blur', label: 'Soft blur', description: 'Defocus' },
+  { id: 'circle', label: 'Circle', description: 'Center reveal' },
+  { id: 'slide-up', label: 'Slide up', description: 'Push upward' },
+  { id: 'spin', label: 'Spin', description: 'Rotate and fade' },
 ];
 const TEXT_ANIMATIONS: { id: TextAnimation; label: string }[] = [
   { id: 'none', label: 'None' },
@@ -291,11 +297,8 @@ function RangeField({
   </div>;
 }
 
-function SectionTitle({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
-  return <div className="inspector-heading"><span>{children}</span>{icon}</div>;
-}
-
 export function SceneForm({
+  elementPanel, elementSelection, onDeselectElement,
   scene,
   update,
   onPreview,
@@ -303,7 +306,6 @@ export function SceneForm({
   onPasteProperties,
   propertyClipboard,
   flushRef,
-  onReplaceImage,
   timebase,
   textLayerId,
   onSelectTextLayer,
@@ -311,10 +313,14 @@ export function SceneForm({
   focusText = 0,
   framingActive = false,
   onToggleFraming = () => {},
-  formatName = 'Original',
   formatCount = 1,
   onApplyFramingToAll = () => {},
+  overlays = [],
+  onReorderLayer,
 }: {
+  elementPanel?: ReactNode;
+  elementSelection?: string;
+  onDeselectElement?: () => void;
   scene: Scene;
   update: (scene: Scene, force?: ScenePatchKey[]) => Promise<boolean> | void;
   onPreview: (scene: Scene | null) => void;
@@ -333,6 +339,8 @@ export function SceneForm({
   formatName?: string;
   formatCount?: number;
   onApplyFramingToAll?: () => void;
+  overlays?: ElementLayer[];
+  onReorderLayer?: (kind: 'text' | 'element' | 'overlay', id: string, z: number) => void;
 }) {
   const [tab, setTab] = useState<Tab>('video');
   const [draft, setDraft] = useState(scene);
@@ -385,9 +393,13 @@ export function SceneForm({
     if (inspector) inspector.scrollTop = 0;
   }, [tab, scene.id]);
 
+  useEffect(() => { if (elementSelection) setTab('elements'); else if (tab === 'elements') setTab('video'); }, [elementSelection]);
+
   useEffect(() => {
     if (focusText) setTab('text');
   }, [focusText]);
+
+  useEffect(() => { if (scene.mediaKind !== 'video' && tab === 'speed') setTab('video'); }, [scene.mediaKind, tab]);
 
   useEffect(() => () => { internalFlushRef.current(); previewRef.current(null); }, []);
 
@@ -461,6 +473,18 @@ export function SceneForm({
   const layers = draft.textLayers ?? [];
   const selectedLayer = layers.find(layer => layer.id === textLayerId) ?? layers[0] ?? null;
   const sceneDurationTicks = draft.durationTicks;
+  const stack = sceneStack(draft, overlaysForScene(draft, overlays));
+  const selectedLayerStackAt = selectedLayer ? stackIndex(stack, 'text', selectedLayer.id) + 1 : 0;
+
+  function moveTextLayer(move: StackMove) {
+    if (!selectedLayer) return;
+    const z = stackZ(stack, 'text', selectedLayer.id, move);
+    if (z === null) return;
+    // Staged text edits ride along with the scene update; a clean layer uses the
+    // lightweight order command, which never sends the scene's photo to Rust.
+    if (!onReorderLayer || dirtyRef.current) { applyLayer({ z }); return; }
+    onReorderLayer('text', selectedLayer.id, z);
+  }
 
   function withLayers(nextLayers: TextLayer[]): Partial<Scene> {
     return { textLayers: nextLayers, title: nextLayers[0]?.title ?? '', subtitle: nextLayers[0]?.subtitle ?? '' };
@@ -564,7 +588,6 @@ export function SceneForm({
 
   const speed = draft.speed ?? 1;
   const duration = sceneSeconds(draft, timebase);
-  const sourceDuration = duration * speed;
   const activeFilter = draft.filter ?? 'none';
   const filterIntensity = draft.filterIntensity ?? 100;
   const filteredFilters = useMemo(() => {
@@ -574,31 +597,38 @@ export function SceneForm({
   }, [filterQuery]);
 
   return <>
-    <div className="inspector-tabs" role="tablist" aria-label="Scene inspector">
-      {(['video', 'text', 'transition', 'color', 'speed', 'fade', 'filters'] as const).map(value => <button key={value} role="tab" aria-selected={tab === value} className={tab === value ? 'active' : ''} onClick={() => setTab(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}
+    <div className="inspector-icon-tabs" role="tablist" aria-label="Scene inspector">
+      {([
+        ['elements', 'Element', Shapes], ['video', 'Framing', Crop], ['text', 'Text', Type], ['transition', 'Transitions', Blend],
+        ['color', 'Color', SlidersHorizontal], ['speed', 'Speed', Gauge], ['fade', 'Fades', SunDim], ['filters', 'Looks', Wand2],
+      ] as const).filter(([id]) => (id !== 'elements' || Boolean(elementSelection)) && (id !== 'speed' || draft.mediaKind === 'video')).map(([value, label, Icon]) => <button key={value} role="tab" aria-label={label} title={label} aria-selected={tab === value} className={tab === value ? 'active' : ''} onClick={() => { internalFlushRef.current(); setTab(value); if (value !== 'elements') onDeselectElement?.(); if (value !== 'video' && framingActive) onToggleFraming(); }}><Icon size={18} /></button>)}
     </div>
+    <div className="inspector-current-tool">{({ elements: 'Element', video: 'Framing', text: 'Text', transition: 'Transitions', color: 'Color', speed: 'Speed', fade: 'Fades', filters: 'Looks' })[tab]}</div>
+
+    {tab === 'elements' && elementPanel}
 
     {tab === 'video' && <>
-      <SectionTitle icon={<Gauge size={14} />}>SCENE TIMING</SectionTitle>
-      <RangeField label="Duration" value={duration} min={0.5} max={30} step={0.1} unit="sec" onChange={stageDuration} onCommit={() => commit()} />
-      <label className="field">Image framing<select value={draft.fit} onChange={event => apply({ fit: event.target.value as Scene['fit'] }, ['fit'])}><option value="cover">Fill · crop to frame</option><option value="contain">Fit · show whole image</option><option value="blur">Blur fill</option></select></label>
-      <div className="range-field"><div className="range-head"><span>Image zoom</span><span className="range-value">{Math.round((draft.imageZoom ?? 1) * 100)}%</span></div><input aria-label="Image zoom" type="range" min="100" max="400" step="1" value={Math.round((draft.imageZoom ?? 1) * 100)} onChange={event => preview(stage({ imageZoom: Number(event.target.value) / 100 }))} onPointerUp={() => commit()} onKeyUp={() => commit()} /></div>
-      <div className="range-field"><div className="range-head"><span>Horizontal position</span><span className="range-value">{Math.round((draft.imageX ?? 0) * 100)}</span></div><input aria-label="Image horizontal position" type="range" min="-100" max="100" step="1" value={Math.round((draft.imageX ?? 0) * 100)} onChange={event => preview(stage({ imageX: Number(event.target.value) / 100 }))} onPointerUp={() => commit()} onKeyUp={() => commit()} /></div>
-      <div className="range-field"><div className="range-head"><span>Vertical position</span><span className="range-value">{Math.round((draft.imageY ?? 0) * 100)}</span></div><input aria-label="Image vertical position" type="range" min="-100" max="100" step="1" value={Math.round((draft.imageY ?? 0) * 100)} onChange={event => preview(stage({ imageY: Number(event.target.value) / 100 }))} onPointerUp={() => commit()} onKeyUp={() => commit()} /></div>
-      {draft.mediaKind !== 'video' && <><label className="field">Photo motion<select value={draft.motion ?? 'none'} onChange={event => apply({ motion: event.target.value as Scene['motion'] })}><option value="none">None</option><option value="zoom-in">Zoom in</option><option value="zoom-out">Zoom out</option><option value="pan-left">Pan left</option><option value="pan-right">Pan right</option><option value="pan-up">Pan up</option><option value="pan-down">Pan down</option><option value="ken-burns">Ken Burns</option></select></label>
-      {(draft.motion ?? 'none') !== 'none' && <RangeField label="Motion amount" value={(draft.motionAmount ?? .2) * 100} min={5} max={60} step={1} unit="%" onChange={value => preview(stage({ motionAmount: value / 100 }))} onCommit={() => commit()} />}</>}
-      <label className="field color-field">Letterbox color<input aria-label="Image background color" type="color" disabled={draft.fit !== 'contain'} value={draft.framingBackground ?? '#000000'} onChange={event => preview(stage({ framingBackground: event.target.value }))} onBlur={() => commit()} /><span>{(draft.framingBackground ?? '#000000').toUpperCase()}</span></label>
-      <div className="property-actions image-framing-actions"><button className="button" onClick={() => apply({ imageX: 0, imageY: 0 })}>Center</button><button className="button" onClick={() => apply({ imageX: 0, imageY: 0, imageZoom: 1, framingBackground: '#000000' })}><RotateCcw size={13} /> Reset framing</button><button className={`button ${framingActive ? 'active' : ''}`} onClick={onToggleFraming}><Move size={13} /> Drag on canvas</button></div>
-      {formatCount > 1 && <div className="format-scope-note"><span>Framing is saved for <strong>{formatName}</strong> only. Photos, text, timing, audio, transitions, and looks stay common.</span><button className="text-button" onClick={onApplyFramingToAll}>Apply framing to all formats</button></div>}
-      <p className="note">Fill crops to the frame. Fit shows the whole image with your chosen letterbox color. Zoom in, then drag on the canvas or use the position sliders to pick the visible area.</p>
-      <button className="button inspector-replace-image" disabled={!onReplaceImage} onClick={() => onReplaceImage?.()}><RefreshCw size={13} /> Replace image…</button>
-      <button className="button text-tab-callout" onClick={() => setTab('text')}><Type size={14} /> Edit text layers, style, and timing <span>{layers.length}</span></button>
-      <div className="note"><Check size={14} /><span>Text lives in the Text tab now. Add as many independent layers as you need.</span></div>
+      <RangeField label="Duration" value={duration} min={0.5} max={30} step={0.1} unit="s" onChange={stageDuration} onCommit={() => commit()} />
+      <div className="framing-modes" role="group" aria-label="Image framing">{([['cover', 'Fill', Crop], ['contain', 'Fit', Maximize2], ['blur', 'Blur fill', Blend]] as const).map(([fit, label, Icon]) => <button key={fit} aria-pressed={draft.fit === fit} className={draft.fit === fit ? 'active' : ''} onClick={() => apply({ fit }, ['fit'])}><Icon size={16} />{label}</button>)}</div>
+      <div className="range-field"><div className="range-head"><span>Zoom</span><span className="range-value">{Math.round((draft.imageZoom ?? 1) * 100)}%</span></div><input aria-label="Image zoom" type="range" min="100" max="400" step="1" value={Math.round((draft.imageZoom ?? 1) * 100)} onChange={event => preview(stage({ imageZoom: Number(event.target.value) / 100 }))} onPointerUp={() => commit()} onKeyUp={() => commit()} /></div>
+      <div className="framing-actions">
+        <button className={`button ${framingActive ? 'active' : ''}`} aria-pressed={framingActive} onClick={onToggleFraming}><Move size={15} /> Reposition</button>
+        <button className="icon-button" title="Center image" aria-label="Center image" onClick={() => apply({ imageX: 0, imageY: 0 })}><Maximize2 size={16} /></button>
+        <button className="icon-button" title="Reset framing" aria-label="Reset framing" onClick={() => apply({ imageX: 0, imageY: 0, imageZoom: 1, framingBackground: '#000000' })}><RotateCcw size={16} /></button>
+      </div>
+      {draft.fit === 'contain' && <label className="field color-field">Background<input aria-label="Image background color" type="color" value={draft.framingBackground ?? '#000000'} onChange={event => preview(stage({ framingBackground: event.target.value }))} onBlur={() => commit()} /></label>}
+      <details className="inspector-disclosure"><summary>Position</summary>
+        <RangeField label="Horizontal" value={Math.round((draft.imageX ?? 0) * 100)} min={-100} max={100} step={1} onChange={value => preview(stage({ imageX: value / 100 }))} onCommit={() => commit()} />
+        <RangeField label="Vertical" value={Math.round((draft.imageY ?? 0) * 100)} min={-100} max={100} step={1} onChange={value => preview(stage({ imageY: value / 100 }))} onCommit={() => commit()} />
+      </details>
+      {draft.mediaKind !== 'video' && <details className="inspector-disclosure"><summary>Camera movement <small>{draft.motion && draft.motion !== 'none' ? draft.motion.replaceAll('-', ' ') : 'None'}</small></summary>
+        <label className="field">Motion<select value={draft.motion ?? 'none'} onChange={event => apply({ motion: event.target.value as Scene['motion'] })}><option value="none">None</option><option value="zoom-in">Zoom in</option><option value="zoom-out">Zoom out</option><option value="pan-left">Pan left</option><option value="pan-right">Pan right</option><option value="pan-up">Pan up</option><option value="pan-down">Pan down</option><option value="ken-burns">Ken Burns</option></select></label>
+        {(draft.motion ?? 'none') !== 'none' && <RangeField label="Amount" value={(draft.motionAmount ?? .2) * 100} min={5} max={60} step={1} unit="%" onChange={value => preview(stage({ motionAmount: value / 100 }))} onCommit={() => commit()} />}
+      </details>}
+      {formatCount > 1 && <button className="text-button format-apply" onClick={onApplyFramingToAll}>Apply framing to all formats</button>}
     </>}
 
     {tab === 'text' && <>
-      <SectionTitle icon={<Layers size={14} />}>TEXT LAYERS</SectionTitle>
-      <p className="note">Each layer has its own content, style, position, and timing. Layers are drawn in list order.</p>
       {layers.length > 0 && <div className="text-layer-list">
         {layers.map((layer, index) => <div className={`text-layer-item ${selectedLayer?.id === layer.id ? 'active' : ''}`} key={layer.id}>
           <button className="text-layer-select" onClick={() => onSelectTextLayer(layer.id)} aria-pressed={selectedLayer?.id === layer.id}>
@@ -608,36 +638,28 @@ export function SceneForm({
           <button className="icon-button" aria-label={`Delete ${layer.title || `text layer ${index + 1}`}`} onClick={() => removeTextLayer(layer.id)}><Trash2 size={14} /></button>
         </div>)}
       </div>}
-      <button className="button text-add-layer" onClick={addTextLayer} disabled={layers.length >= MAX_TEXT_LAYERS}><Plus size={14} /> Add text layer <span>{layers.length}/{MAX_TEXT_LAYERS}</span></button>
+      {layers.length > 0 && <button type="button" className="button text-add-layer" onClick={addTextLayer} disabled={layers.length >= MAX_TEXT_LAYERS}><Plus size={14} /> Add text layer <span>{layers.length}/{MAX_TEXT_LAYERS}</span></button>}
 
       {selectedLayer ? <>
-        <hr />
-        <SectionTitle icon={<Type size={14} />}>LAYER CONTENT</SectionTitle>
         <label className="field">Text<textarea aria-label="Text layer content" maxLength={120} rows={3} placeholder="Give this moment a title…" value={selectedLayer.title} onChange={event => stageLayer({ title: event.target.value })} onBlur={() => commit()} /></label>
         <label className="field">Subtitle<input aria-label="Text layer subtitle" maxLength={200} placeholder="A little more to the story" value={selectedLayer.subtitle} onChange={event => stageLayer({ subtitle: event.target.value })} onBlur={() => commit()} /></label>
         <label className="field color-field">Text color<input aria-label="Text layer color" type="color" value={selectedLayer.color} onChange={event => stageLayer({ color: event.target.value })} onBlur={() => commit()} /><span>{selectedLayer.color.toUpperCase()}</span></label>
+        {stack.length > 1 && <StackOrder position={selectedLayerStackAt} total={stack.length} onMove={moveTextLayer} />}
 
-        <div className="text-layer-actions">
-          <button className="button text-reset-button" onClick={resetTextStyle}><RotateCcw size={13} /> Reset text styling</button>
-          <button className="text-button" onClick={resetTextTiming}>Reset timing</button>
-        </div>
-        <p className="tiny-label">Reset styling restores font, size, position, and effects while keeping your words and timing.</p>
-
-        <details className="advanced-disclosure text-layout-panel" open>
+        <details className="advanced-disclosure text-layout-panel">
           <summary>Timing</summary>
           <RangeField label="Appears at" value={ticksToSeconds(selectedLayer.startTicks, timebase)} min={0} max={ticksToSeconds(Math.max(0, sceneDurationTicks - 1), timebase)} step={0.1} unit="sec" onChange={stageLayerStart} onCommit={() => commit()} />
           <RangeField label="Visible for" value={ticksToSeconds(selectedLayer.durationTicks, timebase)} min={Math.max(0.1, ticksToSeconds(1, timebase))} max={ticksToSeconds(Math.max(1, sceneDurationTicks - selectedLayer.startTicks), timebase)} step={0.1} unit="sec" onChange={stageLayerDuration} onCommit={() => commit()} />
-          <p className="note">Timing is relative to this scene. The layer can appear, hold, and disappear while the photo is still on screen.</p>
+          <button className="text-button" onClick={resetTextTiming}>Reset timing</button>
         </details>
 
         <details className="advanced-disclosure text-layout-panel">
           <summary>Animation</summary>
           <label className="field">Entrance & exit<select aria-label="Text animation" value={selectedLayer.animation} onChange={event => applyLayer({ animation: event.target.value as TextAnimation })}>{TEXT_ANIMATIONS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
           <RangeField label="Animation speed" value={selectedLayer.animationDuration} min={0.1} max={2} step={0.1} unit="sec" disabled={selectedLayer.animation === 'none'} onChange={value => stageLayer({ animationDuration: value })} onCommit={() => commit()} />
-          <p className="note">Fade, slide, and pop play on entry and reverse on exit. Timing still comes from the layer’s appear and visible-for controls.</p>
         </details>
 
-        <div className="text-typography">
+        <details className="inspector-disclosure"><summary>Typography</summary><div className="text-typography">
           <label className="field">Font<select aria-label="Text font" value={selectedLayer.font} onChange={event => { const id = event.target.value; applyLayer({ font: id, fontWeight: clampWeight(selectedLayer.fontWeight, id), fontStyle: fontOption(id).italic ? selectedLayer.fontStyle : 'normal' }); }}>{FONTS.map(font => <option key={font.id} value={font.id}>{font.label} · {font.category}</option>)}</select></label>
           <p className="font-preview" style={{ fontFamily: fontOption(selectedLayer.font).family, fontWeight: clampWeight(selectedLayer.fontWeight, selectedLayer.font), fontStyle: selectedLayer.fontStyle }}>{selectedLayer.title || 'The little moments'}</p>
           <RangeField label="Text size" value={Math.round(selectedLayer.size * 1080)} min={16} max={240} step={1} unit="px" onChange={value => stageLayer({ size: value / 1080 })} onCommit={() => commit()} />
@@ -659,7 +681,7 @@ export function SceneForm({
             <RangeField label="Text opacity" value={selectedLayer.opacity} min={0} max={100} step={1} unit="%" onChange={value => stageLayer({ opacity: value })} onCommit={() => commit()} />
             <RangeField label="Subtitle size" value={selectedLayer.subtitleScale * 100} min={20} max={100} step={1} unit="%" onChange={value => stageLayer({ subtitleScale: value / 100 })} onCommit={() => commit()} />
           </details>
-        </div>
+        </div></details>
         <div className="text-effect-quick">
           <button className="button primary" onClick={() => applyLayer(LEGIBLE_TEXT)}><Sparkles size={13} /> Make text readable</button>
           <button className="text-button" onClick={resetTextStyle}>Reset styling</button>
@@ -715,16 +737,12 @@ export function SceneForm({
             <RangeField label="Shadow offset Y" value={selectedLayer.shadowOffsetY} min={-40} max={40} step={1} unit="px" disabled={!selectedLayer.shadowEnabled} onChange={value => stageLayer({ shadowOffsetY: value })} onCommit={() => commit()} />
           </div>
         </details>
-        <div className="note"><Check size={14} /><span>Backdrop, outline, glow, and shadow are independent. Reset restores every style default in one click.</span></div>
-      </> : <div className="library-empty compact"><Type size={28} /><strong>No text on this scene yet.</strong><p>Add a layer, then place it in the preview and choose when it appears.</p><button className="button primary text-add-layer" onClick={addTextLayer}><Plus size={14} /> Add text layer</button></div>}
+      </> : <div className="library-empty compact"><Type size={28} /><strong>No text on this scene yet.</strong><p>Add a layer, then place it in the preview and choose when it appears.</p><button type="button" className="button primary text-add-layer" onClick={addTextLayer}><Plus size={14} /> Add text layer</button></div>}
     </>}
 
     {tab === 'transition' && <>
-      <SectionTitle icon={<Sparkles size={14} />}>TRANSITION TO NEXT SCENE</SectionTitle>
-      <p className="note">The transition plays over the end of this scene and blends into the next clip. The next clip appears in the preview once this scene is selected.</p>
       <div className="transition-grid">{TRANSITION_OPTIONS.map(option => <button key={option.id} className={`transition-card ${(draft.transition?.type ?? 'none') === option.id ? 'active' : ''}`} onClick={() => apply({ transition: option.id === 'none' ? null : { type: option.id, duration: draft.transition?.duration ?? .6 } }, ['transition'])}><span className={`transition-swatch ${option.id}`} /><strong>{option.label}</strong><small>{option.description}</small></button>)}</div>
       <RangeField label="Transition duration" value={draft.transition?.duration ?? .6} min={0.1} max={Math.min(2, duration / 2)} step={0.1} unit="sec" disabled={!draft.transition} onChange={value => preview(stage({ transition: { type: draft.transition?.type ?? 'fade', duration: value } }))} onCommit={() => commit()} />
-      <div className="note"><Check size={14} /><span>{draft.transition ? `${TRANSITION_OPTIONS.find(option => option.id === draft.transition?.type)?.label ?? 'Transition'} · ${(draft.transition.duration).toFixed(1)} s` : 'Hard cut. Select a transition above to blend into the next scene.'}</span></div>
     </>}
 
     {tab === 'color' && <>
@@ -747,28 +765,15 @@ export function SceneForm({
         <button className="button" onClick={() => onCopyProperties(draftRef.current)}><Copy size={13} /> Copy</button>
         <button className="button" onClick={() => { if (propertyClipboard) { apply(propertyClipboard, Object.keys(propertyClipboard) as ScenePatchKey[]); onPasteProperties(); } }} disabled={!propertyClipboard}><ClipboardPaste size={13} /> Paste</button>
       </div>
-      <details className="advanced-disclosure">
-        <summary>Advanced color</summary>
-        <p>Curves, HSL, and LUT controls are planned for the video engine. Basic adjustments here are already non-destructive.</p>
-      </details>
-      <div className="note"><Check size={14} /><span>Color edits apply to preview and still-frame export without changing the source photo.</span></div>
     </>}
 
-    {tab === 'speed' && <>
-      <SectionTitle icon={<Gauge size={14} />}>SPEED</SectionTitle>
+    {tab === 'speed' && draft.mediaKind === 'video' && <>
       <div className="speed-presets">{SPEED_PRESETS.map(value => <button key={value} className={`button ${Math.abs(speed - value) < 0.01 ? 'active' : ''}`} onClick={() => applySpeed(value)}>{value}×</button>)}</div>
-      <RangeField label="Custom speed" value={speed} min={0.25} max={4} step={0.05} unit="×" onChange={stageSpeed} onCommit={() => applySpeed(draftRef.current.speed ?? 1)} />
-      <div className="speed-summary"><span>Source duration</span><strong>{sourceDuration.toFixed(1)} s → {duration.toFixed(1)} s at {speed.toFixed(2)}×</strong></div>
-      <label className="field checkbox-field"><input type="checkbox" checked={draft.pitch ?? true} onChange={event => apply({ pitch: event.target.checked }, ['pitch'])} /> Maintain audio pitch</label>
-      <p className="note">This photo story has no audio. The pitch preference is stored for audio clips when the video engine arrives.</p>
-      <details className="advanced-disclosure">
-        <summary>Advanced speed</summary>
-        <p>Speed curves and reverse playback arrive with the video engine. Duration changes remain undoable and portable.</p>
-      </details>
+      <RangeField label="Speed" value={speed} min={0.25} max={4} step={0.05} unit="×" onChange={stageSpeed} onCommit={() => applySpeed(draftRef.current.speed ?? 1)} />
+      <p className="inspector-inline-status">Duration · {duration.toFixed(1)} s</p>
     </>}
 
     {tab === 'fade' && <>
-      <SectionTitle icon={<Sparkles size={14} />}>OPACITY FADES</SectionTitle>
       <div className="fade-preview" aria-hidden="true">
         <span className="fade-preview-in" style={{ width: `${Math.min(100, ((draft.fadeIn ?? 0) / duration) * 100)}%` }} />
         <span className="fade-preview-out" style={{ width: `${Math.min(100, ((draft.fadeOut ?? 0) / duration) * 100)}%` }} />
@@ -777,11 +782,9 @@ export function SceneForm({
       <RangeField label="Fade in" value={draft.fadeIn ?? 0} min={0} max={duration} step={0.1} unit="sec" onChange={value => preview(stage({ fadeIn: value }))} onCommit={() => commit()} />
       <RangeField label="Fade out" value={draft.fadeOut ?? 0} min={0} max={duration} step={0.1} unit="sec" onChange={value => preview(stage({ fadeOut: value }))} onCommit={() => commit()} />
       {(draft.fadeIn ?? 0) + (draft.fadeOut ?? 0) > duration && <p className="fade-warning">Fade in and fade out overlap. The clip may not reach full opacity.</p>}
-      <p className="note">Fades preview live at the playhead. MP4 fade rendering arrives with the video engine; still-frame export uses the selected look.</p>
     </>}
 
     {tab === 'filters' && <>
-      <SectionTitle icon={<Sparkles size={14} />}>LOOKS</SectionTitle>
       <label className="search-field"><Search size={14} /><input aria-label="Search filters" placeholder="Search looks…" value={filterQuery} onChange={event => setFilterQuery(event.target.value)} /></label>
       <div className="filter-grid">
         {filteredFilters.map(filter => <button

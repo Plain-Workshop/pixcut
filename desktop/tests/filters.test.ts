@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyColorGrade, filterLook, hasColorGrade } from '../src/components/preview/filters';
+import { applyColorGrade, filterLook, gradeLutCube, hasColorGrade } from '../src/components/preview/filters';
 import type { Scene } from '../src/stores/model';
 
 const scene = (patch: Partial<Scene> = {}): Scene => ({
@@ -48,5 +48,52 @@ describe('color grade pipeline', () => {
     expect(darkLift[0]).toBeGreaterThan(20);
     const brightLift = grade({ highlights: 0.8 }, [220, 220, 220]);
     expect(brightLift[0]).toBeGreaterThan(220);
+  });
+});
+
+function lutEntries(cube: string) {
+  return cube.split('\n').filter(line => line && !line.startsWith('#') && !line.startsWith('LUT_3D_SIZE') && !line.startsWith('DOMAIN_'));
+}
+
+describe('grade LUT for video export', () => {
+  it('skips neutral clips and emits a standard 3D cube', () => {
+    expect(gradeLutCube(scene())).toBeNull();
+    const cube = gradeLutCube(scene({ brightness: 1.4 }), 9)!;
+    expect(cube).toContain('LUT_3D_SIZE 9');
+    expect(lutEntries(cube)).toHaveLength(729);
+  });
+
+  it('matches the canvas grade pipeline at the sampled lattice points', () => {
+    const graded = scene({ filter: 'warm', filterIntensity: 70, contrast: 1.2, temperature: 0.3, shadows: 0.4 });
+    const size = 5;
+    const cube = gradeLutCube(graded, size)!;
+    const entries = lutEntries(cube);
+    const lattice = [3, 1, 4];
+    const index = ((lattice[2] * size) + lattice[1]) * size + lattice[0];
+    const lut = entries[index].split(' ').map(Number);
+    const expected = new Uint8ClampedArray([
+      Math.round((lattice[0] / (size - 1)) * 255),
+      Math.round((lattice[1] / (size - 1)) * 255),
+      Math.round((lattice[2] / (size - 1)) * 255),
+      255,
+    ]);
+    applyColorGrade(expected, graded);
+    for (let channel = 0; channel < 3; channel += 1) {
+      expect(Math.abs(lut[channel] - expected[channel] / 255)).toBeLessThanOrEqual(1 / 255);
+    }
+  });
+
+  it('keeps every channel identical for a monochrome grade', () => {
+    const entries = lutEntries(gradeLutCube(scene({ filter: 'mono' }), 5)!);
+    for (const entry of entries) {
+      const [r, g, b] = entry.split(' ').map(Number);
+      expect(Math.abs(r - g)).toBeLessThanOrEqual(1 / 255);
+      expect(Math.abs(g - b)).toBeLessThanOrEqual(1 / 255);
+    }
+  });
+
+  it('rejects an unsafe LUT size', () => {
+    expect(() => gradeLutCube(scene({ brightness: 1.2 }), 0)).toThrow('Invalid grade LUT size.');
+    expect(() => gradeLutCube(scene({ brightness: 1.2 }), 100)).toThrow('Invalid grade LUT size.');
   });
 });

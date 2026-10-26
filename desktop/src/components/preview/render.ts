@@ -1,28 +1,56 @@
-import { DEFAULT_TIMEBASE, sceneSeconds, secondsToTicks, ticksToSeconds, type ElementLayer, type Project, type Scene, type TextAnimation, type TextLayer, type Timebase, type TransitionType } from '../../stores/model';
+import { drawCardElement } from '../elements/cards';
+import { waveformBars } from '../elements/dynamic';
+import { drawModernElement } from '../elements/modern';
+import { framingTravel } from './framing';
+import { elementTransform } from '../elements/transform';
+import { overlayVideoFrame } from './overlay-video';
+import { drawElementSymbol, ELEMENT_LABEL_DEFAULTS, elementForeground } from '../elements/symbols';
+import { DEFAULT_TIMEBASE, sceneSeconds, secondsToTicks, ticksToSeconds, type AudioClip, type ElementLayer, type Project, type Scene, type TextAnimation, type TextLayer, type Timebase, type TransitionType } from '../../stores/model';
 import { layerDurationSeconds, layerStartSeconds, layerVisibleAt } from '../text/layers';
+import { sceneStack } from '../elements/stack';
 import { clampWeight, fontFamily } from '../text/fonts';
 import { applyColorGrade, clamp, hasColorGrade } from './filters';
+import { WeightedLru } from './image-cache';
 
-const imageCache = new Map<string, Promise<HTMLImageElement>>();
+type CachedImage = { promise: Promise<HTMLImageElement> };
+// Decoded photos are the largest thing the compositor holds. The budget keeps
+// a long photo story from re-decoding the same files every frame while still
+// letting large 4K projects release memory.
+const IMAGE_CACHE_ENTRIES = 48;
+const IMAGE_CACHE_BYTES = 256 * 1024 * 1024;
+const MISSING_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const imageCache = new WeightedLru<CachedImage>(IMAGE_CACHE_ENTRIES, IMAGE_CACHE_BYTES);
 
 export function dimensions(aspect: Project['aspect']): [number, number] { return aspect === '9:16' ? [1080, 1920] : aspect === '4:5' ? [1080, 1350] : aspect === '1:1' ? [1080, 1080] : [1920, 1080]; }
 
-export async function loadImage(src: string): Promise<HTMLImageElement> {
-  const cached = imageCache.get(src);
-  if (cached) return cached;
-  const promise = new Promise<HTMLImageElement>((resolve, reject) => {
+function decodeImage(src: string): Promise<HTMLImageElement> {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
+    img.decoding = 'async';
+    img.onload = () => {
+      if (typeof img.decode === 'function') img.decode().then(() => resolve(img), () => resolve(img));
+      else resolve(img);
+    };
     img.onerror = () => reject(new Error('An image could not be decoded. Try a PNG, JPEG, or WebP file.'));
     img.src = src;
   });
-  imageCache.set(src, promise);
-  if (imageCache.size > 12) {
-    const oldest = imageCache.keys().next().value;
-    if (oldest) imageCache.delete(oldest);
-  }
-  promise.catch(() => imageCache.delete(src));
-  return promise;
+}
+
+export async function loadImage(src: string): Promise<HTMLImageElement> {
+  if (!src) throw new Error('An image is missing from this project. Replace the photo to continue.');
+  // Unresolved references are shown as an empty frame while the editor offers
+  // to relink them; do not ask the browser to fetch an unknown scheme.
+  const source = src.startsWith('pixcut-asset:') ? MISSING_IMAGE : src;
+  const cached = imageCache.get(source);
+  if (cached) return cached.promise;
+  const entry: CachedImage = { promise: decodeImage(source) };
+  imageCache.set(source, entry, 0);
+  entry.promise.then(img => {
+    const width = img.naturalWidth || img.width || 0;
+    const height = img.naturalHeight || img.height || 0;
+    imageCache.weigh(source, width * height * 4);
+  }, () => { imageCache.delete(source); });
+  return entry.promise;
 }
 
 function wrap(ctx: CanvasRenderingContext2D, text: string, width: number): string[] { const lines: string[] = []; let line = ''; for (const word of text.split(/\s+/)) { const test = line ? `${line} ${word}` : word; if (ctx.measureText(test).width > width && line) { lines.push(line); line = word; } else line = test; } if (line) lines.push(line); return lines; }
@@ -354,80 +382,72 @@ function elementLabel(ctx: CanvasRenderingContext2D, text: string, maxWidth: num
   ctx.fillText(text, x, 0);
 }
 
-function drawElementShape(ctx: CanvasRenderingContext2D, element: ElementLayer, w: number, h: number, alpha: number, scale: number, offsetY: number) {
+function drawElementShape(ctx: CanvasRenderingContext2D, element: ElementLayer, w: number, h: number, alpha: number, scale: number, offsetY: number, offsetX = 0, rotation = 0, localSeconds = 0, bars: number[] = []) {
   const bw = Math.max(2, element.width * w);
   const bh = Math.max(2, element.height * h);
   ctx.save();
-  ctx.translate(element.x * w, element.y * h + offsetY);
-  ctx.rotate(element.rotation * Math.PI / 180);
+  ctx.translate(element.x * w + offsetX, element.y * h + offsetY);
+  ctx.rotate((element.rotation + rotation) * Math.PI / 180);
   ctx.scale(scale, scale);
   ctx.globalAlpha = alpha;
   ctx.fillStyle = element.color;
+  if (drawCardElement(ctx, element, bw, bh, localSeconds, bars) || drawModernElement(ctx, element, bw, bh)) { ctx.restore(); return; }
   switch (element.kind) {
-    case 'subscribe':
-      elementRoundRect(ctx, -bw / 2, -bh / 2, bw, bh, bh * .5);
-      elementLabel(ctx, 'SUBSCRIBE', bw * .82, bh);
-      break;
-    case 'like':
-      elementRoundRect(ctx, -bw / 2, -bh / 2, bw, bh, bh * .25);
-      ctx.fillStyle = '#FFFFFF';
+    case 'burst':
       ctx.beginPath();
-      ctx.ellipse(-bw * .24, -bh * .02, bh * .12, bh * .17, -.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillRect(-bw * .32, bh * .08, bh * .16, bh * .26);
-      elementLabel(ctx, 'LIKE', bw * .5, bh, '#FFFFFF', bw * .16);
-      break;
-    case 'bell': {
-      ctx.beginPath();
-      ctx.moveTo(-bw * .22, bh * .22);
-      ctx.quadraticCurveTo(-bw * .2, -bh * .32, 0, -bh * .36);
-      ctx.quadraticCurveTo(bw * .2, -bh * .32, bw * .22, bh * .22);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(0, bh * .32, Math.max(2, bh * .1), 0, Math.PI * 2);
-      ctx.fill();
-      break;
-    }
-    case 'comment':
-      elementRoundRect(ctx, -bw / 2, -bh / 2, bw, bh * .78, bh * .18);
-      ctx.beginPath();
-      ctx.moveTo(-bw * .12, bh * .28);
-      ctx.lineTo(-bw * .02, bh * .5);
-      ctx.lineTo(bw * .12, bh * .28);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#101214';
-      ctx.fillRect(-bw * .3, -bh * .16, bw * .6, Math.max(2, bh * .07));
-      ctx.fillRect(-bw * .3, bh * .02, bw * .42, Math.max(2, bh * .07));
-      break;
-    case 'share':
-      ctx.fillStyle = '#FFFFFF';
-      for (const [x, y, r] of [[-bw * .28, bh * .26, bh * .1], [bw * .28, 0, bh * .1], [-bw * .28, -bh * .26, bh * .1]] as const) {
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
+      for (let i = 0; i < 32; i++) {
+        const angle = i * Math.PI / 16 - Math.PI / 2;
+        const radius = i % 2 ? .32 : .5;
+        const x = Math.cos(angle) * bw * radius, y = Math.sin(angle) * bh * radius;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
-      ctx.strokeStyle = '#FFFFFF';
-      ctx.lineWidth = Math.max(2, bh * .06);
+      ctx.closePath(); ctx.fill();
+      break;
+    case 'frame':
+      ctx.strokeStyle = element.color; ctx.lineWidth = Math.min(bw, bh) * .035;
       ctx.beginPath();
-      ctx.moveTo(-bw * .2, -bh * .2);
-      ctx.lineTo(bw * .2, -bh * .04);
-      ctx.moveTo(-bw * .2, bh * .2);
-      ctx.lineTo(bw * .2, bh * .04);
+      for (const [x, y, dx, dy] of [[-1, -1, 1, 1], [1, -1, -1, 1], [-1, 1, 1, -1], [1, 1, -1, -1]]) {
+        ctx.moveTo(x * bw / 2 + dx * bw * .22, y * bh / 2);
+        ctx.lineTo(x * bw / 2, y * bh / 2); ctx.lineTo(x * bw / 2, y * bh / 2 + dy * bh * .22);
+      }
       ctx.stroke();
       break;
-    case 'play':
-      ctx.beginPath();
-      ctx.arc(0, 0, Math.min(bw, bh) * .48, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#101214';
-      ctx.beginPath();
-      ctx.moveTo(Math.min(bw, bh) * .14, -Math.min(bw, bh) * .2);
-      ctx.lineTo(Math.min(bw, bh) * .3, 0);
-      ctx.lineTo(Math.min(bw, bh) * .14, Math.min(bw, bh) * .2);
-      ctx.closePath();
-      ctx.fill();
+    case 'dots':
+      for (let row = 0; row < 4; row++) for (let column = 0; column < 6; column++) {
+        ctx.beginPath(); ctx.ellipse((column - 2.5) * bw / 6, (row - 1.5) * bh / 4, bw * .025, bh * .0375, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      break;
+    case 'tape':
+      ctx.beginPath(); ctx.moveTo(-bw / 2, -bh * .32);
+      for (let i = 0; i <= 12; i++) ctx.lineTo(-bw / 2 + bw * i / 12, -bh * (i % 2 ? .42 : .32));
+      for (let i = 12; i >= 0; i--) ctx.lineTo(-bw / 2 + bw * i / 12, bh * (i % 2 ? .42 : .32));
+      ctx.closePath(); ctx.fill();
+      break;
+    case 'chevron':
+      for (let i = 0; i < 3; i++) {
+        const x = (i - 1) * bw * .31;
+        ctx.beginPath(); ctx.moveTo(x - bw * .14, -bh * .4); ctx.lineTo(x + bw * .06, -bh * .4);
+        ctx.lineTo(x + bw * .23, 0); ctx.lineTo(x + bw * .06, bh * .4); ctx.lineTo(x - bw * .14, bh * .4); ctx.lineTo(x + bw * .03, 0); ctx.closePath(); ctx.fill();
+      }
+      break;
+    case 'subscribe':
+    case 'like': {
+      const label = element.label ?? ELEMENT_LABEL_DEFAULTS[element.kind] ?? '';
+      const foreground = elementForeground(element.color);
+      elementRoundRect(ctx, -bw / 2, -bh / 2, bw, bh, Math.min(bh * .23, bw * .12));
+      const showIcon = !label || bw / bh >= 2.8;
+      const iconSize = Math.min(bh * .58, bw * .22);
+      if (showIcon) drawElementSymbol(ctx, element.kind, label ? -bw / 2 + bh * .5 : 0, 0, iconSize, foreground);
+      if (label) {
+        const labelLeft = showIcon ? -bw / 2 + bh * .95 : -bw * .42;
+        const labelRight = showIcon ? bw / 2 - bh * .2 : bw * .42;
+        elementLabel(ctx, label, Math.max(1, labelRight - labelLeft), bh * .85, foreground, (labelLeft + labelRight) / 2);
+      }
+      break;
+    }
+    case 'bell': case 'comment': case 'share': case 'play':
+    case 'location': case 'music': case 'check': case 'cross': case 'cursor':
+      drawElementSymbol(ctx, element.kind, 0, 0, Math.min(bw, bh) * .88, element.color);
       break;
     case 'progress':
       elementRoundRect(ctx, -bw / 2, -bh * .14, bw, bh * .28, bh * .14);
@@ -441,73 +461,12 @@ function drawElementShape(ctx: CanvasRenderingContext2D, element: ElementLayer, 
       ctx.arc(bw * .16, 0, bh * .2, 0, Math.PI * 2);
       ctx.fill();
       break;
-    case 'location':
-      ctx.beginPath();
-      ctx.arc(0, -bh * .12, Math.min(bw, bh) * .34, Math.PI, 0);
-      ctx.lineTo(0, bh * .42);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#101214';
-      ctx.beginPath();
-      ctx.arc(0, -bh * .12, Math.min(bw, bh) * .12, 0, Math.PI * 2);
-      ctx.fill();
-      break;
-    case 'music':
-      ctx.beginPath();
-      ctx.ellipse(-bw * .2, bh * .26, bh * .14, bh * .1, -.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(bw * .26, bh * .16, bh * .14, bh * .1, -.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillRect(bw * .24, -bh * .42, Math.max(2, bh * .06), bh * .58);
-      ctx.fillRect(-bw * .22, -bh * .32, Math.max(2, bh * .06), bh * .58);
-      ctx.beginPath();
-      ctx.moveTo(-bw * .22, -bh * .32);
-      ctx.lineTo(bw * .27, -bh * .44);
-      ctx.lineTo(bw * .27, -bh * .3);
-      ctx.lineTo(-bw * .22, -bh * .18);
-      ctx.closePath();
-      ctx.fill();
-      break;
-    case 'check':
-      ctx.strokeStyle = element.color;
-      ctx.lineWidth = Math.max(3, bh * .14);
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(-bw * .3, 0);
-      ctx.lineTo(-bw * .06, bh * .24);
-      ctx.lineTo(bw * .32, -bh * .28);
-      ctx.stroke();
-      break;
-    case 'cross':
-      ctx.strokeStyle = element.color;
-      ctx.lineWidth = Math.max(3, bh * .14);
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(-bw * .28, -bh * .28);
-      ctx.lineTo(bw * .28, bh * .28);
-      ctx.moveTo(bw * .28, -bh * .28);
-      ctx.lineTo(-bw * .28, bh * .28);
-      ctx.stroke();
-      break;
     case 'ring':
       ctx.strokeStyle = element.color;
       ctx.lineWidth = Math.max(2, Math.min(bw, bh) * .1);
       ctx.beginPath();
       ctx.arc(0, 0, Math.min(bw, bh) * .4, 0, Math.PI * 2);
       ctx.stroke();
-      break;
-    case 'cursor':
-      ctx.beginPath();
-      ctx.moveTo(-bw * .24, -bh * .38);
-      ctx.lineTo(bw * .3, bh * .04);
-      ctx.lineTo(0, bh * .08);
-      ctx.lineTo(bw * .14, bh * .4);
-      ctx.lineTo(bw * .02, bh * .44);
-      ctx.lineTo(-bw * .12, bh * .12);
-      ctx.closePath();
-      ctx.fill();
       break;
     case 'underline':
       elementRoundRect(ctx, -bw / 2, -bh * .12, bw, Math.max(3, bh * .24), bh * .12);
@@ -576,22 +535,62 @@ function elementVisibleAt(element: ElementLayer, localSeconds: number, timebase:
   return localSeconds >= start && localSeconds < start + duration;
 }
 
-function drawElements(ctx: CanvasRenderingContext2D, scene: Scene, w: number, h: number, localSeconds: number, timebase: Timebase) {
+async function drawMediaOrShape(ctx: CanvasRenderingContext2D, element: ElementLayer, w: number, h: number, local: number, precise: boolean, timebase: Timebase = DEFAULT_TIMEBASE, audio: AudioClip[] = [], projectSeconds = local, sample = false) {
+  const motion = elementTransform(element, local, timebase);
+  if (element.kind !== 'image' && element.kind !== 'video') {
+    const bars = element.kind === 'waveform' ? sample ? Array.from({ length: 32 }, (_, i) => .12 + .65 * Math.abs(Math.sin(i * .63 + local * 6)) * Math.abs(Math.cos(i * .19 - local * 3))) : await waveformBars(element, projectSeconds, audio, timebase) : [];
+    drawElementShape(ctx, element, w, h, element.opacity / 100 * motion.alpha, motion.scale, motion.y * h, motion.x * w, motion.rotation, local, bars);
+    return;
+  }
+  if (!element.source) throw new Error('This overlay is missing its local media. Import the file again.');
+  if (element.source.startsWith('pixcut-asset:')) return;
+  const source = element.kind === 'video' ? await overlayVideoFrame(element.source, (element.sourceInSeconds ?? 0) + local, precise) : await loadImage(element.source);
+  ctx.save(); ctx.translate((element.x + motion.x) * w, (element.y + motion.y) * h);
+  ctx.rotate((element.rotation + motion.rotation) * Math.PI / 180); ctx.scale(motion.scale, motion.scale);
+  ctx.globalAlpha = element.opacity / 100 * motion.alpha;
+  ctx.drawImage(source, -element.width * w / 2, -element.height * h / 2, element.width * w, element.height * h); ctx.restore();
+}
+
+async function drawElements(ctx: CanvasRenderingContext2D, scene: Scene, w: number, h: number, localSeconds: number, timebase: Timebase, precise: boolean, audio: AudioClip[] = [], projectOffset = 0) {
   for (const element of scene.elements ?? []) {
     if (!elementVisibleAt(element, localSeconds, timebase)) continue;
     const local = localSeconds - ticksToSeconds(element.startTicks, timebase);
-    const progress = clamp(local / .45, 0, 1);
-    const eased = 1 - Math.pow(1 - progress, 3);
-    const alpha = (element.opacity / 100) * (element.animation === 'fade' || element.animation === 'slide-up' ? eased : 1);
-    let scale = element.animation === 'pop' ? .6 + .4 * eased : 1;
-    let offsetY = element.animation === 'slide-up' ? (1 - eased) * h * .07 : 0;
-    if (element.animation === 'pulse') scale *= 1 + Math.sin(local * 6) * .05;
-    if (element.animation === 'float') offsetY += Math.sin(local * 2.4) * h * .02;
-    drawElementShape(ctx, element, w, h, alpha, scale, offsetY);
+    await drawMediaOrShape(ctx, element, w, h, local, precise, timebase, audio, projectOffset + localSeconds);
   }
 }
 
-export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect: Project['aspect'], quality: 'preview' | 'thumb' | 'export' = 'export', localSeconds = 0, timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }, videoFrame?: HTMLVideoElement | null) {
+/**
+ * Draws scene elements, text layers and project overlays together in stack
+ * order, so a text layer can sit above a video overlay (and the other way
+ * round). Layers without an explicit `z` keep the classic order.
+ */
+async function drawStack(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, scene: Scene, overlays: ElementLayer[], w: number, h: number, localSeconds: number, projectSeconds: number, timebase: Timebase, precise: boolean, audio: AudioClip[]) {
+  const projectOffset = ticksToSeconds(scene.startTicks, timebase);
+  for (const entry of sceneStack(scene, overlays)) {
+    if (entry.kind === 'overlay') {
+      if (!elementVisibleAt(entry.layer, projectSeconds, timebase)) continue;
+      const local = projectSeconds - ticksToSeconds(entry.layer.startTicks, timebase);
+      await drawMediaOrShape(ctx, entry.layer, w, h, local, precise, timebase, audio, projectSeconds);
+    } else if (entry.kind === 'element') {
+      if (!elementVisibleAt(entry.layer, localSeconds, timebase)) continue;
+      const local = localSeconds - ticksToSeconds(entry.layer.startTicks, timebase);
+      await drawMediaOrShape(ctx, entry.layer, w, h, local, precise, timebase, audio, projectOffset + localSeconds);
+    } else {
+      const layer = entry.layer;
+      if (!layerVisibleAt(layer, localSeconds, timebase)) continue;
+      const local = localSeconds - layerStartSeconds(layer, timebase);
+      const remaining = layerDurationSeconds(layer, timebase) - local;
+      const animationDuration = Math.max(.05, layer.animationDuration ?? .5);
+      await drawTextLayer(ctx, layer, w, h, canvas, {
+        type: layer.animation ?? 'none',
+        in: local / animationDuration,
+        out: remaining / animationDuration,
+      });
+    }
+  }
+}
+
+export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect: Project['aspect'], quality: 'preview' | 'thumb' | 'export' = 'export', localSeconds = 0, timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }, videoFrame?: HTMLVideoElement | null, audio: AudioClip[] = [], overlays: ElementLayer[] = [], projectSeconds = ticksToSeconds(scene.startTicks, timebase) + localSeconds) {
   const [fullWidth, fullHeight] = size ? [size.width, size.height] : dimensions(aspect);
   const limit = quality === 'preview' ? 1280 : quality === 'thumb' ? 480 : Math.max(fullWidth, fullHeight);
   const scale = Math.min(1, limit / Math.max(fullWidth, fullHeight));
@@ -630,13 +629,15 @@ export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect:
     blurredCover(ctx, img, sourceWidth, sourceHeight, w, h);
     const containScale = Math.min(w / sourceWidth, h / sourceHeight) * zoom;
     const dw = sourceWidth * containScale, dh = sourceHeight * containScale;
-    const overflowX = Math.max(0, dw - w) / 2, overflowY = Math.max(0, dh - h) / 2;
+    const travel = framingTravel({ width: sourceWidth, height: sourceHeight }, { width: w, height: h }, scene.fit, zoom);
+    const overflowX = travel.x, overflowY = travel.y;
     imageRect = { x: (w - dw) / 2 - panX * overflowX, y: (h - dh) / 2 - panY * overflowY, w: dw, h: dh };
     ctx.drawImage(img, imageRect.x, imageRect.y, dw, dh);
   } else {
     const fitScale = (scene.fit === 'cover' ? Math.max : Math.min)(w / sourceWidth, h / sourceHeight) * zoom;
     const dw = sourceWidth * fitScale, dh = sourceHeight * fitScale;
-    const overflowX = Math.max(0, dw - w) / 2, overflowY = Math.max(0, dh - h) / 2;
+    const travel = framingTravel({ width: sourceWidth, height: sourceHeight }, { width: w, height: h }, scene.fit, zoom);
+    const overflowX = travel.x, overflowY = travel.y;
     imageRect = { x: (w - dw) / 2 - panX * overflowX, y: (h - dh) / 2 - panY * overflowY, w: dw, h: dh };
     ctx.drawImage(img, imageRect.x, imageRect.y, dw, dh);
   }
@@ -650,21 +651,10 @@ export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect:
     applyColorGrade(imageData.data, scene);
     ctx.putImageData(imageData, x, y);
   }
-  drawElements(ctx, scene, w, h, localSeconds, timebase);
-  for (const layer of scene.textLayers ?? []) {
-    if (!layerVisibleAt(layer, localSeconds, timebase)) continue;
-    const local = localSeconds - layerStartSeconds(layer, timebase);
-    const remaining = layerDurationSeconds(layer, timebase) - local;
-    const animationDuration = Math.max(.05, layer.animationDuration ?? .5);
-    await drawTextLayer(ctx, layer, w, h, canvas, {
-      type: layer.animation ?? 'none',
-      in: local / animationDuration,
-      out: remaining / animationDuration,
-    });
-  }
+  await drawStack(ctx, canvas, scene, overlays, w, h, localSeconds, projectSeconds, timebase, quality !== 'preview', audio);
 }
 
-export async function drawElementOverlay(canvas: HTMLCanvasElement, scene: Scene, elementId: string, localSeconds: number, aspect: Project['aspect'], timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }) {
+export async function drawElementOverlay(canvas: HTMLCanvasElement, scene: Scene, elementId: string, localSeconds: number, aspect: Project['aspect'], timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }, audio: AudioClip[] = [], sample = false) {
   const [w, h] = size ? [size.width, size.height] : dimensions(aspect);
   canvas.width = w;
   canvas.height = h;
@@ -673,14 +663,7 @@ export async function drawElementOverlay(canvas: HTMLCanvasElement, scene: Scene
   const element = (scene.elements ?? []).find(item => item.id === elementId);
   if (!element || !elementVisibleAt(element, localSeconds, timebase)) return;
   const local = localSeconds - ticksToSeconds(element.startTicks, timebase);
-  const progress = clamp(local / .45, 0, 1);
-  const eased = 1 - Math.pow(1 - progress, 3);
-  const alpha = (element.opacity / 100) * (element.animation === 'fade' || element.animation === 'slide-up' ? eased : 1);
-  let scale = element.animation === 'pop' ? .6 + .4 * eased : 1;
-  let offsetY = element.animation === 'slide-up' ? (1 - eased) * h * .07 : 0;
-  if (element.animation === 'pulse') scale *= 1 + Math.sin(local * 6) * .05;
-  if (element.animation === 'float') offsetY += Math.sin(local * 2.4) * h * .02;
-  drawElementShape(ctx, element, w, h, alpha, scale, offsetY);
+  await drawMediaOrShape(ctx, element, w, h, local, true, timebase, audio, ticksToSeconds(scene.startTicks, timebase) + localSeconds, sample);
 }
 
 export async function drawTextOverlay(canvas: HTMLCanvasElement, scene: Scene, layerId: string, localSeconds: number, aspect: Project['aspect'], timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }) {
@@ -701,12 +684,12 @@ export async function drawTextOverlay(canvas: HTMLCanvasElement, scene: Scene, l
   });
 }
 
-export async function drawTransition(canvas: HTMLCanvasElement, from: Scene, to: Scene, type: TransitionType, aspect: Project['aspect'], quality: 'preview' | 'thumb' | 'export', progress: number, fromLocalSeconds: number, toLocalSeconds: number, timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }) {
+export async function drawTransition(canvas: HTMLCanvasElement, from: Scene, to: Scene, type: TransitionType, aspect: Project['aspect'], quality: 'preview' | 'thumb' | 'export', progress: number, fromLocalSeconds: number, toLocalSeconds: number, timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }, audio: AudioClip[] = []) {
   const fromCanvas = document.createElement('canvas');
   const toCanvas = document.createElement('canvas');
   await Promise.all([
-    drawScene(fromCanvas, from, aspect, quality, fromLocalSeconds, timebase, size),
-    drawScene(toCanvas, to, aspect, quality, toLocalSeconds, timebase, size),
+    drawScene(fromCanvas, from, aspect, quality, fromLocalSeconds, timebase, size, undefined, audio),
+    drawScene(toCanvas, to, aspect, quality, toLocalSeconds, timebase, size, undefined, audio),
   ]);
   canvas.width = fromCanvas.width;
   canvas.height = fromCanvas.height;
@@ -802,3 +785,22 @@ export function demoImage(index: number): string {
   ctx.globalAlpha = 1; return c.toDataURL('image/jpeg', .88);
 }
 export function demoScenes(): Scene[] { return ['A little further', 'Find your own pace', 'Stay for the view'].map((title, i) => ({ id: crypto.randomUUID(), startTicks: i * secondsToTicks(4), sourceInTicks: 0, name: ['Morning in the mountains', 'The scenic route', 'A quieter place'][i], image: demoImage(i), durationTicks: secondsToTicks(4), title, subtitle: i === 0 ? 'Small moments. Bigger stories.' : '', color: '#ffffff', fit: 'cover', speed: 1, pitch: true, filter: 'none', filterIntensity: 100 })); }
+
+export async function drawProjectOverlays(canvas: HTMLCanvasElement, elements: ElementLayer[], seconds: number, timebase: Timebase, precise = false, audio: AudioClip[] = []) {
+  const ctx = canvas.getContext('2d'); if (!ctx) return;
+  await drawElements(ctx, { elements } as Scene, canvas.width, canvas.height, seconds, timebase, precise, audio);
+}
+
+/**
+ * Draws only the layers that sit on top of the footage — scene elements, text
+ * and project overlays — in stack order. Exports of video clips bake these into
+ * a transparent frame series, so the order has to match the preview.
+ */
+export async function drawOverlayStack(canvas: HTMLCanvasElement, scene: Scene, overlays: ElementLayer[], size: { width: number; height: number }, localSeconds: number, projectSeconds: number, timebase: Timebase = DEFAULT_TIMEBASE, precise = true, audio: AudioClip[] = []) {
+  canvas.width = Math.max(1, size.width);
+  canvas.height = Math.max(1, size.height);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not create the export canvas. Try a smaller output size.');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  await drawStack(ctx, canvas, scene, overlays, canvas.width, canvas.height, localSeconds, projectSeconds, timebase, precise, audio);
+}

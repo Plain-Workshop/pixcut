@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { edit, emptyProject, frameRate, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, validateProject, type AudioClip, type ElementLayer, type Project, type Scene, type TextLayer } from '../src/stores/model';
+import { edit, emptyProject, frameRate, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, trimSceneWindow, validateProject, type AudioClip, type ElementLayer, type Project, type Scene, type TextLayer } from '../src/stores/model';
 import { resolveSceneForFormat } from '../src/stores/formats';
 const scene = (id: string, duration = 4): Scene => ({ id, startTicks: 0, sourceInTicks: 0, name: 'Photo', image: 'data:image/png;base64,AA==', durationTicks: Math.round(duration * 30), title: '', subtitle: '', color: '#ffffff', fit: 'cover' });
 const clips = (project: Project) => projectScenes(project);
 describe('project commands and playback', () => {
   it('keeps original snapshots intact and selects the right scene at a cut', () => { const original = emptyProject(); const p = edit(original, { type: 'add', scenes: [scene('a'), scene('b', 2)] }); expect(clips(original)).toHaveLength(0); expect(totalDuration(p)).toBe(6); expect(sceneAt(p, 3.999)?.scene.id).toBe('a'); expect(sceneAt(p, 4)?.scene.id).toBe('b'); });
   it('moves a scene without dropping or duplicating it', () => { const p = edit(emptyProject(), { type: 'add', scenes: [scene('a'), scene('b'), scene('c')] }); expect(clips(edit(p, { type: 'move', id: 'b', offset: -1 })).map(s => s.id)).toEqual(['b', 'a', 'c']); expect(edit(p, { type: 'move', id: 'a', offset: -1 })).toEqual(p); });
-  it('rejects malformed scenes and unsupported schemas', () => { expect(() => edit(emptyProject(), { type: 'add', scenes: [scene('a', NaN)] })).toThrow(); expect(() => edit(emptyProject(), { type: 'add', scenes: [scene('a'), scene('a')] })).toThrow(); expect(() => validateProject({ ...emptyProject(), schema_version: 8 })).toThrow('Unsupported'); });
+  it('rejects malformed scenes and unsupported schemas', () => { expect(() => edit(emptyProject(), { type: 'add', scenes: [scene('a', NaN)] })).toThrow(); expect(() => edit(emptyProject(), { type: 'add', scenes: [scene('a'), scene('a')] })).toThrow(); expect(() => validateProject({ ...emptyProject(), schema_version: 14 })).toThrow('Unsupported'); });
   it('forces imported projects to remain watermark-free and local', () => { expect(validateProject({ ...emptyProject(), policy: { watermark: true, pixcut_outro: true, privacy: 'cloud' } }).policy).toEqual({ watermark: false, pixcut_outro: false, privacy: 'local' }); });
   it('does not accept remote image references inside project files', () => { expect(() => edit(emptyProject(), { type: 'add', scenes: [{ ...scene('a'), image: 'https://example.com/private.jpg' }] })).toThrow(); });
   it('splits a scene into two undoable halves at the playhead', () => {
@@ -209,7 +209,7 @@ describe('project commands and playback', () => {
     legacyScene.duration = 4;
     const legacy = { ...emptyProject(), schema_version: 1, timebase: undefined, scenes: [legacyScene] };
     const migrated = validateProject(legacy);
-    expect(migrated.schema_version).toBe(7);
+    expect(migrated.schema_version).toBe(13);
     expect(migrated.tracks).toHaveLength(1);
     expect(migrated.tracks[0].kind).toBe('visual');
     expect(migrated.timebase).toEqual({ numerator: 1, denominator: 30 });
@@ -266,7 +266,7 @@ describe('project commands and playback', () => {
   it('wraps schema v2 scenes into a visual track', () => {
     const v2 = { ...emptyProject(), schema_version: 2, tracks: undefined, scenes: [scene('a'), scene('b', 2)] };
     const migrated = validateProject(v2);
-    expect(migrated.schema_version).toBe(7);
+    expect(migrated.schema_version).toBe(13);
     expect(migrated.tracks).toHaveLength(1);
     expect(clips(migrated).map(clip => [clip.id, clip.startTicks, clip.durationTicks])).toEqual([['a', 0, 120], ['b', 120, 60]]);
   });
@@ -308,5 +308,56 @@ describe('project commands and playback', () => {
       textGlowBlur: 28,
     });
     expect(replaceSceneImage(original, 'data:image/png;base64,BBBB', '   ').name).toBe('Old photo.jpg');
+  });
+});
+
+describe('ripple scene trimming', () => {
+  const video = (patch: Partial<Scene> = {}): Scene => ({ ...scene('v'), mediaKind: 'video', image: 'data:video/mp4;base64,AA==', sourceDurationSeconds: 5, ...patch });
+  const tb = emptyProject().timebase;
+
+  it('trims a photo from the right and clamps to the 0.5–30 s window', () => {
+    const short = trimSceneWindow(scene('a'), -900, 'right', tb);
+    expect(short.durationTicks).toBe(15);
+    const long = trimSceneWindow(scene('a'), 900, 'right', tb);
+    expect(long.durationTicks).toBe(900);
+    expect(short.sourceInTicks).toBe(0);
+  });
+
+  it('keeps video trims inside the available source', () => {
+    const trimmed = trimSceneWindow(video({ startTicks: 0, sourceInTicks: 30, sourceDurationSeconds: 5, speed: 2 }), 300, 'right', tb);
+    expect(trimmed.durationTicks).toBe(60);
+    const inward = trimSceneWindow(video({ sourceInTicks: 30, sourceDurationSeconds: 5 }), 15, 'left', tb);
+    expect(inward.sourceInTicks).toBe(45);
+    expect(inward.durationTicks).toBe(105);
+    const outward = trimSceneWindow(video({ sourceInTicks: 30, sourceDurationSeconds: 5 }), -60, 'left', tb);
+    expect(outward.sourceInTicks).toBe(0);
+    expect(outward.durationTicks).toBe(150);
+    expect(outward.fadeIn).toBe(0);
+  });
+
+  it('treats a legacy video without a stored source length as fixed at its current end', () => {
+    const legacy = video({ sourceDurationSeconds: undefined, speed: 1.5, sourceInTicks: 30 });
+    const extended = trimSceneWindow(legacy, 600, 'right', tb);
+    expect(extended.durationTicks).toBe(120);
+    const inward = trimSceneWindow(legacy, -30, 'right', tb);
+    expect(inward.durationTicks).toBe(90);
+  });
+
+  it('clamps fades to the trimmed duration', () => {
+    const trimmed = trimSceneWindow({ ...scene('a'), fadeIn: 1, fadeOut: 1 }, -105, 'right', tb);
+    expect(trimmed.durationTicks).toBe(15);
+    expect(trimmed.fadeIn).toBe(.5);
+    expect(trimmed.fadeOut).toBe(.5);
+  });
+});
+
+describe('native project compatibility', () => {
+  it('opens native formats with a null optional preset and cached video sources', () => {
+    const project = edit(emptyProject(), { type: 'add', scenes: [{ ...scene('native'), mediaKind: 'video', image: `pixcut-asset:${'a'.repeat(64)}` }] });
+    const native = JSON.parse(JSON.stringify(project)); native.formats[0].presetId = null;
+    native.formats[0].overrides = { native: { imageX: null, imageY: null, imageZoom: 1.6, fit: null, framingBackground: null } };
+    expect(validateProject(native).formats[0].overrides.native).toEqual({ imageZoom: 1.6 });
+    expect(validateProject(native).formats[0].presetId).toBeUndefined();
+    expect(projectScenes(validateProject(native))[0].mediaKind).toBe('video');
   });
 });

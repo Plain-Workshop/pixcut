@@ -148,3 +148,34 @@ export function applyColorGrade(data: Uint8ClampedArray, scene: Scene) {
   }
 }
 
+/**
+ * Bakes the exact preview grade into a 3D lookup table for FFmpeg.
+ * The lattice is graded by the same pipeline as the canvas compositor, so a
+ * graded video exports with the same colours it shows in the viewer.
+ * Returns null when the scene has no grade, so neutral clips skip the filter.
+ */
+export function gradeLutCube(scene: Scene, size = 33): string | null {
+  if (!hasColorGrade(scene)) return null;
+  const points = size * size * size;
+  if (!Number.isInteger(size) || size < 2 || size > 65 || points > 274_625) throw new Error('Invalid grade LUT size.');
+  const grid = new Uint8ClampedArray(points * 4);
+  let cursor = 0;
+  for (let b = 0; b < size; b += 1) {
+    for (let g = 0; g < size; g += 1) {
+      for (let r = 0; r < size; r += 1) {
+        grid[cursor] = Math.round((r / (size - 1)) * 255);
+        grid[cursor + 1] = Math.round((g / (size - 1)) * 255);
+        grid[cursor + 2] = Math.round((b / (size - 1)) * 255);
+        grid[cursor + 3] = 255;
+        cursor += 4;
+      }
+    }
+  }
+  applyColorGrade(grid, scene);
+  const lines = ['# PixCut grade LUT', `LUT_3D_SIZE ${size}`, 'DOMAIN_MIN 0 0 0', 'DOMAIN_MAX 1 1 1'];
+  for (let index = 0; index < grid.length; index += 4) {
+    lines.push(`${(grid[index] / 255).toFixed(6)} ${(grid[index + 1] / 255).toFixed(6)} ${(grid[index + 2] / 255).toFixed(6)}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+

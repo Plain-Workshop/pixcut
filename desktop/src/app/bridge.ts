@@ -1,6 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { edit, emptyProject, validateProject, type Command, type Project, type Session } from '../stores/model';
+import { edit, emptyProject, trimHistory, validateProject, type Command, type Project, type Session } from '../stores/model';
 import { hydrateProjectAssets, persistProjectAssets } from '../stores/assets';
 export const native = isTauri();
 let current = emptyProject();
@@ -11,7 +11,7 @@ async function persist(project: Project) { const persisted = await persistProjec
 export async function initialize(): Promise<Session> {
   if (native) return invoke('initialize');
   const db = await database();
-  try { const saved = await new Promise<unknown>((resolve, reject) => { const req = db.transaction('projects').objectStore('projects').get('recovery'); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); }); if (saved) { const validated = validateProject(saved); const persisted = await persistProjectAssets(validated); current = await hydrateProjectAssets(persisted); const legacy = (saved as { schema_version?: number }).schema_version !== 7 || JSON.stringify(persisted) !== JSON.stringify(validated); if (legacy) await persist(current); } } finally { db.close(); }
+  try { const saved = await new Promise<unknown>((resolve, reject) => { const req = db.transaction('projects').objectStore('projects').get('recovery'); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); }); if (saved) { const validated = validateProject(saved); const persisted = await persistProjectAssets(validated); current = await hydrateProjectAssets(persisted); const legacy = (saved as { schema_version?: number }).schema_version !== 13 || JSON.stringify(persisted) !== JSON.stringify(validated); if (legacy) await persist(current); } } finally { db.close(); }
   return view();
 }
 export async function dispatch(command: Command): Promise<Session> {
@@ -19,9 +19,20 @@ export async function dispatch(command: Command): Promise<Session> {
   let next = current; let nextPast = [...past], nextFuture = [...future];
   if (command.type === 'undo') { if (nextPast.length) { nextFuture.push(current); next = nextPast.pop()!; } }
   else if (command.type === 'redo') { if (nextFuture.length) { nextPast.push(current); next = nextFuture.pop()!; } }
-  else { next = edit(current, command); nextPast.push(current); nextPast = nextPast.slice(-30); nextFuture = []; }
+  else { next = edit(current, command); nextPast = trimHistory([...nextPast, current]); nextFuture = []; }
   await persist(next); current = next; past = nextPast; future = nextFuture;
   return view();
+}
+export type History = { canUndo: boolean; canRedo: boolean };
+/**
+ * A stack-order press. The answer is only the undo/redo flags: everything the
+ * editor needs to redraw is already local, so this never ships a project's media
+ * to Rust and back (which is what made the buttons feel stuck on big stories).
+ */
+export async function applyOrder(command: Command): Promise<History> {
+  if (native) return invoke('apply_order', { command });
+  const view = await dispatch(command);
+  return { canUndo: view.canUndo, canRedo: view.canRedo };
 }
 function downloadProject(project: Project) {
   const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
@@ -35,6 +46,14 @@ export async function exportProjectFile(project: Project): Promise<boolean> {
   if (native) return invoke('save_project_file', { project });
   return downloadProject(project);
 }
+export async function saveStillFrame(data: string, fileName: string): Promise<boolean> {
+  if (native) return invoke('save_still_frame', { data, fileName });
+  const link = document.createElement('a');
+  link.href = data;
+  link.download = `${fileName.replace(/[^\p{L}\p{N} _-]/gu, '') || 'PixCut frame'}.png`;
+  link.click();
+  return true;
+}
 export function onProjectOpened(handler: () => void): Promise<UnlistenFn> | null {
   return native ? listen('project-opened', handler) : null;
 }
@@ -45,14 +64,17 @@ export async function openProject(): Promise<Session | null> { return invoke('op
 export async function exporterAvailable(): Promise<boolean> { return native ? invoke('exporter_available') : false; }
 export type PickedMedia = { name: string; mime: string; data: string };
 export async function pickMedia(kind: 'image' | 'audio' | 'video'): Promise<PickedMedia[] | null> { return native ? invoke('pick_media', { kind }) : null; }
-export type ExportOptions = { width: number; height: number; fps: number; crf: number; filename: string };
+export type ExportCodec = 'h264' | 'hevc' | 'vp9' | 'prores';
+export type ExportContainer = 'mp4' | 'mov' | 'mkv' | 'webm';
+export async function exporterCapabilities(): Promise<ExportCodec[]> { return native ? invoke('exporter_capabilities') : ['h264', 'hevc', 'vp9', 'prores']; }
+export type ExportOptions = { codec?: ExportCodec; container?: ExportContainer; speed?: 'fast' | 'medium' | 'slow'; width: number; height: number; fps: number; crf: number; filename: string };
 export type ExportJob = { frames: string[]; durations: number[]; options: ExportOptions };
-export type PlanOverlay = { png: string; startTicks: number; durationTicks: number };
-export type PlanSegment = { kind: 'image' | 'video'; png?: string; video?: string; sourceInSeconds?: number; fit?: 'cover' | 'contain' | 'blur'; durationTicks: number; overlays: PlanOverlay[] };
+export type PlanOverlay = { png: string; frames?: string[]; startTicks: number; durationTicks: number };
+export type PlanSegment = { kind: 'image' | 'video'; png?: string; video?: string; sourceInSeconds?: number; fit?: 'cover' | 'contain' | 'blur'; speed?: number; lut?: string; fadeIn?: number; fadeOut?: number; includeAudio?: boolean; durationTicks: number; overlays: PlanOverlay[] };
 export type ExportPlan = { segments: PlanSegment[]; options: ExportOptions };
 export async function exportMovie(projectId: string, frames: string[], durations: number[], options: ExportOptions): Promise<string | null> { return invoke('export_movie', { projectId, frames, durations, options }); }
-export async function exportVariants(projectId: string, jobs: ExportJob[]): Promise<string[]> { return invoke('export_variants', { projectId, jobs }); }
-export async function exportPlanVariants(projectId: string, plans: ExportPlan[]): Promise<string[]> { return invoke('export_plan_variants', { projectId, plans }); }
+export async function exportVariants(projectId: string, jobs: ExportJob[], snapshot?: Project): Promise<string[]> { return invoke('export_variants', { projectId, jobs, snapshot }); }
+export async function exportPlanVariants(projectId: string, plans: ExportPlan[], snapshot?: Project): Promise<string[]> { return invoke('export_plan_variants', { projectId, plans, snapshot }); }
 export async function cancelExport(): Promise<void> { if (native) await invoke('cancel_export'); }
 export function onExportProgress(handler: (percent: number) => void): Promise<UnlistenFn> | null { return native ? listen<number>('export-progress', event => handler(event.payload)) : null; }
 

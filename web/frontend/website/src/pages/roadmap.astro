@@ -4,28 +4,31 @@ import Icon from '../components/Icon.astro';
 import { GITHUB_URL, ISSUES_URL } from '../lib/site';
 
 const now = [
-  ['Timeline editing', 'Trim, reorder and preview scenes on one visual track.', 'shipped'],
+  ['Timeline editing', 'Trim, reorder and preview scenes on one visual track, with ripple trim handles.', 'shipped'],
   ['Titles and captions', 'On-canvas text editing, styles and safe-area checks.', 'shipped'],
-  ['Audio lanes', 'Multiple audio clips, fades and a mixed AAC export.', 'shipped'],
+  ['Audio lanes', 'Multiple audio clips with waveforms, fades and a mixed AAC export.', 'shipped'],
   ['Local MP4 export', 'H.264 export with configurable resolution and quality.', 'shipped'],
   ['Template gallery', 'Editable starter projects for common formats.', 'shipped'],
   ['Project frame rates', '24, 25, 30 and 60 fps projects with per-format FPS.', 'shipped'],
   ['In-app updates', 'Signed updater feed with manual check, verification and restart.', 'shipped'],
   ['Export cancellation', 'Stop a render or FFmpeg encode without touching existing files.', 'shipped'],
   ['Video import and export', 'Import MP4, MOV or M4V clips, preview them with titles, and encode them into the MP4.', 'shipped'],
+  ['Video colour, fades and speed', 'The same grade, fades and 0.25–4× speed in the preview and the encoded MP4.', 'shipped'],
+  ['WebM and ProRes export', 'VP9/Opus WebM and ProRes 422 masters alongside H.264 and HEVC.', 'shipped'],
   ['Elements', 'Shapes, stickers and hearts with their own color, motion and timing.', 'shipped'],
   ['Photo motion', 'Zoom, pan and Ken Burns presets rendered into the export.', 'shipped'],
+  ['Resilient local media', 'Projects open when a file disappears, with clear relinking before saving or exporting.', 'shipped'],
 ];
 const next = [
-  ['Video overlays and effects', 'Picture-in-picture tracks, video color grading, fades and speed changes.', 'planned'],
-  ['Multi-track editing', 'Overlay video, gaps, trim handles and speed curves.', 'planned'],
+  ['Video overlays and effects', 'Picture-in-picture video tracks and transitions between video clips.', 'planned'],
+  ['Multi-track editing', 'Overlay multiple video tracks, gaps and speed curves.', 'planned'],
   ['Native media engine', 'Replace the still-image compositor with a proper preview/export pipeline.', 'planned'],
   ['Signed installers', 'Pipeline now builds and verifies macOS, Windows and Linux; Apple and Windows certificates are the remaining step.', 'planned'],
   ['Bundled codec review', 'Ship a license-vetted FFmpeg configuration or platform encoders.', 'planned'],
 ];
 const later = [
   ['Keyframes', 'Per-property animation curves beyond the photo-motion presets.', 'exploring'],
-  ['More export formats', 'WebM, ProRes and platform presets.', 'exploring'],
+  ['Platform export presets', 'One-click social and broadcast presets on top of the current format builder.', 'exploring'],
   ['Plugin API', 'Community effects and integrations.', 'exploring'],
   ['Accessibility pass', 'Screen-reader and keyboard workflows across the editor.', 'exploring'],
 ];

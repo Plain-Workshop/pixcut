@@ -1,4 +1,4 @@
-import { DEFAULT_TIMEBASE, normalizeStarts, projectScenes, sceneSeconds, totalDuration, validateProject, type Project, type Timebase } from './model';
+import { DEFAULT_TIMEBASE, normalizeStarts, projectScenes, sceneSeconds, ticksToSeconds, totalDuration, validateProject, type Project, type Timebase } from './model';
 import { hydrateProjectAssets, persistProjectAssets } from './assets';
 import { drawScene } from '../components/preview/render';
 import { resolveSceneForFormat } from './formats';
@@ -62,7 +62,8 @@ export async function projectThumbnail(project: Project) {
   const canvas = document.createElement('canvas');
   const format = project.formats?.[0];
   const resolved = resolveSceneForFormat(scene, format);
-  await drawScene(canvas, resolved, project.aspect, 'thumb', Math.min(1.1, sceneSeconds(scene, project.timebase) * .35), project.timebase, format ? { width: format.width, height: format.height } : undefined);
+  const thumbSeconds = Math.min(1.1, sceneSeconds(scene, project.timebase) * .35);
+  await drawScene(canvas, resolved, project.aspect, 'thumb', thumbSeconds, project.timebase, format ? { width: format.width, height: format.height } : undefined, undefined, project.audio, project.overlays ?? [], ticksToSeconds(scene.startTicks, project.timebase) + thumbSeconds);
   return canvas.toDataURL('image/jpeg', .76);
 }
 
