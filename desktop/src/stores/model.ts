@@ -25,6 +25,8 @@ export const MAX_AUDIO_SECONDS = 3600;
 export const MAX_PROJECT_FORMATS = 24;
 /** Imported fonts embedded in a project. */
 export const MAX_PROJECT_FONTS = 8;
+/** Text layers that span the whole project. */
+export const MAX_GLOBAL_TEXT = 40;
 export type ProjectFont = { id: string; name: string; data: string };
 export const sceneSeconds = (scene: Scene, timebase: Timebase = DEFAULT_TIMEBASE) => ticksToSeconds(scene.durationTicks, timebase);
 export const setSceneSeconds = (scene: Scene, seconds: number, timebase: Timebase = DEFAULT_TIMEBASE): Scene => {
@@ -313,7 +315,7 @@ type LegacyMusic = {
   fadeOut: number;
   durationSeconds: number;
 };
-export type Project = { schema_version: 14; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; overlays: ElementLayer[]; formats: FormatVariant[]; fonts?: ProjectFont[]; beatTicks?: number[]; ducking?: number; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
+export type Project = { schema_version: 14; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; overlays: ElementLayer[]; formats: FormatVariant[]; fonts?: ProjectFont[]; globalText?: TextLayer[]; beatTicks?: number[]; ducking?: number; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
 export type Command =
   | { type: 'replace'; project: Project }
   | { type: 'rename'; name: string }
@@ -324,6 +326,7 @@ export type Command =
   | { type: 'beats'; beatTicks: number[] }
   | { type: 'ducking'; amount: number }
   | { type: 'fonts'; fonts: ProjectFont[] }
+  | { type: 'globalText'; layers: TextLayer[] }
   | { type: 'add'; scenes: Scene[] }
   | { type: 'update'; scene: Scene }
   | { type: 'remove'; id: string }
@@ -454,12 +457,12 @@ function readMask(value: unknown): LayerMask | undefined {
   return { shape: mask.shape as MaskShape, x: mask.x!, y: mask.y!, width: mask.width!, height: mask.height!, rotation: mask.rotation!, feather: mask.feather!, invert: mask.invert };
 }
 
-function readTextLayers(value: unknown, scene: Scene, durationTicks: number): TextLayer[] {
+function readTextLayers(value: unknown, scene: Scene, durationTicks: number, limit = MAX_TEXT_LAYERS, subject = 'A scene'): TextLayer[] {
   if (value === undefined || (Array.isArray(value) && value.length === 0 && (scene.title || scene.subtitle))) {
     const legacy = legacyTextLayer({ ...scene, durationTicks });
     return legacy ? [legacy] : [];
   }
-  if (!Array.isArray(value) || value.length > MAX_TEXT_LAYERS) throw new Error(`A scene supports up to ${MAX_TEXT_LAYERS} text layers.`);
+  if (!Array.isArray(value) || value.length > limit) throw new Error(`${subject} supports up to ${limit} text layers.`);
   const ids = new Set<string>();
   return value.map((entry, index) => {
     if (!entry || typeof entry !== 'object') throw new Error('A text layer is missing its settings.');
@@ -739,6 +742,13 @@ function readElements(value: unknown, durationTicks: number, limit = 12): Elemen
 }
 
 const FONT_DATA = /^data:font\/(ttf|otf|woff2?);base64,/;
+function readGlobalText(value: unknown, totalTicks: number): TextLayer[] | undefined {
+  if (value === undefined || (Array.isArray(value) && value.length === 0)) return undefined;
+  if (!Array.isArray(value)) throw new Error('Project text is invalid.');
+  if (!totalTicks) throw new Error('Add a scene before adding project text.');
+  const layers = readTextLayers(value, { title: '', subtitle: '' } as Scene, totalTicks, MAX_GLOBAL_TEXT, 'A project');
+  return layers.length ? layers : undefined;
+}
 function readFonts(value: unknown): ProjectFont[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || value.length > MAX_PROJECT_FONTS) throw new Error(`A project supports up to ${MAX_PROJECT_FONTS} imported fonts.`);
@@ -853,7 +863,8 @@ export function validateProject(value: unknown): Project {
   const beatTicks = readBeats(p.beatTicks, total);
   const ducking = p.ducking === undefined ? undefined : readNumber(p.ducking, 0, 100, 0, 'music ducking');
   const fonts = readFonts(p.fonts);
-  return { schema_version: 14, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, overlays, formats, ...(fonts ? { fonts } : {}), ...(beatTicks.length ? { beatTicks } : {}), ...(ducking ? { ducking } : {}), policy: { ...policy } };
+  const globalText = readGlobalText(p.globalText, total);
+  return { schema_version: 14, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, overlays, formats, ...(fonts ? { fonts } : {}), ...(globalText ? { globalText } : {}), ...(beatTicks.length ? { beatTicks } : {}), ...(ducking ? { ducking } : {}), policy: { ...policy } };
 }
 const SCENE_PATCH_FIELDS = [
   { key: 'durationTicks', value: (scene: Scene) => scene.durationTicks },
@@ -979,6 +990,7 @@ export function edit(project: Project, command: Exclude<Command, { type: 'undo' 
     case 'beats': p.beatTicks = command.beatTicks; break;
     case 'ducking': p.ducking = command.amount; break;
     case 'fonts': p.fonts = command.fonts; break;
+    case 'globalText': p.globalText = command.layers.length ? command.layers : undefined; break;
     case 'add': clips.push(...command.scenes); break;
     case 'update': clips = clips.map(s => s.id === command.scene.id ? command.scene : s); break;
     case 'remove': clips = clips.filter(s => s.id !== command.id); break;

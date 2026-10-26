@@ -11,7 +11,7 @@ Status legend: **shipped** · **in progress** · **planned** · **deferred**
 | # | Feature | Status | Schema |
 |---|---------|--------|--------|
 | 1 | Video-to-video transitions | shipped | no |
-| 2 | Cross-scene (project-level) text | planned | yes (v15) |
+| 2 | Cross-scene (project-level) text | shipped | no |
 | 3 | Speed ramps and reverse | shipped | no |
 | 4 | Audio EQ and voiceover | shipped | no |
 | 5 | QSV / AMF / VAAPI hardware encoders | shipped* | no |

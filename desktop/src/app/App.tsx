@@ -122,8 +122,8 @@ import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import { ShortcutSettings } from '../components/shortcuts/ShortcutSettings';
 import * as bridge from './bridge';
-import { MAX_AUDIO_FILE_BYTES, MAX_PROJECT_FONTS, MAX_PROJECT_FORMATS, edit, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
-import { drawOverlayStack, drawScene, drawProjectOverlays, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
+import { MAX_AUDIO_FILE_BYTES, MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, MAX_PROJECT_FORMATS, edit, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
+import { drawOverlayStack, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
 import { gradeLutCube } from '../components/preview/filters';
 import { Waveform } from '../components/timeline/Waveform';
 import { probeVideo, videoFileData } from '../components/preview/video';
@@ -458,6 +458,8 @@ export default function App() {
   const [editingText, setEditingText] = useState(false), [safeArea, setSafeArea] = useState(false);
   const [textDraft, setTextDraft] = useState({ title: '', subtitle: '' });
   const [selectedTextLayerId, setSelectedTextLayerId] = useState<string | null>(null);
+  const [selectedGlobalTextId, setSelectedGlobalTextId] = useState<string | null>(null);
+  const [globalTextDraft, setGlobalTextDraft] = useState<TextLayer[] | null>(null);
   const [textFocus, setTextFocus] = useState(0);
   const [activeFormatId, setActiveFormatId] = useState<string | null>(null);
   const [newFormatIds, setNewFormatIds] = useState<string[]>(['youtube-video']);
@@ -621,9 +623,15 @@ export default function App() {
   const previewTarget = previewScene ?? active;
   // While a text drag or inline edit is previewing, follow the draft so the
   // selection box, guides, and canvas text stay in the same place.
-  const selectedTextScene = previewScene && selectedScene && previewScene.id === selectedScene.id ? previewScene : selectedScene;
-  const selectedTextLayers = selectedTextScene ? sceneTextLayers(selectedTextScene) : [];
-  const selectedTextLayer = selectedTextLayers.find(layer => layer.id === selectedTextLayerId) ?? selectedTextLayers[0] ?? null;
+  const projectTextScene = useMemo<Scene | null>(() => project.globalText?.length ? {
+    id: `${project.id}-project-text`, startTicks: 0, sourceInTicks: 0, durationTicks: Math.max(1, projectTicks),
+    name: 'Project text', image: '', title: '', subtitle: '', color: '#ffffff', fit: 'cover',
+    textLayers: project.globalText,
+  } : null, [project.id, project.globalText, projectTicks]);
+  const selectedGlobalText = selectedGlobalTextId ? (project.globalText ?? []).find(layer => layer.id === selectedGlobalTextId) ?? null : null;
+  const selectedTextScene = selectedGlobalText ? projectTextScene : (previewScene && selectedScene && previewScene.id === selectedScene.id ? previewScene : selectedScene);
+  const selectedTextLayers = selectedGlobalText ? [selectedGlobalText] : (selectedTextScene ? sceneTextLayers(selectedTextScene) : []);
+  const selectedTextLayer = selectedGlobalText ?? selectedTextLayers.find(layer => layer.id === selectedTextLayerId) ?? selectedTextLayers[0] ?? null;
   const allOverlays = useMemo(() => timelineOverlays(project), [project]);
   const hasMediaOverlays = allOverlays.some(element => element.kind === 'image' || element.kind === 'video');
   const selectedElement = overlayDraft?.id === selectedElementId ? overlayDraft : allOverlays.find(element => element.id === selectedElementId) ?? null;
@@ -640,10 +648,12 @@ export default function App() {
   const inspectorScene = useMemo(() => selectedScene ? resolveSceneForFormat(selectedScene, activeFormat) : null, [selectedScene, activeFormat]);
   const previewLocalSeconds = previewTarget && active && previewTarget.id === active.id ? Math.max(0, position - activeStart) : 0;
   const videoScene = previewTarget?.mediaKind === 'video' ? previewTarget : null;
-  const textLayerLocal = selectedTextLayer ? previewLocalSeconds - ticksToSeconds(selectedTextLayer.startTicks, project.timebase) : 0;
+  const textLayerLocal = selectedTextLayer ? (selectedGlobalText ? position : previewLocalSeconds) - ticksToSeconds(selectedTextLayer.startTicks, project.timebase) : 0;
   const textBox = selectedTextLayer ? textBoxLayout(applyTextMotion(selectedTextLayer, textLayerLocal), displayAspect, activeSize) : null;
-  const selectedTextVisible = selectedTextLayer ? layerVisibleAt(selectedTextLayer, previewLocalSeconds, project.timebase) : false;
-  const textStartTicks = selectedScene ? Math.min(Math.max(0, secondsToTicks(position - ticksToSeconds(selectedScene.startTicks, project.timebase), project.timebase)), Math.max(0, selectedScene.durationTicks - 1)) : 0;
+  const selectedTextVisible = selectedTextLayer ? layerVisibleAt(selectedTextLayer, selectedGlobalText ? position : previewLocalSeconds, project.timebase) : false;
+  const textStartTicks = selectedGlobalText
+    ? Math.min(Math.max(0, secondsToTicks(position, project.timebase) - selectedGlobalText.startTicks), Math.max(0, selectedGlobalText.durationTicks - 1))
+    : selectedScene ? Math.min(Math.max(0, secondsToTicks(position - ticksToSeconds(selectedScene.startTicks, project.timebase), project.timebase)), Math.max(0, selectedScene.durationTicks - 1)) : 0;
   const activeIndex = active ? scenes.findIndex(scene => scene.id === active.id) : -1;
   const nextScene = activeIndex >= 0 ? scenes[activeIndex + 1] : undefined;
   const previewTransition = active?.transition && nextScene && previewTarget?.id === active.id
@@ -1100,12 +1110,13 @@ export default function App() {
       } else {
         await drawScene(layer, sceneForPreview!, displayAspect, 'preview', previewLocalSeconds, project.timebase, renderSize, videoScene ? sceneVideo.current : null, project.audio, renderOverlays, position);
       }
+      await drawProjectText(layer, globalTextDraft ?? project.globalText ?? [], position, project.timebase);
       if (preview.current && latestProject.current.id === projectId) {
         preview.current.width = layer.width; preview.current.height = layer.height;
         preview.current.getContext('2d')?.drawImage(layer, 0, 0);
       }
     });
-  }, [previewTarget, previewLocalSeconds, displayAspect, project.timebase, project.audio, screen, activeFormat?.id, framingStaged, previewTransition?.type, previewTransition?.progress, previewTransition?.next, videoTick, videoScene?.id, renderOverlays, draggingOverlay, playing, activeSize.width, activeSize.height]);
+  }, [previewTarget, previewLocalSeconds, displayAspect, project.timebase, project.audio, project.globalText, globalTextDraft, screen, activeFormat?.id, framingStaged, previewTransition?.type, previewTransition?.progress, previewTransition?.next, videoTick, videoScene?.id, renderOverlays, draggingOverlay, playing, activeSize.width, activeSize.height]);
 
   useEffect(() => {
     const area = previewArea.current;
@@ -1274,7 +1285,7 @@ export default function App() {
   function selectScene(scene: Scene, event?: ReactMouseEvent) {
     commitElement();
     setSelectedElementId(null); setOverlayDraft(null); overlayDraftRef.current = null;
-    setEditingText(false); setSelectedTextLayerId(null);
+    setEditingText(false); setSelectedTextLayerId(null); setSelectedGlobalTextId(null); setGlobalTextDraft(null);
     setEditTarget('scene');
     const toggle = Boolean(event?.metaKey || event?.ctrlKey);
     const range = Boolean(event?.shiftKey);
@@ -1309,6 +1320,10 @@ export default function App() {
   }
 
   function updateSelection(next: Scene, force: ScenePatchKey[] = []): Promise<boolean> {
+    if (selectedGlobalText) {
+      const layers = next.textLayers ?? [];
+      return run({ type: 'globalText', layers }).finally(() => setGlobalTextDraft(null));
+    }
     const targets = selectedScenes;
     if (!targets.length) return Promise.resolve(false);
     const base = targets.find(scene => scene.id === next.id) ?? targets[0];
@@ -1412,6 +1427,11 @@ export default function App() {
   function deleteSelected() {
     if (editTarget === 'audio') { if (selectedAudioId) removeAudio(selectedAudioId); return; }
     if (editTarget === 'element') { if (selectedElement) removeElement(selectedElement.id); return; }
+    if (editTarget === 'text' && selectedGlobalText) {
+      const layers = (project.globalText ?? []).filter(layer => layer.id !== selectedGlobalText.id);
+      void run({ type: 'globalText', layers });
+      setSelectedGlobalTextId(null); return;
+    }
     if (editTarget === 'text' && selectedScene && selectedTextLayerId) {
       const layers = sceneTextLayers(selectedScene).filter(layer => layer.id !== selectedTextLayerId);
       void updateSelection(replaceSceneTextLayers(selectedScene, layers));
@@ -1514,11 +1534,35 @@ export default function App() {
     setTab('text');
     setEditTarget('text');
     setSelectedElementId(null);
+    setSelectedGlobalTextId(null);
+    setGlobalTextDraft(null);
     setSelectedTextLayerId(id);
     if (!id || !selectedScene) return;
     const layer = sceneTextLayers(selectedScene).find(item => item.id === id);
     if (!layer) return;
     setPosition(ticksToSeconds(selectedScene.startTicks, project.timebase) + layerStartSeconds(layer, project.timebase));
+  }
+
+  function selectGlobalText(id: string) {
+    const layer = (project.globalText ?? []).find(item => item.id === id);
+    if (!layer) return;
+    setTab('text'); setEditTarget('text');
+    setSelectedElementId(null); setSelectedTextLayerId(null); setSelectedGlobalTextId(id);
+    setEditingText(false);
+    setPosition(ticksToSeconds(layer.startTicks, project.timebase));
+  }
+
+  function addProjectText() {
+    if (!canEdit || !projectTicks) { setNotice('Add a scene before adding project text.'); return; }
+    if ((project.globalText?.length ?? 0) >= MAX_GLOBAL_TEXT) { setNotice(`A project supports up to ${MAX_GLOBAL_TEXT} project text layers.`); return; }
+    const startTicks = Math.min(Math.max(0, secondsToTicks(positionRef.current, project.timebase)), projectTicks - 1);
+    const layer = createTextLayer(Math.max(1, projectTicks - startTicks), { startTicks, y: .84, size: .052 });
+    void run({ type: 'globalText', layers: [...(project.globalText ?? []), layer] }).then(ok => {
+      if (!ok) return;
+      setEditTarget('text'); setSelectedElementId(null); setSelectedTextLayerId(null); setSelectedGlobalTextId(layer.id);
+      setTab('text'); setTextFocus(value => value + 1);
+      setNotice('Project text added. It stays on screen across every scene.');
+    });
   }
 
   function replaceSceneTextLayers(scene: Scene, layers: TextLayer[]): Scene {
@@ -1539,14 +1583,14 @@ export default function App() {
       startTicks: secondsToTicks(position, project.timebase), durationTicks: kind === 'countdown' ? secondsToTicks(7, project.timebase) : selectedScene.durationTicks, loop: false, animation: preset?.animation ?? 'none',
     };
     void run({ type: 'overlays', overlays: [...project.overlays, constrainOverlay(element, projectTicks, {})] });
-    setEditTarget('element'); setSelectedElementId(element.id);
+    setEditTarget('element'); setSelectedElementId(element.id); setSelectedGlobalTextId(null);
     setEditingText(false); setFramingMode(false);
     setTab('elements');
   }
 
   function selectOverlay(element: TimelineOverlay, seek = true) {
     setOverlayDraft(null); overlayDraftRef.current = null;
-    setSelectedElementId(element.id); setSelectedTextLayerId(null); setEditTarget('element');
+    setSelectedElementId(element.id); setSelectedTextLayerId(null); setSelectedGlobalTextId(null); setEditTarget('element');
     setFramingMode(false); setEditingText(false); setTab('elements'); setPlaying(false);
     const owner = sceneAt(project, ticksToSeconds(element.startTicks, project.timebase))?.scene;
     if (owner) { setSelectedIds([owner.id]); setPrimarySelected(owner.id); }
@@ -1697,12 +1741,23 @@ export default function App() {
 
   function previewInlineText(next: { title: string; subtitle: string }) {
     if (!selectedScene || !selectedTextLayer) return;
+    if (selectedGlobalText) {
+      setTextDraft(next);
+      setGlobalTextDraft((project.globalText ?? []).map(layer => layer.id === selectedGlobalText.id ? { ...layer, ...next } : layer));
+      return;
+    }
     setTextDraft(next);
     const layers = sceneTextLayers(selectedScene).map(layer => layer.id === selectedTextLayer.id ? { ...layer, ...next } : layer);
     setPreviewScene(replaceSceneTextLayers(selectedScene, layers));
   }
 
   function commitInlineText() {
+    if (selectedGlobalText) {
+      const layers = (project.globalText ?? []).map(layer => layer.id === selectedGlobalText.id ? { ...layer, ...textDraft } : layer);
+      setGlobalTextDraft(null); setEditingText(false);
+      void run({ type: 'globalText', layers });
+      return;
+    }
     const scene = selectedScene, layer = selectedTextLayer;
     if (!scene || !layer) { setEditingText(false); return; }
     const layers = sceneTextLayers(scene).map(item => item.id === layer.id ? { ...item, ...textDraft } : item);
@@ -1978,7 +2033,7 @@ export default function App() {
       }
       case 'edit.deselect':
         setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null;
-        setSelectedTextLayerId(null); setSelectedElementId(null);
+        setSelectedTextLayerId(null); setSelectedGlobalTextId(null); setSelectedElementId(null);
         setOverlayDraft(null); overlayDraftRef.current = null;
         setEditingText(false); setFramingMode(false);
         break;
@@ -2812,6 +2867,7 @@ export default function App() {
     setSelectedIds([]);
     setPrimarySelected(null);
     setSelectedElementId(null);
+    setSelectedGlobalTextId(null);
     setTab('audio');
   }
 
@@ -3287,6 +3343,7 @@ export default function App() {
           for (let frame = 0; frame < mainTicks; frame++) {
             if (exportCancelled.current) throw new Error('Export cancelled.');
             await drawOverlayStack(canvas, scene, source.overlays, size, ticksToSeconds(frame, source.timebase), ticksToSeconds(scene.startTicks + frame, source.timebase), source.timebase, true, visualAudio);
+            await drawProjectText(canvas, source.globalText ?? [], ticksToSeconds(scene.startTicks + frame, source.timebase), source.timebase);
             frames.push(await canvasPng(canvas));
             tick();
         await new Promise(resolve => setTimeout(resolve, 0));
@@ -3323,6 +3380,7 @@ export default function App() {
               const progress = Math.min(1, (frame + 1) / transitionTicks);
               await drawTransition(canvas, scene, next, transition.type, source.aspect, 'export', progress, localSeconds, 0, source.timebase, size, visualAudio, fromFrame, toFrame);
               await drawProjectOverlays(canvas, source.overlays, ticksToSeconds(scene.startTicks + localTicks, source.timebase), source.timebase, true, visualAudio);
+              await drawProjectText(canvas, source.globalText ?? [], ticksToSeconds(scene.startTicks + localTicks, source.timebase), source.timebase);
               segments.push({ kind: 'image', png: await canvasPng(canvas), durationTicks: 1, overlays: [] });
               tick();
             }
@@ -3350,6 +3408,7 @@ export default function App() {
         } else {
           await drawScene(canvas, scene, source.aspect, 'export', localSeconds, source.timebase, size, undefined, visualAudio, source.overlays, ticksToSeconds(scene.startTicks + localTicks, source.timebase));
         }
+        await drawProjectText(canvas, source.globalText ?? [], ticksToSeconds(scene.startTicks + localTicks, source.timebase), source.timebase);
         segments.push({ kind: 'image', png: await canvasPng(canvas), durationTicks, overlays: [] });
         tick();
         await new Promise(resolve => setTimeout(resolve, 0));
@@ -3372,6 +3431,7 @@ export default function App() {
       } else {
         await drawScene(canvas, sceneForPreview, displayAspect, 'export', previewLocalSeconds, project.timebase, activeSize, videoScene ? sceneVideo.current : null, project.audio, renderOverlays, position);
       }
+      await drawProjectText(canvas, project.globalText ?? [], position, project.timebase);
       const saved = await bridge.saveStillFrame(await canvasPng(canvas), `${project.name} - ${activeFormat?.name ?? 'Original'}`);
       if (saved) setNotice(`Still frame saved at ${activeSize.width} × ${activeSize.height}. The preview, overlays and colour match the timeline.`);
     } catch (error) {
@@ -3445,6 +3505,7 @@ export default function App() {
             await drawProjectOverlays(canvas, snapshot.overlays, projectSeconds, snapshot.timebase, true, visualAudio);
           } else {
             await drawScene(canvas, segment.scene, snapshot.aspect, 'export', localSeconds, snapshot.timebase, size, undefined, visualAudio, snapshot.overlays, projectSeconds);
+            await drawProjectText(canvas, snapshot.globalText ?? [], projectSeconds, snapshot.timebase);
           }
           frames.push(await canvasPng(canvas));
           await new Promise(resolve => setTimeout(resolve, 0));
@@ -3848,6 +3909,14 @@ export default function App() {
               {!sourceMedia.length && <div className="library-empty"><ImagePlus size={34} /><strong>A story starts with a photo.</strong><p>Import images from your device.<br />Nothing gets uploaded.</p></div>}
               {sourceMedia.length > 0 && !filteredScenes.length && <div className="library-empty"><Search size={30} /><strong>No matching media.</strong><p>Try a different name, or clear the search.</p></div>}
             </> : tab === 'text' ? <div className="title-library">
+              <div className="library-item-list" aria-label="Project text layers">
+                <div className="library-label">PROJECT TEXT <span>ALL SCENES</span></div>
+                {(project.globalText ?? []).map((layer, index) => <div className={`project-text-row ${editTarget === 'text' && selectedGlobalTextId === layer.id ? 'active' : ''}`} key={layer.id}>
+                  <button className="project-text-select" aria-pressed={editTarget === 'text' && selectedGlobalTextId === layer.id} onClick={() => selectGlobalText(layer.id)}><Type size={14} /><span>{layer.title || `Project text ${index + 1}`}</span><small>{ticksToSeconds(layer.startTicks, project.timebase).toFixed(1)} s</small></button>
+                  <button className="text-button danger" aria-label={`Delete ${layer.title || `Project text ${index + 1}`}`} disabled={!canEdit} onClick={() => void run({ type: 'globalText', layers: (project.globalText ?? []).filter(item => item.id !== layer.id) }).then(ok => { if (ok && selectedGlobalTextId === layer.id) setSelectedGlobalTextId(null); })}><Trash2 size={12} /></button>
+                </div>)}
+                <button className="button add-project-text" disabled={!canEdit || !projectTicks} onClick={addProjectText}><Plus size={14} /> Add project text</button>
+              </div>
               {selectedScene && sceneTextLayers(selectedScene).length > 0 && <div className="library-item-list" aria-label="Text layers in selected scene"><div className="library-label">IN THIS SCENE</div>{sceneTextLayers(selectedScene).map((layer,index) => <button key={layer.id} className={editTarget === 'text' && selectedTextLayerId === layer.id ? 'active' : ''} aria-pressed={editTarget === 'text' && selectedTextLayerId === layer.id} onClick={() => selectTextLayer(layer.id)}><Type size={14} /><span>{layer.title || `Text layer ${index+1}`}</span></button>)}</div>}
 
               <div className="caption-import">
@@ -3931,7 +4000,7 @@ export default function App() {
                   <span className="framing-grid" aria-hidden="true" />
                   <span className="framing-hint">Drag to reposition · adjust zoom and letterbox in the inspector</span>
                 </div>}
-                {selectedScene && selectedTextLayer && textBox?.hasText && selectedTextVisible && !selectedElement && canEdit && !editingText && !framingMode && <div
+                {selectedScene && selectedTextLayer && !selectedGlobalText && textBox?.hasText && selectedTextVisible && !selectedElement && canEdit && !editingText && !framingMode && <div
                   className="text-box"
                   style={{ left: `${textBox.leftPct}%`, top: `${Math.max(0, textBox.topPct - .7)}%`, width: `${textBox.widthPct}%`, height: `${Math.max(7, textBox.heightPct + 1.4)}%`, transform: `rotate(${textBox.rotation}deg)` }}
                   title="Drag to move · drag the edge handles to resize · double-click to edit"
@@ -3953,7 +4022,7 @@ export default function App() {
                   const rank = sceneLayerRank.get(element.legacySceneId ? `element:${element.legacyId}` : `overlay:${element.id}`) ?? index;
                   return <div key={element.id} role="button" tabIndex={0} aria-label={`Select overlay ${elementName(element)}`} aria-pressed={selected} className={`overlay-hitbox ${selected ? 'element-box' : ''}`} style={{ left: `${(shown.x + motion.x - shown.width / 2) * 100}%`, top: `${(shown.y + motion.y - shown.height / 2) * 100}%`, width: `${shown.width * 100}%`, height: `${shown.height * 100}%`, transform: `rotate(${shown.rotation + motion.rotation}deg) scale(${motion.scale})`, zIndex: (element.legacySceneId ? 4 : 100) + rank, pointerEvents: playing ? 'none' : undefined }} title={`Drag to move ${elementName(element)}`} onClick={event => { if (event.detail === 0) selectOverlay(element, false); }} onPointerDown={event => beginElementMove(event, element)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectOverlay(element, false); } }}>{selected && <span className="element-box-label">{element.kind === 'image' || element.kind === 'video' ? 'OVERLAY' : 'ELEMENT'}</span>}</div>;
                 })}
-                {editingText && selectedScene && selectedTextLayer && textBox?.hasText && <div
+                {editingText && selectedScene && selectedTextLayer && !selectedGlobalText && textBox?.hasText && <div
                   className="text-edit-overlay"
                   style={{ left: `${Math.min(textBox.leftPct, 56)}%`, top: `${Math.min(textBox.topPct, 42)}%`, width: 'min(340px, 74%)' }}
                 >
@@ -3984,7 +4053,7 @@ export default function App() {
             <div className="inspector-heading"><Settings2 size={16} /><h2>{({scene: selectedScene?.mediaKind === 'video' ? 'Video properties' : 'Scene properties', text:'Text properties', element:'Element properties', audio:'Audio properties', none:'Properties'})[propertyKind]}</h2></div>
             {propertyKind === 'scene' && selectedCount > 1 && <div className="multi-select-banner"><span><Layers size={13} /> Editing {selectedCount} clips</span><button className="text-button" onClick={() => { if(selectedScene){setSelectedIds([selectedScene.id]);setPrimarySelected(selectedScene.id);selectionAnchor.current=selectedScene.id;} }}>Edit only this clip</button></div>}
             {propertyKind === 'audio' && selectedAudio ? <fieldset disabled={!canEdit} className="inspector-fields"><div className="inspector-item-actions"><strong>{selectedAudio.name}</strong><button className="icon-button danger" aria-label="Delete selected audio" onClick={() => removeAudio(selectedAudio.id)}><Trash2 size={15} /></button></div>{audioInspector}</fieldset> : propertyKind === 'element' ? <fieldset disabled={!canEdit} className="inspector-fields">{elementInspector}</fieldset> : (propertyKind === 'scene' || propertyKind === 'text') && selectedScene ? <fieldset disabled={!canEdit} className="inspector-fields">
-              <SceneForm mode={propertyKind === 'text' ? 'text' : 'scene'} hasNextScene={scenes.findIndex(scene => scene.id === selectedScene.id) < scenes.length - 1} scene={inspectorScene!} timebase={project.timebase} update={updateSelection} onPreview={setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} flushRef={inspectorFlush} onReplaceImage={selectedCount === 1 ? () => requestReplaceImage() : undefined} textLayerId={selectedTextLayerId} onSelectTextLayer={selectTextLayer} textStartTicks={textStartTicks} playheadSeconds={previewLocalSeconds} focusText={textFocus} framingActive={framingMode} onToggleFraming={() => { setFramingMode(value => !value); setEditingText(false); }} formatName={activeFormat?.name ?? 'Original'} formatCount={project.formats.length} onApplyFramingToAll={applyFramingToAllFormats} overlays={renderOverlays} onReorderLayer={reorderLayer} />
+              <SceneForm mode={propertyKind === 'text' ? 'text' : 'scene'} hasNextScene={Boolean(selectedScene && scenes.findIndex(scene => scene.id === selectedScene.id) < scenes.length - 1)} scene={selectedGlobalText && selectedTextScene ? selectedTextScene : inspectorScene!} timebase={project.timebase} update={updateSelection} onPreview={selectedGlobalText ? (next: Scene | null) => setGlobalTextDraft(next?.textLayers ?? null) : setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} flushRef={inspectorFlush} onReplaceImage={selectedCount === 1 && !selectedGlobalText ? () => requestReplaceImage() : undefined} textLayerId={selectedGlobalText ? selectedGlobalText.id : selectedTextLayerId} onSelectTextLayer={selectTextLayer} textStartTicks={textStartTicks} playheadSeconds={selectedGlobalText ? Math.max(0, textLayerLocal) : previewLocalSeconds} focusText={textFocus} framingActive={framingMode} onToggleFraming={() => { setFramingMode(value => !value); setEditingText(false); }} formatName={activeFormat?.name ?? 'Original'} formatCount={project.formats.length} onApplyFramingToAll={applyFramingToAllFormats} overlays={renderOverlays} onReorderLayer={reorderLayer} />
               {propertyKind === 'text' && <div className="inspector-item-actions"><button className="button danger" aria-label="Delete selected text layer" onClick={deleteSelected}><Trash2 size={14} /> Delete text layer</button></div>}
               {propertyKind === 'scene' && hasSceneSelection && <div className="scene-actions compact-scene-actions"><IconButton label={tip('clip.duplicate', 'Duplicate clip')} onClick={duplicateSelected}><Copy size={16} /></IconButton><IconButton label={tip('clip.delete', 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>}
             </fieldset> : <div className="inspector-empty"><Settings2 size={26} /><p>Select a scene, text layer, element or audio clip to edit its properties.</p></div>}

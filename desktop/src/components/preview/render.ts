@@ -833,6 +833,29 @@ export function demoImage(index: number): string {
 }
 export function demoScenes(): Scene[] { return ['A little further', 'Find your own pace', 'Stay for the view'].map((title, i) => ({ id: crypto.randomUUID(), startTicks: i * secondsToTicks(4), sourceInTicks: 0, name: ['Morning in the mountains', 'The scenic route', 'A quieter place'][i], image: demoImage(i), durationTicks: secondsToTicks(4), title, subtitle: i === 0 ? 'Small moments. Bigger stories.' : '', color: '#ffffff', fit: 'cover', speed: 1, pitch: true, filter: 'none', filterIntensity: 100 })); }
 
+/**
+ * Draws text that belongs to the project rather than a scene. Times are
+ * absolute project seconds, so the same layer crosses every cut unchanged.
+ */
+export async function drawProjectText(canvas: HTMLCanvasElement, layers: TextLayer[], projectSeconds: number, timebase: Timebase = DEFAULT_TIMEBASE) {
+  if (!layers.length) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const ordered = [...layers].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
+  for (const stored of ordered) {
+    if (!layerVisibleAt(stored, projectSeconds, timebase)) continue;
+    const local = projectSeconds - layerStartSeconds(stored, timebase);
+    const layer = stored.keyframes?.length ? applyTextMotion(stored, local) : stored;
+    const remaining = layerDurationSeconds(stored, timebase) - local;
+    const animationDuration = Math.max(.05, layer.animationDuration ?? .5);
+    await drawTextLayer(ctx, layer, canvas.width, canvas.height, canvas, {
+      type: layer.animation ?? 'none',
+      in: local / animationDuration,
+      out: remaining / animationDuration,
+    });
+  }
+}
+
 export async function drawProjectOverlays(canvas: HTMLCanvasElement, elements: ElementLayer[], seconds: number, timebase: Timebase, precise = false, audio: AudioClip[] = []) {
   const ctx = canvas.getContext('2d'); if (!ctx) return;
   await drawElements(ctx, { elements } as Scene, canvas.width, canvas.height, seconds, timebase, precise, audio);

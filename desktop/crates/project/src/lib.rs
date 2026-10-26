@@ -620,6 +620,26 @@ impl Scene {
         }
         let mut ids = std::collections::HashSet::new();
         for layer in &mut self.text_layers {
+            if !text_layer_is_valid(layer, timebase, &mut ids) {
+                return Err("Invalid text layer.".into());
+            }
+            if duration == 0 {
+                return Err("A scene is too short for text.".into());
+            }
+            layer.start_ticks = layer.start_ticks.min(duration - 1);
+            if layer.duration_ticks == 0 {
+                layer.duration_ticks = duration - layer.start_ticks;
+            }
+            layer.duration_ticks = layer.duration_ticks.min(duration - layer.start_ticks).max(1);
+        }
+        self.title = self.text_layers.first().map(|layer| layer.title.clone()).unwrap_or_default();
+        self.subtitle = self.text_layers.first().map(|layer| layer.subtitle.clone()).unwrap_or_default();
+        Ok(())
+    }
+}
+/// Field ranges shared by scene text and project-level text. Keyframes are
+/// clamped in place, so the layer is taken by `&mut`.
+fn text_layer_is_valid(layer: &mut TextLayer, timebase: &Timebase, ids: &mut std::collections::HashSet<String>) -> bool {
             let keyframes_ok = validate_keyframes(&mut layer.keyframes, timebase.ticks_to_seconds(layer.duration_ticks));
             let valid = keyframes_ok
                 && !layer.id.is_empty()
@@ -682,23 +702,9 @@ impl Scene {
                 && ["none", "fade", "slide-up", "slide-left", "pop"].contains(&layer.animation.as_str())
                 && layer.animation_duration.is_finite()
                 && (0.1..=2.0).contains(&layer.animation_duration);
-            if !valid {
-                return Err("Invalid text layer.".into());
-            }
-            if duration == 0 {
-                return Err("A scene is too short for text.".into());
-            }
-            layer.start_ticks = layer.start_ticks.min(duration - 1);
-            if layer.duration_ticks == 0 {
-                layer.duration_ticks = duration - layer.start_ticks;
-            }
-            layer.duration_ticks = layer.duration_ticks.min(duration - layer.start_ticks).max(1);
-        }
-        self.title = self.text_layers.first().map(|layer| layer.title.clone()).unwrap_or_default();
-        self.subtitle = self.text_layers.first().map(|layer| layer.subtitle.clone()).unwrap_or_default();
-        Ok(())
-    }
+    valid
 }
+
 fn default_one() -> f64 { 1.0 }
 fn default_filter() -> String { "none".into() }
 fn default_intensity() -> f64 { 100.0 }
@@ -899,6 +905,9 @@ pub struct Project {
     pub formats: Vec<FormatVariant>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fonts: Vec<ProjectFont>,
+    /// Text that spans scenes. Times are absolute project ticks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub global_text: Vec<TextLayer>,
     /// Manual beat markers, in project ticks, sorted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub beat_ticks: Vec<u64>,
@@ -924,6 +933,7 @@ impl Default for Project {
             overlays: vec![],
             formats: vec![],
             fonts: vec![],
+            global_text: vec![],
             beat_ticks: vec![],
             ducking: None,
             legacy_music: None,
@@ -939,6 +949,29 @@ impl Project {
             .find(|track| track.kind == "visual")
             .map(|track| track.clips.as_slice())
             .unwrap_or(&[])
+    }
+    fn normalize_global_text(&mut self, total_ticks: u64, timebase: &Timebase) -> Result<(), String> {
+        if self.global_text.len() > 40 {
+            return Err("A project supports up to 40 project text layers.".into());
+        }
+        if self.global_text.is_empty() {
+            return Ok(());
+        }
+        if total_ticks == 0 {
+            return Err("Add a scene before adding project text.".into());
+        }
+        let mut ids = std::collections::HashSet::new();
+        for layer in &mut self.global_text {
+            if !text_layer_is_valid(layer, timebase, &mut ids) {
+                return Err("Invalid project text layer.".into());
+            }
+            layer.start_ticks = layer.start_ticks.min(total_ticks - 1);
+            if layer.duration_ticks == 0 {
+                layer.duration_ticks = total_ticks - layer.start_ticks;
+            }
+            layer.duration_ticks = layer.duration_ticks.min(total_ticks - layer.start_ticks).max(1);
+        }
+        Ok(())
     }
     pub fn total_ticks(&self) -> u64 {
         self.visual_clips()
@@ -1286,6 +1319,7 @@ impl Project {
             .max()
             .unwrap_or(0);
         if !validate_elements(&mut self.overlays, total_ticks, 64, &timebase) { return Err("Invalid project overlay or action.".into()); }
+        self.normalize_global_text(total_ticks, &timebase)?;
         bytes += self.overlays.iter().map(|e| e.source.as_ref().map_or(0, String::len)).sum::<usize>();
         if bytes > 140_000_000 { return Err("Project exceeds the 100 MB media budget.".into()); }
         let mut audio = if migrating_music {
@@ -1513,6 +1547,11 @@ pub enum Command {
     Audio { audio: Vec<AudioClip> },
     Formats { formats: Vec<FormatVariant> },
     Fonts { fonts: Vec<ProjectFont> },
+    #[serde(rename = "globalText")]
+    GlobalText {
+        #[serde(rename = "layers")]
+        global_text: Vec<TextLayer>,
+    },
     Beats {
         #[serde(rename = "beatTicks")]
         beat_ticks: Vec<u64>,
@@ -1647,6 +1686,9 @@ impl Session {
         if let Command::Fonts { fonts } = &command {
             p.fonts = fonts.clone();
         }
+        if let Command::GlobalText { global_text } = &command {
+            p.global_text = global_text.clone();
+        }
         if let Command::Beats { beat_ticks } = &command {
             p.beat_ticks = beat_ticks.clone();
         }
@@ -1662,7 +1704,7 @@ impl Session {
         {
             let clips = &mut p.tracks[track_index].clips;
             match command {
-                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } | Command::Fonts { .. } | Command::Beats { .. } | Command::Ducking { .. } | Command::Overlays { .. } | Command::Order { .. } => {}
+                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } | Command::Fonts { .. } | Command::GlobalText { .. } | Command::Beats { .. } | Command::Ducking { .. } | Command::Overlays { .. } | Command::Order { .. } => {}
                 Command::Add { scenes } => clips.extend(scenes),
                 Command::Update { scene } => {
                     if let Some(s) = clips.iter_mut().find(|s| s.id == scene.id) {
@@ -1794,6 +1836,7 @@ impl Session {
                 (clip.duration_ticks > 0).then_some(clip)
             })
             .collect();
+        p.global_text.retain(|layer| total_ticks > 0 && layer.start_ticks < total_ticks);
         p.validate()?;
         let previous = std::mem::replace(&mut self.project, p);
         self.remember(previous);
@@ -1922,6 +1965,39 @@ mod tests {
         p.validate().unwrap();
         assert_eq!(p.policy, Policy::default());
     }
+    #[test]
+    fn validates_project_level_text() {
+        let mut p = Project::default();
+        p.tracks[0].clips = vec![scene()];
+        let total = p.total_ticks();
+        p.global_text = vec![TextLayer { id: "global".into(), title: "Across".into(), start_ticks: 0, duration_ticks: total + 100, ..TextLayer::default() }];
+        p.validate().unwrap();
+        assert_eq!(p.global_text[0].duration_ticks, total, "project text is clamped to the timeline");
+        p.global_text[0].start_ticks = total + 50;
+        p.global_text[0].duration_ticks = 10;
+        p.validate().unwrap();
+        assert_eq!(p.global_text[0].start_ticks, total - 1);
+        assert_eq!(p.global_text[0].duration_ticks, 1);
+
+        let mut duplicate = p.clone();
+        let layer = TextLayer { id: "same".into(), title: "One".into(), start_ticks: 0, duration_ticks: total, ..TextLayer::default() };
+        duplicate.global_text = vec![layer.clone(), layer];
+        assert!(duplicate.validate().is_err());
+
+        let mut too_many = p.clone();
+        too_many.global_text = (0..41).map(|index| TextLayer { id: format!("t{index}"), title: "Many".into(), start_ticks: 0, duration_ticks: total, ..TextLayer::default() }).collect();
+        assert!(too_many.validate().is_err());
+
+        let mut session = Session::default();
+        session.apply(Command::Add { scenes: vec![scene()] }).unwrap();
+        session.apply(Command::GlobalText {
+            global_text: vec![TextLayer { id: "g".into(), title: "Hi".into(), start_ticks: 0, duration_ticks: total, ..TextLayer::default() }],
+        }).unwrap();
+        assert_eq!(session.project.global_text[0].title, "Hi");
+        session.apply(Command::Remove { id: "one".into() }).unwrap();
+        assert!(session.project.global_text.is_empty(), "removing the last scene clears project text");
+    }
+
     #[test]
     fn audio_must_be_local_and_bounded() {
         let mut p = Project::default();
