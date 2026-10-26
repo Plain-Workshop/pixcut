@@ -948,3 +948,10 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Browser check: applying **Motion opener** produced `Motion opener`, three timeline clips with VIDEO badges, and an audio clip named `Night drive`; no console errors. Reviewed `output/playwright/video-template.png` and `output/playwright/template-gallery-media.png`.
 - Verification: 209 TypeScript tests in 28 files, 39 project-model tests, 23 non-ignored native tests, and all 10 ignored FFmpeg tests pass.
 - Boundary: the motion background and scores are generated assets, not a curated stock-video or licensed-music library. Video templates currently use one bundled clip; user-supplied video slots and per-template video galleries remain future work.
+
+## Timeline accessibility — 2026-10-26
+
+- Scene clips announce `Scene N: name, start to end seconds, video/photo` plus `aria-pressed` and `aria-current`; text layers announce their scene, title and visible window; overlays and audio clips announce their name and timing with selection state. All are buttons, so Enter selects a focused clip.
+- Timeline rows are labelled `role="group"` regions (Text, Elements/Overlays, Visuals, Audio track N); the timeline is `aria-describedby` a visually hidden hint describing J/K/L, arrow stepping and Space. The save status is a `role="status"` polite live region.
+- Verified in the browser: the labels, roles, `aria-current`, and live status are present; focusing the second scene and pressing Enter moved selection (first `aria-pressed` true→false, second false→true) with no console errors. Reviewed `output/playwright/timeline-a11y.png`.
+- Boundary: this is a labelling and keyboard-selection pass, not full screen-reader workflow validation; narration of colour, filters and drag-only gestures is still limited.

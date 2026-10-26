@@ -92,6 +92,14 @@ describe('bundled templates', () => {
     // A user's clip is never stretched past its own length.
     expect(scenes[1].durationTicks).toBeLessThanOrEqual(30);
     expect(scenes[2].image).toBe('data:image/png;base64,AA==');
+    // Your photo keeps the design: a shadow always, a backdrop only where the
+    // template already used one.
+    const plain = TEMPLATES.find(template => !template.backdrop)!;
+    const plainProject = await buildTemplateProject(plain, [photo('a')], loader);
+    const plainScene = validateProject(JSON.parse(JSON.stringify(plainProject))).tracks[0].clips[0];
+    expect(plainScene.textLayers?.[0].shadowEnabled).toBe(true);
+    expect(plainScene.textLayers?.[0].backdropEnabled).toBe(false);
+    expect(plainScene.textLayers?.[0].color).toBe('#FFFFFF');
   });
 
   it('still opens a template when a photo cannot be read', async () => {
