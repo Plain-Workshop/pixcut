@@ -1424,24 +1424,63 @@ fn encoder_available(binary: &Path, codec: ExportCodec) -> bool {
 enum HardwareFamily {
     VideoToolbox,
     Nvenc,
+    Qsv,
+    Amf,
+    Vaapi,
+}
+
+/// The render node VAAPI encodes through. `PIXCUT_VAAPI_DEVICE` overrides the
+/// probe for multi-GPU machines; the usual render nodes are tried in order.
+fn vaapi_device() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("PIXCUT_VAAPI_DEVICE") {
+        let path = PathBuf::from(path);
+        return path.exists().then_some(path);
+    }
+    ["/dev/dri/renderD128", "/dev/dri/renderD129"]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|path| path.exists())
 }
 
 fn hardware_candidates(codec: ExportCodec) -> &'static [(&'static str, HardwareFamily)] {
     match codec {
         ExportCodec::H264 if cfg!(target_os = "macos") => &[("h264_videotoolbox", HardwareFamily::VideoToolbox)],
         ExportCodec::Hevc if cfg!(target_os = "macos") => &[("hevc_videotoolbox", HardwareFamily::VideoToolbox)],
-        ExportCodec::H264 if cfg!(any(target_os = "windows", target_os = "linux")) => &[("h264_nvenc", HardwareFamily::Nvenc)],
-        ExportCodec::Hevc if cfg!(any(target_os = "windows", target_os = "linux")) => &[("hevc_nvenc", HardwareFamily::Nvenc)],
+        ExportCodec::H264 if cfg!(target_os = "windows") => &[
+            ("h264_nvenc", HardwareFamily::Nvenc),
+            ("h264_qsv", HardwareFamily::Qsv),
+            ("h264_amf", HardwareFamily::Amf),
+        ],
+        ExportCodec::Hevc if cfg!(target_os = "windows") => &[
+            ("hevc_nvenc", HardwareFamily::Nvenc),
+            ("hevc_qsv", HardwareFamily::Qsv),
+            ("hevc_amf", HardwareFamily::Amf),
+        ],
+        ExportCodec::H264 if cfg!(target_os = "linux") => &[
+            ("h264_nvenc", HardwareFamily::Nvenc),
+            ("h264_vaapi", HardwareFamily::Vaapi),
+            ("h264_qsv", HardwareFamily::Qsv),
+        ],
+        ExportCodec::Hevc if cfg!(target_os = "linux") => &[
+            ("hevc_nvenc", HardwareFamily::Nvenc),
+            ("hevc_vaapi", HardwareFamily::Vaapi),
+            ("hevc_qsv", HardwareFamily::Qsv),
+        ],
         _ => &[],
     }
 }
 
 /// Picks the first hardware encoder this machine's FFmpeg actually provides.
+/// VAAPI additionally needs a render node, so a missing device falls back to
+/// the next family instead of failing the export later.
 fn hardware_encoder(codec: ExportCodec, binary: &Path) -> Option<(&'static str, HardwareFamily)> {
     hardware_candidates(codec)
         .iter()
         .copied()
-        .find(|(name, _)| encoder_named(binary, name))
+        .find(|(name, family)| {
+            encoder_named(binary, name)
+                && (*family != HardwareFamily::Vaapi || vaapi_device().is_some())
+        })
 }
 /// Targets a comparable visual quality to the CRF presets using bits per pixel.
 fn hardware_bitrate(options: &ExportOptions) -> u64 {
@@ -1452,7 +1491,10 @@ fn hardware_bitrate(options: &ExportOptions) -> u64 {
 }
 #[tauri::command]
 fn exporter_hardware() -> bool {
-    ffmpeg().is_some_and(|binary| hardware_encoder(ExportCodec::H264, &binary).is_some())
+    let Some(binary) = ffmpeg() else { return false };
+    [ExportCodec::H264, ExportCodec::Hevc]
+        .into_iter()
+        .any(|codec| hardware_encoder(codec, &binary).is_some())
 }
 fn encoder_named(binary: &Path, name: &str) -> bool {
     std::process::Command::new(binary).args(["-hide_banner", "-encoders"]).output().is_ok_and(|output| {
@@ -1472,9 +1514,18 @@ async fn exporter_capabilities() -> Result<Vec<String>, String> {
 }
 fn check_encoder(binary: &Path, options: &ExportOptions) -> Result<(), String> {
     if options.hardware {
-        let encoder = hardware_encoder(options.codec, binary)
+        let _encoder = hardware_encoder(options.codec, binary)
             .map(|(name, _)| name)
-            .ok_or("Hardware encoding is not available for this codec with your FFmpeg. Turn it off to use the software encoder.")?;
+            .ok_or_else(|| {
+                let vaapi_only = hardware_candidates(options.codec)
+                    .iter()
+                    .any(|(name, family)| *family == HardwareFamily::Vaapi && encoder_named(binary, name));
+                if vaapi_only && vaapi_device().is_none() {
+                    "VAAPI hardware encoding needs a render node (/dev/dri/renderD128). Set PIXCUT_VAAPI_DEVICE or turn hardware encoding off."
+                } else {
+                    "Hardware encoding is not available for this codec with your FFmpeg. Turn it off to use the software encoder."
+                }
+            })?;
         return if encoder_named(binary, options.codec.audio_encoder()) {
             Ok(())
         } else {
@@ -1495,7 +1546,9 @@ fn export_output_name(options: &ExportOptions) -> String {
     format!("{}.{}", safe_filename(stem), options.container.extension())
 }
 /// Encoder arguments for the platform hardware path. VideoToolbox is driven by
-/// a bitrate; NVENC uses constant quality (CQ) with a VBR rate control.
+/// a bitrate; NVENC uses constant quality (CQ) with a VBR rate control. QSV and
+/// VAAPI use the `global_quality`/`qp` knobs their encoders expose, and AMF
+/// uses constant QP with a quality preset.
 fn hardware_video_args(options: &ExportOptions, encoder: &str, family: HardwareFamily) -> Vec<String> {
     let mut args: Vec<String> = match family {
         HardwareFamily::VideoToolbox => vec![
@@ -1511,6 +1564,29 @@ fn hardware_video_args(options: &ExportOptions, encoder: &str, family: HardwareF
             "-b:v".into(), "0".into(),
             "-pix_fmt".into(), "yuv420p".into(),
         ],
+        HardwareFamily::Qsv => vec![
+            "-c:v".into(), encoder.into(),
+            "-preset".into(), match options.speed { EncodeSpeed::Fast => "veryfast", EncodeSpeed::Medium => "medium", EncodeSpeed::Slow => "slow" }.into(),
+            "-global_quality".into(), options.crf.to_string(),
+            "-pix_fmt".into(), "nv12".into(),
+        ],
+        HardwareFamily::Amf => vec![
+            "-c:v".into(), encoder.into(),
+            "-quality".into(), match options.speed { EncodeSpeed::Fast => "speed", EncodeSpeed::Medium => "balanced", EncodeSpeed::Slow => "quality" }.into(),
+            "-rc".into(), "cqp".into(),
+            "-qp_i".into(), options.crf.to_string(),
+            "-qp_p".into(), options.crf.to_string(),
+            "-pix_fmt".into(), "yuv420p".into(),
+        ],
+        HardwareFamily::Vaapi => {
+            let device = vaapi_device().unwrap_or_else(|| PathBuf::from("/dev/dri/renderD128"));
+            vec![
+                "-vaapi_device".into(), device.to_string_lossy().into_owned(),
+                "-c:v".into(), encoder.into(),
+                "-qp".into(), options.crf.to_string(),
+                "-pix_fmt".into(), "vaapi".into(),
+            ]
+        }
     };
     if options.codec == ExportCodec::Hevc && options.container.is_quicktime_family() {
         args.extend(["-tag:v".into(), "hvc1".into()]);
@@ -1521,9 +1597,12 @@ fn hardware_video_args(options: &ExportOptions, encoder: &str, family: HardwareF
     args
 }
 
-fn video_encoding_args(options: &ExportOptions) -> Vec<String> {
+fn video_encoding_args(
+    options: &ExportOptions,
+    hardware: Option<(&'static str, HardwareFamily)>,
+) -> Vec<String> {
     if options.hardware {
-        if let Some((encoder, family)) = hardware_candidates(options.codec).first().copied() {
+        if let Some((encoder, family)) = hardware {
             return hardware_video_args(options, encoder, family);
         }
     }
@@ -1794,6 +1873,10 @@ struct PlanSegment {
     #[serde(default = "default_true")]
     include_audio: bool,
     duration_ticks: u64,
+    /// A clip's sound can run through a baked transition after its moving
+    /// picture has been shortened. Missing means it matches `duration_ticks`.
+    #[serde(default)]
+    audio_duration_ticks: Option<u64>,
     #[serde(default)]
     overlays: Vec<PlanOverlay>,
 }
@@ -1843,6 +1926,11 @@ fn validate_plan(project: &Project, plan: &ExportPlan) -> Result<(), String> {
                 let speed = segment.speed.unwrap_or(1.0);
                 if !speed.is_finite() || !(0.25..=4.0).contains(&speed) {
                     return Err("A video segment has an invalid speed.".into());
+                }
+                if let Some(audio_ticks) = segment.audio_duration_ticks {
+                    if audio_ticks < segment.duration_ticks {
+                        return Err("A video segment's sound is shorter than its picture.".into());
+                    }
                 }
                 if let Some(volume) = segment.video_volume {
                     if !volume.is_finite() || !(0.0..=100.0).contains(&volume) {
@@ -2014,19 +2102,23 @@ fn encode_plan(
                 };
                 speed = segment.speed.unwrap_or(1.0);
                 let start = segment.source_in_seconds.unwrap_or(0.0).max(0.0);
-                let source_length = (duration * speed).max(duration);
+                let audio_duration = segment
+                    .audio_duration_ticks
+                    .map(|ticks| project.timebase.ticks_to_seconds(ticks))
+                    .unwrap_or(duration);
+                let source_length = (audio_duration.max(duration) * speed).max(duration);
                 command.args(["-ss", &format!("{start:.6}"), "-t", &format!("{source_length:.6}"), "-i"]).arg(path.clone());
                 if segment.include_audio && has_audio_stream(&binary, &path) {
                     if segment.video_volume.unwrap_or(100.0) > 0.0 {
-                        duck_windows.push((segment_start, segment_start + duration));
+                        duck_windows.push((segment_start, segment_start + audio_duration));
                     }
                     video_audio.push((
                         input_index,
                         speed,
-                        duration,
+                        audio_duration,
                         segment_start,
-                        segment.fade_in.min(duration),
-                        segment.fade_out.min(duration),
+                        segment.fade_in.min(audio_duration),
+                        segment.fade_out.min(audio_duration),
                         segment.video_volume,
                     ));
                 }
@@ -2081,6 +2173,7 @@ fn encode_plan(
     let width = plan.options.width;
     let height = plan.options.height;
     let fps = plan.options.fps;
+    let hardware = if plan.options.hardware { hardware_encoder(plan.options.codec, &binary) } else { None };
     let mut filters = Vec::new();
     for (index, (input, duration, fit, speed, lut)) in visual.iter().enumerate() {
         let geometry = if fit == "contain" {
@@ -2134,6 +2227,10 @@ fn encode_plan(
             current = next;
             fade_index += 1;
         }
+    }
+    if hardware.is_some_and(|(_, family)| family == HardwareFamily::Vaapi) {
+        filters.push(format!("[{current}]format=nv12,hwupload[hwout]"));
+        current = "hwout".to_string();
     }
     let ducking = project.ducking.unwrap_or(0.0);
     let mut audio_nodes: Vec<String> = Vec::new();
@@ -2208,7 +2305,7 @@ fn encode_plan(
     if !audio_files.is_empty() || !video_audio.is_empty() {
         command.args(["-map", "[aout]"]).args(audio_encoding_args(&plan.options));
     }
-    command.args(video_encoding_args(&plan.options));
+    command.args(video_encoding_args(&plan.options, hardware));
     command.args([
         "-progress",
         "pipe:1",
@@ -2405,6 +2502,7 @@ fn encode_movie(
         .enumerate()
         .map(|(index, clip)| write_audio(temp.path(), clip, index, temp.path()).map(|path| (path, clip)))
         .collect::<Result<Vec<_>, _>>()?;
+    let hardware = if options.hardware { hardware_encoder(options.codec, &binary) } else { None };
     let mut command = Process::new(binary);
     command.current_dir(temp.path()).args([
         "-y",
@@ -2430,7 +2528,7 @@ fn encode_movie(
             .arg(path);
         let _ = index;
     }
-    command.args(video_encoding_args(&options));
+    command.args(video_encoding_args(&options, hardware));
     let mut video_filter = format!("scale={}:{}:flags=lanczos,{}", options.width, options.height, fps);
     for clip in project.visual_clips() {
         let clip_start = project.timebase.ticks_to_seconds(clip.start_ticks);
@@ -2445,6 +2543,9 @@ fn encode_movie(
             let start = (clip_end - length).max(0.0);
             video_filter.push_str(&format!(",fade=t=out:st={start:.6}:d={length:.6}"));
         }
+    }
+    if hardware.is_some_and(|(_, family)| family == HardwareFamily::Vaapi) {
+        video_filter.push_str(",format=nv12,hwupload");
     }
     command.args(["-vf", &video_filter]);
     if !audio_files.is_empty() {
@@ -2609,6 +2710,10 @@ pub fn run() {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
+    fn encoding_args(options: &ExportOptions) -> Vec<String> {
+        let hardware = if options.hardware { hardware_candidates(options.codec).first().copied() } else { None };
+        video_encoding_args(options, hardware)
+    }
     fn export_options() -> ExportOptions {
         ExportOptions { width: 1920, height: 1080, fps: 30, crf: 20, filename: "Test export".into(), codec: ExportCodec::H264, container: ExportContainer::Mp4, speed: EncodeSpeed::Medium, hardware: false }
     }
@@ -2629,6 +2734,37 @@ mod integration_tests {
         options.height = 181;
         assert!(validate_export_options(&options).is_err());
     }
+    #[test]
+    fn qsv_amf_and_vaapi_arguments_match_their_encoders() {
+        let mut options = export_options();
+        options.hardware = true;
+        options.speed = EncodeSpeed::Fast;
+        let qsv = hardware_video_args(&options, "h264_qsv", HardwareFamily::Qsv);
+        assert!(qsv.windows(2).any(|pair| pair[0] == "-c:v" && pair[1] == "h264_qsv"), "{qsv:?}");
+        assert!(qsv.windows(2).any(|pair| pair[0] == "-global_quality" && pair[1] == "20"));
+        assert!(qsv.windows(2).any(|pair| pair[0] == "-preset" && pair[1] == "veryfast"));
+        let amf = hardware_video_args(&options, "h264_amf", HardwareFamily::Amf);
+        assert!(amf.windows(2).any(|pair| pair[0] == "-rc" && pair[1] == "cqp"));
+        assert!(amf.windows(2).any(|pair| pair[0] == "-qp_i" && pair[1] == "20"));
+        assert!(amf.windows(2).any(|pair| pair[0] == "-quality" && pair[1] == "speed"));
+        let vaapi = hardware_video_args(&options, "hevc_vaapi", HardwareFamily::Vaapi);
+        assert!(vaapi.windows(2).any(|pair| pair[0] == "-c:v" && pair[1] == "hevc_vaapi"));
+        assert!(vaapi.windows(2).any(|pair| pair[0] == "-qp" && pair[1] == "20"));
+        assert!(vaapi.iter().any(|arg| arg == "-vaapi_device"));
+        // Every platform offers a hardware candidate only where it can exist.
+        assert!(hardware_candidates(ExportCodec::Prores).is_empty());
+        assert!(hardware_candidates(ExportCodec::Vp9).is_empty());
+    }
+
+    #[test]
+    fn hardware_encoder_falls_back_to_software_when_none_is_available() {
+        let mut options = export_options();
+        options.hardware = true;
+        let args = video_encoding_args(&options, None);
+        assert!(args.windows(2).any(|pair| pair[0] == "-c:v" && pair[1] == "libx264"), "{args:?}");
+        assert!(!args.iter().any(|arg| arg.ends_with("_qsv") || arg.ends_with("_amf")));
+    }
+
     #[test]
     fn nvenc_arguments_use_constant_quality() {
         let mut options = export_options();
@@ -2653,16 +2789,16 @@ mod integration_tests {
     fn hardware_encoding_uses_videotoolbox_and_a_sane_bitrate() {
         let mut options = export_options();
         options.hardware = true;
-        let args = video_encoding_args(&options);
+        let args = encoding_args(&options);
         assert!(args.windows(2).any(|pair| pair[0] == "-c:v" && pair[1] == "h264_videotoolbox"), "{args:?}");
         let index = args.iter().position(|arg| arg == "-b:v").expect("bitrate");
         let bitrate: u64 = args[index + 1].parse().expect("numeric bitrate");
         assert!((1_500_000..=60_000_000).contains(&bitrate));
         options.codec = ExportCodec::Hevc;
-        let hevc = video_encoding_args(&options);
+        let hevc = encoding_args(&options);
         assert!(hevc.iter().any(|arg| arg == "hevc_videotoolbox"));
         options.codec = ExportCodec::Vp9;
-        assert!(!video_encoding_args(&options).iter().any(|arg| arg.ends_with("videotoolbox")));
+        assert!(!encoding_args(&options).iter().any(|arg| arg.ends_with("videotoolbox")));
     }
 
     #[test]
@@ -2697,9 +2833,9 @@ mod integration_tests {
         assert_eq!(old.codec, ExportCodec::H264); assert_eq!(old.container, ExportContainer::Mp4);
         let mut options = old; options.codec = ExportCodec::Hevc; options.container = ExportContainer::Mov;
         assert_eq!(export_output_name(&options), "Story.mov");
-        let args = video_encoding_args(&options); assert!(args.iter().any(|a| a == "libx265")); assert!(args.iter().any(|a| a == "hvc1"));
+        let args = encoding_args(&options); assert!(args.iter().any(|a| a == "libx265")); assert!(args.iter().any(|a| a == "hvc1"));
         options.container = ExportContainer::Mkv;
-        assert_eq!(export_output_name(&options), "Story.mkv"); assert!(!video_encoding_args(&options).iter().any(|a| a == "-movflags"));
+        assert_eq!(export_output_name(&options), "Story.mkv"); assert!(!encoding_args(&options).iter().any(|a| a == "-movflags"));
         assert!(serde_json::from_str::<ExportOptions>(r#"{"width":320,"height":240,"fps":30,"crf":23,"filename":"x","codec":"injected"}"#).is_err());
     }
     #[test]
@@ -2710,7 +2846,7 @@ mod integration_tests {
         options.filename = "Story.webm".into();
         assert_eq!(export_output_name(&options), "Story.webm");
         assert!(validate_export_options(&options).is_ok());
-        let video = video_encoding_args(&options);
+        let video = encoding_args(&options);
         assert!(video.iter().any(|arg| arg == "libvpx-vp9"));
         assert!(video.windows(2).any(|pair| pair == ["-b:v", "0"]));
         assert!(!video.iter().any(|arg| arg == "-preset"));
@@ -2723,7 +2859,7 @@ mod integration_tests {
         options.filename = "Story.mov".into();
         assert_eq!(export_output_name(&options), "Story.mov");
         assert!(validate_export_options(&options).is_ok());
-        let video = video_encoding_args(&options);
+        let video = encoding_args(&options);
         assert!(video.iter().any(|arg| arg == "prores_ks"));
         assert!(video.iter().any(|arg| arg == "yuv422p10le"));
         assert!(video.iter().any(|arg| arg == "-movflags"));
@@ -2769,7 +2905,7 @@ mod integration_tests {
             let plan = ExportPlan {
                 segments: frames.into_iter().map(|png| PlanSegment {
                     kind: "image".into(), png: Some(png), video: None, source_in_seconds: None,
-                    fit: None, speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, duration_ticks: 15, overlays: vec![],
+                    fit: None, speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
                 }).collect(),
                 options: options.clone(),
             };
@@ -2800,7 +2936,7 @@ mod integration_tests {
             let mut options = export_options(); options.width = 320; options.height = 240; options.codec = ExportCodec::Hevc; options.container = container; options.speed = EncodeSpeed::Fast;
             let output = temp.path().join(format!("photo.{}", container.extension()));
             encode_movie(project.clone(), frames.clone(), vec![15,15], options.clone(), binary.clone(), output.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
-            let plan = ExportPlan { segments: frames.into_iter().map(|png| PlanSegment { kind: "image".into(), png: Some(png), video: None, source_in_seconds: None, fit: None, speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, duration_ticks: 15, overlays: vec![] }).collect(), options };
+            let plan = ExportPlan { segments: frames.into_iter().map(|png| PlanSegment { kind: "image".into(), png: Some(png), video: None, source_in_seconds: None, fit: None, speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![] }).collect(), options };
             let plan_output = temp.path().join(format!("plan.{}", container.extension()));
             encode_plan(&project, plan, binary.clone(), plan_output.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
             for file in [output, plan_output] {
@@ -2812,16 +2948,41 @@ mod integration_tests {
         }
     }
     #[test]
+    fn plan_allows_sound_to_outlast_a_shortened_video_segment() {
+        let (project, frames) = fixture_project();
+        let image = |ticks: u64| PlanSegment {
+            kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
+            fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0,
+            video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: ticks, overlays: vec![],
+        };
+        let video = |audio: Option<u64>| PlanSegment {
+            kind: "video".into(), png: None, video: Some("data:video/mp4;base64,AA==".into()),
+            source_in_seconds: Some(0.0), fit: Some("cover".into()), speed: None, lut: None,
+            fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true,
+            audio_duration_ticks: audio, duration_ticks: 16, overlays: vec![],
+        };
+        let with = |first: PlanSegment| ExportPlan {
+            segments: std::iter::once(first).chain((0..14).map(|_| image(1))).collect(),
+            options: export_options(),
+        };
+        // The visual ends 14 ticks early; the soundtrack covers the baked tail.
+        assert!(validate_plan(&project, &with(video(Some(30)))).is_ok());
+        // Sound shorter than the picture cannot happen and is rejected.
+        assert!(validate_plan(&project, &with(video(Some(10)))).is_err());
+        assert!(validate_plan(&project, &with(video(None))).is_ok());
+    }
+
+    #[test]
     fn plan_validates_video_speed_and_grade_lut() {
         let (project, frames) = fixture_project();
         let image = || PlanSegment {
             kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
-            fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, duration_ticks: 15, overlays: vec![],
+            fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
         };
         let video = |speed: Option<f64>, lut: Option<String>| PlanSegment {
             kind: "video".into(), png: None, video: Some("data:video/mp4;base64,AA==".into()),
             source_in_seconds: Some(0.0), fit: Some("cover".into()), speed, lut,
-            fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, duration_ticks: 15, overlays: vec![],
+            fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
         };
         let plan = |second: PlanSegment| ExportPlan { segments: vec![image(), second], options: export_options() };
         assert!(validate_plan(&project, &plan(video(None, None))).is_ok());
@@ -2837,7 +2998,7 @@ mod integration_tests {
         let (project, frames) = fixture_project();
         let segment = |fade_in: f64, fade_out: f64| PlanSegment {
             kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
-            fit: None, speed: None, lut: None, fade_in, fade_out, video_volume: None, include_audio: true, duration_ticks: 15, overlays: vec![],
+            fit: None, speed: None, lut: None, fade_in, fade_out, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
         };
         let plan = |first: PlanSegment, second: PlanSegment| ExportPlan { segments: vec![first, second], options: export_options() };
         assert!(validate_plan(&project, &plan(segment(0.25, 0.25), segment(0.25, 0.25))).is_ok());
@@ -2915,12 +3076,12 @@ mod integration_tests {
                 PlanSegment {
                     kind: "video".into(), png: None, video: Some(video.clone()), source_in_seconds: Some(0.0),
                     fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio,
-                    duration_ticks: 15, overlays: vec![],
+                    duration_ticks: 15, audio_duration_ticks: None, overlays: vec![],
                 },
                 PlanSegment {
                     kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
                     fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio,
-                    duration_ticks: 15, overlays: vec![],
+                    duration_ticks: 15, audio_duration_ticks: None, overlays: vec![],
                 },
             ],
             options: export_options(),
@@ -2989,7 +3150,7 @@ mod integration_tests {
             segments: vec![PlanSegment {
                 kind: "video".into(), png: None, video: Some(video), source_in_seconds: Some(0.0),
                 fit: Some("cover".into()), speed: Some(2.0), lut: Some(lut),
-                fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, duration_ticks: 15, overlays: vec![],
+                fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
             }],
             options,
         };
@@ -3009,6 +3170,53 @@ mod integration_tests {
         let graded = pixel_at("0.4");
         assert!(faded[0] < 140, "fade-in should darken the first frame: {faded:?}");
         assert!(graded[0] > 240 && graded[1] > 240 && graded[2] > 240, "the LUT should turn the red clip white: {graded:?}");
+    }
+
+    #[test]
+    #[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+    fn real_video_transition_keeps_duration_and_sound() {
+        let binary = ffmpeg().expect("FFmpeg is installed");
+        assert!(encoder_available(&binary, ExportCodec::H264));
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source.mp4");
+        let status = Process::new(&binary)
+            .args([
+                "-y", "-v", "error",
+                "-f", "lavfi", "-i", "color=c=red:s=320x240:r=30:d=1",
+                "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+            ])
+            .arg(&source).status().unwrap();
+        assert!(status.success());
+        let video = format!("data:video/mp4;base64,{}", STANDARD.encode(fs::read(&source).unwrap()));
+        let (project, frames) = fixture_project();
+        let mut options = export_options();
+        options.width = 320; options.height = 240; options.speed = EncodeSpeed::Fast;
+        let mut segments = vec![PlanSegment {
+            kind: "video".into(), png: None, video: Some(video), source_in_seconds: Some(0.0),
+            fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0,
+            video_volume: None, include_audio: true, audio_duration_ticks: Some(30),
+            duration_ticks: 16, overlays: vec![],
+        }];
+        for _ in 0..14 {
+            segments.push(PlanSegment {
+                kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
+                fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0,
+                video_volume: None, include_audio: true, audio_duration_ticks: None,
+                duration_ticks: 1, overlays: vec![],
+            });
+        }
+        let output = temp.path().join("transition.mp4");
+        encode_plan(&project, ExportPlan { segments, options }, binary.clone(), output.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        let probe = Process::new(binary.with_file_name("ffprobe"))
+            .args(["-v", "error", "-show_entries", "stream=codec_type:format=duration,nb_streams", "-of", "json"])
+            .arg(&output).output().unwrap();
+        assert!(probe.status.success(), "{}", String::from_utf8_lossy(&probe.stderr));
+        let info: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
+        let streams = info["streams"].as_array().unwrap();
+        assert!(streams.iter().any(|stream| stream["codec_type"] == "audio"));
+        let duration: f64 = info["format"]["duration"].as_str().unwrap().parse().unwrap();
+        assert!((duration - 1.0).abs() < 0.08, "duration {duration}");
     }
 
     fn fixture_project() -> (Project, Vec<String>) {
@@ -3277,12 +3485,12 @@ mod integration_tests {
                 PlanSegment {
                     kind: "video".into(), png: None, video: Some(format!("pixcut-asset:{id}")), source_in_seconds: Some(0.0),
                     fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None,
-                    include_audio: true, duration_ticks: 15, overlays: vec![],
+                    include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
                 },
                 PlanSegment {
                     kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
                     fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None,
-                    include_audio: true, duration_ticks: 15, overlays: vec![],
+                    include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
                 },
             ],
             options: export_options(),
@@ -3423,6 +3631,7 @@ mod integration_tests {
                     fade_out: 0.0,
                     video_volume: None,
                     include_audio: true,
+                    audio_duration_ticks: None,
                     duration_ticks: 15,
                     overlays: vec![],
                 },
@@ -3438,6 +3647,7 @@ mod integration_tests {
                     fade_out: 0.0,
                     video_volume: None,
                     include_audio: true,
+                    audio_duration_ticks: None,
                     duration_ticks: 15,
                     overlays: vec![PlanOverlay { png: overlay.clone(), frames: (0..15).map(|index| if index < 7 { overlay.clone() } else { red_overlay.clone() }).collect(), start_ticks: 15, duration_ticks: 15 }],
                 },

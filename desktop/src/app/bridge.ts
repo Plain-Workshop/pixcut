@@ -71,7 +71,7 @@ export async function exporterCapabilities(): Promise<ExportCodec[]> { return na
 export type ExportOptions = { codec?: ExportCodec; container?: ExportContainer; speed?: 'fast' | 'medium' | 'slow'; hardware?: boolean; width: number; height: number; fps: number; crf: number; filename: string };
 export type ExportJob = { frames: string[]; durations: number[]; options: ExportOptions };
 export type PlanOverlay = { png: string; frames?: string[]; startTicks: number; durationTicks: number };
-export type PlanSegment = { kind: 'image' | 'video'; png?: string; video?: string; sourceInSeconds?: number; fit?: 'cover' | 'contain' | 'blur'; speed?: number; lut?: string; fadeIn?: number; fadeOut?: number; videoVolume?: number; includeAudio?: boolean; durationTicks: number; overlays: PlanOverlay[] };
+export type PlanSegment = { kind: 'image' | 'video'; png?: string; video?: string; sourceInSeconds?: number; fit?: 'cover' | 'contain' | 'blur'; speed?: number; lut?: string; fadeIn?: number; fadeOut?: number; videoVolume?: number; includeAudio?: boolean; durationTicks: number; /** Clip sound can outlast a shortened visual segment while a transition runs. */ audioDurationTicks?: number; overlays: PlanOverlay[] };
 export type ExportPlan = { segments: PlanSegment[]; options: ExportOptions };
 export async function exportMovie(projectId: string, frames: string[], durations: number[], options: ExportOptions): Promise<string | null> { return invoke('export_movie', { projectId, frames, durations, options }); }
 export async function exportVariants(projectId: string, jobs: ExportJob[], snapshot?: Project): Promise<string[]> { return invoke('export_variants', { projectId, jobs, snapshot }); }

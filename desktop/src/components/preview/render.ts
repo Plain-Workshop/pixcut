@@ -731,12 +731,12 @@ export async function drawTextOverlay(canvas: HTMLCanvasElement, scene: Scene, l
   });
 }
 
-export async function drawTransition(canvas: HTMLCanvasElement, from: Scene, to: Scene, type: TransitionType, aspect: Project['aspect'], quality: 'preview' | 'thumb' | 'export', progress: number, fromLocalSeconds: number, toLocalSeconds: number, timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }, audio: AudioClip[] = []) {
+export async function drawTransition(canvas: HTMLCanvasElement, from: Scene, to: Scene, type: TransitionType, aspect: Project['aspect'], quality: 'preview' | 'thumb' | 'export', progress: number, fromLocalSeconds: number, toLocalSeconds: number, timebase: Timebase = DEFAULT_TIMEBASE, size?: { width: number; height: number }, audio: AudioClip[] = [], fromFrame?: HTMLVideoElement | null, toFrame?: HTMLVideoElement | null) {
   const fromCanvas = document.createElement('canvas');
   const toCanvas = document.createElement('canvas');
   await Promise.all([
-    drawScene(fromCanvas, from, aspect, quality, fromLocalSeconds, timebase, size, undefined, audio),
-    drawScene(toCanvas, to, aspect, quality, toLocalSeconds, timebase, size, undefined, audio),
+    drawScene(fromCanvas, from, aspect, quality, fromLocalSeconds, timebase, size, fromFrame, audio),
+    drawScene(toCanvas, to, aspect, quality, toLocalSeconds, timebase, size, toFrame, audio),
   ]);
   canvas.width = fromCanvas.width;
   canvas.height = fromCanvas.height;

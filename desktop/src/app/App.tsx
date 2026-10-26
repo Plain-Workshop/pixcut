@@ -10,6 +10,7 @@ import { canvasPng } from '../components/preview/png';
 import { framingTravel } from '../components/preview/framing';
 import { centreGuides, edgeGuides, snapToTargets } from '../components/preview/snapping';
 import { registerCustomFonts } from '../components/text/fonts';
+import { splitTransition } from '../components/preview/transition-timing';
 import { parseCaptions, placeCaptions } from '../components/text/captions';
 import { textLayersAsCaptions, toSrt } from '../components/text/captions-export';
 import { applyElementMotion, applyTextMotion } from '../components/animation/keyframes';
@@ -629,7 +630,7 @@ export default function App() {
   const sceneLayerRank = useMemo(() => new Map(sceneLayerStack.map((entry, index) => [`${entry.kind}:${entry.id}`, index])), [sceneLayerStack]);
   const inspectorScene = useMemo(() => selectedScene ? resolveSceneForFormat(selectedScene, activeFormat) : null, [selectedScene, activeFormat]);
   const previewLocalSeconds = previewTarget && active && previewTarget.id === active.id ? Math.max(0, position - activeStart) : 0;
-  const videoScene = previewTarget?.mediaKind === 'video' && !previewTarget.image.startsWith('pixcut-asset:') ? previewTarget : null;
+  const videoScene = previewTarget?.mediaKind === 'video' ? previewTarget : null;
   const textLayerLocal = selectedTextLayer ? previewLocalSeconds - ticksToSeconds(selectedTextLayer.startTicks, project.timebase) : 0;
   const textBox = selectedTextLayer ? textBoxLayout(applyTextMotion(selectedTextLayer, textLayerLocal), displayAspect, activeSize) : null;
   const selectedTextVisible = selectedTextLayer ? layerVisibleAt(selectedTextLayer, previewLocalSeconds, project.timebase) : false;
@@ -1081,7 +1082,7 @@ export default function App() {
       // A transition blends two whole scenes, so overlays are drawn once on top
       // while it runs; everywhere else they join the scene stack.
       if (previewTransition && resolvedNextScene) {
-        await drawTransition(layer, sceneForPreview!, resolvedNextScene, previewTransition.type, displayAspect, 'preview', previewTransition.progress, previewLocalSeconds, 0, project.timebase, renderSize, project.audio);
+        await drawTransition(layer, sceneForPreview!, resolvedNextScene, previewTransition.type, displayAspect, 'preview', previewTransition.progress, previewLocalSeconds, 0, project.timebase, renderSize, project.audio, videoScene ? sceneVideo.current : null);
         await drawProjectOverlays(layer, renderOverlays, position, project.timebase, false, project.audio);
       } else {
         await drawScene(layer, sceneForPreview!, displayAspect, 'preview', previewLocalSeconds, project.timebase, renderSize, videoScene ? sceneVideo.current : null, project.audio, renderOverlays, position);
@@ -3128,6 +3129,45 @@ export default function App() {
     return `${parts.join(' - ')}.${exportContainer}`;
   }
 
+  /**
+   * A hidden video element that can be seeked frame by frame. Transitions need
+   * the outgoing clip's real frames, not its poster, so the planner decodes the
+   * last few frames here and blits them into the same canvas the preview uses.
+   */
+  async function videoFrameReader(sourceValue: string) {
+    const url = await resolveMediaSource(sourceValue);
+    if (!url) throw new Error('That video is missing from the local store. Relink the clip and export again.');
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.src = url;
+    await new Promise<void>((resolve, reject) => {
+      const fail = () => reject(new Error('That video could not be read for the transition. Relink the clip and export again.'));
+      video.addEventListener('loadeddata', () => resolve(), { once: true });
+      video.addEventListener('error', fail, { once: true });
+      video.load();
+    });
+    return {
+      video,
+      async seek(seconds: number) {
+        const end = Number.isFinite(video.duration) && video.duration > 0 ? Math.max(0, video.duration - 0.04) : seconds;
+        const target = Math.max(0, Math.min(seconds, end));
+        if (video.readyState >= 2 && Math.abs(video.currentTime - target) < 0.001) return video;
+        await new Promise<void>((resolve, reject) => {
+          const done = () => { cleanup(); resolve(); };
+          const fail = () => { cleanup(); reject(new Error('That video could not be read for the transition. Relink the clip and export again.')); };
+          const cleanup = () => { video.removeEventListener('seeked', done); video.removeEventListener('error', fail); };
+          video.addEventListener('seeked', done);
+          video.addEventListener('error', fail);
+          video.currentTime = target;
+        });
+        return video;
+      },
+      close() { video.removeAttribute('src'); video.load(); },
+    };
+  }
+
   async function buildVideoPlan(format: FormatVariant, progressRef: { count: number; total: number }, source: Project, visualAudio = source.audio, withClipAudio = exportAudio, nameFormats: FormatVariant[] = [format], nameSlug?: string): Promise<bridge.ExportPlan> {
     const formatScenes = resolveScenesForFormat(projectScenes(source), format);
     const size = formatSize(format);
@@ -3141,12 +3181,17 @@ export default function App() {
       const scene = formatScenes[sceneIndex];
       const next = formatScenes[sceneIndex + 1];
       if (scene.mediaKind === 'video') {
+        // A transition lives in the outgoing clip's tail: the moving picture
+        // stops early and the last window is baked frame by frame, blended with
+        // the next clip's first frame, so the timeline keeps its duration.
+        const transition = scene.transition && next ? scene.transition : null;
+        const { transitionTicks, mainTicks, audioTicks } = splitTransition(scene.durationTicks, transition, source.timebase);
         const overlays: bridge.PlanOverlay[] = [];
         if ((scene.elements?.length ?? 0) || sceneTextLayers(scene).length || source.overlays.length) {
           const frames: string[] = [];
           const canvas = document.createElement('canvas');
           canvas.width = size.width; canvas.height = size.height;
-          for (let frame = 0; frame < scene.durationTicks; frame++) {
+          for (let frame = 0; frame < mainTicks; frame++) {
             if (exportCancelled.current) throw new Error('Export cancelled.');
             await drawOverlayStack(canvas, scene, source.overlays, size, ticksToSeconds(frame, source.timebase), ticksToSeconds(scene.startTicks + frame, source.timebase), source.timebase, true, visualAudio);
             frames.push(await canvasPng(canvas));
@@ -3154,7 +3199,7 @@ export default function App() {
         await new Promise(resolve => setTimeout(resolve, 0));
             if (frame % 10 === 0) await new Promise(resolve => setTimeout(resolve, 0));
           }
-          overlays.push({ png: frames[0], frames, startTicks: scene.startTicks, durationTicks: scene.durationTicks });
+          overlays.push({ png: frames[0], frames, startTicks: scene.startTicks, durationTicks: mainTicks });
         }
         segments.push({
           kind: 'video', video: scene.image,
@@ -3165,11 +3210,36 @@ export default function App() {
           fadeOut: Math.max(0, Math.min(scene.fadeOut ?? 0, ticksToSeconds(scene.durationTicks, source.timebase))),
           videoVolume: Math.min(100, Math.max(0, scene.videoVolume ?? 100)),
           includeAudio: withClipAudio,
-          durationTicks: scene.durationTicks, overlays,
+          durationTicks: mainTicks,
+          ...(audioTicks ? { audioDurationTicks: audioTicks } : {}),
+          overlays,
         });
+        if (transition && next) {
+          const reader = await videoFrameReader(scene.image);
+          const nextReader = next.mediaKind === 'video' ? await videoFrameReader(next.image) : null;
+          try {
+            const toFrame = nextReader ? await nextReader.seek(ticksToSeconds(next.sourceInTicks ?? 0, source.timebase)) : null;
+            const canvas = document.createElement('canvas');
+            const speed = Math.max(.25, Math.min(4, scene.speed ?? 1));
+            for (let frame = 0; frame < transitionTicks; frame++) {
+              if (exportCancelled.current) throw new Error('Export cancelled.');
+              const localTicks = mainTicks + frame;
+              const localSeconds = ticksToSeconds(localTicks, source.timebase);
+              const fromFrame = await reader.seek(ticksToSeconds(scene.sourceInTicks ?? 0, source.timebase) + localSeconds * speed);
+              const progress = Math.min(1, (frame + 1) / transitionTicks);
+              await drawTransition(canvas, scene, next, transition.type, source.aspect, 'export', progress, localSeconds, 0, source.timebase, size, visualAudio, fromFrame, toFrame);
+              await drawProjectOverlays(canvas, source.overlays, ticksToSeconds(scene.startTicks + localTicks, source.timebase), source.timebase, true, visualAudio);
+              segments.push({ kind: 'image', png: await canvasPng(canvas), durationTicks: 1, overlays: [] });
+              tick();
+            }
+          } finally {
+            reader.close();
+            nextReader?.close();
+          }
+        }
         continue;
       }
-      const transitionAllowed = Boolean(scene.transition && next && next.mediaKind !== 'video');
+      const transitionAllowed = Boolean(scene.transition && next);
       const points = exportBoundaries(scene, source.timebase, transitionAllowed, source.overlays);
       for (let index = 0; index < points.length - 1; index++) {
         const durationTicks = points[index + 1] - points[index];
