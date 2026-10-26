@@ -198,12 +198,18 @@ fn asset_hash(bytes: &[u8]) -> String {
         .map(|byte| format!("{byte:02x}"))
         .collect()
 }
+/// A bundle entry either carries its bytes (small embedded media) or points at a
+/// stored file that is streamed into the zip (video/audio references).
+enum BundleSource {
+    Bytes(Vec<u8>),
+    File(PathBuf),
+}
 fn store_asset(
     data: &str,
     name: &str,
     assets: &mut Vec<BundleAsset>,
     by_id: &mut std::collections::HashMap<String, String>,
-    files: &mut Vec<(String, Vec<u8>)>,
+    files: &mut Vec<(String, BundleSource)>,
 ) -> Result<String, String> {
     let (mime, bytes) = parse_data_url(data)?;
     let extension = asset_extension(mime).ok_or("Unsupported asset type.")?;
@@ -218,9 +224,42 @@ fn store_asset(
             mime: mime.to_string(),
             bytes: bytes.len() as u64,
         });
-        files.push((path, bytes));
+        files.push((path, BundleSource::Bytes(bytes)));
     }
     Ok(id)
+}
+/// Adds an already-stored asset to the bundle without reading it into memory.
+fn store_asset_ref(
+    id: &str,
+    name: &str,
+    asset_dir: Option<&Path>,
+    assets: &mut Vec<BundleAsset>,
+    by_id: &mut std::collections::HashMap<String, String>,
+    files: &mut Vec<(String, BundleSource)>,
+) -> Result<String, String> {
+    if by_id.contains_key(id) {
+        return Ok(id.to_string());
+    }
+    let path = asset_dir
+        .and_then(|directory| asset_file(directory, id))
+        .ok_or("Relink missing media before saving this project.")?;
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .ok_or("A stored asset has no extension.")?;
+    let mime = extension_mime(extension).ok_or("A stored asset has an unsupported type.")?;
+    let bytes = fs::metadata(&path).map_err(|e| e.to_string())?.len();
+    let entry = format!("assets/{id}.{extension}");
+    by_id.insert(id.to_string(), entry.clone());
+    assets.push(BundleAsset {
+        id: id.to_string(),
+        path: entry.clone(),
+        name: name.chars().take(120).collect(),
+        mime: mime.to_string(),
+        bytes,
+    });
+    files.push((entry, BundleSource::File(path)));
+    Ok(id.to_string())
 }
 fn project_has_asset_refs(project: &Project) -> bool {
     project.overlays.iter().any(|element| element.source.as_deref().is_some_and(|source| source.starts_with("pixcut-asset:")))
@@ -231,17 +270,16 @@ fn project_has_asset_refs(project: &Project) -> bool {
         || project.audio.iter().any(|clip| clip.data.starts_with("pixcut-asset:"))
         || project.legacy_music.as_ref().is_some_and(|music| music.data.starts_with("pixcut-asset:"))
 }
-fn build_bundle(project: &Project) -> Result<(BundleManifest, Vec<(String, Vec<u8>)>), String> {
-    if project_has_asset_refs(project) {
-        return Err("Relink missing media before saving this project.".into());
-    }
+fn build_bundle(project: &Project, asset_dir: Option<&Path>) -> Result<(BundleManifest, Vec<(String, BundleSource)>), String> {
     let mut portable = project.clone();
     let mut assets = Vec::new();
     let mut by_id = std::collections::HashMap::new();
     let mut files = Vec::new();
     for element in &mut portable.overlays {
                 if let Some(source) = &element.source {
-                    if source.starts_with("data:") {
+                    if let Some(id) = source.strip_prefix("pixcut-asset:") {
+                        store_asset_ref(id, element.label.as_deref().unwrap_or("Overlay"), asset_dir, &mut assets, &mut by_id, &mut files)?;
+                    } else if source.starts_with("data:") {
                         let id = store_asset(source, element.label.as_deref().unwrap_or("Overlay"), &mut assets, &mut by_id, &mut files)?;
                         element.source = Some(format!("pixcut-asset:{id}"));
                     }
@@ -251,13 +289,16 @@ fn build_bundle(project: &Project) -> Result<(BundleManifest, Vec<(String, Vec<u
         for scene in &mut track.clips {
             for element in &mut scene.elements {
                 if let Some(source) = &element.source {
-                    if source.starts_with("data:") {
+                    if let Some(id) = source.strip_prefix("pixcut-asset:") {
+                        store_asset_ref(id, element.label.as_deref().unwrap_or("Overlay"), asset_dir, &mut assets, &mut by_id, &mut files)?;
+                    } else if source.starts_with("data:") {
                         let id = store_asset(source, element.label.as_deref().unwrap_or("Overlay"), &mut assets, &mut by_id, &mut files)?;
                         element.source = Some(format!("pixcut-asset:{id}"));
                     }
                 }
             }
-            if scene.image.starts_with("pixcut-asset:") {
+            if let Some(id) = scene.image.strip_prefix("pixcut-asset:") {
+                store_asset_ref(id, &scene.name, asset_dir, &mut assets, &mut by_id, &mut files)?;
                 continue;
             }
             let id = store_asset(&scene.image, &scene.name, &mut assets, &mut by_id, &mut files)?;
@@ -265,7 +306,9 @@ fn build_bundle(project: &Project) -> Result<(BundleManifest, Vec<(String, Vec<u
         }
     }
     for clip in &mut portable.audio {
-        if !clip.data.starts_with("pixcut-asset:") {
+        if let Some(id) = clip.data.strip_prefix("pixcut-asset:") {
+            store_asset_ref(id, &clip.name, asset_dir, &mut assets, &mut by_id, &mut files)?;
+        } else {
             let id = store_asset(&clip.data, &clip.name, &mut assets, &mut by_id, &mut files)?;
             clip.data = format!("pixcut-asset:{id}").into();
         }
@@ -280,12 +323,9 @@ fn build_bundle(project: &Project) -> Result<(BundleManifest, Vec<(String, Vec<u
     Ok((manifest, files))
 }
 fn write_project_bundle(path: &Path, project: &Project, asset_dir: Option<&Path>) -> Result<(), String> {
-    let mut hydrated = project.clone();
-    if let Some(directory) = asset_dir {
-        // Bundles are portable, so even streamed video is embedded here.
-        hydrate_project(directory, &mut hydrated, false)?;
-    }
-    let (manifest, files) = build_bundle(&hydrated)?;
+    // Streamed media is streamed straight from the asset store into the zip, so
+    // saving a project never has to hold a long video in memory.
+    let (manifest, files) = build_bundle(project, asset_dir)?;
     let parent = path.parent().ok_or("Invalid save location")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let mut tmp = tempfile::Builder::new()
@@ -301,9 +341,15 @@ fn write_project_bundle(path: &Path, project: &Project, asset_dir: Option<&Path>
         archive
             .write_all(&serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
-        for (name, bytes) in files {
+        for (name, source) in files {
             archive.start_file(name, options).map_err(|e| e.to_string())?;
-            archive.write_all(&bytes).map_err(|e| e.to_string())?;
+            match source {
+                BundleSource::Bytes(bytes) => archive.write_all(&bytes).map_err(|e| e.to_string())?,
+                BundleSource::File(source_path) => {
+                    let mut source_file = fs::File::open(&source_path).map_err(|e| e.to_string())?;
+                    std::io::copy(&mut source_file, &mut archive).map_err(|e| e.to_string())?;
+                }
+            }
         }
         archive.finish().map_err(|e| e.to_string())?;
     }
@@ -3366,6 +3412,36 @@ mod integration_tests {
         assert_eq!(project, original);
     }
     #[test]
+    fn streamed_media_saves_into_a_portable_bundle() {
+        let temp = tempfile::tempdir().unwrap();
+        let directory = temp.path().join("assets");
+        let (mut project, _) = fixture_project();
+        // Store both a photo and a music bed, leaving references in the project.
+        project.audio = vec![AudioClip {
+            id: "audio-1".into(),
+            name: "Bed.wav".into(),
+            data: format!("data:audio/wav;base64,{}", STANDARD.encode(wav_silence(1.0))).into(),
+            lane: 0,
+            start_ticks: 0,
+            duration_ticks: 15,
+            source_in_seconds: 0.0,
+            source_duration_seconds: 1.0,
+            volume: 0.8,
+            fade_in: 0.0,
+            fade_out: 0.0,
+        }];
+        let original = project.clone();
+        persist_project(&directory, &mut project).unwrap();
+        assert!(project.visual_clips().iter().all(|scene| scene.image.starts_with("pixcut-asset:")));
+        assert!(project.audio[0].data.starts_with("pixcut-asset:"));
+        let path = temp.path().join("streamed.pixcut");
+        write_project_bundle(&path, &project, Some(&directory)).unwrap();
+        // The archive is portable: reading it back resolves the references.
+        assert_eq!(read_project_bundle(&path).unwrap(), original);
+        assert!(fs::metadata(&path).unwrap().len() > 1_000);
+    }
+
+    #[test]
     fn missing_assets_stay_referenced_and_block_portable_saves() {
         let temp = tempfile::tempdir().unwrap();
         let directory = temp.path().join("assets");
@@ -3378,12 +3454,12 @@ mod integration_tests {
         assert_eq!(project.tracks[0].clips[0].image, format!("pixcut-asset:{missing}").into());
         assert_eq!(project.tracks[0].clips[1].image, available);
         assert!(project_has_asset_refs(&project));
-        assert!(build_bundle(&project).is_err());
+        assert!(build_bundle(&project, None).is_err());
         // Relinking replaces the reference with fresh media bytes, then both
         // portable saves and exports are allowed again.
         project.tracks[0].clips[0].image = "data:image/png;base64,iVBORw0KGgo=".into();
         assert!(!project_has_asset_refs(&project));
-        assert!(build_bundle(&project).is_ok());
+        assert!(build_bundle(&project, None).is_ok());
     }
     #[test]
     #[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]

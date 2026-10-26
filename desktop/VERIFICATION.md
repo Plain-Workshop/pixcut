@@ -970,6 +970,14 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Text layout now clamps the text box horizontally and vertically inside the canvas, and clamps width to the remaining canvas width. This keeps template/editor text inside the frame when an older project or template stores a generous x/y/width. Gallery title previews also wrap long words instead of spilling past the card.
 - Timeline replacement now has visible state: dragging files over the editor shows a full-timeline **“Drop an image or video on a scene”** hint, highlights every scene clip, and the hovered clip shows **REPLACE IMAGE**. While a replacement is processed the clip shows **REPLACING…** with a spinner; the overlay clears on success or failure.
 - **Replace media…** and timeline drops now accept video as well as images. A video replacement probes the clip, uses its poster, keeps the scene’s text/effects and timeline position, clamps the duration to the source, and renames the scene to the file name.
+- Browser check evaluated every text layer in all 14 templates at 16:9, 9:16, 1:1 and 4:5 and found no box outside the canvas after the clamp.
 - Browser checks: the Shape category showed eight cards; a synthetic file drag exposed the timeline hint and the hovered `REPLACE IMAGE` state; dropping a PNG showed the replacing state and finished with “Image replaced”; dropping a generated MP4 produced a VIDEO badge and “Video replaced”. No console errors. Reviewed `output/playwright/shape-library-restored.png`, `timeline-file-drop-hint.png`, and `timeline-replacement-done.png`.
-- Verification: 209 TypeScript tests in 28 files, 39 project-model tests, 23 non-ignored native tests, and all 10 ignored FFmpeg tests pass.
+- Verification: 209 TypeScript tests in 28 files, 39 project-model tests, 24 non-ignored native tests, and all 11 ignored FFmpeg tests pass.
 - Boundary: the native Finder drag path still needs a packaged-app pass on each OS; the browser event path and Tauri `dragDropEnabled: false` configuration are verified. Replacement still reads and decodes the full file before committing, so very large images can take a few seconds; the new replacing state makes that wait visible.
+
+## Streamed bundle saves — 2026-10-26
+
+- `.pixcut` bundle creation no longer hydrates streamed media into memory. `build_bundle` now accepts the asset directory, records references as bundle entries and hands `write_project_bundle` a `BundleSource::File`, which `std::io::copy`s from the store into the zip. Embedded data URLs still take the byte path.
+- Missing references keep blocking portable saves with the relink message; opening a bundle resolves references from its assets exactly as before.
+- Tests: the new `streamed_media_saves_into_a_portable_bundle` persists a photo and a music bed, saves the bundle from references, and asserts the reopened project equals the original (with data URLs); `missing_assets_stay_referenced_and_block_portable_saves` still covers the failure path. Totals: 209 TypeScript tests, 39 project-model tests, 25 native tests.
+- Boundary: zips still use stored (uncompressed) entries; compression is a separate trade-off.
