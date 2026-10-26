@@ -14,13 +14,18 @@ export const ticksToSeconds = (ticks: number, timebase: Timebase = DEFAULT_TIMEB
 export const snapToTick = (seconds: number, timebase: Timebase = DEFAULT_TIMEBASE) => ticksToSeconds(secondsToTicks(seconds, timebase), timebase);
 export const minTicks = (timebase: Timebase = DEFAULT_TIMEBASE) => Math.ceil(0.5 / secondsPerTick(timebase));
 export const maxTicks = (timebase: Timebase = DEFAULT_TIMEBASE) => Math.floor(30 / secondsPerTick(timebase));
+/** Imported video can run for ten minutes; photos stay at the 30 s story beat. */
+export const maxVideoTicks = (timebase: Timebase = DEFAULT_TIMEBASE) => Math.floor(600 / secondsPerTick(timebase));
+export const maxSceneTicks = (scene: Pick<Scene, 'mediaKind'>, timebase: Timebase = DEFAULT_TIMEBASE) => scene.mediaKind === 'video' ? maxVideoTicks(timebase) : maxTicks(timebase);
 export const MAX_AUDIO_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_AUDIO_DATA_CHARS = 70_000_000;
 export const MAX_PROJECT_AUDIO_CHARS = 280_000_000;
 export const MAX_AUDIO_SECONDS = 3600;
+/** Deliverables per project. Identical renders are combined into one file. */
+export const MAX_PROJECT_FORMATS = 24;
 export const sceneSeconds = (scene: Scene, timebase: Timebase = DEFAULT_TIMEBASE) => ticksToSeconds(scene.durationTicks, timebase);
 export const setSceneSeconds = (scene: Scene, seconds: number, timebase: Timebase = DEFAULT_TIMEBASE): Scene => {
-  const ticks = Math.min(maxTicks(timebase), Math.max(minTicks(timebase), secondsToTicks(seconds, timebase)));
+  const ticks = Math.min(maxSceneTicks(scene, timebase), Math.max(minTicks(timebase), secondsToTicks(seconds, timebase)));
   const duration = ticksToSeconds(ticks, timebase);
   return { ...scene, durationTicks: ticks, fadeIn: Math.min(scene.fadeIn ?? 0, duration), fadeOut: Math.min(scene.fadeOut ?? 0, duration) };
 };
@@ -30,7 +35,7 @@ export const setSceneSeconds = (scene: Scene, seconds: number, timebase: Timebas
  * Video clips stay inside their source; photos can stretch up to the 30 s cap.
  */
 export const trimSceneWindow = (scene: Scene, deltaTicks: number, side: 'left' | 'right', timebase: Timebase = DEFAULT_TIMEBASE): Scene => {
-  const minimum = minTicks(timebase), maximum = maxTicks(timebase);
+  const minimum = minTicks(timebase), maximum = maxSceneTicks(scene, timebase);
   const initialDuration = scene.durationTicks;
   const initialSourceIn = scene.sourceInTicks ?? 0;
   const speed = Math.min(4, Math.max(.25, scene.speed ?? 1));
@@ -177,6 +182,8 @@ export type Scene = {
   filterIntensity?: number;
   speed?: number;
   pitch?: boolean;
+  /** Imported clip sound level, 0–100. Missing means 100. */
+  videoVolume?: number;
   fadeIn?: number;
   fadeOut?: number;
   textBackdropEnabled?: boolean;
@@ -434,7 +441,7 @@ function readAudioClip(value: unknown, total: number, timebase: Timebase): Audio
 }
 function readFormats(value: unknown, aspect: Project['aspect'], clipIds: Set<string>): FormatVariant[] {
   if (value === undefined || value === null) return [defaultFormat(aspect)];
-  if (!Array.isArray(value) || value.length === 0 || value.length > 6) throw new Error('A project supports 1–6 output formats.');
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_PROJECT_FORMATS) throw new Error(`A project supports 1–${MAX_PROJECT_FORMATS} output formats.`);
   const ids = new Set<string>();
   return value.map(entry => {
     if (!entry || typeof entry !== 'object') throw new Error('Invalid output format.');
@@ -599,7 +606,7 @@ export function validateProject(value: unknown): Project {
   if (p.schema_version !== 1 && p.schema_version !== 2 && p.schema_version !== 3 && p.schema_version !== 4 && p.schema_version !== 5 && p.schema_version !== 6 && p.schema_version !== 7 && p.schema_version !== 8 && p.schema_version !== 9 && p.schema_version !== 10 && p.schema_version !== 11 && p.schema_version !== 12 && p.schema_version !== 13) throw new Error('Unsupported project version. Your original file has not been changed.');
   if (typeof p.id !== 'string' || typeof p.name !== 'string' || p.name.length > 120 || !['16:9', '9:16', '1:1', '4:5'].includes(p.aspect)) throw new Error('Invalid project format.');
   const timebase = p.schema_version === 1 ? { ...DEFAULT_TIMEBASE } : readTimebase(p.timebase);
-  const minimum = minTicks(timebase), maximum = maxTicks(timebase);
+  const minimum = minTicks(timebase), photoMaximum = maxTicks(timebase);
   const clipIds = new Set<string>();
   let bytes = 0;
   function readClips(candidates: SceneInput[]): Scene[] {
@@ -608,12 +615,13 @@ export function validateProject(value: unknown): Project {
     for (const candidate of candidates) {
       const s = { ...candidate };
       const ticks = p.schema_version === 1 ? secondsToTicks(candidate.duration ?? NaN, timebase) : candidate.durationTicks;
+      const maximum = candidate.mediaKind === 'video' ? maxVideoTicks(timebase) : photoMaximum;
       if (!Number.isInteger(ticks) || (ticks as number) < minimum || (ticks as number) > maximum) throw new Error('A scene contains invalid timing.');
       const startTicks = candidate.startTicks ?? 0;
       const sourceInTicks = candidate.sourceInTicks ?? 0;
       if (!Number.isInteger(startTicks) || startTicks < 0 || !Number.isInteger(sourceInTicks) || sourceInTicks < 0) throw new Error('A clip contains invalid source timing.');
       const duration = ticksToSeconds(ticks as number, timebase);
-      if (!s || typeof s.id !== 'string' || clipIds.has(s.id) || typeof s.name !== 'string' || typeof s.image !== 'string' || (s.mediaKind === 'video' ? (!VIDEO_DATA.test(s.image) && !ASSET_REF.test(s.image)) : (!IMAGE_DATA.test(s.image) && !ASSET_REF.test(s.image))) || (s.mediaKind !== undefined && s.mediaKind !== 'video') || (s.videoPoster !== undefined && (typeof s.videoPoster !== 'string' || !IMAGE_DATA.test(s.videoPoster))) || !optionalNumber(s.sourceDurationSeconds, .01, 3600) || (s.motion !== undefined && !['none', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'ken-burns'].includes(s.motion)) || !optionalNumber(s.motionAmount, 0, .6) || typeof s.title !== 'string' || s.title.length > 120 || typeof s.subtitle !== 'string' || s.subtitle.length > 200 || !/^#[0-9a-fA-F]{6}$/.test(s.color) || !['cover', 'contain', 'blur'].includes(s.fit) || !optionalNumber(s.imageX, -1, 1) || !optionalNumber(s.imageY, -1, 1) || !optionalNumber(s.imageZoom, 1, 4) || !optionalColor(s.framingBackground) || !optionalNumber(s.brightness, 0, 2.5) || !optionalNumber(s.contrast, 0, 2.5) || !optionalNumber(s.saturation, 0, 2.5) || !optionalNumber(s.exposure, -3, 3) || !optionalNumber(s.highlights, -1, 1) || !optionalNumber(s.shadows, -1, 1) || !optionalNumber(s.temperature, -1, 1) || !optionalNumber(s.tint, -1, 1) || !optionalFilter(s.filter) || !optionalNumber(s.filterIntensity, 0, 100) || !optionalNumber(s.speed, 0.25, 4) || (s.pitch !== undefined && typeof s.pitch !== 'boolean') || !optionalNumber(s.fadeIn, 0, duration) || !optionalNumber(s.fadeOut, 0, duration) || (s.textBackdropEnabled !== undefined && typeof s.textBackdropEnabled !== 'boolean') || !optionalColor(s.textBackdropColor) || !optionalNumber(s.textBackdropOpacity, 0, 100) || !optionalNumber(s.textBackdropBlur, 0, 60) || !optionalNumber(s.textBackdropPadding, 0, 80) || !optionalNumber(s.textBackdropRadius, 0, 60) || !optionalNumber(s.textBackdropNoise, 0, 100) || !optionalColor(s.textStrokeColor) || !optionalNumber(s.textStrokeWidth, 0, 12) || (s.textOutlineEnabled !== undefined && typeof s.textOutlineEnabled !== 'boolean') || !optionalColor(s.textShadowColor) || !optionalNumber(s.textShadowBlur, 0, 60) || !optionalNumber(s.textShadowOffsetX, -40, 40) || !optionalNumber(s.textShadowOffsetY, -40, 40) || (s.textShadowEnabled !== undefined && typeof s.textShadowEnabled !== 'boolean') || !optionalNumber(s.textShadowIntensity, 0, 100) || (s.textGlowEnabled !== undefined && typeof s.textGlowEnabled !== 'boolean') || !optionalColor(s.textGlowColor) || !optionalNumber(s.textGlowBlur, 0, 80) || !optionalNumber(s.textGlowIntensity, 0, 100) || !optionalNumber(s.textX, 0, 1) || !optionalNumber(s.textY, 0, 1) || !optionalNumber(s.textWidth, 0.05, 1) || (s.textAlign !== undefined && !['left', 'center', 'right'].includes(s.textAlign)) || (s.textFont !== undefined && (typeof s.textFont !== 'string' || s.textFont.length > 60)) || !optionalNumber(s.textFontWeight, 100, 900) || (s.textFontStyle !== undefined && !['normal', 'italic'].includes(s.textFontStyle)) || !optionalNumber(s.textSize, 0.01, 0.5) || !optionalNumber(s.textLineHeight, 0.5, 3) || !optionalNumber(s.textLetterSpacing, -0.05, 0.2) || !optionalNumber(s.textRotation, -180, 180) || !optionalNumber(s.textOpacity, 0, 100) || !optionalNumber(s.textSubtitleScale, 0.2, 1)) throw new Error('A scene contains invalid image, timing, title, color, or text layout data.');
+      if (!s || typeof s.id !== 'string' || clipIds.has(s.id) || typeof s.name !== 'string' || typeof s.image !== 'string' || (s.mediaKind === 'video' ? (!VIDEO_DATA.test(s.image) && !ASSET_REF.test(s.image)) : (!IMAGE_DATA.test(s.image) && !ASSET_REF.test(s.image))) || (s.mediaKind !== undefined && s.mediaKind !== 'video') || (s.videoPoster !== undefined && (typeof s.videoPoster !== 'string' || !IMAGE_DATA.test(s.videoPoster))) || !optionalNumber(s.sourceDurationSeconds, .01, 3600) || (s.motion !== undefined && !['none', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'ken-burns'].includes(s.motion)) || !optionalNumber(s.motionAmount, 0, .6) || typeof s.title !== 'string' || s.title.length > 120 || typeof s.subtitle !== 'string' || s.subtitle.length > 200 || !/^#[0-9a-fA-F]{6}$/.test(s.color) || !['cover', 'contain', 'blur'].includes(s.fit) || !optionalNumber(s.imageX, -1, 1) || !optionalNumber(s.imageY, -1, 1) || !optionalNumber(s.imageZoom, 1, 4) || !optionalColor(s.framingBackground) || !optionalNumber(s.brightness, 0, 2.5) || !optionalNumber(s.contrast, 0, 2.5) || !optionalNumber(s.saturation, 0, 2.5) || !optionalNumber(s.exposure, -3, 3) || !optionalNumber(s.highlights, -1, 1) || !optionalNumber(s.shadows, -1, 1) || !optionalNumber(s.temperature, -1, 1) || !optionalNumber(s.tint, -1, 1) || !optionalFilter(s.filter) || !optionalNumber(s.filterIntensity, 0, 100) || !optionalNumber(s.speed, 0.25, 4) || (s.pitch !== undefined && typeof s.pitch !== 'boolean') || !optionalNumber(s.videoVolume, 0, 100) || !optionalNumber(s.fadeIn, 0, duration) || !optionalNumber(s.fadeOut, 0, duration) || (s.textBackdropEnabled !== undefined && typeof s.textBackdropEnabled !== 'boolean') || !optionalColor(s.textBackdropColor) || !optionalNumber(s.textBackdropOpacity, 0, 100) || !optionalNumber(s.textBackdropBlur, 0, 60) || !optionalNumber(s.textBackdropPadding, 0, 80) || !optionalNumber(s.textBackdropRadius, 0, 60) || !optionalNumber(s.textBackdropNoise, 0, 100) || !optionalColor(s.textStrokeColor) || !optionalNumber(s.textStrokeWidth, 0, 12) || (s.textOutlineEnabled !== undefined && typeof s.textOutlineEnabled !== 'boolean') || !optionalColor(s.textShadowColor) || !optionalNumber(s.textShadowBlur, 0, 60) || !optionalNumber(s.textShadowOffsetX, -40, 40) || !optionalNumber(s.textShadowOffsetY, -40, 40) || (s.textShadowEnabled !== undefined && typeof s.textShadowEnabled !== 'boolean') || !optionalNumber(s.textShadowIntensity, 0, 100) || (s.textGlowEnabled !== undefined && typeof s.textGlowEnabled !== 'boolean') || !optionalColor(s.textGlowColor) || !optionalNumber(s.textGlowBlur, 0, 80) || !optionalNumber(s.textGlowIntensity, 0, 100) || !optionalNumber(s.textX, 0, 1) || !optionalNumber(s.textY, 0, 1) || !optionalNumber(s.textWidth, 0.05, 1) || (s.textAlign !== undefined && !['left', 'center', 'right'].includes(s.textAlign)) || (s.textFont !== undefined && (typeof s.textFont !== 'string' || s.textFont.length > 60)) || !optionalNumber(s.textFontWeight, 100, 900) || (s.textFontStyle !== undefined && !['normal', 'italic'].includes(s.textFontStyle)) || !optionalNumber(s.textSize, 0.01, 0.5) || !optionalNumber(s.textLineHeight, 0.5, 3) || !optionalNumber(s.textLetterSpacing, -0.05, 0.2) || !optionalNumber(s.textRotation, -180, 180) || !optionalNumber(s.textOpacity, 0, 100) || !optionalNumber(s.textSubtitleScale, 0.2, 1)) throw new Error('A scene contains invalid image, timing, title, color, or text layout data.');
       delete s.duration;
       s.durationTicks = ticks as number;
       s.startTicks = startTicks;
@@ -694,6 +702,7 @@ const SCENE_PATCH_FIELDS = [
   { key: 'filterIntensity', value: (scene: Scene) => scene.filterIntensity ?? 100 },
   { key: 'speed', value: (scene: Scene) => scene.speed ?? 1 },
   { key: 'pitch', value: (scene: Scene) => scene.pitch ?? true },
+  { key: 'videoVolume', value: (scene: Scene) => scene.videoVolume ?? 100 },
   { key: 'fadeIn', value: (scene: Scene) => scene.fadeIn ?? 0 },
   { key: 'fadeOut', value: (scene: Scene) => scene.fadeOut ?? 0 },
   { key: 'textBackdropEnabled', value: (scene: Scene) => scene.textBackdropEnabled ?? false },

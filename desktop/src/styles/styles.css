@@ -1770,3 +1770,44 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .toast { left: 18px; bottom: 34px; transform: none; max-width: min(440px, calc(100% - 36px)); }
 /* Keep rail labels readable in the dark theme without overriding the active pill. */
 .app.theme-dark .tool-rail > button:not(.active) { color: #b4b4bf; }
+
+/* Project setup: social formats grouped by platform, sized to fit a laptop. */
+.modal.project-setup { width: min(980px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+.project-setup > h2, .project-setup > p { flex: 0 0 auto; }
+.project-setup-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding-right: 6px; }
+.project-setup-body::-webkit-scrollbar { width: 8px; }
+.project-setup-foot { flex: 0 0 auto; padding: 12px 0 18px; margin-top: 10px; border-top: 1px solid #2A3052; }
+.project-setup .modal-actions { margin-top: 10px; }
+
+.format-groups { columns: 2; column-gap: 18px; margin-top: 12px; }
+.format-group { break-inside: avoid; margin: 0 0 14px; }
+.project-setup-body .settings-section-title { margin-top: 16px; }
+.format-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+.format-group-head strong { font-size: 11px; letter-spacing: .2px; color: #E7E8FA; }
+.format-group-head span { font-size: 8px; letter-spacing: .5px; text-transform: uppercase; color: #858CAC; white-space: nowrap; }
+.format-group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 7px; }
+.format-group-grid .format-card { padding: 8px 9px; }
+
+.format-pick-summary { display: flex; align-items: flex-start; gap: 7px; margin-top: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid #2E3558; background: #12162E; color: #B9BFDC; font-size: 9.5px; line-height: 1.5; }
+.format-pick-summary strong { color: #EDEBFF; }
+.format-pick-summary svg { flex-shrink: 0; margin-top: 1px; color: #A48CFF; }
+.project-setup-foot .format-pick-summary { margin-top: 0; }
+
+.export-combine-note { display: flex; gap: 7px; align-items: flex-start; margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; border: 1px solid #3A3F62; background: #1b2036; color: #c4cbe6; font-size: 9.5px; line-height: 1.5; }
+.export-combine-note svg { flex-shrink: 0; margin-top: 1px; color: #A48CFF; }
+.export-file-preview div small { display: block; margin-top: 2px; color: #91869f; font-size: 9px; line-height: 1.4; }
+
+@media (max-width: 900px) { .format-groups { columns: 1; } }
+@media (max-width: 620px) { .modal.project-setup { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); } .format-group-grid { grid-template-columns: 1fr; } }
+
+/* Deliverable badges on project cards stay compact and readable. */
+.project-formats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 2px; }
+.project-format-chip { padding: 1px 5px; border-radius: 4px; border: 1px solid #DCD4F4; background: rgba(124, 92, 255, .08); color: #6F5FB5; font-size: 7.5px; font-weight: 600; letter-spacing: .2px; }
+.project-format-count { color: #9A93B5; font-size: 7.5px; letter-spacing: .3px; text-transform: uppercase; }
+.app.theme-dark .project-format-chip { border-color: #4a4470; background: rgba(124, 92, 255, .16); color: #c9bdf7; }
+.app.theme-dark .project-format-count { color: #9a9aa3; }
+
+/* Caption import sits above the title presets. */
+.caption-import { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #2A3052; }
+.caption-import .button { justify-content: center; }
+.caption-import small { color: #858CAC; font-size: 8.5px; line-height: 1.5; text-align: center; }

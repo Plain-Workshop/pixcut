@@ -447,7 +447,7 @@ export function SceneForm({
 
   function speedPatch(target: number): Partial<Scene> {
     const baseDuration = sceneSeconds(draftRef.current, timebase) * (draftRef.current.speed ?? 1);
-    const duration = clamp(baseDuration / target, 0.5, 30);
+    const duration = clamp(baseDuration / target, 0.5, draftRef.current.mediaKind === 'video' ? 600 : 30);
     const resized = setSceneSeconds(draftRef.current, duration, timebase);
     return {
       speed: target,
@@ -608,7 +608,7 @@ export function SceneForm({
     {tab === 'elements' && elementPanel}
 
     {tab === 'video' && <>
-      <RangeField label="Duration" value={duration} min={0.5} max={30} step={0.1} unit="s" onChange={stageDuration} onCommit={() => commit()} />
+      <RangeField label="Duration" value={duration} min={0.5} max={draft.mediaKind === 'video' ? 600 : 30} step={0.1} unit="s" onChange={stageDuration} onCommit={() => commit()} />
       <div className="framing-modes" role="group" aria-label="Image framing">{([['cover', 'Fill', Crop], ['contain', 'Fit', Maximize2], ['blur', 'Blur fill', Blend]] as const).map(([fit, label, Icon]) => <button key={fit} aria-pressed={draft.fit === fit} className={draft.fit === fit ? 'active' : ''} onClick={() => apply({ fit }, ['fit'])}><Icon size={16} />{label}</button>)}</div>
       <div className="range-field"><div className="range-head"><span>Zoom</span><span className="range-value">{Math.round((draft.imageZoom ?? 1) * 100)}%</span></div><input aria-label="Image zoom" type="range" min="100" max="400" step="1" value={Math.round((draft.imageZoom ?? 1) * 100)} onChange={event => preview(stage({ imageZoom: Number(event.target.value) / 100 }))} onPointerUp={() => commit()} onKeyUp={() => commit()} /></div>
       <div className="framing-actions">
@@ -770,6 +770,8 @@ export function SceneForm({
     {tab === 'speed' && draft.mediaKind === 'video' && <>
       <div className="speed-presets">{SPEED_PRESETS.map(value => <button key={value} className={`button ${Math.abs(speed - value) < 0.01 ? 'active' : ''}`} onClick={() => applySpeed(value)}>{value}×</button>)}</div>
       <RangeField label="Speed" value={speed} min={0.25} max={4} step={0.05} unit="×" onChange={stageSpeed} onCommit={() => applySpeed(draftRef.current.speed ?? 1)} />
+      <RangeField label="Clip sound" value={draft.videoVolume ?? 100} min={0} max={100} step={1} unit="%" onChange={value => stage({ videoVolume: value })} onCommit={() => commit()} />
+      <label className="checkbox-field"><input type="checkbox" checked={(draft.videoVolume ?? 100) > 0} onChange={event => apply({ videoVolume: event.target.checked ? 100 : 0 }, ['videoVolume'])} /> Play the clip's own audio</label>
       <p className="inspector-inline-status">Duration · {duration.toFixed(1)} s</p>
     </>}
 

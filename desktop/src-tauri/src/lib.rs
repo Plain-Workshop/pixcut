@@ -680,7 +680,7 @@ fn safe_filename(name: &str) -> String {
         .filter(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_'))
         .collect();
     let trimmed = cleaned.trim();
-    let limited: String = trimmed.chars().take(80).collect();
+    let limited: String = trimmed.chars().take(120).collect();
     if limited.is_empty() {
         "PixCut project".into()
     } else {
@@ -1212,6 +1212,9 @@ struct PlanSegment {
     fade_in: f64,
     #[serde(default)]
     fade_out: f64,
+    /// Imported clip sound level (0–100). Missing means full volume.
+    #[serde(default)]
+    video_volume: Option<f64>,
     /// The export dialog's include-audio switch. Older callers omit it.
     #[serde(default = "default_true")]
     include_audio: bool,
@@ -1263,6 +1266,11 @@ fn validate_plan(project: &Project, plan: &ExportPlan) -> Result<(), String> {
                 let speed = segment.speed.unwrap_or(1.0);
                 if !speed.is_finite() || !(0.25..=4.0).contains(&speed) {
                     return Err("A video segment has an invalid speed.".into());
+                }
+                if let Some(volume) = segment.video_volume {
+                    if !volume.is_finite() || !(0.0..=100.0).contains(&volume) {
+                        return Err("A video segment has an invalid sound level.".into());
+                    }
                 }
                 if let Some(lut) = segment.lut.as_deref() {
                     if lut.is_empty()
@@ -1373,7 +1381,7 @@ fn encode_plan(
     let mut overlays: Vec<(usize, f64, f64)> = Vec::new();
     // Imported video clips contribute their own soundtrack: (input, speed,
     // duration, timeline start, fade in, fade out).
-    let mut video_audio: Vec<(usize, f64, f64, f64, f64, f64)> = Vec::new();
+    let mut video_audio: Vec<(usize, f64, f64, f64, f64, f64, Option<f64>)> = Vec::new();
     let mut input_index = 0usize;
     let mut timeline_offset = 0.0f64;
     for (index, segment) in plan.segments.iter().enumerate() {
@@ -1417,6 +1425,7 @@ fn encode_plan(
                         segment_start,
                         segment.fade_in.min(duration),
                         segment.fade_out.min(duration),
+                        segment.video_volume,
                     ));
                 }
                 if let Some(lut) = segment.lut.as_deref() {
@@ -1540,8 +1549,13 @@ fn encode_plan(
         node.push_str(&format!(",adelay={delay}:all=1[am{}]", index));
         audio_nodes.push(node);
     }
-    for (index, (input, speed, duration, start, fade_in, fade_out)) in video_audio.iter().enumerate() {
+    for (index, (input, speed, duration, start, fade_in, fade_out, volume)) in video_audio.iter().enumerate() {
         let mut node = format!("[{input}:a]asetpts=PTS-STARTPTS,aresample=48000");
+        if let Some(volume) = volume {
+            if *volume < 99.999 {
+                node.push_str(&format!(",volume={:.3}", volume / 100.0));
+            }
+        }
         if (speed - 1.0).abs() > 1e-9 {
             node.push_str(&format!(",{}", atempo_chain(*speed)));
         }
@@ -2046,7 +2060,7 @@ mod integration_tests {
             let plan = ExportPlan {
                 segments: frames.into_iter().map(|png| PlanSegment {
                     kind: "image".into(), png: Some(png), video: None, source_in_seconds: None,
-                    fit: None, speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, include_audio: true, duration_ticks: 15, overlays: vec![],
+                    fit: None, speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, duration_ticks: 15, overlays: vec![],
                 }).collect(),
                 options: options.clone(),
             };
@@ -2077,7 +2091,7 @@ mod integration_tests {
             let mut options = export_options(); options.width = 320; options.height = 240; options.codec = ExportCodec::Hevc; options.container = container; options.speed = EncodeSpeed::Fast;
             let output = temp.path().join(format!("photo.{}", container.extension()));
             encode_movie(project.clone(), frames.clone(), vec![15,15], options.clone(), binary.clone(), output.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
-            let plan = ExportPlan { segments: frames.into_iter().map(|png| PlanSegment { kind: "image".into(), png: Some(png), video: None, source_in_seconds: None, fit: None, speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, include_audio: true, duration_ticks: 15, overlays: vec![] }).collect(), options };
+            let plan = ExportPlan { segments: frames.into_iter().map(|png| PlanSegment { kind: "image".into(), png: Some(png), video: None, source_in_seconds: None, fit: None, speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, duration_ticks: 15, overlays: vec![] }).collect(), options };
             let plan_output = temp.path().join(format!("plan.{}", container.extension()));
             encode_plan(&project, plan, binary.clone(), plan_output.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
             for file in [output, plan_output] {
@@ -2093,12 +2107,12 @@ mod integration_tests {
         let (project, frames) = fixture_project();
         let image = || PlanSegment {
             kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
-            fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, include_audio: true, duration_ticks: 15, overlays: vec![],
+            fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, duration_ticks: 15, overlays: vec![],
         };
         let video = |speed: Option<f64>, lut: Option<String>| PlanSegment {
             kind: "video".into(), png: None, video: Some("data:video/mp4;base64,AA==".into()),
             source_in_seconds: Some(0.0), fit: Some("cover".into()), speed, lut,
-            fade_in: 0.0, fade_out: 0.0, include_audio: true, duration_ticks: 15, overlays: vec![],
+            fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, duration_ticks: 15, overlays: vec![],
         };
         let plan = |second: PlanSegment| ExportPlan { segments: vec![image(), second], options: export_options() };
         assert!(validate_plan(&project, &plan(video(None, None))).is_ok());
@@ -2114,7 +2128,7 @@ mod integration_tests {
         let (project, frames) = fixture_project();
         let segment = |fade_in: f64, fade_out: f64| PlanSegment {
             kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
-            fit: None, speed: None, lut: None, fade_in, fade_out, include_audio: true, duration_ticks: 15, overlays: vec![],
+            fit: None, speed: None, lut: None, fade_in, fade_out, video_volume: None, include_audio: true, duration_ticks: 15, overlays: vec![],
         };
         let plan = |first: PlanSegment, second: PlanSegment| ExportPlan { segments: vec![first, second], options: export_options() };
         assert!(validate_plan(&project, &plan(segment(0.25, 0.25), segment(0.25, 0.25))).is_ok());
@@ -2176,12 +2190,12 @@ mod integration_tests {
             segments: vec![
                 PlanSegment {
                     kind: "video".into(), png: None, video: Some(video.clone()), source_in_seconds: Some(0.0),
-                    fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, include_audio,
+                    fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio,
                     duration_ticks: 15, overlays: vec![],
                 },
                 PlanSegment {
                     kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
-                    fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, include_audio,
+                    fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio,
                     duration_ticks: 15, overlays: vec![],
                 },
             ],
@@ -2249,7 +2263,7 @@ mod integration_tests {
             segments: vec![PlanSegment {
                 kind: "video".into(), png: None, video: Some(video), source_in_seconds: Some(0.0),
                 fit: Some("cover".into()), speed: Some(2.0), lut: Some(lut),
-                fade_in: 0.0, fade_out: 0.0, include_audio: true, duration_ticks: 15, overlays: vec![],
+                fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, duration_ticks: 15, overlays: vec![],
             }],
             options,
         };
@@ -2319,6 +2333,7 @@ mod integration_tests {
                 filter_intensity: 100.0,
                 speed: 1.0,
                 pitch: true,
+                video_volume: None,
                 fade_in: 0.0,
                 fade_out: 0.0,
                 text_backdrop_enabled: false,
@@ -2445,7 +2460,7 @@ mod integration_tests {
     fn project_filename_is_safe_and_bounded() {        assert_eq!(safe_filename("A little further"), "A little further");
         assert_eq!(safe_filename("../../etc/passwd"), "etcpasswd");
         assert_eq!(safe_filename("   "), "PixCut project");
-        assert_eq!(safe_filename(&"x".repeat(200)).chars().count(), 80);
+        assert_eq!(safe_filename(&"x".repeat(200)).chars().count(), 120);
     }
 
     #[test]
@@ -2554,6 +2569,7 @@ mod integration_tests {
                     lut: None,
                     fade_in: 0.0,
                     fade_out: 0.0,
+                    video_volume: None,
                     include_audio: true,
                     duration_ticks: 15,
                     overlays: vec![],
@@ -2568,6 +2584,7 @@ mod integration_tests {
                     lut: None,
                     fade_in: 0.0,
                     fade_out: 0.0,
+                    video_volume: None,
                     include_audio: true,
                     duration_ticks: 15,
                     overlays: vec![PlanOverlay { png: overlay.clone(), frames: (0..15).map(|index| if index < 7 { overlay.clone() } else { red_overlay.clone() }).collect(), start_ticks: 15, duration_ticks: 15 }],

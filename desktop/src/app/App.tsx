@@ -5,6 +5,7 @@ import { exportEta, exportOutputFormat } from './export-progress';
 import { canvasPng } from '../components/preview/png';
 import { framingTravel } from '../components/preview/framing';
 import { centreGuides, edgeGuides, snapToTargets } from '../components/preview/snapping';
+import { parseCaptions, placeCaptions } from '../components/text/captions';
 import { videoGain } from '../components/preview/video-audio';
 import { timelineOverlays, replaceOverlay, constrainOverlay, type TimelineOverlay } from '../components/elements/overlays';
 import { sceneStack, stackIndex, stackZ, overlaysForScene, type StackMove } from '../components/elements/stack';
@@ -98,14 +99,14 @@ import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import { ShortcutSettings } from '../components/shortcuts/ShortcutSettings';
 import * as bridge from './bridge';
-import { MAX_AUDIO_FILE_BYTES, edit, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
+import { MAX_AUDIO_FILE_BYTES, MAX_PROJECT_FORMATS, edit, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawOverlayStack, drawScene, drawProjectOverlays, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
 import { gradeLutCube } from '../components/preview/filters';
 import { Waveform } from '../components/timeline/Waveform';
 import { probeVideo, videoFileData } from '../components/preview/video';
 import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers, sceneTextTitle } from '../components/text/layers';
 import { clampWeight, fontOption } from '../components/text/fonts';
-import { FORMAT_PRESETS, createCustomFormat, createFormat, formatSize, resolveSceneForFormat, resolveScenesForFormat } from '../stores/formats';
+import { FORMAT_GROUPS, FORMAT_PRESETS, createCustomFormat, createFormat, formatSlug, formatSize, groupFormatsByOutput, resolveSceneForFormat, resolveScenesForFormat } from '../stores/formats';
 import { errorTitle, isImageFile, messageFor } from './errors';
 import { deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, listProjects, projectThumbnail, renameProjectGroup, saveLibraryProject, setProjectFavorite, setProjectGroup, type ProjectSummary } from '../stores/library';
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from '../stores/preferences';
@@ -403,6 +404,13 @@ export default function App() {
   const [textFocus, setTextFocus] = useState(0);
   const [activeFormatId, setActiveFormatId] = useState<string | null>(null);
   const [newFormatIds, setNewFormatIds] = useState<string[]>(['youtube-video']);
+  // Mirrors startWithFormats() so the modal can preview how many files the
+  // selection will actually produce.
+  const newFormatSelection = [
+    ...FORMAT_PRESETS.filter(preset => newFormatIds.includes(preset.id)).map(preset => ({ name: preset.name, presetId: preset.id, platform: preset.platform, width: preset.width, height: preset.height, fps: preset.fps, quality: preset.quality })),
+    ...newCustomFormats,
+  ];
+  const newFormatOutputs = groupFormatsByOutput(newFormatSelection);
   const [exportFormatIds, setExportFormatIds] = useState<string[]>([]);
   const [framingMode, setFramingMode] = useState(false);
   const [, setFontTick] = useState(0);
@@ -456,7 +464,7 @@ export default function App() {
   }, [timelineZoom]);
 
   const pending = useRef<Promise<boolean>>(Promise.resolve(true)), latestProject = useRef(INITIAL.project);
-  const mediaInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null), replaceInput = useRef<HTMLInputElement>(null), audioInput = useRef<HTMLInputElement>(null), videoInput = useRef<HTMLInputElement>(null), sceneVideo = useRef<HTMLVideoElement>(null), preview = useRef<HTMLCanvasElement>(null), audioElements = useRef<Map<string, HTMLAudioElement>>(new Map()), previewArea = useRef<HTMLDivElement>(null), previewStage = useRef<HTMLDivElement>(null), operation = useRef(false);
+  const mediaInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null), replaceInput = useRef<HTMLInputElement>(null), audioInput = useRef<HTMLInputElement>(null), captionInput = useRef<HTMLInputElement>(null), videoInput = useRef<HTMLInputElement>(null), sceneVideo = useRef<HTMLVideoElement>(null), preview = useRef<HTMLCanvasElement>(null), audioElements = useRef<Map<string, HTMLAudioElement>>(new Map()), previewArea = useRef<HTMLDivElement>(null), previewStage = useRef<HTMLDivElement>(null), operation = useRef(false);
   const replaceTargetId = useRef<string | null>(null), inspectorFlush = useRef<() => void>(() => {}), audioDraftRef = useRef<AudioClip | null>(null), audioLaneRef = useRef(0);
   const sceneQueue = useRef<Command[]>([]), previewQueue = useRef<LatestRenderQueue | null>(null), timelineScroll = useRef<HTMLDivElement>(null);
   const positionRef = useRef(0), closeModalRef = useRef<() => void>(() => {}), commandRef = useRef<(id: string) => void>(() => {});
@@ -477,6 +485,8 @@ export default function App() {
   const activeFormat = project.formats.find(format => format.id === activeFormatId) ?? project.formats[0];
   const activeSize = formatSize(activeFormat);
   const exportFormats = project.formats.map(format => exportOutputFormat(format, exportResolution, exportQuality, exportFps));
+  const exportOutputs = groupFormatsByOutput(exportFormats.filter(format => exportFormatIds.includes(format.id)));
+  const projectFormatOutputs = groupFormatsByOutput(project.formats);
   const displayAspect = project.aspect;
   const cueAudio = useMemo(() => actionAudio(project), [project]);
   const audioClips = previewAudio ?? project.audio;
@@ -890,7 +900,7 @@ export default function App() {
     const target = Math.max(0, Math.min(sourceIn + previewLocalSeconds * speed, end - 0.04));
     if (element.playbackRate !== speed) element.playbackRate = speed;
     const clipSeconds = Math.max(0.001, ticksToSeconds(videoScene.durationTicks, project.timebase));
-    element.volume = videoGain(previewLocalSeconds, clipSeconds, videoScene.fadeIn ?? 0, videoScene.fadeOut ?? 0);
+    element.volume = videoGain(previewLocalSeconds, clipSeconds, videoScene.fadeIn ?? 0, videoScene.fadeOut ?? 0, videoScene.videoVolume ?? 100);
     if (element.readyState >= 2 && Math.abs(element.currentTime - target) > 0.12) element.currentTime = target;
   }, [previewLocalSeconds, videoScene?.id, videoScene?.speed, videoScene?.fadeIn, videoScene?.fadeOut, project.timebase]);
 
@@ -1838,7 +1848,7 @@ export default function App() {
   }
 
   async function addFormat(presetId: string) {
-    if (project.formats.length >= 6) { setNotice('A project supports up to six output formats.'); return; }
+    if (project.formats.length >= MAX_PROJECT_FORMATS) { setNotice(`A project supports up to ${MAX_PROJECT_FORMATS} output formats.`); return; }
     const format = createFormat(presetId, project.formats);
     if (await run({ type: 'formats', formats: [...project.formats, format] })) {
       setActiveFormatId(format.id);
@@ -1853,6 +1863,7 @@ export default function App() {
   }
 
   function addNewCustomFormat() {
+    if (newFormatSelection.length >= MAX_PROJECT_FORMATS) { setNotice(`A project supports up to ${MAX_PROJECT_FORMATS} output formats.`); return; }
     const width = Math.round(customFormatDraft.width / 2) * 2;
     const height = Math.round(customFormatDraft.height / 2) * 2;
     if (width < 240 || height < 240 || width > 3840 || height > 3840) { setError('Custom size must be between 240 and 3840 pixels.'); return; }
@@ -1861,7 +1872,7 @@ export default function App() {
   }
 
   async function addCustomFormat() {
-    if (project.formats.length >= 6) { setNotice('A project supports up to six output formats.'); return; }
+    if (project.formats.length >= MAX_PROJECT_FORMATS) { setNotice(`A project supports up to ${MAX_PROJECT_FORMATS} output formats.`); return; }
     const width = Math.round(customFormatDraft.width / 2) * 2;
     const height = Math.round(customFormatDraft.height / 2) * 2;
     if (width < 240 || height < 240 || width > 3840 || height > 3840) { setError('Custom size must be between 240 and 3840 pixels.'); return; }
@@ -2129,7 +2140,7 @@ export default function App() {
         videoBytes += data.length;
         if (videoBytes > 140_000_000) throw new Error('This project supports up to about 100 MB of video. Remove a clip or use a shorter one.');
         const probe = await probeVideo(data);
-        const seconds = Math.min(30, Math.max(0.5, probe.duration));
+        const seconds = Math.min(600, Math.max(0.5, probe.duration));
         added.push({
           id: crypto.randomUUID(), startTicks: 0, sourceInTicks: 0, name: file.name, image: data,
           mediaKind: 'video', videoPoster: probe.poster, sourceDurationSeconds: Math.min(3600, Math.max(.01, probe.duration)),
@@ -2140,6 +2151,25 @@ export default function App() {
       await stageImportedMedia(added);
     } catch (e) { setError(messageFor(e)); }
     finally { setBusy(false); operation.current = false; if (videoInput.current) videoInput.current.value = ''; }
+  }
+
+  async function importCaptionFile(files: FileList | null) {
+    const file = files?.[0];
+    if (!file || !canEdit) return;
+    try {
+      const cues = parseCaptions(await file.text());
+      const { changed, placement } = placeCaptions(projectScenes(latestProject.current), cues, project.timebase);
+      if (!changed.length) { setError('Those captions fall outside the timeline. Add scenes or import a file that matches the story length.'); return; }
+      if (!await run({ type: 'updateMany', scenes: changed })) return;
+      const notes = [`${placement.added} caption${placement.added === 1 ? '' : 's'} across ${placement.scenes} scene${placement.scenes === 1 ? '' : 's'}`];
+      if (placement.split) notes.push(`${placement.split} long cue${placement.split === 1 ? '' : 's'} split`);
+      if (placement.skipped) notes.push(`${placement.skipped} skipped`);
+      setNotice(`${notes.join(' · ')}. Style them in Text.`);
+    } catch (error) {
+      setError(messageFor(error));
+    } finally {
+      if (captionInput.current) captionInput.current.value = '';
+    }
   }
 
   async function chooseAudio() {
@@ -2475,15 +2505,28 @@ export default function App() {
     setModal('export');
   }
 
-  function exportFilename(format?: FormatVariant, includeFormat = false) {
-    const parts = [exportSettings.name.trim() || project.name || 'PixCut project'];
+  /**
+   * One file can serve several social formats. When that happens the name lists
+   * every platform it covers, e.g. `Story - insta-story+tiktok+fb-reels - 1080x1920.mp4`.
+   */
+  function exportFilename(delivery: { formats: { name: string; presetId?: string | null; quality: string; width: number; height: number }[]; slug?: string }, includeFormat = false) {
+    const formats = delivery.formats;
+    const first = formats[0];
+    const combined = formats.length > 1;
+    const name = exportSettings.name.trim() || project.name || 'PixCut project';
+    if (combined && first) {
+      // Compact delivery: Story-v1-yt-ig-tt-fb-sc-1080x1920.mp4
+      const tokens: [string, number][] = [[name, 48], [exportSettings.version.trim(), 16], [delivery.slug ?? formats.map(format => formatSlug(format)).join('-'), 40], [`${first.width}x${first.height}`, 12]];
+      return `${tokens.filter(([token]) => token).map(([token, limit]) => token.replace(/\s+/g, '-').slice(0, limit)).join('-')}.${exportContainer}`;
+    }
+    const parts = [name];
     if (exportSettings.version.trim()) parts.push(exportSettings.version.trim());
-    if (format && (includeFormat || exportSettings.includePreset)) parts.push(format.name);
-    if (exportSettings.includeQuality && format) parts.push(format.quality === 'draft' ? 'Draft' : format.quality === 'high' ? 'High quality' : 'Standard');
+    if (first && (includeFormat || exportSettings.includePreset)) parts.push(first.name);
+    if (first && exportSettings.includeQuality) parts.push(first.quality === 'draft' ? 'Draft' : first.quality === 'high' ? 'High quality' : 'Standard');
     return `${parts.join(' - ')}.${exportContainer}`;
   }
 
-  async function buildVideoPlan(format: FormatVariant, progressRef: { count: number; total: number }, source: Project, visualAudio = source.audio, withClipAudio = exportAudio): Promise<bridge.ExportPlan> {
+  async function buildVideoPlan(format: FormatVariant, progressRef: { count: number; total: number }, source: Project, visualAudio = source.audio, withClipAudio = exportAudio, nameFormats: FormatVariant[] = [format], nameSlug?: string): Promise<bridge.ExportPlan> {
     const formatScenes = resolveScenesForFormat(projectScenes(source), format);
     const size = formatSize(format);
     const segments: bridge.PlanSegment[] = [];
@@ -2518,6 +2561,7 @@ export default function App() {
           lut: gradeLutCube(scene) ?? undefined,
           fadeIn: Math.max(0, Math.min(scene.fadeIn ?? 0, ticksToSeconds(scene.durationTicks, source.timebase))),
           fadeOut: Math.max(0, Math.min(scene.fadeOut ?? 0, ticksToSeconds(scene.durationTicks, source.timebase))),
+          videoVolume: Math.min(100, Math.max(0, scene.videoVolume ?? 100)),
           includeAudio: withClipAudio,
           durationTicks: scene.durationTicks, overlays,
         });
@@ -2547,7 +2591,7 @@ export default function App() {
     }
     return {
       segments,
-      options: { width: size.width, height: size.height, fps: format.fps, codec: exportCodec, container: exportContainer, speed: exportSpeed, crf: EXPORT_CODEC_CRF[exportCodec][format.quality], filename: exportFilename(format, false) },
+      options: { width: size.width, height: size.height, fps: format.fps, codec: exportCodec, container: exportContainer, speed: exportSpeed, crf: EXPORT_CODEC_CRF[exportCodec][format.quality], filename: exportFilename({ formats: nameFormats, slug: nameSlug }, nameFormats.length > 1) },
     };
   }
 
@@ -2579,14 +2623,17 @@ export default function App() {
     snapshot.audio = exportAudio ? [...snapshot.audio, ...actionAudio(snapshot)] : [];
     const selectedFormats = snapshot.formats.filter(format => exportFormatIds.includes(format.id)).map(format => exportOutputFormat(format, exportResolution, exportQuality, exportFps));
     if (!selectedFormats.length) { setError('Choose at least one output format.'); return; }
+    // Several social formats often share one render. Encode it once and name
+    // the file for every platform it covers.
+    const outputs = groupFormatsByOutput(selectedFormats);
     exportCancelled.current = false; setCancellingExport(false);
     setExporting(true); setExportProgress(1); setExportElapsed(0); setExportJob({ name: snapshot.name, phase: 'Preparing frames' }); setPlaying(false); setError(''); setModal(current => current === 'export' ? null : current);
     try {
       await document.fonts.ready;
       if (projectScenes(snapshot).some(scene => scene.mediaKind === 'video')) {
-        const progressRef = { count: 0, total: Math.max(1, selectedFormats.reduce((sum, format) => sum + resolveScenesForFormat(projectScenes(snapshot), format).reduce((n, scene, i, list) => n + (scene.mediaKind === 'video' ? scene.durationTicks : exportBoundaries(scene, snapshot.timebase, Boolean(list[i + 1]), snapshot.overlays).length - 1), 0), 0)) };
+        const progressRef = { count: 0, total: Math.max(1, outputs.reduce((sum, output) => sum + resolveScenesForFormat(projectScenes(snapshot), output.formats[0]).reduce((n, scene, i, list) => n + (scene.mediaKind === 'video' ? scene.durationTicks : exportBoundaries(scene, snapshot.timebase, Boolean(list[i + 1]), snapshot.overlays).length - 1), 0), 0)) };
         const jobs: bridge.ExportPlan[] = [];
-        for (const format of selectedFormats) jobs.push(await buildVideoPlan(format, progressRef, snapshot, visualAudio));
+        for (const output of outputs) jobs.push(await buildVideoPlan(output.formats[0], progressRef, snapshot, visualAudio, exportAudio, output.formats, output.slug));
         setExportProgress(72); setExportJob(current => ({ ...current, phase: 'Choose destination / starting encoder' }));
         const paths = await bridge.exportPlanVariants(snapshot.id, jobs, snapshot);
         if (paths.length) {
@@ -2596,7 +2643,8 @@ export default function App() {
         }
         return;
       }
-      const plans = selectedFormats.map(format => {
+      const plans = outputs.map(output => {
+        const format = output.formats[0];
         const formatScenes = resolveScenesForFormat(projectScenes(snapshot), format);
         const segments: { scene: Scene; next?: Scene; startTicks: number; durationTicks: number }[] = [];
         for (let sceneIndex = 0; sceneIndex < formatScenes.length; sceneIndex++) {
@@ -2608,7 +2656,7 @@ export default function App() {
             if (durationTicks > 0) segments.push({ scene, next, startTicks: points[index], durationTicks });
           }
         }
-        return { format, segments };
+        return { format, formats: output.formats, slug: output.slug, segments };
       });
       const totalSegments = plans.reduce((sum, plan) => sum + plan.segments.length, 0);
       if (!totalSegments) throw new Error('Add at least one photo before exporting.');
@@ -2639,7 +2687,7 @@ export default function App() {
           if (exportCancelled.current) throw new Error('Export cancelled.');
           setExportProgress(Math.round(2 + rendered / totalSegments * 66));
         }
-        jobs.push({ frames, durations, options: { width: size.width, height: size.height, fps: plan.format.fps, codec: exportCodec, container: exportContainer, speed: exportSpeed, crf: EXPORT_CODEC_CRF[exportCodec][plan.format.quality], filename: exportFilename(plan.format, selectedFormats.length > 1) } });
+        jobs.push({ frames, durations, options: { width: size.width, height: size.height, fps: plan.format.fps, codec: exportCodec, container: exportContainer, speed: exportSpeed, crf: EXPORT_CODEC_CRF[exportCodec][plan.format.quality], filename: exportFilename({ formats: plan.formats, slug: plan.slug }, outputs.length > 1) } });
       }
       setExportProgress(72); setExportJob(current => ({ ...current, phase: 'Choose destination / starting encoder' }));
       const paths = await bridge.exportVariants(snapshot.id, jobs, snapshot);
@@ -2737,6 +2785,10 @@ export default function App() {
         <div className="project-meta">
           <strong>{entry.name}</strong>
           <small>{entry.sceneCount} scene{entry.sceneCount === 1 ? '' : 's'} · {timecode(entry.duration, entry.timebase)}</small>
+          {entry.formats && entry.formats.length > 0 && <span className="project-formats" title={entry.formats.map(format => `${format.name} · ${format.width}×${format.height}`).join('\n')}>
+            {[...new Set(entry.formats.map(format => format.aspect))].slice(0, 4).map(aspect => <span className="project-format-chip" key={aspect}>{aspect}</span>)}
+            {entry.formats.length > 1 && <span className="project-format-count">{entry.formats.length} formats</span>}
+          </span>}
           <span className="project-status"><span className="status-dot" /> {active ? 'Open now' : `Edited ${relativeTime(entry.updatedAt)}`}</span>
         </div>
       </button>
@@ -2798,6 +2850,7 @@ export default function App() {
       <input ref={audioInput} type="file" hidden accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,.mp3,.wav,.m4a,.aac,.ogg,.oga,.webm" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void importAudio(file); }} />
       {[...audio, ...cueAudio].map(clip => <AudioSource key={clip.id} id={clip.id} data={clip.data} register={(id, element) => { if (element) audioElements.current.set(id, element); else audioElements.current.delete(id); }} />)}
       <input ref={projectInput} type="file" hidden accept=".json,.pixcut" onChange={e => void openBrowserProject(e)} />
+      <input ref={captionInput} type="file" hidden accept=".srt,.vtt,text/plain,text/vtt" onChange={e => void importCaptionFile(e.target.files)} />
 
       {screen === 'home' ? <>
         <aside className="home-sidebar">
@@ -2974,6 +3027,10 @@ export default function App() {
               {!sourceMedia.length && <div className="library-empty"><ImagePlus size={34} /><strong>A story starts with a photo.</strong><p>Import images from your device.<br />Nothing gets uploaded.</p></div>}
               {sourceMedia.length > 0 && !filteredScenes.length && <div className="library-empty"><Search size={30} /><strong>No matching media.</strong><p>Try a different name, or clear the search.</p></div>}
             </> : tab === 'text' ? <div className="title-library">
+              <div className="caption-import">
+                <button className="button" disabled={!canEdit || !scenes.length} onClick={() => captionInput.current?.click()}><Captions size={14} /> Import captions</button>
+                <small>SRT or WebVTT become editable text layers.</small>
+              </div>
               {TITLE_PRESETS.map(preset => <button key={preset.name} className={`title-preset ${preset.id}`} disabled={!selectedScene || !canEdit || sceneTextLayers(selectedScene).length >= 8} onClick={() => addTextLayerAtPlayhead(preset.layer)} aria-label={`Add ${preset.name} title`}>
                 <span className="title-preset-art" style={{ fontFamily: fontOption(preset.layer.font ?? 'inter').family }}><span>{preset.sample}</span></span><strong>{preset.name}</strong><Plus size={13} />
               </button>)}
@@ -3258,7 +3315,7 @@ export default function App() {
       </div>}
 
       {exporting && <aside className="export-job" aria-label="Background export"><div><strong>Exporting {exportJob.name}</strong><button className="text-button" onClick={cancelExport} disabled={cancellingExport}>{cancellingExport ? 'Cancelling…' : 'Cancel'}</button></div><span>{exportJob.phase} · {Math.round(exportProgress)}%</span><progress max="100" value={exportProgress} /><span>{exportEta(exportElapsed, exportProgress)}</span><small>You can keep editing. This export uses the version captured when you started.</small></aside>}
-      {modal && <div className="modal-backdrop"><section className={`modal ${modal === 'export' ? 'export-studio' : wideModal ? 'wide' : mediumModal ? 'medium' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      {modal && <div className="modal-backdrop"><section className={`modal ${modal === 'export' ? 'export-studio' : modal === 'new' ? 'project-setup' : wideModal ? 'wide' : mediumModal ? 'medium' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div className="modal-header"><span className="eyebrow">{modalEyebrow}</span><IconButton label="Close dialog" onClick={requestCloseModal}><X size={20} /></IconButton></div>
         {modal === 'source' && sourcePreview ? <>
           <h2 id="modal-title">{sourcePreview.name}</h2>
@@ -3292,8 +3349,12 @@ export default function App() {
           </> : <>
             <h2 id="modal-title">A fresh start.</h2>
             <p>Your current story is saved in the local library automatically. Choose the formats you want to deliver.</p>
+            <div className="project-setup-body">
             <label className="field new-project-fps">Project frame rate<select value={newProjectFps} onChange={event => setNewProjectFps(Number(event.target.value))}><option value={24}>24 fps · Film</option><option value={25}>25 fps · PAL</option><option value={30}>30 fps · Standard</option><option value={60}>60 fps · Smooth</option></select></label>
-            <div className="new-format-grid">{FORMAT_PRESETS.map(preset => <label key={preset.id} className={`format-card ${newFormatIds.includes(preset.id) ? 'active' : ''}`}><input type="checkbox" checked={newFormatIds.includes(preset.id)} onChange={event => setNewFormatIds(current => event.target.checked ? [...current, preset.id] : current.filter(id => id !== preset.id))} /><span className="format-check" aria-hidden="true">{newFormatIds.includes(preset.id) ? <Check size={11} /> : null}</span><span className="format-ratio">{preset.aspect}</span><strong>{preset.name}</strong><small>{preset.description}</small></label>)}</div>
+            <div className="format-groups">{FORMAT_GROUPS.map(group => <section className="format-group" key={group.platform}>
+              <div className="format-group-head"><strong>{group.label}</strong><span>{group.presets.length} {group.presets.length === 1 ? 'format' : 'formats'}</span></div>
+              <div className="format-group-grid">{group.presets.map(preset => <label key={preset.id} className={`format-card ${newFormatIds.includes(preset.id) ? 'active' : ''}`}><input type="checkbox" checked={newFormatIds.includes(preset.id)} onChange={event => setNewFormatIds(current => event.target.checked ? [...current, preset.id] : current.filter(id => id !== preset.id))} /><span className="format-check" aria-hidden="true">{newFormatIds.includes(preset.id) ? <Check size={11} /> : null}</span><span className="format-ratio">{preset.aspect}</span><strong>{preset.name}</strong><small>{preset.description}</small></label>)}</div>
+            </section>)}</div>
             <div className="settings-section-title">Custom size</div>
             <div className="custom-format-form new-custom-format">
               <label className="field">Name<input placeholder="Client 2:3" value={customFormatDraft.name} onChange={event => setCustomFormatDraft(current => ({ ...current, name: event.target.value }))} /></label>
@@ -3301,14 +3362,18 @@ export default function App() {
               <label className="field">Height<input type="number" min="240" max="3840" step="2" value={customFormatDraft.height} onChange={event => setCustomFormatDraft(current => ({ ...current, height: Number(event.target.value) }))} /></label>
               <label className="field">FPS<select value={customFormatDraft.fps} onChange={event => setCustomFormatDraft(current => ({ ...current, fps: Number(event.target.value) }))}><option value={24}>24</option><option value={25}>25</option><option value={30}>30</option><option value={60}>60</option></select></label>
               <label className="field">Quality<select value={customFormatDraft.quality} onChange={event => setCustomFormatDraft(current => ({ ...current, quality: event.target.value as 'draft' | 'standard' | 'high' }))}><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
-              <button className="button" onClick={addNewCustomFormat}><Plus size={14} /> Add</button>
+              <button className="button" disabled={newFormatSelection.length >= MAX_PROJECT_FORMATS} onClick={addNewCustomFormat}><Plus size={14} /> Add</button>
             </div>
             {newCustomFormats.length > 0 && <div className="group-filter">{newCustomFormats.map(format => <span className="group-chip" key={format.id}><Layers size={11} />{format.name} · {format.width}×{format.height}</span>)}</div>}
             <p className="note"><Layers size={14} /><span>Photos, text, timing, transitions, audio, and looks are common to every format. Size, FPS, quality, and framing (zoom, pan, fit, letterbox) are saved per format.</span></p>
-            <div className="modal-actions">
-              <button className="button primary" disabled={!canEdit} onClick={() => void startWithFormats()}><Plus size={16} /> Start blank</button>
-              <button className="button" disabled={!canEdit} onClick={() => void startTemplate(SAMPLE_TEMPLATE)}><LayoutTemplate size={16} /> Use Travel sample</button>
-              <button className="button subtle" onClick={requestCloseModal}>Cancel</button>
+            </div>
+            <div className="project-setup-foot">
+              <div className="format-pick-summary" role="status" aria-live="polite"><Layers size={13} /><span>{newFormatSelection.length ? <><strong>{newFormatSelection.length} format{newFormatSelection.length === 1 ? '' : 's'}</strong> selected · {newFormatOutputs.length} file{newFormatOutputs.length === 1 ? '' : 's'} will be written{newFormatOutputs.length < newFormatSelection.length ? ' · identical sizes are combined' : ''}</> : 'Pick at least one format, or start with the default 16:9.'}</span></div>
+              <div className="modal-actions">
+                <button className="button primary" disabled={!canEdit} onClick={() => void startWithFormats()}><Plus size={16} /> Start blank</button>
+                <button className="button" disabled={!canEdit} onClick={() => void startTemplate(SAMPLE_TEMPLATE)}><LayoutTemplate size={16} /> Use Travel sample</button>
+                <button className="button subtle" onClick={requestCloseModal}>Cancel</button>
+              </div>
             </div>
           </>}
         </> : modal === 'rename' ? <>
@@ -3338,8 +3403,12 @@ export default function App() {
           <h2 id="modal-title">Deliverables.</h2>
           <p>Select the social formats you publish to. Each selected format keeps its own size, frame rate, quality, and image framing.</p>
           <div className="settings-section-title">Social formats</div>
-          <div className="format-preset-grid">{FORMAT_PRESETS.map(preset => { const active = project.formats.some(format => format.presetId === preset.id); return <label key={preset.id} className={`format-card ${active ? 'active' : ''}`}><input type="checkbox" checked={active} disabled={!canEdit || (!active && project.formats.length >= 6)} onChange={() => void toggleFormatPreset(preset.id)} /><span className="format-check" aria-hidden="true">{active ? <Check size={11} /> : null}</span><span className="format-ratio">{preset.aspect}</span><strong>{preset.name}</strong><small>{preset.description}</small></label>; })}</div>
+          <div className="format-groups">{FORMAT_GROUPS.map(group => <section className="format-group" key={group.platform}>
+            <div className="format-group-head"><strong>{group.label}</strong><span>{group.presets.length} {group.presets.length === 1 ? 'format' : 'formats'}</span></div>
+            <div className="format-group-grid">{group.presets.map(preset => { const active = project.formats.some(format => format.presetId === preset.id); return <label key={preset.id} className={`format-card ${active ? 'active' : ''}`}><input type="checkbox" checked={active} disabled={!canEdit || (!active && project.formats.length >= MAX_PROJECT_FORMATS)} onChange={() => void toggleFormatPreset(preset.id)} /><span className="format-check" aria-hidden="true">{active ? <Check size={11} /> : null}</span><span className="format-ratio">{preset.aspect}</span><strong>{preset.name}</strong><small>{preset.description}</small></label>; })}</div>
+          </section>)}</div>
           <div className="settings-section-title">Selected formats</div>
+          <div className="format-pick-summary" role="status" aria-live="polite"><Layers size={13} /><span><strong>{project.formats.length} format{project.formats.length === 1 ? '' : 's'}</strong> · {projectFormatOutputs.length} file{projectFormatOutputs.length === 1 ? '' : 's'} when you export{projectFormatOutputs.length < project.formats.length ? '. Formats with the same size, frame rate and framing share one video.' : ''}</span></div>
           <div className="format-current-list">{project.formats.map(format => <div className={`format-current ${activeFormat?.id === format.id ? 'active' : ''}`} key={format.id}><button className="format-current-select" onClick={() => setActiveFormatId(format.id)}><span className="format-ratio">{format.width}×{format.height}</span><span><strong>{format.name}</strong><small>{format.width}×{format.height} · {format.fps} fps · {format.quality}</small></span></button><button className="icon-button" aria-label={`Remove ${format.name}`} disabled={project.formats.length <= 1} onClick={() => void removeFormat(format.id)}><Trash2 size={14} /></button></div>)}</div>
           {activeFormat && <div className="format-settings-card" key={activeFormat.id}>
             <div className="settings-section-title">Settings for {activeFormat.name}</div>
@@ -3358,7 +3427,7 @@ export default function App() {
             <label className="field">Height<input type="number" min="240" max="3840" step="2" value={customFormatDraft.height} onChange={event => setCustomFormatDraft(current => ({ ...current, height: Number(event.target.value) }))} /></label>
             <label className="field">FPS<select value={customFormatDraft.fps} onChange={event => setCustomFormatDraft(current => ({ ...current, fps: Number(event.target.value) }))}><option value={24}>24</option><option value={25}>25</option><option value={30}>30</option><option value={60}>60</option></select></label>
             <label className="field">Quality<select value={customFormatDraft.quality} onChange={event => setCustomFormatDraft(current => ({ ...current, quality: event.target.value as 'draft' | 'standard' | 'high' }))}><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
-            <button className="button primary" disabled={!canEdit || project.formats.length >= 6} onClick={() => void addCustomFormat()}><Plus size={14} /> Add custom</button>
+            <button className="button primary" disabled={!canEdit || project.formats.length >= MAX_PROJECT_FORMATS} onClick={() => void addCustomFormat()}><Plus size={14} /> Add custom</button>
           </div>
           <div className="format-scope-grid"><div><span className="tiny-label">COMMON</span><p>Photos, text content, fonts, timing, transitions, audio, color, and filters.</p></div><div><span className="tiny-label">PER FORMAT</span><p>Size, frame rate, quality, image zoom/pan/fit, and letterbox color.</p></div></div>
           <div className="modal-actions"><button className="button primary" onClick={requestCloseModal}>Done</button></div>
@@ -3467,9 +3536,9 @@ export default function App() {
               {hasVideoScenes && <details className="export-naming-details"><summary>Video source rendering</summary><p>Trims, speed, color grade, fades and overlays are baked into the video. Scene transitions touching video become hard cuts, and picture-in-picture video tracks are not supported yet.</p></details>}
               <section className="export-section export-naming"><h3>File name</h3><div className="export-pair name-pair"><label className="field">Name<input aria-label="Export file name" maxLength={100} value={exportSettings.name} onChange={event => setExportSettings(current => ({ ...current, name: event.target.value }))} placeholder={project.name} /></label><label className="field">Version<input aria-label="Export version" maxLength={20} value={exportSettings.version} onChange={event => setExportSettings(current => ({ ...current, version: event.target.value }))} placeholder="v1" /></label></div><details className="export-naming-details"><summary>File naming options</summary><label className="checkbox-field"><input type="checkbox" checked={exportSettings.includePreset} onChange={event => setExportSettings(current => ({ ...current, includePreset: event.target.checked }))} /> Add output name</label><label className="checkbox-field"><input type="checkbox" checked={exportSettings.includeQuality} onChange={event => setExportSettings(current => ({ ...current, includeQuality: event.target.checked }))} /> Add quality</label></details></section>
             </div>
-            <aside className="export-delivery"><div className="export-output-heading"><h3>Outputs</h3><span>{exportFormatIds.length} selected</span></div><div className="export-output-list">{exportFormats.map(format => <label key={format.id} className={`export-output ${exportFormatIds.includes(format.id) ? 'active' : ''}`}><input type="checkbox" checked={exportFormatIds.includes(format.id)} onChange={event => setExportFormatIds(current => event.target.checked ? [...current, format.id] : current.filter(id => id !== format.id))} /><span className="export-aspect-icon" style={{ aspectRatio: `${format.width}/${format.height}` }} /><span><strong>{format.name}</strong><small>{format.width} × {format.height} · {format.fps} fps</small></span></label>)}</div><details className="export-file-preview"><summary>File names <span>{exportFormatIds.length} files</span></summary>{exportFormats.filter(format => exportFormatIds.includes(format.id)).map(format => <div key={format.id}><Film size={15} /><strong>{exportFilename(format, exportFormatIds.length > 1)}</strong></div>)}{!exportFormatIds.length && <p>Select an output above.</p>}</details><p className="export-codec-note">{EXPORT_CODEC_NOTE[exportCodec]}</p></aside>
+            <aside className="export-delivery"><div className="export-output-heading"><h3>Outputs</h3><span>{exportFormatIds.length} selected · {exportOutputs.length} file{exportOutputs.length === 1 ? '' : 's'}</span></div>{exportFormatIds.length > exportOutputs.length && <p className="export-combine-note"><Layers size={13} /><span>{exportFormatIds.length} formats share {exportOutputs.length} render{exportOutputs.length === 1 ? '' : 's'}, so PixCut writes {exportOutputs.length === 1 ? 'one video' : `${exportOutputs.length} videos`} with every platform in the file name.</span></p>}<div className="export-output-list">{exportFormats.map(format => <label key={format.id} className={`export-output ${exportFormatIds.includes(format.id) ? 'active' : ''}`}><input type="checkbox" checked={exportFormatIds.includes(format.id)} onChange={event => setExportFormatIds(current => event.target.checked ? [...current, format.id] : current.filter(id => id !== format.id))} /><span className="export-aspect-icon" style={{ aspectRatio: `${format.width}/${format.height}` }} /><span><strong>{format.name}</strong><small>{format.width} × {format.height} · {format.fps} fps</small></span></label>)}</div><details className="export-file-preview"><summary>File names <span>{exportOutputs.length} file{exportOutputs.length === 1 ? '' : 's'}</span></summary>{exportOutputs.map(output => <div key={output.key}><Film size={15} /><strong>{exportFilename(output, exportOutputs.length > 1)}</strong><small>{output.label}{output.formats.length > 1 ? ` · ${output.formats.length} formats` : ''}</small></div>)}{!exportOutputs.length && <p>Select an output above.</p>}</details><p className="export-codec-note">{EXPORT_CODEC_NOTE[exportCodec]}</p></aside>
           </div>
-          <footer className="export-studio-footer"><div>{!bridge.native ? 'Video export is available in the desktop app.' : !exporter ? `FFmpeg unavailable. Install with ${FFMPEG_INSTALL[platform]}, then restart PixCut.` : !exportCodecs.includes(exportCodec) ? 'This codec is unavailable in your FFmpeg installation.' : <><span>{EXPORT_CONTAINER_SHORT[exportContainer]} · {EXPORT_CODEC_OPTIONS.find(option => option.id === exportCodec)?.label} · {exportQuality === 'high' ? 'High quality' : exportQuality === 'draft' ? 'Smaller file' : 'Balanced'}</span><small>{exportCodec === 'prores' ? 'ProRes uses the quality setting.' : 'You can continue editing during export.'}</small></>}</div><button type="button" className="button primary" disabled={!bridge.native || !exporter || exporting || busy || !exportFormatIds.length || !exportCodecs.includes(exportCodec)} onClick={() => void exportVideo()}><Download size={17} /> Export {exportFormatIds.length > 1 ? `${exportFormatIds.length} videos` : 'video'}</button></footer>
+          <footer className="export-studio-footer"><div>{!bridge.native ? 'Video export is available in the desktop app.' : !exporter ? `FFmpeg unavailable. Install with ${FFMPEG_INSTALL[platform]}, then restart PixCut.` : !exportCodecs.includes(exportCodec) ? 'This codec is unavailable in your FFmpeg installation.' : <><span>{EXPORT_CONTAINER_SHORT[exportContainer]} · {EXPORT_CODEC_OPTIONS.find(option => option.id === exportCodec)?.label} · {exportQuality === 'high' ? 'High quality' : exportQuality === 'draft' ? 'Smaller file' : 'Balanced'}</span><small>{exportCodec === 'prores' ? 'ProRes uses the quality setting.' : 'You can continue editing during export.'}</small></>}</div><button type="button" className="button primary" disabled={!bridge.native || !exporter || exporting || busy || !exportFormatIds.length || !exportCodecs.includes(exportCodec)} onClick={() => void exportVideo()}><Download size={17} /> Export {exportOutputs.length > 1 ? `${exportOutputs.length} videos` : 'video'}</button></footer>
         </>}
       </section></div>}
     </div>

@@ -17,6 +17,8 @@ export type ProjectSummary = {
   thumbnail: string;
   group?: string;
   favorite?: boolean;
+  /** Every deliverable the project holds, so cards can show them. */
+  formats?: { name: string; width: number; height: number; aspect: string }[];
 };
 
 type ProjectRow = { id: string; project: Project };
@@ -80,6 +82,7 @@ function summaryFrom(project: Project, createdAt: number, thumbnail: string, gro
     createdAt,
     updatedAt: Date.now(),
     thumbnail,
+    formats: (project.formats ?? []).map(format => ({ name: format.name, width: format.width, height: format.height, aspect: format.aspect })),
     ...(group ? { group } : {}),
     ...(favorite ? { favorite } : {}),
   };

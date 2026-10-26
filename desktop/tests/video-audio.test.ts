@@ -36,6 +36,16 @@ describe('videoGain', () => {
     expect(videoGain(1, 4, -2, -1)).toBe(1);
   });
 
+  it('scales by the clip sound level', () => {
+    expect(videoGain(2, 4, 0, 0, 100)).toBe(1);
+    expect(videoGain(2, 4, 0, 0, 40)).toBeCloseTo(.4);
+    expect(videoGain(2, 4, 0, 0, 0)).toBe(0);
+    expect(videoGain(1, 4, 2, 0, 50)).toBeCloseTo(.25);
+    expect(videoGain(2, 4, 0, 0, 140)).toBe(1);
+    expect(videoGain(2, 4, 0, 0, -20)).toBe(0);
+    expect(videoGain(2, 4, 0, 0, Number.NaN)).toBe(1);
+  });
+
   it('never returns a gain outside the audible range', () => {
     for (const value of [-1, 0, .25, 2, 3.99, 4, 8, Number.NaN]) {
       const gain = videoGain(value, 4, 1.5, 2.5);

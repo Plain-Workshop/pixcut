@@ -50,6 +50,7 @@ The frontend sends validated commands to Rust; Rust returns the new project snap
 6. **Tests and visuals.** Add tests for behavior changes. For UI changes, take a screenshot and look at it; do not trust the DOM alone.
 7. **Keep the app running.** After implementation, run the tests, rebuild, and leave the desktop app running.
 8. **Release safety.** Tags create drafts. Never publish an unsigned release without the warning it generates. The updater key in `.secrets/` is irreplaceable; never commit it.
+9. **Releases only on request.** Never tag, publish, create a GitHub release, or commit a `release:` version bump unless the user explicitly asks for a release in that request. Building, testing, and running debug bundles locally is always fine.
 
 ## Where things live
 

@@ -41,6 +41,10 @@ impl Timebase {
     pub fn max_ticks(&self) -> u64 {
         (30.0 / self.seconds_per_tick()).floor() as u64
     }
+    /// Imported video can run for ten minutes; photos stay at the 30 s cap.
+    pub fn max_video_ticks(&self) -> u64 {
+        (600.0 / self.seconds_per_tick()).floor() as u64
+    }
     pub fn ticks_to_seconds(&self, ticks: u64) -> f64 {
         ticks as f64 * self.seconds_per_tick()
     }
@@ -300,6 +304,9 @@ pub struct Scene {
     pub speed: f64,
     #[serde(default = "default_true")]
     pub pitch: bool,
+    /// Imported clip sound level, 0–100. Missing means 100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_volume: Option<f64>,
     #[serde(default, alias = "fade_in")]
     pub fade_in: f64,
     #[serde(default, alias = "fade_out")]
@@ -952,12 +959,13 @@ impl Project {
                 }
                 s.legacy_duration = None;
                 let duration = timebase.ticks_to_seconds(s.duration_ticks);
+                let is_video = s.media_kind.as_deref() == Some("video");
+                let maximum = if is_video { timebase.max_video_ticks() } else { maximum };
                 if s.duration_ticks < minimum || s.duration_ticks > maximum {
                     return Err("Invalid scene duration.".into());
                 }
                 s.start_ticks = cursor;
                 cursor += s.duration_ticks;
-                let is_video = s.media_kind.as_deref() == Some("video");
                 let media_ok = is_asset_ref(&s.image)
                     || if is_video {
                         [
@@ -1025,6 +1033,7 @@ impl Project {
                     || !(0.0..=100.0).contains(&s.filter_intensity)
                     || !s.speed.is_finite()
                     || !(0.25..=4.0).contains(&s.speed)
+                    || s.video_volume.is_some_and(|volume| !volume.is_finite() || !(0.0..=100.0).contains(&volume))
                     || !s.fade_in.is_finite()
                     || s.fade_in < 0.0
                     || s.fade_in > duration
@@ -1193,8 +1202,8 @@ impl Project {
         if self.formats.is_empty() {
             self.formats.push(FormatVariant::original(&self.aspect));
         }
-        if self.formats.len() > 6 {
-            return Err("A project supports up to 6 output formats.".into());
+        if self.formats.len() > 24 {
+            return Err("A project supports up to 24 output formats.".into());
         }
         let mut format_ids = std::collections::HashSet::new();
         for format in &mut self.formats {
@@ -1577,6 +1586,7 @@ mod tests {
             elements: vec![],
             motion: None,
             motion_amount: None,
+            video_volume: None,
             id: "one".into(),
             name: "Test".into(),
             image: "data:image/png;base64,AA==".into(),
@@ -1735,6 +1745,57 @@ mod tests {
         let mut bad_override = s.project.formats.clone();
         bad_override[1].overrides.get_mut("one").unwrap().image_zoom = Some(9.0);
         assert!(s.apply(Command::Formats { formats: bad_override }).is_err());
+    }
+    #[test]
+    fn video_clips_allow_longer_durations_and_a_clip_sound_level() {
+        let mut session = Session::default();
+        // 120 s at 30 fps: rejected for a photo, accepted for a video.
+        let mut long = scene();
+        long.duration_ticks = 3_600;
+        assert!(session.apply(Command::Add { scenes: vec![long.clone()] }).is_err());
+        long.media_kind = Some("video".into());
+        long.image = "data:video/mp4;base64,AA==".into();
+        session.apply(Command::Add { scenes: vec![long.clone()] }).unwrap();
+        assert_eq!(session.project.visual_clips()[0].duration_ticks, 3_600);
+
+        let mut quiet = long.clone();
+        quiet.video_volume = Some(0.0);
+        session.apply(Command::Update { scene: quiet }).unwrap();
+        assert_eq!(session.project.visual_clips()[0].video_volume, Some(0.0));
+
+        for invalid in [-1.0, 101.0, f64::NAN] {
+            let mut bad = long.clone();
+            bad.video_volume = Some(invalid);
+            assert!(session.apply(Command::Update { scene: bad }).is_err());
+        }
+
+        let mut too_long = long;
+        too_long.duration_ticks = 18_001;
+        assert!(session.apply(Command::Update { scene: too_long }).is_err());
+    }
+
+    #[test]
+    fn accepts_twenty_four_deliverables_and_rejects_more() {
+        let mut s = Session::default();
+        s.apply(Command::Add { scenes: vec![scene()] }).unwrap();
+        let format = |index: usize| FormatVariant {
+            id: format!("format-{index}"),
+            name: format!("Delivery {index}"),
+            platform: "Custom".into(),
+            aspect: "9:16".into(),
+            width: 1080,
+            height: 1920,
+            fps: 30,
+            quality: "standard".into(),
+            preset_id: None,
+            overrides: Default::default(),
+        };
+        let formats: Vec<FormatVariant> = (0..24).map(format).collect();
+        s.apply(Command::Formats { formats }).unwrap();
+        assert_eq!(s.project.formats.len(), 24);
+        let too_many: Vec<FormatVariant> = (0..25).map(format).collect();
+        assert!(s.apply(Command::Formats { formats: too_many }).is_err());
+        assert_eq!(s.project.formats.len(), 24);
     }
     #[test]
     fn validates_transitions_and_text_animations() {

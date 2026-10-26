@@ -4,7 +4,7 @@
  * does not keep talking at full volume. Each fade is linear and they multiply,
  * which is exactly what a chained FFmpeg `afade` does in the export graph.
  */
-export function videoGain(localSeconds: number, durationSeconds: number, fadeIn = 0, fadeOut = 0): number {
+export function videoGain(localSeconds: number, durationSeconds: number, fadeIn = 0, fadeOut = 0, level = 100): number {
   if (!Number.isFinite(localSeconds) || !Number.isFinite(durationSeconds) || durationSeconds <= 0) return 1;
   const at = Math.min(Math.max(0, localSeconds), durationSeconds);
   const fadeInLength = Number.isFinite(fadeIn) && fadeIn > 0 ? Math.min(fadeIn, durationSeconds) : 0;
@@ -12,5 +12,6 @@ export function videoGain(localSeconds: number, durationSeconds: number, fadeIn 
   let gain = 1;
   if (fadeInLength > 0 && at < fadeInLength) gain *= at / fadeInLength;
   if (fadeOutLength > 0 && at > durationSeconds - fadeOutLength) gain *= (durationSeconds - at) / fadeOutLength;
-  return Math.min(1, Math.max(0, gain));
+  const levelScale = Number.isFinite(level) ? Math.min(100, Math.max(0, level)) / 100 : 1;
+  return Math.min(1, Math.max(0, gain * levelScale));
 }
