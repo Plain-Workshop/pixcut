@@ -66,8 +66,9 @@ export type PickedMedia = { name: string; mime: string; data: string };
 export async function pickMedia(kind: 'image' | 'audio' | 'video'): Promise<PickedMedia[] | null> { return native ? invoke('pick_media', { kind }) : null; }
 export type ExportCodec = 'h264' | 'hevc' | 'vp9' | 'prores';
 export type ExportContainer = 'mp4' | 'mov' | 'mkv' | 'webm';
+export async function exporterHardware(): Promise<boolean> { return native ? invoke('exporter_hardware') : false; }
 export async function exporterCapabilities(): Promise<ExportCodec[]> { return native ? invoke('exporter_capabilities') : ['h264', 'hevc', 'vp9', 'prores']; }
-export type ExportOptions = { codec?: ExportCodec; container?: ExportContainer; speed?: 'fast' | 'medium' | 'slow'; width: number; height: number; fps: number; crf: number; filename: string };
+export type ExportOptions = { codec?: ExportCodec; container?: ExportContainer; speed?: 'fast' | 'medium' | 'slow'; hardware?: boolean; width: number; height: number; fps: number; crf: number; filename: string };
 export type ExportJob = { frames: string[]; durations: number[]; options: ExportOptions };
 export type PlanOverlay = { png: string; frames?: string[]; startTicks: number; durationTicks: number };
 export type PlanSegment = { kind: 'image' | 'video'; png?: string; video?: string; sourceInSeconds?: number; fit?: 'cover' | 'contain' | 'blur'; speed?: number; lut?: string; fadeIn?: number; fadeOut?: number; videoVolume?: number; includeAudio?: boolean; durationTicks: number; overlays: PlanOverlay[] };

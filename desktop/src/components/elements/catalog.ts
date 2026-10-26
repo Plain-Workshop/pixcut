@@ -1,6 +1,6 @@
 import type { ElementKind, ElementLayer } from '../../stores/model';
 
-export const ELEMENT_CATALOG: { kind: ElementKind; label: string; category: 'Text' | 'Social' | 'Utility' | 'Dynamic'; color: string; animation: ElementLayer['animation'] }[] = [
+export const ELEMENT_CATALOG: { kind: ElementKind; label: string; category: 'Text' | 'Social' | 'Utility' | 'Dynamic' | 'Shape'; color: string; animation: ElementLayer['animation'] }[] = [
   { kind: 'caption', label: 'Caption', category: 'Text', color: '#E6F2D8', animation: 'slide-up' },
   { kind: 'chapter', label: 'Chapter', category: 'Text', color: '#C5B4FF', animation: 'fade' },
   { kind: 'callout', label: 'Callout pin', category: 'Text', color: '#D4E8FF', animation: 'pop' },
@@ -25,6 +25,14 @@ export const ELEMENT_CATALOG: { kind: ElementKind; label: string; category: 'Tex
   { kind: 'bell', label: 'Bell', category: 'Social', color: '#F1D49A', animation: 'fade' },
   { kind: 'progress', label: 'Progress', category: 'Utility', color: '#C5B4FF', animation: 'none' },
   { kind: 'location', label: 'Location', category: 'Utility', color: '#D4E8FF', animation: 'pop' },
+  { kind: 'rectangle', label: 'Rectangle', category: 'Shape', color: '#C5B4FF', animation: 'fade' },
+  { kind: 'ellipse', label: 'Circle', category: 'Shape', color: '#C5B4FF', animation: 'fade' },
+  { kind: 'triangle', label: 'Triangle', category: 'Shape', color: '#C5B4FF', animation: 'fade' },
+  { kind: 'star', label: 'Star', category: 'Shape', color: '#F1D49A', animation: 'pop' },
+  { kind: 'line', label: 'Line', category: 'Shape', color: '#C5B4FF', animation: 'fade' },
+  { kind: 'arrow', label: 'Arrow', category: 'Shape', color: '#C5B4FF', animation: 'fade' },
+  { kind: 'sparkle', label: 'Sparkle', category: 'Shape', color: '#F1D49A', animation: 'pop' },
+  { kind: 'heart', label: 'Heart', category: 'Shape', color: '#F04465', animation: 'pop' },
 ];
 // Old projects retain their artwork and names; these no longer occupy the picker.
 const legacyNames: Partial<Record<ElementKind, string>> = {

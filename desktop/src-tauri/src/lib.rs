@@ -1143,6 +1143,34 @@ impl EncodeSpeed {
 fn encoder_available(binary: &Path, codec: ExportCodec) -> bool {
     encoder_named(binary, codec.encoder())
 }
+/// Platform hardware encoder for a codec, when this build can offer one.
+fn hardware_encoder(codec: ExportCodec) -> Option<&'static str> {
+    #[cfg(target_os = "macos")]
+    {
+        match codec {
+            ExportCodec::H264 => return Some("h264_videotoolbox"),
+            ExportCodec::Hevc => return Some("hevc_videotoolbox"),
+            _ => return None,
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = codec;
+        None
+    }
+}
+/// Targets a comparable visual quality to the CRF presets using bits per pixel.
+fn hardware_bitrate(options: &ExportOptions) -> u64 {
+    let bpp = if options.crf <= 20 { 0.14 } else if options.crf <= 24 { 0.10 } else if options.crf <= 28 { 0.07 } else { 0.05 };
+    let efficiency = if options.codec == ExportCodec::Hevc { 0.6 } else { 1.0 };
+    let bits = options.width as f64 * options.height as f64 * options.fps as f64 * bpp * efficiency;
+    bits.round().clamp(1_500_000.0, 60_000_000.0) as u64
+}
+#[tauri::command]
+fn exporter_hardware() -> bool {
+    let Some(binary) = ffmpeg() else { return false };
+    hardware_encoder(ExportCodec::H264).is_some_and(|encoder| encoder_named(&binary, encoder))
+}
 fn encoder_named(binary: &Path, name: &str) -> bool {
     std::process::Command::new(binary).args(["-hide_banner", "-encoders"]).output().is_ok_and(|output| {
         output.status.success() && String::from_utf8_lossy(&output.stdout).lines().any(|line| line.split_whitespace().nth(1) == Some(name))
@@ -1160,6 +1188,17 @@ async fn exporter_capabilities() -> Result<Vec<String>, String> {
     }).await.map_err(|error| error.to_string())
 }
 fn check_encoder(binary: &Path, options: &ExportOptions) -> Result<(), String> {
+    if options.hardware {
+        let encoder = hardware_encoder(options.codec).ok_or("Hardware encoding is only available for H.264 and H.265 on macOS.")?;
+        if !encoder_named(binary, encoder) {
+            return Err(format!("Your FFmpeg does not include {encoder}. Turn off hardware encoding or install a fuller FFmpeg build."));
+        }
+        return if encoder_named(binary, options.codec.audio_encoder()) {
+            Ok(())
+        } else {
+            Err("Your FFmpeg is missing the audio encoder this format needs.".into())
+        };
+    }
     if !encoder_available(binary, options.codec) {
         return Err(format!("Your FFmpeg does not include {}. Choose another codec or install FFmpeg with this encoder.", options.codec.encoder()));
     }
@@ -1174,6 +1213,22 @@ fn export_output_name(options: &ExportOptions) -> String {
     format!("{}.{}", safe_filename(stem), options.container.extension())
 }
 fn video_encoding_args(options: &ExportOptions) -> Vec<String> {
+    if options.hardware {
+        if let Some(encoder) = hardware_encoder(options.codec) {
+            let mut args: Vec<String> = vec![
+                "-c:v".into(), encoder.into(),
+                "-b:v".into(), hardware_bitrate(options).to_string(),
+                "-pix_fmt".into(), "yuv420p".into(),
+            ];
+            if options.codec == ExportCodec::Hevc && options.container.is_quicktime_family() {
+                args.extend(["-tag:v".into(), "hvc1".into()]);
+            }
+            if options.container.is_quicktime_family() {
+                args.extend(["-movflags".into(), "+faststart".into()]);
+            }
+            return args;
+        }
+    }
     let mut args: Vec<String> = match options.codec {
         ExportCodec::H264 | ExportCodec::Hevc => vec![
             "-c:v".into(), options.codec.encoder().into(),
@@ -1249,6 +1304,9 @@ struct ExportOptions {
     container: ExportContainer,
     #[serde(default)]
     speed: EncodeSpeed,
+    /// Prefer the platform encoder (Apple VideoToolbox) over x264/x265.
+    #[serde(default)]
+    hardware: bool,
 }
 
 #[tauri::command]
@@ -2210,6 +2268,7 @@ pub fn run() {
             missing_asset_refs,
             exporter_available,
             exporter_capabilities,
+            exporter_hardware,
             export_movie,
             export_variants,
             export_plan_variants,
@@ -2247,8 +2306,51 @@ pub fn run() {
 mod integration_tests {
     use super::*;
     fn export_options() -> ExportOptions {
-        ExportOptions { width: 1920, height: 1080, fps: 30, crf: 20, filename: "Test export".into(), codec: ExportCodec::H264, container: ExportContainer::Mp4, speed: EncodeSpeed::Medium }
+        ExportOptions { width: 1920, height: 1080, fps: 30, crf: 20, filename: "Test export".into(), codec: ExportCodec::H264, container: ExportContainer::Mp4, speed: EncodeSpeed::Medium, hardware: false }
     }
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn hardware_encoding_uses_videotoolbox_and_a_sane_bitrate() {
+        let mut options = export_options();
+        options.hardware = true;
+        let args = video_encoding_args(&options);
+        assert!(args.windows(2).any(|pair| pair[0] == "-c:v" && pair[1] == "h264_videotoolbox"), "{args:?}");
+        let index = args.iter().position(|arg| arg == "-b:v").expect("bitrate");
+        let bitrate: u64 = args[index + 1].parse().expect("numeric bitrate");
+        assert!((1_500_000..=60_000_000).contains(&bitrate));
+        options.codec = ExportCodec::Hevc;
+        let hevc = video_encoding_args(&options);
+        assert!(hevc.iter().any(|arg| arg == "hevc_videotoolbox"));
+        options.codec = ExportCodec::Vp9;
+        assert!(!video_encoding_args(&options).iter().any(|arg| arg.ends_with("videotoolbox")));
+    }
+
+    #[test]
+    #[ignore = "Requires FFmpeg with h264_videotoolbox and ffprobe installed"]
+    #[cfg(target_os = "macos")]
+    fn real_hardware_export_encodes_h264() {
+        let binary = ffmpeg().expect("FFmpeg is installed");
+        if !encoder_named(&binary, "h264_videotoolbox") {
+            eprintln!("h264_videotoolbox is not in this FFmpeg build; skipping");
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let (project, frames) = fixture_project();
+        let mut options = export_options();
+        options.width = 320; options.height = 240; options.hardware = true; options.speed = EncodeSpeed::Fast;
+        let output = temp.path().join("hardware.mp4");
+        encode_movie(project, frames, vec![15, 15], options, binary.clone(), output.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        let probe = Process::new(binary.with_file_name("ffprobe"))
+            .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height", "-of", "json"])
+            .arg(&output)
+            .output()
+            .unwrap();
+        assert!(probe.status.success(), "{}", String::from_utf8_lossy(&probe.stderr));
+        let info: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
+        assert_eq!(info["streams"][0]["codec_name"], "h264");
+        assert_eq!(info["streams"][0]["width"], 320);
+    }
+
     #[test]
     fn export_codec_container_defaults_and_arguments() {
         let old: ExportOptions = serde_json::from_str(r#"{"width":320,"height":240,"fps":30,"crf":23,"filename":"Story.mp4"}"#).unwrap();

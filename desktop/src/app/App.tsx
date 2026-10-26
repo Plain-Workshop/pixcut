@@ -381,6 +381,8 @@ export default function App() {
   const [exportCodec, setExportCodec] = useState<bridge.ExportCodec>('h264');
   const [exportContainer, setExportContainer] = useState<bridge.ExportContainer>('mp4');
   const [exportSpeed, setExportSpeed] = useState<'fast' | 'medium' | 'slow'>('medium');
+  const [hardwareAvailable, setHardwareAvailable] = useState(false);
+  const [exportHardware, setExportHardware] = useState(false);
   const [exportAudio, setExportAudio] = useState(true);
   const [exportCodecs, setExportCodecs] = useState<bridge.ExportCodec[]>([]);
   const [exportResolution, setExportResolution] = useState('project');
@@ -405,6 +407,8 @@ export default function App() {
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [reorderId, setReorderId] = useState<string | null>(null);
+  const [replacingSceneId, setReplacingSceneId] = useState<string | null>(null);
+  const [fileDragActive, setFileDragActive] = useState(false);
   const [audioDraft, setAudioDraft] = useState<AudioClip | null>(null);
   const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
   const [beatBusy, setBeatBusy] = useState(false), [beatTempo, setBeatTempo] = useState<number | null>(null);
@@ -529,12 +533,32 @@ export default function App() {
     return () => { cancelled = true; };
   }, [project.id]);
 
+  useEffect(() => {
+    let depth = 0;
+    const files = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes('Files');
+    const enter = (event: DragEvent) => { if (!files(event)) return; depth += 1; setFileDragActive(true); };
+    const over = (event: DragEvent) => { if (files(event)) setFileDragActive(true); };
+    const leave = (event: DragEvent) => { if (!files(event)) return; depth = Math.max(0, depth - 1); if (!depth) setFileDragActive(false); };
+    const drop = () => { depth = 0; setFileDragActive(false); };
+    window.addEventListener('dragenter', enter);
+    window.addEventListener('dragover', over);
+    window.addEventListener('dragleave', leave);
+    window.addEventListener('drop', drop, true);
+    return () => {
+      window.removeEventListener('dragenter', enter);
+      window.removeEventListener('dragover', over);
+      window.removeEventListener('dragleave', leave);
+      window.removeEventListener('drop', drop, true);
+    };
+  }, []);
+
   const hasVideoScenes = scenes.some(scene => scene.mediaKind === 'video');
   const activeFormat = project.formats.find(format => format.id === activeFormatId) ?? project.formats[0];
   const activeSize = formatSize(activeFormat);
   const exportFormats = project.formats.map(format => exportOutputFormat(format, exportResolution, exportQuality, exportFps));
   const exportOutputs = groupFormatsByOutput(exportFormats.filter(format => exportFormatIds.includes(format.id)));
   const projectFormatOutputs = groupFormatsByOutput(project.formats);
+  const useHardware = exportHardware && hardwareAvailable && (exportCodec === 'h264' || exportCodec === 'hevc');
   const displayAspect = project.aspect;
   const cueAudio = useMemo(() => actionAudio(project), [project]);
   const videoDuckWindows = useMemo(() => audibleVideoWindows(projectScenes(project), project.timebase), [project.tracks, project.timebase]);
@@ -2663,8 +2687,41 @@ export default function App() {
     replaceInput.current?.click();
   }
 
+  async function replaceVideoForScene(sceneId: string, file: File) {
+    if (!canEdit) return;
+    setReplacingSceneId(sceneId);
+    try {
+      if (file.size > 50 * 1024 * 1024) throw new Error(`“${file.name}” is larger than 50 MB. Choose a shorter clip.`);
+      const data = await videoFileData(file);
+      const probe = await probeVideo(data);
+      inspectorFlush.current();
+      await pending.current;
+      const target = projectScenes(latestProject.current).find(scene => scene.id === sceneId);
+      if (!target) throw new Error('That scene is no longer in the project.');
+      const source = Math.min(3600, Math.max(.01, probe.duration));
+      const duration = Math.min(target.durationTicks, secondsToTicks(source, project.timebase));
+      const next = {
+        ...target, name: file.name, image: data, mediaKind: 'video' as const, videoPoster: probe.poster,
+        sourceDurationSeconds: source, sourceInTicks: 0, durationTicks: Math.max(minTicks(project.timebase), duration),
+        motion: 'none' as const, transition: null,
+        fadeIn: Math.min(target.fadeIn ?? 0, ticksToSeconds(duration, project.timebase)),
+        fadeOut: Math.min(target.fadeOut ?? 0, ticksToSeconds(duration, project.timebase)),
+      };
+      if (await run({ type: 'update', scene: next })) {
+        setNotice(`Video replaced. Text, looks, and the scene's timeline position were kept.`);
+      }
+    } catch (e) { setError(messageFor(e)); }
+    finally { setReplacingSceneId(null); }
+  }
+
+  async function replaceSceneMedia(sceneId: string, file: File) {
+    if (file.type.startsWith('video/')) await replaceVideoForScene(sceneId, file);
+    else await replaceImageForScene(sceneId, file);
+  }
+
   async function replaceImageForScene(sceneId: string, file: File) {
     if (!canEdit) return;
+    setReplacingSceneId(sceneId);
     try {
       const image = await imageFileData(file);
       await loadImage(image);
@@ -2676,6 +2733,7 @@ export default function App() {
         setNotice(`Image replaced. Timing, text, and looks were kept.`);
       }
     } catch (e) { setError(messageFor(e)); }
+    finally { setReplacingSceneId(null); }
   }
 
   function beginReorder(event: ReactDragEvent<HTMLElement>, scene: Scene) {
@@ -2690,6 +2748,7 @@ export default function App() {
     reorderRef.current = null;
     setReorderId(null);
     setDropTarget(null);
+    setFileDragActive(false);
   }
 
   function dragOverScene(event: ReactDragEvent<HTMLElement>, id: string) {
@@ -2723,9 +2782,10 @@ export default function App() {
     event.preventDefault();
     event.stopPropagation();
     setDropTarget(null);
-    const file = Array.from(event.dataTransfer.files).find(item => item.type.startsWith('image/'));
-    if (!file) { setError('Drop a JPEG, PNG, or WebP image to replace this scene.'); return; }
-    await replaceImageForScene(scene.id, file);
+    setFileDragActive(false);
+    const file = Array.from(event.dataTransfer.files).find(item => item.type.startsWith('image/') || item.type.startsWith('video/'));
+    if (!file) { setError('Drop a JPEG, PNG, WebP, MP4, MOV, M4V, or WebM file to replace this scene.'); return; }
+    await replaceSceneMedia(scene.id, file);
   }
 
   function dragOverTarget(event: ReactDragEvent<HTMLElement>, id: string) {
@@ -2739,6 +2799,7 @@ export default function App() {
   function dropIntoMedia(event: ReactDragEvent<HTMLElement>) {
     event.preventDefault();
     setDropTarget(null);
+    setFileDragActive(false);
     if (event.dataTransfer.files.length) void importFiles(event.dataTransfer.files);
   }
 
@@ -2807,6 +2868,10 @@ export default function App() {
   function openExportModal() {
     if (missing.length) { setError('Relink missing media before exporting this project.'); return; }
     void bridge.exporterCapabilities().then(setExportCodecs).catch(() => setExportCodecs([]));
+    void bridge.exporterHardware().then(available => {
+      setHardwareAvailable(available);
+      if (!available) setExportHardware(false);
+    }).catch(() => setHardwareAvailable(false));
     setPlaying(false);
     setExportFormatIds(project.formats.map(format => format.id));
     setModal('export');
@@ -2898,7 +2963,7 @@ export default function App() {
     }
     return {
       segments,
-      options: { width: size.width, height: size.height, fps: format.fps, codec: exportCodec, container: exportContainer, speed: exportSpeed, crf: EXPORT_CODEC_CRF[exportCodec][format.quality], filename: exportFilename({ formats: nameFormats, slug: nameSlug }, nameFormats.length > 1) },
+      options: { width: size.width, height: size.height, fps: format.fps, codec: exportCodec, container: exportContainer, speed: exportSpeed, hardware: useHardware, crf: EXPORT_CODEC_CRF[exportCodec][format.quality], filename: exportFilename({ formats: nameFormats, slug: nameSlug }, nameFormats.length > 1) },
     };
   }
 
@@ -2994,7 +3059,7 @@ export default function App() {
           if (exportCancelled.current) throw new Error('Export cancelled.');
           setExportProgress(Math.round(2 + rendered / totalSegments * 66));
         }
-        jobs.push({ frames, durations, options: { width: size.width, height: size.height, fps: plan.format.fps, codec: exportCodec, container: exportContainer, speed: exportSpeed, crf: EXPORT_CODEC_CRF[exportCodec][plan.format.quality], filename: exportFilename({ formats: plan.formats, slug: plan.slug }, outputs.length > 1) } });
+        jobs.push({ frames, durations, options: { width: size.width, height: size.height, fps: plan.format.fps, codec: exportCodec, container: exportContainer, speed: exportSpeed, hardware: useHardware, crf: EXPORT_CODEC_CRF[exportCodec][plan.format.quality], filename: exportFilename({ formats: plan.formats, slug: plan.slug }, outputs.length > 1) } });
       }
       setExportProgress(72); setExportJob(current => ({ ...current, phase: 'Choose destination / starting encoder' }));
       const paths = await bridge.exportVariants(snapshot.id, jobs, snapshot);
@@ -3151,11 +3216,11 @@ export default function App() {
               </div>;
 
   return (
-    <div className={`app ${screen} theme-${preferences.theme} ${preferences.compact ? 'compact' : ''} ${preferences.reduceMotion ? 'reduce-motion' : ''}`}>
+    <div className={`app ${screen} theme-${preferences.theme} ${preferences.compact ? 'compact' : ''} ${preferences.reduceMotion ? 'reduce-motion' : ''} ${fileDragActive ? 'file-drag' : ''}`}>
       <input ref={customElementInput} type="file" hidden onChange={event => void importCustomElement(event.target.files)} />
       <input ref={mediaInput} type="file" hidden multiple accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" onChange={e => void importFiles(e.target.files)} />
       <input ref={videoInput} type="file" hidden multiple accept="video/mp4,video/webm,video/quicktime,video/x-m4v,.mp4,.webm,.mov,.m4v" onChange={e => void importVideos(e.target.files)} />
-      <input ref={replaceInput} type="file" hidden accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" onChange={e => { const file = e.target.files?.[0]; const id = replaceTargetId.current; e.target.value = ''; if (file && id) void replaceImageForScene(id, file); }} />
+      <input ref={replaceInput} type="file" hidden accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime,video/x-m4v,.png,.jpg,.jpeg,.webp,.mp4,.webm,.mov,.m4v" onChange={e => { const file = e.target.files?.[0]; const id = replaceTargetId.current; e.target.value = ''; if (file && id) void replaceSceneMedia(id, file); }} />
       <input ref={audioInput} type="file" hidden accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,.mp3,.wav,.m4a,.aac,.ogg,.oga,.webm" onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void importAudio(file); }} />
       {[...audio, ...cueAudio].map(clip => <AudioSource key={clip.id} id={clip.id} data={clip.data} register={(id, element) => { if (element) audioElements.current.set(id, element); else audioElements.current.delete(id); }} />)}
       <input ref={projectInput} type="file" hidden accept=".json,.pixcut" onChange={e => void openBrowserProject(e)} />
@@ -3397,7 +3462,7 @@ export default function App() {
                 <div className="library-label">PROJECT OVERLAYS <span>{allOverlays.length}</span></div>
                 {allOverlays.map(element => <button key={element.id} className={`element-list-row ${selectedElementId === element.id ? 'active' : ''}`} onClick={() => selectOverlay(element)}><span className="element-list-row-icon" style={{ color: element.color }}><ElementGlyph kind={element.kind} size={12} /></span><span>{elementName(element)}</span><small>{ticksToSeconds(element.startTicks, project.timebase).toFixed(1)}s</small></button>)}
               </div>}
-              <div className="element-categories" role="group" aria-label="Element categories">{['All', 'Text', 'Dynamic', 'Social', 'Utility'].map(category => <button key={category} aria-pressed={elementCategory === category} className={elementCategory === category ? 'active' : ''} onClick={() => setElementCategory(category)}>{category}</button>)}</div>
+              <div className="element-categories" role="group" aria-label="Element categories">{['All', 'Text', 'Dynamic', 'Social', 'Utility', 'Shape'].map(category => <button key={category} aria-pressed={elementCategory === category} className={elementCategory === category ? 'active' : ''} onClick={() => setElementCategory(category)}>{category}</button>)}</div>
               <div className="element-grid">{ELEMENTS.filter(item => elementCategory === 'All' || item.category === elementCategory).map(item => <button key={item.kind} className="element-card" aria-label={`Add ${item.label}`} disabled={!selectedScene || !canEdit || allOverlays.length >= 64} onClick={() => addElement(item.kind)}><span className="element-card-icon"><ElementPreview kind={item.kind} color={item.color} animation={item.kind === 'bell' ? 'swing' : 'none'} reduceMotion={preferences.reduceMotion} /></span><strong>{item.label}</strong><Plus size={12} /></button>)}</div>
             </div>}
 
@@ -3485,7 +3550,7 @@ export default function App() {
             </div>}
             {selectedScene ? <fieldset disabled={!canEdit} className="inspector-fields">
               <SceneForm elementPanel={elementInspector} elementSelection={selectedElement?.id} onDeselectElement={() => setSelectedElementId(null)} scene={inspectorScene!} timebase={project.timebase} update={updateSelection} onPreview={setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} flushRef={inspectorFlush} onReplaceImage={() => requestReplaceImage()} textLayerId={selectedTextLayerId} onSelectTextLayer={selectTextLayer} textStartTicks={textStartTicks} playheadSeconds={previewLocalSeconds} focusText={textFocus} framingActive={framingMode} onToggleFraming={() => { setFramingMode(value => !value); setEditingText(false); }} formatName={activeFormat?.name ?? 'Original'} formatCount={project.formats.length} onApplyFramingToAll={applyFramingToAllFormats} overlays={renderOverlays} onReorderLayer={reorderLayer} />
-              {hasSceneSelection && !selectedElement && <div className="scene-actions compact-scene-actions"><button type="button" className="button replace-scene-image" aria-label="Replace selected image" onClick={() => requestReplaceImage()} disabled={selectedCount !== 1}><ImagePlus size={15} /> Replace image…</button><IconButton label={tip('clip.duplicate', 'Duplicate clip')} onClick={duplicateSelected}><Copy size={16} /></IconButton><IconButton label={tip('clip.delete', editTarget === 'text' ? 'Delete selected text' : 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>}
+              {hasSceneSelection && !selectedElement && <div className="scene-actions compact-scene-actions"><button type="button" className="button replace-scene-image" aria-label="Replace selected scene media" onClick={() => requestReplaceImage()} disabled={selectedCount !== 1}><ImagePlus size={15} /> Replace media…</button><IconButton label={tip('clip.duplicate', 'Duplicate clip')} onClick={duplicateSelected}><Copy size={16} /></IconButton><IconButton label={tip('clip.delete', editTarget === 'text' ? 'Delete selected text' : 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>}
             </fieldset> : <div className="inspector-empty"><Settings2 size={26} /><p>Select a scene to adjust its timing, framing, and text.</p></div>}
           </aside>
         </div>
@@ -3498,6 +3563,7 @@ export default function App() {
             <div><span className="timeline-heading">Your story</span><span className="tiny-label">{scenes.length} scenes</span></div>
             <div className="timeline-tools"><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene earlier'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes[0]?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: -1 })}><ArrowLeft size={16} /></IconButton><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene later'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes.at(-1)?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: 1 })}><ArrowRight size={16} /></IconButton><IconButton className={snapping ? 'active' : ''} label={tip('timeline.snapping', `Snapping ${snapping ? 'on' : 'off'}`)} onClick={() => runCommandId('timeline.snapping')}><Magnet size={16} /></IconButton><IconButton label="Add beat at playhead" onClick={addBeatAtPlayhead}><AudioLines size={16} /></IconButton><span className="header-divider" /><div className="timeline-zoom" role="group" aria-label="Timeline zoom"><IconButton label="Zoom out timeline" disabled={timelineZoom <= .5} onClick={() => changeTimelineZoom(timelineZoom - .5)}><ZoomOut size={15} /></IconButton><input aria-label="Timeline zoom" type="range" min=".5" max="6" step=".25" value={timelineZoom} onChange={event => changeTimelineZoom(Number(event.target.value))} /><button className="timeline-zoom-label" title="Fit timeline" onClick={() => changeTimelineZoom(1)}>{Math.round(timelineZoom * 100)}%</button><IconButton label="Zoom in timeline" disabled={timelineZoom >= 6} onClick={() => changeTimelineZoom(timelineZoom + .5)}><ZoomIn size={15} /></IconButton></div><span className="header-divider" /><span className="timeline-total"><Clock3 size={14} />{duration.toFixed(1)}s</span></div>
           </div>
+          {fileDragActive && <div className="file-drop-hint" role="status">Drop an image or video on a scene to replace it · or drop it in the media panel</div>}
           <div className="timeline-content" ref={timelineScroll}>
             <div className="timeline-inner" style={{ width: `${timelineZoom * 100}%` }}>
             {duration > 0 && <div className="timeline-playhead" style={{ left: `calc(${timelineRatio * 100}% + ${148 - timelineRatio * 198}px)` }} title="Drag playhead" onPointerDown={beginPlayheadDrag}><span className="timeline-playhead-handle" /></div>}
@@ -3549,7 +3615,7 @@ export default function App() {
                 const displayDuration = sceneSeconds(display, project.timebase);
                 const fadeIn = Math.min(displayDuration, Math.max(0, display.fadeIn ?? 0));
                 const fadeOut = Math.min(displayDuration, Math.max(0, display.fadeOut ?? 0));
-                return <button key={scene.id} draggable={canEdit} aria-label={`Scene ${i + 1}: ${scene.name}, ${ticksToSeconds(scene.startTicks, project.timebase).toFixed(2)} to ${ticksToSeconds(scene.startTicks + scene.durationTicks, project.timebase).toFixed(2)} seconds${scene.mediaKind === 'video' ? ', video' : ''}`} aria-pressed={isSelected(scene.id)} aria-current={active?.id === scene.id ? 'true' : undefined} className={`timeline-clip ${isSelected(scene.id) ? 'selected' : ''} ${selectedScene?.id === scene.id ? 'primary' : ''} ${active?.id === scene.id ? 'current' : ''} ${dropTarget === scene.id ? 'drop-target' : ''} ${reorderId === scene.id ? 'dragging' : ''}`} style={{ flexGrow: scene.durationTicks }} onClick={event => selectScene(scene, event)} onDragStart={event => beginReorder(event, scene)} onDragEnd={endReorder} onDragOver={event => dragOverScene(event, scene.id)} onDragLeave={() => setDropTarget(current => current === scene.id ? null : current)} onDrop={event => dropScene(event, scene)} onContextMenu={event => { event.preventDefault(); if (!selectedIds.includes(scene.id)) { setSelectedIds([scene.id]); setPrimarySelected(scene.id); selectionAnchor.current = scene.id; } setPlaying(false); setContextMenu({ x: event.clientX, y: event.clientY }); }}>
+                return <button key={scene.id} draggable={canEdit} aria-label={`Scene ${i + 1}: ${scene.name}, ${ticksToSeconds(scene.startTicks, project.timebase).toFixed(2)} to ${ticksToSeconds(scene.startTicks + scene.durationTicks, project.timebase).toFixed(2)} seconds${scene.mediaKind === 'video' ? ', video' : ''}`} aria-pressed={isSelected(scene.id)} aria-current={active?.id === scene.id ? 'true' : undefined} className={`timeline-clip ${isSelected(scene.id) ? 'selected' : ''} ${selectedScene?.id === scene.id ? 'primary' : ''} ${active?.id === scene.id ? 'current' : ''} ${dropTarget === scene.id ? 'drop-target' : ''} ${reorderId === scene.id ? 'dragging' : ''} ${replacingSceneId === scene.id ? 'replacing' : ''}`} aria-busy={replacingSceneId === scene.id} style={{ flexGrow: scene.durationTicks }} onClick={event => selectScene(scene, event)} onDragStart={event => beginReorder(event, scene)} onDragEnd={endReorder} onDragOver={event => dragOverScene(event, scene.id)} onDragLeave={() => setDropTarget(current => current === scene.id ? null : current)} onDrop={event => dropScene(event, scene)} onContextMenu={event => { event.preventDefault(); if (!selectedIds.includes(scene.id)) { setSelectedIds([scene.id]); setPrimarySelected(scene.id); selectionAnchor.current = scene.id; } setPlaying(false); setContextMenu({ x: event.clientX, y: event.clientY }); }}>
                   <span className="timeline-filmstrip" style={{ backgroundImage: cssImage(scene.mediaKind === 'video' ? (scene.videoPoster ?? scene.image) : scene.image) }} aria-hidden="true" />
                   <div><span>{String(i + 1).padStart(2, '0')} <b>{scene.name}</b></span><small>{sceneSeconds(scene, project.timebase).toFixed(1)}s</small></div>
                   {scene.mediaKind === 'video' && <span className="clip-media-badge"><Film size={9} /> VIDEO</span>}
@@ -3614,7 +3680,7 @@ export default function App() {
         aria-label="Clip actions"
       >
         <span className="context-menu-heading">Clip actions</span>
-        <button role="menuitem" disabled={!canEdit || selectedCount !== 1} title={selectedCount === 1 ? 'Replace this scene image and keep its timing, text, and looks' : 'Select one clip to replace its image'} onClick={() => { setContextMenu(null); requestReplaceImage(selectedScene?.id); }}><RefreshCw size={14} /><span>Replace image…</span><kbd>—</kbd></button>
+        <button role="menuitem" disabled={!canEdit || selectedCount !== 1} title={selectedCount === 1 ? 'Replace this scene photo or video and keep its timing, text, and looks' : 'Select one clip to replace its media'} onClick={() => { setContextMenu(null); requestReplaceImage(selectedScene?.id); }}><RefreshCw size={14} /><span>Replace media…</span><kbd>—</kbd></button>
         <span className="context-menu-divider" aria-hidden="true" />
         {[
           { id: 'clip.split', label: 'Split at playhead', icon: <Scissors size={14} /> },
@@ -3900,6 +3966,7 @@ export default function App() {
               <section className="export-section"><h3>Encoding</h3>
                 <div className="codec-choices" role="group" aria-label="Video codec">{EXPORT_CODEC_OPTIONS.map(({ id, label, description }) => <button type="button" key={id} aria-pressed={exportCodec === id} disabled={!exportCodecs.includes(id)} className={exportCodec === id ? 'active' : ''} onClick={() => { setExportCodec(id); setExportContainer(current => EXPORT_CONTAINERS[id].includes(current) ? current : EXPORT_CONTAINERS[id][0]); }}><strong>{label}</strong><small>{exportCodecs.includes(id) ? description : 'Encoder unavailable'}</small>{exportCodec === id && <Check size={15} />}</button>)}</div>
                 <div className="export-pair"><label className="field">Container<select aria-label="Video container" value={exportContainer} onChange={event => setExportContainer(event.target.value as bridge.ExportContainer)}>{EXPORT_CONTAINERS[exportCodec].map(id => <option key={id} value={id}>{EXPORT_CONTAINER_LABEL[id]}</option>)}</select></label><label className="field">Encoding speed<select aria-label="Encoding speed" value={exportSpeed} disabled={exportCodec === 'prores'} onChange={event => setExportSpeed(event.target.value as 'medium')}><option value="fast">Fast</option><option value="medium">Balanced</option><option value="slow">Slower · better compression</option></select></label></div>
+                <label className="export-audio-toggle"><input type="checkbox" checked={exportHardware} disabled={!hardwareAvailable || (exportCodec !== 'h264' && exportCodec !== 'hevc')} onChange={event => setExportHardware(event.target.checked)} /> Hardware encoder <small>{!hardwareAvailable ? 'Unavailable in this build' : exportCodec !== 'h264' && exportCodec !== 'hevc' ? 'H.264 and H.265 only' : 'Apple VideoToolbox · much faster'}</small></label>
               </section>
               <section className="export-section"><h3>Quality</h3><div className="quality-choices" role="group" aria-label="Export quality">{([['draft','Smaller','Quick drafts'],['standard','Balanced','Everyday sharing'],['high','High','Sharper details']] as const).map(([id,label,description]) => <button type="button" key={id} aria-pressed={exportQuality === id} className={exportQuality === id ? 'active' : ''} onClick={() => setExportQuality(id)}><strong>{label}</strong><small>{description}</small></button>)}</div></section>
               <section className="export-section"><h3>Picture</h3><div className="export-pair"><label className="field">Resolution<select aria-label="Export resolution" value={exportResolution} onChange={event => setExportResolution(event.target.value)}><option value="project">Project dimensions</option><option value="720">720p HD</option><option value="1080">1080p Full HD</option><option value="2160">4K UHD</option></select></label><label className="field">Frame rate<select aria-label="Export frame rate" value={exportFps} onChange={event => setExportFps(event.target.value)}><option value="project">Match each output</option>{[24,25,30,60].map(fps => <option key={fps} value={fps}>{fps} fps</option>)}</select></label></div><label className="export-audio-toggle"><input type="checkbox" checked={exportAudio} onChange={event => setExportAudio(event.target.checked)} /> Include audio <small>{exportAudio ? (exportCodec === 'vp9' ? 'Opus · 160 kbps' : exportCodec === 'prores' ? 'PCM · 48 kHz' : 'AAC · 192 kbps') : 'Silent video'}</small></label></section>

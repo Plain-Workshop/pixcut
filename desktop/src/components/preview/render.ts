@@ -96,9 +96,11 @@ export function layoutTextBlock(layer: TextLayer, width: number, height: number)
   const unit = Math.min(width, height);
   const titleSize = Math.round(unit * layer.size);
   const subtitleSize = Math.round(titleSize * layer.subtitleScale);
-  const boxLeft = width * layer.x;
-  const boxTop = height * layer.y;
-  const boxWidth = width * layer.width;
+  // Keep the text block inside the canvas even when a template or an older
+  // project stores a generous x/width pair.
+  const boxLeft = Math.max(0, Math.min(width - 1, width * layer.x));
+  const rawTop = height * layer.y;
+  const boxWidth = Math.max(1, Math.min(width - boxLeft, width * layer.width));
   const titleFont = textFont(layer, titleSize);
   const subtitleFont = textFont(layer, subtitleSize, true);
   const letterSpacing = layer.letterSpacing * unit;
@@ -113,6 +115,7 @@ export function layoutTextBlock(layer: TextLayer, width: number, height: number)
   const subtitleLineHeight = subtitleSize * layer.lineHeight;
   const subtitleGap = subtitle.length ? titleSize * .12 : 0;
   const blockHeight = title.length * titleLineHeight + subtitleGap + subtitle.length * subtitleLineHeight;
+  const boxTop = Math.max(0, Math.min(rawTop, height - blockHeight));
   const blockWidth = Math.max(1, ...title.map(line => line.width), ...subtitle.map(line => line.width));
   const align = layer.align;
   const blockLeft = align === 'center' ? boxLeft + (boxWidth - blockWidth) / 2 : align === 'right' ? boxLeft + boxWidth - blockWidth : boxLeft;
