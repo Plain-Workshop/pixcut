@@ -829,7 +829,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - `src/components/animation/keyframes.ts` holds the pure maths (`motionAt`, `applyTextMotion`, `applyElementMotion`, `upsertKeyframe`, `removeKeyframe`, `keyframeAtPlayhead`); `KeyframeControls` is the shared inspector panel used by the Text inspector and the element inspector. Text motion scales the font size; element motion scales around the element's centre so it stays anchored.
 - The renderer resolves motion before entrance/exit animation in all four places that draw layers: scene text, the standalone text overlay used for stills/frames, `drawMediaOrShape` for elements and project overlays, and the canvas selection boxes. Exported overlay frames are rasterised through the same functions, so preview and export agree by construction.
 - Validation: TypeScript and Rust reject keyframes outside the layer duration, out-of-range values, non-finite times, and more than 24 keys. Rust adds `validate_keyframes()` and validates both text layers and elements.
-- Tests: `tests/keyframes.test.ts` (13) covers interpolation before/between/after keys, per-property fallback, single-key holds, text and element transforms, editing/capping, and model validation. Totals: 167 TypeScript tests, 35 project-model tests, 21 native tests.
+- Tests: `tests/keyframes.test.ts` (13) covers interpolation before/between/after keys, per-property fallback, single-key holds, text and element transforms, editing/capping, and model validation. Counts are listed in the build-state section at the end of this log.
 - Browser checks: a text layer keyframed from x 15 % to 60 % moved its selection box (15 → 37.5 → 60) and its canvas glyphs (minX 36 → 58 → 81, minY 31 → 41 → 51) across 0 s, 2 s and 4 s; the inspector added a third key (2 → 3 rows, "Motion keyframes · 3"). An element keyframed from 30 % to 70 % moved its hitbox (12.5 % → 52.5 %) and showed "Motion keyframes · 2". Reviewed `output/playwright/keyframes-preview.png` and `keyframes-element.png`.
 - Boundary: keyframes animate text and element geometry only. Photo framing (zoom/pan) and per-format framing still use the existing presets plus static values; easing curves, per-character effects, and keyframes on audio levels are not implemented.
 
@@ -849,7 +849,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Photos gain up to 24 framing keyframes (`at`, optional `x`, `y`, `zoom`) stored on the scene and validated in TypeScript and Rust (time inside the scene, pan −1…1, zoom 1–4). Missing values fall back to the scene's static framing, and a single key holds.
 - `framingAt()` resolves the pan/zoom before the motion presets are combined, so hand-authored keys work with Fill, Fit, Blur fill, and the camera-movement presets. The result is used by the canvas compositor, so preview, thumbnails, still frames, and the baked photo frames in every export format share it.
 - The Framing inspector gained **Framing keyframes** with the playhead-capture workflow, per-key values, delete, and clear. The panel is hidden for video scenes, whose framing is encoded by FFmpeg rather than the canvas.
-- Tests: framing interpolation/fallback/capture/validation in `tests/keyframes.test.ts` (now 17), plus the Rust `validates_framing_keyframes`. Totals: 175 TypeScript tests, 37 project-model tests, 21 native tests.
+- Tests: framing interpolation/fallback/capture/validation in `tests/keyframes.test.ts` (now 17), plus the Rust `validates_framing_keyframes`. Counts are listed in the build-state section at the end of this log.
 - Browser check: a red/white/blue split photo keyframed from x −0.6 to +0.6 moved its centre sample from red to blue between 0 s and 3 s, and the inspector added a third key at 1.5 s (“Framing keyframes · 3”). Reviewed `output/playwright/framing-keyframes.png`.
 - Boundary: framing keys apply to photos only; video clip framing stays static because the encoder path crops in FFmpeg. Easing is linear.
 
@@ -858,7 +858,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Projects store up to 500 manual beat markers as sorted, deduplicated project ticks (`beatTicks`), validated in TypeScript and Rust and applied through a dedicated `beats` command. Old projects simply have none.
 - The timeline toolbar gained **Add beat at playhead**; markers render as amber lines with a diamond at the top across every track. Clicking a marker removes it. Markers are editing aids only and never reach the export.
 - Overlay moves and trims snap to the nearest marker (whichever edge is closer for a move, the dragged edge for a trim) while the snapping toggle is on, using an 8 px threshold converted to ticks. `src/components/timeline/beats.ts` holds the pure snapping maths.
-- Tests: `tests/beats.test.ts` (7) covers nearest-beat selection, move/trim snapping, threshold and empty-list behaviour, the one-tick minimum, and project storage/validation. Rust adds `beat_markers_are_sorted_bounded_and_deduplicated`. Totals: 182 TypeScript tests, 38 project-model tests, 21 native tests.
+- Tests: `tests/beats.test.ts` (7) covers nearest-beat selection, move/trim snapping, threshold and empty-list behaviour, the one-tick minimum, and project storage/validation. Rust adds `beat_markers_are_sorted_bounded_and_deduplicated`. Counts are listed in the build-state section at the end of this log.
 - Browser check: a project with three markers showed three lines; adding one at 1.5 s produced a fourth and clicking a marker removed it again, with no console or app errors. Reviewed `output/playwright/beat-markers.png`.
 - Boundary: markers are manual. There is no tempo detection or audio analysis, and only overlay timing snaps today (clip order is list-based).
 
@@ -877,7 +877,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Projects can store a ducking depth (`0–100`, missing = off), validated in TypeScript and Rust and set through a `ducking` command. The Audio panel exposes **Lower music under video sound** with a 10–90 % slider and a hint that explains when it applies.
 - `audibleVideoWindows()` collects the timeline windows where a video clip has sound (per-clip level above zero); `duckGain()` returns the music gain with 150 ms ramps at each edge, using the deepest overlap. The preview multiplies every music clip's volume by it while leaving action sounds alone.
 - The export builds the same envelope per music clip: `ducking_expression()` emits `1-amount/100*max(0, clip(...)*clip(...))` in clip-local time, injected as `volume='…':eval=frame` before the clip fades and delay. `max` always carries a leading `0` because FFmpeg rejects a one-argument `max`.
-- Tests: `tests/ducking.test.ts` (5) covers window collection, depth, ramps, overlap and project validation; Rust adds `ducking_expression_targets_video_windows`, and the ignored `plan_export_keeps_imported_video_audio` now includes a music bed plus ducking so a real FFmpeg graph evaluates the expression. Totals: 187 TypeScript tests, 38 project-model tests, 22 native tests.
+- Tests: `tests/ducking.test.ts` (5) covers window collection, depth, ramps, overlap and project validation; Rust adds `ducking_expression_targets_video_windows`, and the ignored `plan_export_keeps_imported_video_audio` now includes a music bed plus ducking so a real FFmpeg graph evaluates the expression. Counts are listed in the build-state section at the end of this log.
 - Browser check: a video + photo project with a two-second music bed and 60 % ducking played the music at volume 0.42 inside the clip (ramping out) and 1.00 over the photo, with the Audio panel showing 60 %. Reviewed `output/playwright/music-ducking.png`.
 - Boundary: ducking applies to imported music clips, not action sounds, and is a single project-wide amount rather than a per-clip envelope.
 
@@ -897,7 +897,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Hydration keeps scene video references on native (`hydrate_project(..., keep_video_refs)`), so the editor, undo history and recovery JSON never hold the clip. Project bundles still embed the video (bundle save hydrates everything), and images/audio keep their existing embedded flow.
 - The export plan accepts `pixcut-asset:` segments; `encode_plan` resolves them to the stored file and feeds FFmpeg directly, with a clear error when the store lost the file. Plan validation accepts both data URLs and well-formed references.
 - Missing-media detection stays honest: `missing_asset_refs` asks the store which references still exist, new references are treated as present until the check answers (no banner flash on import), and the save/export guards use the same set.
-- Tests: `tests/media-url.test.ts` (3) covers reference recognition and pass-through; `tests/missing-assets.test.ts` adds present-reference handling and `projectAssetRefs`; Rust adds `asset_file_finds_streamed_media_and_rejects_bad_ids`, `ducking_expression_targets_video_windows`, and the ignored `plan_export_reads_streamed_video_assets`, which writes a real clip into a temp store, exports a `pixcut-asset:` plan segment and probes 1920×1080 output. Totals: 208 TypeScript tests, 38 project-model tests, 23 native tests.
+- Tests: `tests/media-url.test.ts` (3) covers reference recognition and pass-through; `tests/missing-assets.test.ts` adds present-reference handling and `projectAssetRefs`; Rust adds `asset_file_finds_streamed_media_and_rejects_bad_ids`, `ducking_expression_targets_video_windows`, and the ignored `plan_export_reads_streamed_video_assets`, which writes a real clip into a temp store, exports a `pixcut-asset:` plan segment and probes 1920×1080 output. Counts are listed in the build-state section at the end of this log.
 - Boundary: the asset-protocol playback path was verified by build, config and the Rust export test; it was not exercised through the packaged webview here (no accessibility automation). Saving a `.pixcut` bundle still reads the whole video into memory to embed it, and audio/images remain in-memory.
 
 ## Template projects keep their own photos — 2026-10-26
@@ -912,7 +912,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Native audio import now uses `import_audio`, streaming the file into the same asset store (1 MB chunks, 1 GB cap) and storing a `pixcut-asset:<hash>` reference in the clip. The browser build keeps data URLs and the 50 MB cap.
 - Runtime hydration keeps audio references on native alongside video; project bundles still embed both. `AudioSource` resolves references to `asset://` URLs, the waveform decoder fetches the resolved URL (CSP `connect-src` now allows the asset scheme), and `audioDuration` reads metadata from the resolved source.
 - Both export paths resolve audio references: the plan path passes the stored file straight to `write_audio`, while the legacy photo path hydrates audio into data URLs before encoding. A missing file produces a relink error.
-- Tests: the ignored `plan_export_reads_streamed_video_assets` now also stores a WAV, gives the project a `pixcut-asset:` audio clip, exports and asserts an audio stream; native tests remain green. Totals: 208 TypeScript tests, 39 project-model tests, 23 native tests.
+- Tests: the ignored `plan_export_reads_streamed_video_assets` now also stores a WAV, gives the project a `pixcut-asset:` audio clip, exports and asserts an audio stream; native tests remain green. Counts are listed in the build-state section at the end of this log.
 - Boundary: browser audio is unchanged, and project-bundle saves read streamed media into memory to embed it.
 
 ## Real-photo templates with a CapCut-style gallery — 2026-10-26
@@ -961,7 +961,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - `ExportOptions` gains an optional `hardware` flag. On macOS, H.264 and H.265 can use `h264_videotoolbox`/`hevc_videotoolbox` with a bitrate derived from the CRF presets (bits-per-pixel mapping, HEVC scaled by 0.6, clamped to 1.5–60 Mbps). VP9 and ProRes ignore the flag; other platforms report no hardware encoder.
 - `exporter_hardware` reports availability from the local FFmpeg, and the export dialog shows a **Hardware encoder** checkbox (disabled for unsupported codecs or when unavailable). Both export paths pass the flag.
 - `check_encoder` verifies the hardware encoder and the container's audio encoder before opening a destination.
-- Tests: `hardware_encoding_uses_videotoolbox_and_a_sane_bitrate` (macOS) covers encoder args, the bitrate bounds and the VP9 fallback; the ignored `real_hardware_export_encodes_h264` encoded a real project with VideoToolbox and probed `h264` 320×240 output. Totals: 209 TypeScript tests, 39 project-model tests, 25 native tests.
+- Tests: `hardware_encoding_uses_videotoolbox_and_a_sane_bitrate` (macOS) covers encoder args, the bitrate bounds and the VP9 fallback; the ignored `real_hardware_export_encodes_h264` encoded a real project with VideoToolbox and probed `h264` 320×240 output. Counts are listed in the build-state section at the end of this log.
 - Boundary: hardware encoding is macOS-only in this build. Windows NVENC/QSV, constant-quality controls (VideoToolbox is driven by bitrate here), and cross-machine size/quality comparisons are not covered.
 
 ## Template text bounds, shapes and replacement feedback — 2026-10-26
@@ -979,7 +979,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 
 - `.pixcut` bundle creation no longer hydrates streamed media into memory. `build_bundle` now accepts the asset directory, records references as bundle entries and hands `write_project_bundle` a `BundleSource::File`, which `std::io::copy`s from the store into the zip. Embedded data URLs still take the byte path.
 - Missing references keep blocking portable saves with the relink message; opening a bundle resolves references from its assets exactly as before.
-- Tests: the new `streamed_media_saves_into_a_portable_bundle` persists a photo and a music bed, saves the bundle from references, and asserts the reopened project equals the original (with data URLs); `missing_assets_stay_referenced_and_block_portable_saves` still covers the failure path. Totals: 209 TypeScript tests, 39 project-model tests, 25 native tests.
+- Tests: the new `streamed_media_saves_into_a_portable_bundle` persists a photo and a music bed, saves the bundle from references, and asserts the reopened project equals the original (with data URLs); `missing_assets_stay_referenced_and_block_portable_saves` still covers the failure path. Counts are listed in the build-state section at the end of this log.
 - Boundary: zips still use stored (uncompressed) entries; compression is a separate trade-off.
 
 ## Streamed native photos — 2026-10-26
@@ -987,7 +987,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - `import_images` streams each picked PNG/JPEG/WebP into the local asset store (1 MB chunks, 500 MB per file) and returns references; the native image import path now creates scenes with `pixcut-asset:` photos instead of base64. The browser path is unchanged (10 MB per file, ~64 MB combined).
 - Runtime hydration keeps scene photo references alongside video and audio; overlays and their posters still hydrate. Missing-reference detection already covers photos, so a deleted photo still shows the relink banner.
 - Rendering resolves references through the tested asset URL path: the canvas compositor (`loadImage`), the media grid, overlay thumbnails, the timeline filmstrip, and the media preview modal now use a small `AssetImage`/`ClipFilmstrip` component that waits for the asset protocol and falls back to a “missing” state.
-- Testing: native tests keep passing after the hydration change (photo round-trip tests now use full hydration where they compare data URLs), and the browser media check confirmed two tiles, both filmstrips, the preview image at 1920 px, and no console errors. Totals: 209 TypeScript tests, 39 project-model tests, 25 native tests.
+- Testing: native tests keep passing after the hydration change (photo round-trip tests now use full hydration where they compare data URLs), and the browser media check confirmed two tiles, both filmstrips, the preview image at 1920 px, and no console errors. Counts are listed in the build-state section at the end of this log.
 - Boundary: the native asset-protocol image path is verified by build and Rust tests, not by driving the packaged webview; bundle saves stream photos like video/audio.
 
 ## 200 designer elements and clean templates — 2026-10-26
@@ -1007,7 +1007,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - `asset_usage` reports the hashed media files and bytes in the desktop store; `referenced_refs` collects every asset reference from the open project plus its undo and redo history; `prune_assets` deletes stored files whose hash is not in the supplied keep set and returns what was removed.
 - Settings → General (desktop only) shows the usage and a two-step **Remove unused media** action. The frontend combines session history refs with `libraryAssetRefs()`, which scans every saved library project, so cleanup never touches media used by a saved project. Empty keep sets are rejected by Rust as a safety guard.
 - Non-hashed files in the directory are ignored by both usage and pruning.
-- Tests: `asset_store_reports_and_prunes_only_hashed_media` covers counting, pruning, the keep set and ignoring stray files. Browser check: `libraryAssetRefs()` found a stored reference inside a saved project, the native-only block stayed hidden in the browser, no console errors. Totals: 209 TypeScript tests, 40 project-model tests, 26 native tests.
+- Tests: `asset_store_reports_and_prunes_only_hashed_media` covers counting, pruning, the keep set and ignoring stray files. Browser check: `libraryAssetRefs()` found a stored reference inside a saved project, the native-only block stayed hidden in the browser, no console errors. Counts are listed in the build-state section at the end of this log.
 - Boundary: cleanup cannot see projects exported outside the app or media referenced only by a project that is currently being imported; the confirmation step explains what it keeps.
 
 ## More output formats and a deliverables filter — 2026-10-26
@@ -1050,7 +1050,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 
 - `textLayersAsCaptions()` converts every scene's text layers into absolute-timeline cues (title plus subtitle on a separate line, empty layers skipped, sorted by time); `toSrt()` serialises stable numbering, `HH:MM:SS,mmm` stamps, blank separators and a trailing newline.
 - The Text panel's caption block now offers **Import** and **Export SRT**. Export uses `save_text_file` on desktop (SRT/VTT/TXT only, 16 MB cap, safe filename, tempfile + atomic persist) and a local download in the browser.
-- Tests: `tests/captions-export.test.ts` (5) covers cross-scene absolute times, subtitle lines, empty layers, ordering, timestamp padding/rounding and exact SRT text. Totals: 214 TypeScript tests, 40 project-model tests, 28 native tests.
+- Tests: `tests/captions-export.test.ts` (5) covers cross-scene absolute times, subtitle lines, empty layers, ordering, timestamp padding/rounding and exact SRT text. Counts are listed in the build-state section at the end of this log.
 - Browser check with two scenes: the downloaded file was `… - captions.srt` containing cues at 0.5–1.5 s and 2.0–3.5 s with the subtitle on its own line, toast “2 captions exported as an SRT file.”, no console errors. Reviewed `output/playwright/captions-export.png`.
 - Boundary: exports every text layer, not only caption-styled ones; no WebVTT output yet (import supports it).
 
@@ -1066,7 +1066,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Projects can embed up to eight imported TTF/OTF/WOFF/WOFF2 fonts (2 MB each, 9 MB total) as `fonts` entries, validated in TypeScript and Rust (IDs, names, data-URL MIME and limits). The field is optional, so older projects load unchanged; the schema is shared with v14.
 - `registerCustomFonts()` adds each face to `document.fonts`, unregisters fonts removed from the project, and requests a re-render when a face finishes loading. `allFonts()` feeds the inspector picker; custom fonts fall back to Inter if loading fails.
 - The Text panel has **Import font**; files are read locally into a data URL, added with a fonts command, and the canvas, still frames, thumbnails and export share the same face.
-- Tests: `tests/font-import.test.ts` (4) covers storing fonts, bundled fallbacks outside a document, bad data/duplicate/empty names, the eight-font cap and clearing; Rust adds `validates_imported_fonts`. Totals: 218 TypeScript tests, 41 project-model tests, 28 native tests.
+- Tests: `tests/font-import.test.ts` (4) covers storing fonts, bundled fallbacks outside a document, bad data/duplicate/empty names, the eight-font cap and clearing; Rust adds `validates_imported_fonts`. Counts are listed in the build-state section at the end of this log.
 - Browser check imported the system Andale Mono face: the picker gained “Andale Mono · Custom”, the FontFace registered and loaded, the canvas rendered the monospaced face, the toast confirmed, and there were no console errors. Reviewed `output/playwright/font-import.png`.
 - Boundary: fonts are embedded in the project (not subset), so very large CJK faces exceed the 2 MB limit; no font management UI beyond the cap message.
 
@@ -1074,7 +1074,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 
 - Four commands join the registry: **Select all clips** (`Mod+A`), **Clear selection** (`Esc`), **Add beat marker** (`B`), and **Add text layer** (`T`). They appear in the palette, the shortcut reference, settings and remapping like every other command.
 - Availability is context-aware: select-all needs scenes, beat needs a timeline, text needs a selected scene; clearing is always available. Clearing also drops text/element selections and any overlay draft.
-- Tests: `tests/shortcuts.test.ts` now checks the four default bindings, conflict-free defaults and event matching (8 tests in the file). Totals: 220 TypeScript tests, 41 project-model tests, 28 native tests.
+- Tests: `tests/shortcuts.test.ts` now checks the four default bindings, conflict-free defaults and event matching (8 tests in the file). Counts are listed in the build-state section at the end of this log.
 - Browser check: `Mod+A` marked both clips selected, `Esc` cleared them, `T` added a text layer and `B` a beat marker, with no console errors. Reviewed `output/playwright/timeline-shortcuts.png`.
 
 ## Video-to-video transitions — 2026-10-26
@@ -1082,7 +1082,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - A transition now covers both sides of a video cut. The export planner splits a video scene into its moving part and a baked tail: the tail frames are decoded from a hidden `<video>` at the clip's own speed and blended with the next clip's first frame using the same `drawTransition` the preview uses. The segment keeps the original timeline duration, and `audioDurationTicks` lets the clip's soundtrack run through the baked tail instead of stopping at the cut.
 - `drawTransition` accepts optional decoded frames for each side, so the preview blends live video frames rather than posters.
 - Incoming video transitions (photo → video) reuse the existing baked photo path; the incoming video's poster is its first frame.
-- Tests: `tests/transition-timing.test.ts` (4) covers the split, the one-tick floor, no-transition and 24 fps rounding; Rust adds `plan_allows_sound_to_outlast_a_shortened_video_segment` and the ignored `real_video_transition_keeps_duration_and_sound` (real FFmpeg encode: 1.0 s output, 30 frames, audio present). Totals: 265 TypeScript tests, 43 project-model tests, 30 native tests, 13 ignored FFmpeg tests.
+- Tests: `tests/transition-timing.test.ts` (4) covers the split, the one-tick floor, no-transition and 24 fps rounding; Rust adds `plan_allows_sound_to_outlast_a_shortened_video_segment` and the ignored `real_video_transition_keeps_duration_and_sound` (real FFmpeg encode: 1.0 s output, 30 frames, audio present). Counts are listed in the build-state section at the end of this log.
 - Browser check imported two 1.5 s WebM clips and set a 0.6 s crossfade: at 0.2 s into the transition the canvas showed a real red/blue blend (purple) from the live `<video>` frames, the blob source was resolved, the clip badge read `0.6s`, and there were no console errors. Reviewed `output/playwright/video-transition.png`.
 
 ## QSV, AMF and VAAPI encoders — 2026-10-26
@@ -1097,7 +1097,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Video clips gain an optional `speedEnd` (a linear ramp from `speed` to `speedEnd`) and a picture-only `reverse` flag. `src/components/preview/speed.ts` is the single source of truth for the curve: it integrates the ramp for source offsets and walks the used range backwards when reversed.
 - Preview: the hidden `<video>` is seeked from `sourceSecondsAt()` and `playbackRate` follows `speedAt()`; reversed clips are paused, muted and stepped by seeking because HTML video cannot play at a negative rate. Changing the end speed keeps the same source span, so the clip duration adjusts (1×→2× halves the duration for the same footage).
 - Export: a ramp becomes an inverse `setpts` expression (`s = v0·t + (v1−v0)·t²/(2D)` solved for `t`), and the soundtrack is split into eight `atempo` slices joined with `concat`, keeping picture and sound aligned. Reverse uses FFmpeg `reverse`; its soundtrack is muted to match the silent preview.
-- Tests: `tests/speed-curve.test.ts` (5) covers constant speed, the integral, reverse offsets, a reversed ramp and clamping; Rust adds `ramp_and_reverse_arguments_are_well_formed` and the ignored `real_reverse_and_ramp_video_export` (real encodes: a white flash moves to the start when reversed, and a 1×→2× 1 s output consumes 1.5 s of a 2 s source with a 1.0 s duration). Totals: 270 TypeScript tests, 43 project-model tests, 32 native tests, 14 ignored FFmpeg tests.
+- Tests: `tests/speed-curve.test.ts` (5) covers constant speed, the integral, reverse offsets, a reversed ramp and clamping; Rust adds `ramp_and_reverse_arguments_are_well_formed` and the ignored `real_reverse_and_ramp_video_export` (real encodes: a white flash moves to the start when reversed, and a 1×→2× 1 s output consumes 1.5 s of a 2 s source with a 1.0 s duration). Counts are listed in the build-state section at the end of this log.
 - Browser check: a 2 s test pattern at 1.2 s with reverse showed source time 1.8 s, paused and muted; the 1×→2× ramp shortened the clip to 1.3 s, reported `Ramps 1× → 2×`, and at local 0.7 s the element sat at 0.88 s with rate 1.525 — matching the curve. No console errors. Reviewed `output/playwright/reverse-preview.png` and `output/playwright/speed-ramp.png`.
 
 ## Audio EQ and voiceover — 2026-10-26
@@ -1106,7 +1106,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Preview routes each music element through a lazy Web Audio graph (lowshelf, peaking, highshelf) only when a band is non-zero; the element's own volume and ducking still apply. A browser that refuses the element source keeps the plain path instead of going silent.
 - Export inserts matching FFmpeg `equalizer` filters after the clip volume, in both the plan encoder and the photo `encode_movie` path. Flat bands emit nothing.
 - Voiceover: **Record voiceover** captures the microphone with `MediaRecorder`, shows elapsed time, and on stop stores the take as a local audio asset at the playhead (name `Voiceover N`, full volume, clamped to the project). Permission denial and missing `MediaRecorder` produce actionable messages; nothing is uploaded.
-- Tests: `tests/audio-eq.test.ts` (3) covers flat detection, band validation and old clips defaulting to 0 dB; Rust adds `audio_eq_only_emits_bands_that_change` and extends `audio_must_be_local_and_bounded` with ±12 dB acceptance and out-of-range rejection. Totals: 273 TypeScript tests, 43 project-model tests, 34 native tests.
+- Tests: `tests/audio-eq.test.ts` (3) covers flat detection, band validation and old clips defaulting to 0 dB; Rust adds `audio_eq_only_emits_bands_that_change` and extends `audio_must_be_local_and_bounded` with ±12 dB acceptance and out-of-range rejection. Counts are listed in the build-state section at the end of this log.
 - Browser check (fake microphone): boosting Bass created exactly three biquad filters and showed `+12 dB`; the one-second take became `Voiceover 1` (1.37 s) with the toast confirmation and no console errors. Reviewed `output/playwright/audio-eq-voiceover.png`.
 
 ## Cross-scene (project) text — 2026-10-26
@@ -1114,7 +1114,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Projects gain an optional `globalText` list (up to 40 layers) whose timing is absolute project ticks. `readGlobalText` validates and clamps the layers to the timeline; Rust adds the matching `globalText` command, reuses the shared text-field validator, clamps in `normalize_global_text`, and prunes layers when the last scene is removed.
 - `drawProjectText()` renders the layers above scene text and elements in the preview, stills, thumbnails, baked video overlay frames, every photo segment and both transition paths, so the same text crosses cuts in preview and export.
 - The Tiles panel has a **Project text** section with add, select and delete; the existing text inspector edits the selected layer through the same controls. Selecting a scene, clip or element clears the project-text selection. Staged edits use a separate draft so typing never feeds the synthetic scene into the main preview.
-- Tests: `tests/global-text.test.ts` (4) covers spanning, clamping, duplicates/limit/long text and clearing; Rust adds `validates_project_level_text` (clamping, duplicates, the 40-layer cap, the command and pruning). Totals: 277 TypeScript tests, 45 project-model tests, 35 native tests.
+- Tests: `tests/global-text.test.ts` (4) covers spanning, clamping, duplicates/limit/long text and clearing; Rust adds `validates_project_level_text` (clamping, duplicates, the 40-layer cap, the command and pruning). Counts are listed in the build-state section at the end of this log.
 - Browser check: two scenes with `ACROSS THE CUT` added as project text; the title rendered at 0.4 s on the blue scene and at 1.6 s on the brown scene, the panel row and inspector agreed, and there were no console errors. Reviewed `output/playwright/project-text-first.png` and `project-text-second.png`.
 - Boundary: project text has no timeline row or direct drag handle yet; position, width, timing and styling are edited in the inspector.
 
@@ -1123,7 +1123,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - A dependency-free `src/i18n/` module keys translations by the English source string, so untranslated text falls back to English instead of rendering a blank. `setLocale()` is driven by the existing stored preference; `t()` supports `{name}` placeholders and `projectCount()` handles Polish and Ukrainian plurals.
 - Polish and Ukrainian cover the home screen (navigation, headings, create cards, recent section), the editor chrome (mode, Save, Export, tool rail, panel title) and the Settings section titles and language note. The table also translates the tags used by the panel titles.
 - The selector now validates the stored value, switches the interface immediately, and survives a reload. The Settings note explains that remaining editor panels are still being translated.
-- Tests: `tests/i18n.test.ts` (5) covers locale validation, English fallback, Ukrainian strings, plural forms and key parity between both dictionaries. Totals: 282 TypeScript tests, 45 project-model tests, 35 native tests.
+- Tests: `tests/i18n.test.ts` (5) covers locale validation, English fallback, Ukrainian strings, plural forms and key parity between both dictionaries. Counts are listed in the build-state section at the end of this log.
 - Browser check: switching to Polski changed the home nav to Start/Projekty/Szablony/Ustawienia, the heading to “Co chcesz stworzyć?”, the create cards and the sidebar card; after a reload the choice persisted, and the editor showed “Edytor wideo”, “Zapisz”, “Eksportuj” and “Twoje media”. No console errors. Reviewed `output/playwright/language-home.png` and `language-editor.png`.
 - Boundary: inspector controls, dialogs and messages are still English and fall back cleanly; they are the next extraction pass.
 
@@ -1134,7 +1134,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 
 ## Build state — 2026-10-26 (end of pass)
 
-- `npm run ci` passes: 282 TypeScript tests, 45 project-model tests, 35 native tests, plus the website, link, workflow, audit and formatting gates.
+- `npm run ci` passes: 282 TypeScript tests, 42 project-model tests, 33 native tests (13 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
 - Ignored FFmpeg tests also pass locally for the new work: `real_video_transition_keeps_duration_and_sound`, `real_reverse_and_ramp_video_export`, and the existing exporter/hardware suites.
 - `npm run tauri -- build --debug --bundles app` produced `PixCut.app` (60.13 MiB). The updater tarball could not be signed because `TAURI_SIGNING_PRIVATE_KEY` is not exported in this shell; the app bundle itself is complete and was launched from `target/debug/bundle/macos/PixCut.app` (PID 89817).
 - No release, tag or version bump was made. Signing remains deferred by the user's decision.
