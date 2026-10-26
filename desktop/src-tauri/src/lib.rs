@@ -2182,11 +2182,13 @@ fn encode_plan(
                     .audio_duration_ticks
                     .map(|ticks| project.timebase.ticks_to_seconds(ticks))
                     .unwrap_or(duration);
-                // A ramp consumes the average rate over the clip; a constant
-                // speed consumes `speed` seconds per output second.
-                let visual_span = duration * (speed + speed_end) / 2.0;
-                let audio_span = audio_duration * (speed + speed_end) / 2.0;
-                let source_length = visual_span.max(audio_span).max(duration);
+                // A ramp consumes the average rate over the full clip, even
+                // when a baked transition shortens the moving picture.
+                let render_duration = segment.audio_duration_ticks
+                    .map(|ticks| project.timebase.ticks_to_seconds(ticks))
+                    .unwrap_or(duration);
+                let visual_span = render_duration * (speed + speed_end) / 2.0;
+                let source_length = visual_span.max(duration);
                 command.args(["-ss", &format!("{start:.6}"), "-t", &format!("{source_length:.6}"), "-i"]).arg(path.clone());
                 // Reverse is picture-only: a reversed soundtrack is rarely
                 // wanted, and the preview stays silent for the same reason.
@@ -2272,7 +2274,11 @@ fn encode_plan(
         }
         chain.push_str(",setpts=PTS-STARTPTS");
         let speed_end = plan.segments.get(index).and_then(|segment| segment.speed_end).unwrap_or(*speed);
-        if let Some(expression) = ramp_setpts(*speed, speed_end, *duration) {
+        let render_duration = plan.segments.get(index)
+            .and_then(|segment| segment.audio_duration_ticks)
+            .map(|ticks| project.timebase.ticks_to_seconds(ticks))
+            .unwrap_or(*duration);
+        if let Some(expression) = ramp_setpts(*speed, speed_end, render_duration) {
             chain.push(',');
             chain.push_str(&expression);
         } else if (speed - 1.0).abs() > 1e-9 {

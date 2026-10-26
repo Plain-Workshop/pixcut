@@ -1126,3 +1126,8 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Tests: `tests/i18n.test.ts` (5) covers locale validation, English fallback, Ukrainian strings, plural forms and key parity between both dictionaries. Totals: 282 TypeScript tests, 45 project-model tests, 35 native tests.
 - Browser check: switching to Polski changed the home nav to Start/Projekty/Szablony/Ustawienia, the heading to “Co chcesz stworzyć?”, the create cards and the sidebar card; after a reload the choice persisted, and the editor showed “Edytor wideo”, “Zapisz”, “Eksportuj” and “Twoje media”. No console errors. Reviewed `output/playwright/language-home.png` and `language-editor.png`.
 - Boundary: inspector controls, dialogs and messages are still English and fall back cleanly; they are the next extraction pass.
+
+## Picture-in-picture labelling — 2026-10-26
+
+- The existing timed image/video overlay path is now labelled **Picture in picture** on media tiles and in the source preview, matching what it does: a 34%-width copy in the first free corner, with the source's own timing and optional video playback.
+- This is not a second visual track; the timeline still edits one contiguous base track. The overlay can be moved, resized, faded and keyframed in the element inspector, and it is baked into preview and export identically.
