@@ -1117,3 +1117,12 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Tests: `tests/global-text.test.ts` (4) covers spanning, clamping, duplicates/limit/long text and clearing; Rust adds `validates_project_level_text` (clamping, duplicates, the 40-layer cap, the command and pruning). Totals: 277 TypeScript tests, 45 project-model tests, 35 native tests.
 - Browser check: two scenes with `ACROSS THE CUT` added as project text; the title rendered at 0.4 s on the blue scene and at 1.6 s on the brown scene, the panel row and inspector agreed, and there were no console errors. Reviewed `output/playwright/project-text-first.png` and `project-text-second.png`.
 - Boundary: project text has no timeline row or direct drag handle yet; position, width, timing and styling are edited in the inspector.
+
+## Interface language — 2026-10-26
+
+- A dependency-free `src/i18n/` module keys translations by the English source string, so untranslated text falls back to English instead of rendering a blank. `setLocale()` is driven by the existing stored preference; `t()` supports `{name}` placeholders and `projectCount()` handles Polish and Ukrainian plurals.
+- Polish and Ukrainian cover the home screen (navigation, headings, create cards, recent section), the editor chrome (mode, Save, Export, tool rail, panel title) and the Settings section titles and language note. The table also translates the tags used by the panel titles.
+- The selector now validates the stored value, switches the interface immediately, and survives a reload. The Settings note explains that remaining editor panels are still being translated.
+- Tests: `tests/i18n.test.ts` (5) covers locale validation, English fallback, Ukrainian strings, plural forms and key parity between both dictionaries. Totals: 282 TypeScript tests, 45 project-model tests, 35 native tests.
+- Browser check: switching to Polski changed the home nav to Start/Projekty/Szablony/Ustawienia, the heading to “Co chcesz stworzyć?”, the create cards and the sidebar card; after a reload the choice persisted, and the editor showed “Edytor wideo”, “Zapisz”, “Eksportuj” and “Twoje media”. No console errors. Reviewed `output/playwright/language-home.png` and `language-editor.png`.
+- Boundary: inspector controls, dialogs and messages are still English and fall back cleanly; they are the next extraction pass.

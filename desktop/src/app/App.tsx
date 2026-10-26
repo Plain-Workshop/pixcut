@@ -32,6 +32,7 @@ import { LatestRenderQueue } from '../components/preview/render-queue';
 import { loadMediaBin, saveMediaBin, uniqueMediaSources } from '../stores/media-bin';
 import { missingAssets, projectAssetRefs, replaceAssetRef, type MissingAsset } from '../stores/missing-assets';
 import { syncAudioElement } from '../components/preview/audio';
+import { isLocale, projectCount, setLocale, t, type Locale } from '../i18n';
 import { applyClipEq } from '../components/preview/eq';
 import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
@@ -378,7 +379,12 @@ export default function App() {
   const [updateInfo, setUpdateInfo] = useState<bridge.UpdateInfo | null>(null);
   const [updateProgress, setUpdateProgress] = useState(0);
   const [updateMessage, setUpdateMessage] = useState('');
-  const [language, setLanguage] = useState(() => localStorage.getItem('pixcut-language') || 'en');
+  const [language, setLanguage] = useState<Locale>(() => {
+    try {
+      const stored = localStorage.getItem('pixcut-language');
+      return isLocale(stored) ? stored : 'en';
+    } catch { return 'en'; }
+  });
   const [storageUsage, setStorageUsage] = useState<bridge.AssetUsage | null>(null);
   const [storageBusy, setStorageBusy] = useState(false);
   const [storageConfirm, setStorageConfirm] = useState(false);
@@ -609,6 +615,7 @@ export default function App() {
   const selectedAudio = audioDraft ?? audio.find(clip => clip.id === selectedAudioId) ?? audio[0] ?? null;
   const audioLanes = Array.from({ length: Math.max(0, ...audio.map(clip => clip.lane ?? 0)) + 1 }, (_, lane) => lane);
   const projectTicks = totalTicks(project);
+  setLocale(language);
   const timelineRatio = duration > 0 ? Math.min(1, Math.max(0, position / duration)) : 0;
   const frameSeconds = secondsPerTick(project.timebase);
   const activeInfo = sceneAt(project, position), active = activeInfo?.scene, activeStart = activeInfo?.start ?? 0;
@@ -3738,14 +3745,14 @@ export default function App() {
         <aside className="home-sidebar">
           <button className="brand-button home-brand" aria-label="PixCut home" onClick={() => setHomeSection('home')}><Brand /></button>
           <nav className="home-nav" aria-label="Main navigation">
-            <button className={homeSection === 'home' ? 'active' : ''} onClick={() => setHomeSection('home')}><Home size={18} /><span>Home</span></button>
-            <button className={homeSection === 'projects' ? 'active' : ''} onClick={() => setHomeSection('projects')}><FolderOpen size={18} /><span>Projects</span></button>
-            <button onClick={() => setModal('templates')}><LayoutTemplate size={18} /><span>Templates</span></button>
-            <button onClick={() => setModal('settings')}><Settings2 size={18} /><span>Settings</span></button>
+            <button className={homeSection === 'home' ? 'active' : ''} onClick={() => setHomeSection('home')}><Home size={18} /><span>{t('Home')}</span></button>
+            <button className={homeSection === 'projects' ? 'active' : ''} onClick={() => setHomeSection('projects')}><FolderOpen size={18} /><span>{t('Projects')}</span></button>
+            <button onClick={() => setModal('templates')}><LayoutTemplate size={18} /><span>{t('Templates')}</span></button>
+            <button onClick={() => setModal('settings')}><Settings2 size={18} /><span>{t('Settings')}</span></button>
           </nav>
           <div className="sidebar-card">
-            <strong>Your media stays with you.</strong>
-            <p>No account. No cloud. Just your stories.</p>
+            <strong>{t('Your media stays with you.')}</strong>
+            <p>{t('No account. No cloud. Just your stories.')}</p>
           </div>
           <div className="sidebar-bottom">
             {showUpdateNotice(updateState) && <button className={`sidebar-update ${updateState}`} onClick={() => { setSettingsTab('updates'); setModal('settings'); }} aria-label="Open application updates">
@@ -3753,8 +3760,8 @@ export default function App() {
               <span><strong>{updateState === 'ready' ? 'Ready to restart' : updateState === 'downloading' ? `Downloading · ${updateProgress}%` : `PixCut ${updateInfo?.version} available`}</strong><small>{updateState === 'ready' ? 'Restart to finish updating' : updateState === 'downloading' ? 'View progress' : 'View release notes & install'}</small></span>
               <ArrowUpRight size={14} />
             </button>}
-            <button className="sidebar-link" onClick={() => setModal('shortcuts')}><Keyboard size={16} /><span>Keyboard shortcuts</span></button>
-            <button className="sidebar-link" onClick={() => { setSettingsTab('updates'); setModal('settings'); }}><Info size={16} /><span>Version & build details</span></button>
+            <button className="sidebar-link" onClick={() => setModal('shortcuts')}><Keyboard size={16} /><span>{t('Keyboard shortcuts')}</span></button>
+            <button className="sidebar-link" onClick={() => { setSettingsTab('updates'); setModal('settings'); }}><Info size={16} /><span>{t('Version & build details')}</span></button>
             <div className="sidebar-version"><span>PIXCUT DESKTOP</span><span>v{appVersion}</span></div>
           </div>
         </aside>
@@ -3762,38 +3769,38 @@ export default function App() {
         <main className="home-main">
           <header className="home-topbar">
             <div className="home-heading">
-              <div className="eyebrow"><span />{homeSection === 'home' ? 'A LITTLE MOMENT. A GREAT STORY.' : 'YOUR LOCAL LIBRARY'}</div>
-              <h1>{homeSection === 'home' ? <>What would you like<br /><em>to create?</em></> : <>Your stories,<br /><em>kept close.</em></>}</h1>
-              <p className="home-intro">{homeSection === 'home' ? <>Your photos, your pace, your point of view.<br />Bring them together in a place that’s entirely yours.</> : <>Everything lives on this device. Open a recent story or start a new one whenever inspiration arrives.</>}</p>
+              <div className="eyebrow"><span /><>{t(homeSection === 'home' ? 'A LITTLE MOMENT. A GREAT STORY.' : 'YOUR LOCAL LIBRARY')}</></div>
+              <h1>{homeSection === 'home' ? <>{t('What would you like')}<br /><em>{t('to create?')}</em></> : <>{t('Your stories,')}<br /><em>{t('kept close.')}</em></>}</h1>
+              <p className="home-intro">{homeSection === 'home' ? <>{t('Your photos, your pace, your point of view.')}<br />{t('Bring them together in a place that’s entirely yours.')}</> : <>{t('Everything lives on this device. Open a recent story or start a new one whenever inspiration arrives.')}</>}</p>
             </div>
             <div className="home-actions">
-              <button className="button subtle" onClick={() => void open()} disabled={!canEdit}><FolderOpen size={16} /> Open project</button>
-              <button className="button primary" disabled={!ready} onClick={() => setModal('new')}><Plus size={16} /> New project</button>
+              <button className="button subtle" onClick={() => void open()} disabled={!canEdit}><FolderOpen size={16} /> {t('Open project')}</button>
+              <button className="button primary" disabled={!ready} onClick={() => setModal('new')}><Plus size={16} /> {t('New project')}</button>
             </div>
           </header>
 
           {homeSection === 'home' && <section className="create-grid" aria-label="Create something new">
             <button className="create-card new-video" disabled={!ready} onClick={() => setModal('new')}>
               <span className="create-icon"><Plus size={25} /></span>
-              <span className="create-copy"><strong>New Video</strong><small>Start with an empty timeline.</small></span>
+              <span className="create-copy"><strong>{t('New Video')}</strong><small>{t('Start with an empty timeline.')}</small></span>
               <span className="create-arrow"><ArrowUpRight size={19} /></span>
             </button>
             <button className="create-card photo-movie" disabled={!ready} onClick={() => void chooseImages()}>
               <span className="create-icon"><Images size={24} /></span>
-              <span className="create-copy"><strong>Photo Movie</strong><small>Turn photos into a story.</small></span>
+              <span className="create-copy"><strong>{t('Photo Movie')}</strong><small>{t('Turn photos into a story.')}</small></span>
               <span className="create-arrow"><ArrowUpRight size={19} /></span>
             </button>
             <button className="create-card templates" disabled={!ready} onClick={() => setModal('templates')}>
               <span className="create-icon"><LayoutTemplate size={24} /></span>
-              <span className="create-copy"><strong>Templates</strong><small>Start with a ready-made design.</small></span>
+              <span className="create-copy"><strong>{t('Templates')}</strong><small>{t('Start with a ready-made design.')}</small></span>
               <span className="create-arrow"><ArrowUpRight size={19} /></span>
             </button>
           </section>}
 
           <section className="recent-section">
             <div className="section-title">
-              <div><h2>{homeSection === 'home' ? 'Recent projects' : 'Your projects'}</h2><p>{homeSection === 'home' ? 'Pick up where you left off.' : 'Stored locally, recovered automatically.'}</p></div>
-              <span className="count-label">{projects.length ? `${projects.length} project${projects.length === 1 ? '' : 's'}` : 'Nothing yet'}</span>
+              <div><h2>{t(homeSection === 'home' ? 'Recent projects' : 'Your projects')}</h2><p>{t(homeSection === 'home' ? 'Pick up where you left off.' : 'Stored locally, recovered automatically.')}</p></div>
+              <span className="count-label">{projects.length ? projectCount(projects.length) : t('Nothing yet')}</span>
             </div>
             {projects.length ? <>
               {homeSection === 'projects' && <div className="library-controls">
@@ -3854,7 +3861,7 @@ export default function App() {
         <header className="editor-header">
           <button className="brand-button" aria-label="Back to home" onClick={goHome}><Brand /></button>
           <span className="header-divider" />
-          <span className="editor-mode">Video Editor</span>
+          <span className="editor-mode">{t('Video Editor')}</span>
           <input className="project-name" aria-label="Project name" value={name} maxLength={120} disabled={!canEdit} onChange={e => setName(e.target.value)} onBlur={() => { if (name !== project.name) void run({ type: 'rename', name: name.trim() || 'Untitled story' }); }} />
           <span className="save-status" role="status" aria-live="polite"><span className="status-dot" aria-hidden="true" />{status}</span>
           <div className="header-actions">
@@ -3863,8 +3870,8 @@ export default function App() {
             <span className="header-divider" />
             <IconButton label={tip('history.undo', 'Undo')} disabled={!session.canUndo || !canEdit} onClick={() => void run({ type: 'undo' })}><Undo2 size={17} /></IconButton>
             <IconButton label={tip('history.redo', 'Redo')} disabled={!session.canRedo || !canEdit} onClick={() => void run({ type: 'redo' })}><Redo2 size={17} /></IconButton>
-            <button className="button subtle header-save" aria-label="Save project" title={tip('project.save', 'Save project')} disabled={!ready} onClick={() => void save()}><Save size={15} /> <span>Save</span></button>
-            <button className="button export" title={tip('export.open', 'Export video')} disabled={!scenes.length || !ready || exporting} onClick={openExportModal}><Download size={15} /> Export <ChevronDown size={12} /></button>
+            <button className="button subtle header-save" aria-label="Save project" title={tip('project.save', 'Save project')} disabled={!ready} onClick={() => void save()}><Save size={15} /> <span>{t('Save')}</span></button>
+            <button className="button export" title={tip('export.open', 'Export video')} disabled={!scenes.length || !ready || exporting} onClick={openExportModal}><Download size={15} /> {t('Export')} <ChevronDown size={12} /></button>
           </div>
         </header>
 
@@ -3885,15 +3892,15 @@ export default function App() {
         <div className="editor-body">
           <aside className="library" style={{ width: libraryWidth }}>
           <nav className="tool-rail" aria-label="Editor tools">
-            <button aria-label="Media" title="Media" className={tab === 'media' ? 'active' : ''} onClick={() => setTab('media')}><Clapperboard size={20} /><span>Media</span></button>
-            <button aria-label="Titles" title="Titles" className={tab === 'text' ? 'active' : ''} onClick={() => setTab('text')}><Type size={21} /><span>Text</span></button>
-            <button aria-label="Elements" title="Elements" className={tab === 'elements' ? 'active' : ''} onClick={() => setTab('elements')}><Shapes size={20} /><span>Elements</span></button>
-            <button aria-label="Audio" title="Audio" className={tab === 'audio' ? 'active' : ''} onClick={() => setTab('audio')}><Music size={20} /><span>Audio</span></button>
-            <button aria-label="Templates" title="Templates" className={tab === 'templates' ? 'active' : ''} onClick={() => setTab('templates')}><LayoutTemplate size={20} /><span>Templates</span></button>
+            <button aria-label="Media" title="Media" className={tab === 'media' ? 'active' : ''} onClick={() => setTab('media')}><Clapperboard size={20} /><span>{t('Media')}</span></button>
+            <button aria-label="Titles" title="Titles" className={tab === 'text' ? 'active' : ''} onClick={() => setTab('text')}><Type size={21} /><span>{t('Titles')}</span></button>
+            <button aria-label="Elements" title="Elements" className={tab === 'elements' ? 'active' : ''} onClick={() => setTab('elements')}><Shapes size={20} /><span>{t('Elements')}</span></button>
+            <button aria-label="Audio" title="Audio" className={tab === 'audio' ? 'active' : ''} onClick={() => setTab('audio')}><Music size={20} /><span>{t('Audio')}</span></button>
+            <button aria-label="Templates" title="Templates" className={tab === 'templates' ? 'active' : ''} onClick={() => setTab('templates')}><LayoutTemplate size={20} /><span>{t('Templates')}</span></button>
           </nav>
 
 
-            <div className="panel-title"><h2>{tabTitles[tab]}</h2><span className="count">{tab === 'audio' ? audio.length : scenes.length}</span></div>
+            <div className="panel-title"><h2>{t(tabTitles[tab])}</h2><span className="count">{tab === 'audio' ? audio.length : scenes.length}</span></div>
 
             {tab === 'media' ? <>
               <label className="search-field"><Search size={14} /><input aria-label="Search project media" placeholder="Search media…" value={mediaQuery} onChange={e => setMediaQuery(e.target.value)} /></label>
@@ -4404,14 +4411,14 @@ export default function App() {
           <h2 id="modal-title">Settings</h2>
           <div className="settings-tabs">{(['general', 'appearance', 'editing', 'shortcuts', 'updates', 'privacy'] as const).map(t => <button key={t} className={settingsTab === t ? 'active' : ''} onClick={() => { if (shortcutDirty && settingsTab === 'shortcuts' && t !== 'shortcuts') { setNotice('Apply or cancel your shortcut changes before leaving Shortcuts.'); return; } setSettingsTab(t); }}>{t[0].toUpperCase() + t.slice(1)}</button>)}</div>
           {settingsTab === 'general' && <div className="settings-panel">
-            <div className="settings-section-title">New project defaults</div>
+            <div className="settings-section-title">{t('New project defaults')}</div>
             <div className="settings-grid">
               <label className="field">Canvas format<select value={preferences.defaultAspect} onChange={event => updatePreferences({ defaultAspect: event.target.value as Project['aspect'] })}><option value="16:9">16:9 · Landscape</option><option value="9:16">9:16 · Vertical</option><option value="1:1">1:1 · Square</option><option value="4:5">4:5 · Portrait</option></select></label>
               <label className="field">Photo duration<input type="number" min="1" max="10" step="0.5" value={preferences.defaultSceneSeconds} onChange={event => updatePreferences({ defaultSceneSeconds: Math.min(10, Math.max(1, Number(event.target.value) || 4)) })} /></label>
               <label className="field">Image scaling<select value={preferences.defaultFit} onChange={event => updatePreferences({ defaultFit: event.target.value as Scene['fit'] })}><option value="cover">Fill frame</option><option value="contain">Fit whole image</option><option value="blur">Blur fill</option></select></label>
             </div>
             {bridge.native && <div className="settings-section storage-section">
-              <div className="settings-section-title">Local media store</div>
+              <div className="settings-section-title">{t('Local media store')}</div>
               <p className="storage-usage">{storageUsage ? `${storageUsage.files} file${storageUsage.files === 1 ? '' : 's'} · ${formatBytes(storageUsage.bytes)}` : 'Checking…'}</p>
               <p className="note">Imported photos, video and audio live in PixCut's local store. Cleanup keeps anything used by an open project, its undo steps, or a saved project.</p>
               <div className="settings-actions">
@@ -4420,24 +4427,24 @@ export default function App() {
               </div>
               {storageNote && <p className="note" role="status">{storageNote}</p>}
             </div>}
-            <div className="settings-section-title">Language</div>
-            <label className="field">Interface language<select value={language} onChange={e => { setLanguage(e.target.value); try { localStorage.setItem('pixcut-language', e.target.value); } catch {} }}><option value="en">English</option><option value="pl">Polski</option><option value="uk">Українська</option></select></label>
-            <p className="note">Language selection is stored locally. The editing interface is currently English-first.</p>
+            <div className="settings-section-title">{t('Language')}</div>
+            <label className="field">{t('Interface language')}<select value={language} onChange={e => { const next = isLocale(e.target.value) ? e.target.value : 'en'; setLanguage(next); try { localStorage.setItem('pixcut-language', next); } catch {} }}><option value="en">English</option><option value="pl">Polski</option><option value="uk">Українська</option></select></label>
+            <p className="note">{t('Language selection is stored locally and applies to the main screens; some editor panels are still being translated.')}</p>
             <div className="settings-footer"><button className="button subtle" onClick={resetPreferences}><RefreshCw size={14} /> Reset preferences</button></div>
           </div>}
           {settingsTab === 'appearance' && <div className="settings-panel">
-            <div className="settings-section-title">Theme</div>
-            <label className="field">App theme<select value={preferences.theme} onChange={event => updatePreferences({ theme: event.target.value as 'dark' | 'light' })}><option value="dark">Dark gray · default</option><option value="light">Light</option></select></label>
+            <div className="settings-section-title">{t('Theme')}</div>
+            <label className="field">{t('App theme')}<select value={preferences.theme} onChange={event => updatePreferences({ theme: event.target.value as 'dark' | 'light' })}><option value="dark">Dark gray · default</option><option value="light">Light</option></select></label>
             <p className="note">Dark gray is the default. The light theme keeps the original bright home and navy editor.</p>
-            <div className="settings-section-title">Editor comfort</div>
+            <div className="settings-section-title">{t('Editor comfort')}</div>
             <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.compact} onChange={event => updatePreferences({ compact: event.target.checked })} /><span><strong>Compact editor</strong><small>Tighter panels and controls, more timeline space.</small></span></label>
             <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.reduceMotion} onChange={event => updatePreferences({ reduceMotion: event.target.checked })} /><span><strong>Reduce motion</strong><small>Disable interface animations and transitions.</small></span></label>
             <label className="checkbox-field settings-toggle"><input type="checkbox" checked={showHints && preferences.showHints} onChange={event => { setShowHints(event.target.checked); updatePreferences({ showHints: event.target.checked }); if (!event.target.checked) { try { localStorage.setItem(HINTS_KEY, '1'); } catch { /* optional */ } } else { try { localStorage.removeItem(HINTS_KEY); } catch { /* optional */ } } }} /><span><strong>Quick-start hints</strong><small>Show the shortcut strip the first time you edit.</small></span></label>
             <div className="settings-preview"><span className="settings-preview-frame"><span /></span><div><strong>Home stays light. Editing stays focused.</strong><p>PixCut uses a light library for browsing and a deep navy workspace for editing. Media never leaves this device.</p></div></div>
           </div>}
           {settingsTab === 'editing' && <div className="settings-panel">
-            <div className="settings-section-title">Editing behavior</div>
-            <label className="field">Autosave delay<select value={preferences.autosaveMs} onChange={event => updatePreferences({ autosaveMs: Number(event.target.value) })}><option value={300}>Fast · 0.3 s</option><option value={700}>Balanced · 0.7 s</option><option value={1500}>Relaxed · 1.5 s</option><option value={3000}>Battery saver · 3 s</option></select></label>
+            <div className="settings-section-title">{t('Editing behavior')}</div>
+            <label className="field">{t('Autosave delay')}<select value={preferences.autosaveMs} onChange={event => updatePreferences({ autosaveMs: Number(event.target.value) })}><option value={300}>Fast · 0.3 s</option><option value={700}>Balanced · 0.7 s</option><option value={1500}>Relaxed · 1.5 s</option><option value={3000}>Battery saver · 3 s</option></select></label>
             <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.snapping} onChange={event => { setSnapping(event.target.checked); updatePreferences({ snapping: event.target.checked }); }} /><span><strong>Snap timeline by default</strong><small>New sessions start with snapping enabled.</small></span></label>
             <p className="note">Undo history is session-only and keeps up to 30 edits. Duration, speed, text, and audio edits commit as undo steps.</p>
             <div className="settings-footer"><button className="button" onClick={() => { setLayout({}); try { localStorage.removeItem('pixcut-layout'); } catch {} setNotice('Editor layout reset.'); }}><RefreshCw size={14} /> Reset panel layout</button></div>

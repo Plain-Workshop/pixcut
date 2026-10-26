@@ -16,7 +16,7 @@ Status legend: **shipped** · **in progress** · **planned** · **deferred**
 | 4 | Audio EQ and voiceover | shipped | no |
 | 5 | QSV / AMF / VAAPI hardware encoders | shipped* | no |
 | 6 | Multi-track and picture-in-picture | planned | yes (v16) |
-| 7 | i18n: translatable interface | planned | no |
+| 7 | i18n: translatable interface | shipped (shell) | no |
 | 8 | One asset store and a SQLite index | planned | no |
 | 9 | Font subsetting for large faces | planned | no |
 | 10 | Signed and notarised releases | deferred | no |

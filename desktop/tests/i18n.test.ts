@@ -1,0 +1,50 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { DICTIONARIES, isLocale, projectCount, setLocale, t } from '../src/i18n';
+
+afterEach(() => setLocale('en'));
+
+describe('interface language', () => {
+  it('accepts the three shipped locales only', () => {
+    expect(isLocale('en')).toBe(true);
+    expect(isLocale('pl')).toBe(true);
+    expect(isLocale('uk')).toBe(true);
+    expect(isLocale('de')).toBe(false);
+    expect(isLocale(undefined)).toBe(false);
+  });
+
+  it('falls back to English for untranslated strings', () => {
+    setLocale('pl');
+    expect(t('Home')).toBe('Start');
+    expect(t('This string is not translated')).toBe('This string is not translated');
+    setLocale('en');
+    expect(t('Home')).toBe('Home');
+  });
+
+  it('translates into Ukrainian and keeps placeholders', () => {
+    setLocale('uk');
+    expect(t('Projects')).toBe('Проєкти');
+    expect(t('Exported {count} files', { count: 3 })).toBe('Exported 3 files');
+  });
+
+  it('uses the right plural for project counts', () => {
+    expect(projectCount(1)).toBe('1 project');
+    expect(projectCount(4)).toBe('4 projects');
+    setLocale('pl');
+    expect(projectCount(1)).toBe('1 projekt');
+    expect(projectCount(3)).toBe('3 projekty');
+    expect(projectCount(12)).toBe('12 projektów');
+    setLocale('uk');
+    expect(projectCount(2)).toBe('2 проєкти');
+    expect(projectCount(21)).toBe('21 проєкт');
+  });
+
+  it('keeps the two translations in sync', () => {
+    const polish = Object.keys(DICTIONARIES.pl).sort();
+    const ukrainian = Object.keys(DICTIONARIES.uk).sort();
+    expect(ukrainian).toEqual(polish);
+    for (const key of polish) {
+      expect(DICTIONARIES.pl[key].trim().length).toBeGreaterThan(0);
+      expect(DICTIONARIES.uk[key].trim().length).toBeGreaterThan(0);
+    }
+  });
+});
