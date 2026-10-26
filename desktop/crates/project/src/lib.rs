@@ -330,6 +330,8 @@ pub struct Scene {
     pub image_zoom: f64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub framing_keyframes: Vec<FramingKeyframe>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask: Option<Mask>,
     #[serde(default = "default_black")]
     pub framing_background: String,
     #[serde(default = "default_one")]
@@ -507,14 +509,7 @@ fn validate_elements(elements: &mut Vec<ElementLayer>, total: u64, limit: usize,
                             && element.duration_ticks > 0
                             && element.start_ticks + element.duration_ticks <= total
                             && element.mask.as_ref().is_none_or(|mask| {
-                                (element.kind == "image" || element.kind == "video")
-                                    && ["rectangle", "ellipse", "triangle", "star"].contains(&mask.shape.as_str())
-                                    && mask.x.is_finite() && (0.0..=1.0).contains(&mask.x)
-                                    && mask.y.is_finite() && (0.0..=1.0).contains(&mask.y)
-                                    && mask.width.is_finite() && (0.01..=1.0).contains(&mask.width)
-                                    && mask.height.is_finite() && (0.01..=1.0).contains(&mask.height)
-                                    && mask.rotation.is_finite() && (-180.0..=180.0).contains(&mask.rotation)
-                                    && mask.feather.is_finite() && (0.0..=100.0).contains(&mask.feather)
+                                (element.kind == "image" || element.kind == "video") && valid_mask(mask)
                             })
                             && ["", "none", "fade", "pop", "slide-up", "pulse", "float", "slide-down", "slide-left", "slide-right", "zoom-out", "bounce", "spin", "swing"].contains(&element.animation.as_str())
                     })
@@ -713,6 +708,15 @@ fn default_text_subtitle_scale() -> f64 { 0.4 }
 fn is_hex_color(value: &str) -> bool {
     value.len() == 7 && value.starts_with('#') && value[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
+fn valid_mask(mask: &Mask) -> bool {
+    ["rectangle", "ellipse", "triangle", "star"].contains(&mask.shape.as_str())
+        && mask.x.is_finite() && (0.0..=1.0).contains(&mask.x)
+        && mask.y.is_finite() && (0.0..=1.0).contains(&mask.y)
+        && mask.width.is_finite() && (0.01..=1.0).contains(&mask.width)
+        && mask.height.is_finite() && (0.01..=1.0).contains(&mask.height)
+        && mask.rotation.is_finite() && (-180.0..=180.0).contains(&mask.rotation)
+        && mask.feather.is_finite() && (0.0..=100.0).contains(&mask.feather)
+}
 const FILTER_IDS: &[&str] = &["none", "vivid", "warm", "cool", "mono", "film", "noir", "dream"];
 fn is_audio_data(value: &str) -> bool {
     [
@@ -857,6 +861,9 @@ pub struct Project {
     pub overlays: Vec<ElementLayer>,
     #[serde(default)]
     pub formats: Vec<FormatVariant>,
+    /// Manual beat markers, in project ticks, sorted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub beat_ticks: Vec<u64>,
     #[serde(default, skip_serializing, rename = "music")]
     pub legacy_music: Option<MusicTrack>,
     #[serde(default, skip_serializing, rename = "scenes")]
@@ -875,6 +882,7 @@ impl Default for Project {
             audio: vec![],
             overlays: vec![],
             formats: vec![],
+            beat_ticks: vec![],
             legacy_music: None,
             legacy_scenes: vec![],
             policy: Policy::default(),
@@ -1063,6 +1071,7 @@ impl Project {
                 let duration = timebase.ticks_to_seconds(s.duration_ticks);
                 let framing_ok = validate_framing_keyframes(&mut s.framing_keyframes, duration);
                 let is_video = s.media_kind.as_deref() == Some("video");
+                let mask_ok = s.mask.as_ref().is_none_or(|mask| !is_video && valid_mask(mask));
                 let maximum = if is_video { timebase.max_video_ticks() } else { maximum };
                 if s.duration_ticks < minimum || s.duration_ticks > maximum {
                     return Err("Invalid scene duration.".into());
@@ -1200,6 +1209,7 @@ impl Project {
                     || !elements_ok
                     || !motion_ok
                     || !framing_ok
+                    || !mask_ok
                 {
                     return Err("Invalid scene, image, or duration.".into());
                 }
@@ -1338,6 +1348,15 @@ impl Project {
             }
         }
         self.tracks = tracks;
+        let total_beats = self.total_ticks();
+        self.beat_ticks.sort_unstable();
+        self.beat_ticks.dedup();
+        if self.beat_ticks.len() > 500
+            || self.beat_ticks.iter().any(|tick| *tick > total_beats)
+            || self.beat_ticks.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err("Invalid beat markers.".into());
+        }
         self.policy = Policy::default();
         Ok(())
     }
@@ -1406,6 +1425,10 @@ pub enum Command {
     Aspect { aspect: String },
     Audio { audio: Vec<AudioClip> },
     Formats { formats: Vec<FormatVariant> },
+    Beats {
+        #[serde(rename = "beatTicks")]
+        beat_ticks: Vec<u64>,
+    },
     Overlays { overlays: Vec<ElementLayer> },
     Add { scenes: Vec<Scene> },
     Update { scene: Scene },
@@ -1532,6 +1555,9 @@ impl Session {
         if let Command::Formats { formats } = &command {
             p.formats = formats.clone();
         }
+        if let Command::Beats { beat_ticks } = &command {
+            p.beat_ticks = beat_ticks.clone();
+        }
         let track_index = p
             .tracks
             .iter()
@@ -1541,7 +1567,7 @@ impl Session {
         {
             let clips = &mut p.tracks[track_index].clips;
             match command {
-                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } | Command::Overlays { .. } | Command::Order { .. } => {}
+                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } | Command::Beats { .. } | Command::Overlays { .. } | Command::Order { .. } => {}
                 Command::Add { scenes } => clips.extend(scenes),
                 Command::Update { scene } => {
                     if let Some(s) = clips.iter_mut().find(|s| s.id == scene.id) {
@@ -1709,6 +1735,7 @@ mod tests {
             image_y: 0.0,
             image_zoom: 1.0,
             framing_keyframes: Vec::new(),
+            mask: None,
             framing_background: "#000000".into(),
             brightness: 1.0,
             contrast: 1.0,
@@ -1851,6 +1878,21 @@ mod tests {
         bad_override[1].overrides.get_mut("one").unwrap().image_zoom = Some(9.0);
         assert!(s.apply(Command::Formats { formats: bad_override }).is_err());
     }
+    #[test]
+    fn beat_markers_are_sorted_bounded_and_deduplicated() {
+        let mut s = Session::default();
+        let mut long = scene();
+        long.media_kind = Some("video".into());
+        long.image = "data:video/mp4;base64,AA==".into();
+        long.duration_ticks = 3_000;
+        s.apply(Command::Add { scenes: vec![long] }).unwrap();
+        s.apply(Command::Beats { beat_ticks: vec![60, 0, 30, 30] }).unwrap();
+        assert_eq!(s.project.beat_ticks, vec![0, 30, 60]);
+        assert!(s.apply(Command::Beats { beat_ticks: vec![9_999] }).is_err());
+        let too_many: Vec<u64> = (0..501).collect();
+        assert!(s.apply(Command::Beats { beat_ticks: too_many }).is_err());
+    }
+
     #[test]
     fn validates_framing_keyframes() {
         let mut s = Session::default();

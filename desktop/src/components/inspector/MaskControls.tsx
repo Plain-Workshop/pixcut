@@ -28,9 +28,10 @@ function ShapeSlider({ label, value, min, max, step, unit, disabled, onChange, o
  * Shape mask editor for image and video overlays. Geometry is stored relative
  * to the overlay box, so it follows position, scale and keyframes.
  */
-export function MaskControls({ mask, disabled, onStage, onCommit, onApply }: {
+export function MaskControls({ mask, disabled, context = 'overlay', onStage, onCommit, onApply }: {
   mask?: LayerMask;
   disabled?: boolean;
+  context?: 'overlay' | 'scene';
   onStage: (mask: LayerMask | undefined) => void;
   onCommit: () => void;
   onApply: (mask: LayerMask | undefined) => void;
@@ -46,7 +47,7 @@ export function MaskControls({ mask, disabled, onStage, onCommit, onApply }: {
       {mask && <button type="button" className="text-button" disabled={disabled} onClick={() => onApply({ ...mask, x: .5, y: .5, width: .82, height: .82, rotation: 0 })}>Center</button>}
     </div>
     {mask ? <>
-      <p className="inspector-inline-status">The cutout follows the overlay's move, scale and keyframes. Feathering is baked into exports.</p>
+      <p className="inspector-inline-status">{context === 'scene' ? "The cutout applies to the photo only; the framing background stays visible outside it. Feathering is baked into exports." : "The cutout follows the overlay's move, scale and keyframes. Feathering is baked into exports."}</p>
       <div className="mask-grid">
         <ShapeSlider label="Center X" value={mask.x} min={0} max={1} step={.01} unit="" disabled={disabled} onChange={value => onStage({ ...mask, x: value })} onCommit={onCommit} />
         <ShapeSlider label="Center Y" value={mask.y} min={0} max={1} step={.01} unit="" disabled={disabled} onChange={value => onStage({ ...mask, y: value })} onCommit={onCommit} />

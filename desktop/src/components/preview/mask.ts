@@ -62,7 +62,8 @@ export function applyMaskAlpha(canvas: HTMLCanvasElement, mask: LayerMask) {
 // Video overlays reuse the same matte for every frame. The cache is keyed by
 // geometry and pixel size so a resize or a mask edit produces a fresh matte.
 const mattes = new Map<string, HTMLCanvasElement>();
-const MATTE_CACHE_LIMIT = 24;
+const MATTE_CACHE_LIMIT = 8;
+const MATTE_CACHE_MAX_PIXELS = 4_000_000;
 
 function maskMatte(mask: LayerMask, width: number, height: number) {
   const key = `${mask.shape}:${mask.x}:${mask.y}:${mask.width}:${mask.height}:${mask.rotation}:${mask.feather}:${mask.invert}:${width}x${height}`;
@@ -83,11 +84,15 @@ function maskMatte(mask: LayerMask, width: number, height: number) {
   maskCtx.fillStyle = '#ffffff';
   traceMask(maskCtx, mask, alpha.width, alpha.height);
   maskCtx.fill();
-  mattes.set(key, alpha);
-  while (mattes.size > MATTE_CACHE_LIMIT) {
-    const oldest = mattes.keys().next().value;
-    if (oldest === undefined) break;
-    mattes.delete(oldest);
+  // Very large mattes are cheap enough to rebuild and would otherwise pin
+  // hundreds of megabytes across a 4K export.
+  if (alpha.width * alpha.height <= MATTE_CACHE_MAX_PIXELS) {
+    mattes.set(key, alpha);
+    while (mattes.size > MATTE_CACHE_LIMIT) {
+      const oldest = mattes.keys().next().value;
+      if (oldest === undefined) break;
+      mattes.delete(oldest);
+    }
   }
   return alpha;
 }

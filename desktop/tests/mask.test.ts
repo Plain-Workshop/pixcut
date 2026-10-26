@@ -3,7 +3,7 @@ import { defaultLayerMask, edit, emptyProject, validateProject, type ElementLaye
 import { maskPolygon } from '../src/components/preview/mask';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-const scene = (): Scene => ({ id: 'scene', name: 'Scene', image: PNG, startTicks: 0, sourceInTicks: 0, durationTicks: 120, title: '', subtitle: '', color: '#000000', fit: 'cover' });
+const scene = (patch: Partial<Scene> = {}): Scene => ({ id: 'scene', name: 'Scene', image: PNG, startTicks: 0, sourceInTicks: 0, durationTicks: 120, title: '', subtitle: '', color: '#000000', fit: 'cover', ...patch });
 const overlay = (patch: Partial<ElementLayer> = {}): ElementLayer => ({
   id: 'overlay', kind: 'image', source: PNG, x: .5, y: .5, width: .5, height: .5, rotation: 0,
   color: '#FFFFFF', opacity: 100, startTicks: 0, durationTicks: 120, animation: 'none', ...patch,
@@ -33,6 +33,13 @@ describe('shape masks', () => {
     const project = edit(projectWith(), { type: 'overlays', overlays: [overlay({ mask })] });
     const restored = validateProject(JSON.parse(JSON.stringify(project)));
     expect(restored.overlays[0].mask).toEqual(mask);
+  });
+
+  it('round-trips a photo-scene mask and refuses masks on video scenes', () => {
+    const mask = { ...defaultLayerMask('triangle'), x: .45, y: .55, rotation: -12, feather: 8 };
+    const project = edit(emptyProject('Photo mask'), { type: 'add', scenes: [scene({ mask })] });
+    expect(validateProject(JSON.parse(JSON.stringify(project))).tracks[0].clips[0].mask).toEqual(mask);
+    expect(() => edit(emptyProject('Video mask'), { type: 'add', scenes: [scene({ mediaKind: 'video', image: 'data:video/mp4;base64,AA==', mask })] })).toThrow(/video/i);
   });
 
   it('rejects unknown shapes, out-of-range geometry, and masks on non-media layers', () => {

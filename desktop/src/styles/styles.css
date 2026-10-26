@@ -1832,3 +1832,10 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .mask-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0 2px; }
 .mask-footer .checkbox-field { margin: 0; }
 .mask-controls .text-button.danger { color: #E49AA3; }
+
+/* Manual beat markers: 1 px line with a wider hit area. */
+.beat-marker { position: absolute; top: 0; bottom: 0; z-index: 7; width: 9px; margin-left: -4.5px; padding: 0; background: transparent; border: 0; cursor: pointer; }
+.beat-marker::before { content: ""; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: rgba(255, 209, 102, .55); }
+.beat-marker::after { content: ""; position: absolute; top: 0; left: 2px; width: 5px; height: 5px; border-radius: 1px; background: #FFD166; transform: rotate(45deg); }
+.beat-marker:hover::before, .beat-marker:focus-visible::before { background: #FFD166; box-shadow: 0 0 8px rgba(255, 209, 102, .7); }
+.beat-marker:disabled { cursor: default; opacity: .6; }

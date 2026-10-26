@@ -2321,6 +2321,7 @@ mod integration_tests {
                 image_y: 0.0,
                 image_zoom: 1.0,
                 framing_keyframes: vec![],
+                mask: None,
                 framing_background: "#000000".into(),
                 brightness: 1.0,
                 contrast: 1.0,

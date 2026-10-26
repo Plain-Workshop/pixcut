@@ -225,6 +225,8 @@ export type Scene = {
   videoVolume?: number;
   /** Animated photo framing; video scenes keep their static framing. */
   framingKeyframes?: FramingKeyframe[];
+  /** Shape mask for a photo scene; video scenes use overlays instead. */
+  mask?: LayerMask;
   fadeIn?: number;
   fadeOut?: number;
   textBackdropEnabled?: boolean;
@@ -293,7 +295,7 @@ type LegacyMusic = {
   fadeOut: number;
   durationSeconds: number;
 };
-export type Project = { schema_version: 13; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; overlays: ElementLayer[]; formats: FormatVariant[]; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
+export type Project = { schema_version: 13; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; overlays: ElementLayer[]; formats: FormatVariant[]; beatTicks?: number[]; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
 export type Command =
   | { type: 'replace'; project: Project }
   | { type: 'rename'; name: string }
@@ -301,6 +303,7 @@ export type Command =
   | { type: 'audio'; audio: AudioClip[] }
   | { type: 'overlays'; overlays: ElementLayer[] }
   | { type: 'formats'; formats: FormatVariant[] }
+  | { type: 'beats'; beatTicks: number[] }
   | { type: 'add'; scenes: Scene[] }
   | { type: 'update'; scene: Scene }
   | { type: 'remove'; id: string }
@@ -709,6 +712,18 @@ function readElements(value: unknown, durationTicks: number, limit = 12): Elemen
   });
 }
 
+function readBeats(value: unknown, totalTicks: number): number[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error('Invalid beat markers.');
+  const ticks = value.map((tick, index) => {
+    if (!Number.isInteger(tick) || tick < 0 || tick > totalTicks) throw new Error(`Beat marker ${index + 1} is outside the timeline.`);
+    return tick as number;
+  });
+  const unique = [...new Set(ticks)].sort((a, b) => a - b);
+  if (unique.length > 500) throw new Error('A project supports up to 500 beat markers.');
+  return unique;
+}
+
 export function validateProject(value: unknown): Project {
   if (!value || typeof value !== 'object') throw new Error('This is not a PixCut project.');
   const p = value as ProjectInput;
@@ -744,6 +759,10 @@ export function validateProject(value: unknown): Project {
       const framingKeyframes = readFramingKeyframes(s.framingKeyframes, ticks as number);
       if (framingKeyframes) s.framingKeyframes = framingKeyframes;
       else delete s.framingKeyframes;
+      const mask = readMask(s.mask);
+      if (mask && s.mediaKind === 'video') throw new Error('Masks apply to photo scenes and media overlays, not video scenes.');
+      if (mask) s.mask = mask;
+      else delete s.mask;
       clipIds.add(s.id); bytes += s.image.length + (s.elements ?? []).reduce((sum, element) => sum + (element.source?.length ?? 0), 0);
       clips.push(s as Scene);
     }
@@ -785,7 +804,8 @@ export function validateProject(value: unknown): Project {
   if (bytes > 140_000_000) throw new Error('Project media exceeds 100 MB.');
   const audio = readAudio(p.audio, p.music, total, timebase);
   const formats = readFormats(p.formats, p.aspect, clipIds);
-  return { schema_version: 13, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, overlays, formats, policy: { ...policy } };
+  const beatTicks = readBeats(p.beatTicks, total);
+  return { schema_version: 13, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, overlays, formats, ...(beatTicks.length ? { beatTicks } : {}), policy: { ...policy } };
 }
 const SCENE_PATCH_FIELDS = [
   { key: 'durationTicks', value: (scene: Scene) => scene.durationTicks },
@@ -816,6 +836,7 @@ const SCENE_PATCH_FIELDS = [
   { key: 'pitch', value: (scene: Scene) => scene.pitch ?? true },
   { key: 'videoVolume', value: (scene: Scene) => scene.videoVolume ?? 100 },
   { key: 'framingKeyframes', value: (scene: Scene) => JSON.stringify(scene.framingKeyframes ?? []) },
+  { key: 'mask', value: (scene: Scene) => JSON.stringify(scene.mask ?? null) },
   { key: 'fadeIn', value: (scene: Scene) => scene.fadeIn ?? 0 },
   { key: 'fadeOut', value: (scene: Scene) => scene.fadeOut ?? 0 },
   { key: 'textBackdropEnabled', value: (scene: Scene) => scene.textBackdropEnabled ?? false },
@@ -858,7 +879,7 @@ export function scenePatch(base: Scene, next: Scene): Partial<Scene> {
   for (const field of SCENE_PATCH_FIELDS) {
     const before = field.value(base);
     const after = field.value(next);
-    if (before !== after) (patch as Record<string, unknown>)[field.key] = field.key === 'textLayers' ? structuredClone(next.textLayers ?? []) : field.key === 'elements' ? structuredClone(next.elements ?? []) : field.key === 'transition' ? structuredClone(next.transition ?? null) : field.key === 'framingKeyframes' ? structuredClone(next.framingKeyframes ?? []) : after;
+    if (before !== after) (patch as Record<string, unknown>)[field.key] = field.key === 'textLayers' ? structuredClone(next.textLayers ?? []) : field.key === 'elements' ? structuredClone(next.elements ?? []) : field.key === 'transition' ? structuredClone(next.transition ?? null) : field.key === 'framingKeyframes' ? structuredClone(next.framingKeyframes ?? []) : field.key === 'mask' ? structuredClone(next.mask ?? null) : after;
   }
   return patch;
 }
@@ -899,6 +920,7 @@ export function edit(project: Project, command: Exclude<Command, { type: 'undo' 
     case 'audio': p.audio = command.audio; break;
     case 'overlays': p.overlays = command.overlays; break;
     case 'formats': p.formats = command.formats; break;
+    case 'beats': p.beatTicks = command.beatTicks; break;
     case 'add': clips.push(...command.scenes); break;
     case 'update': clips = clips.map(s => s.id === command.scene.id ? command.scene : s); break;
     case 'remove': clips = clips.filter(s => s.id !== command.id); break;

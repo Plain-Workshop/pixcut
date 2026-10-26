@@ -5,6 +5,7 @@ import { DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TEXT_SIZE, DEFAULT_TEXT_SUBTITLE_SCAL
 import { MAX_TEXT_LAYERS, TEXT_LAYER_STYLE_DEFAULTS, createTextLayer, layerTimingLabel } from '../text/layers';
 import { KeyframeControls } from '../animation/KeyframeControls';
 import { FramingKeyframeControls } from '../animation/FramingKeyframeControls';
+import { MaskControls } from './MaskControls';
 import { sceneStack, stackIndex, stackZ, overlaysForScene, type StackMove } from '../elements/stack';
 import { StackOrder } from './StackOrder';
 import { FILTERS, clamp, thumbnailFilterCss } from '../preview/filters';
@@ -631,6 +632,13 @@ export function SceneForm({
         playheadSeconds={Math.min(ticksToSeconds(draft.durationTicks, timebase), Math.max(0, playheadSeconds))}
         durationSeconds={ticksToSeconds(draft.durationTicks, timebase)}
         onChange={keyframes => apply({ framingKeyframes: keyframes }, ['framingKeyframes'])}
+      />}
+      {draft.mediaKind !== 'video' && <MaskControls
+        mask={draft.mask}
+        context="scene"
+        onStage={mask => preview(stage({ mask }))}
+        onCommit={commit}
+        onApply={mask => apply({ mask }, ['mask'])}
       />}
       {draft.mediaKind !== 'video' && <details className="inspector-disclosure"><summary>Camera movement <small>{draft.motion && draft.motion !== 'none' ? draft.motion.replaceAll('-', ' ') : 'None'}</small></summary>
         <label className="field">Motion<select value={draft.motion ?? 'none'} onChange={event => apply({ motion: event.target.value as Scene['motion'] })}><option value="none">None</option><option value="zoom-in">Zoom in</option><option value="zoom-out">Zoom out</option><option value="pan-left">Pan left</option><option value="pan-right">Pan right</option><option value="pan-up">Pan up</option><option value="pan-down">Pan down</option><option value="ken-burns">Ken Burns</option></select></label>

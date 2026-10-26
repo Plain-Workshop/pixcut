@@ -621,6 +621,15 @@ export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect:
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  // A photo mask is applied to the photo layer only, leaving the framing
+  // background visible outside it. Video scenes use overlay masks instead.
+  const photoMask = scene.mediaKind === 'video' ? undefined : scene.mask;
+  const photoCanvas = photoMask ? document.createElement('canvas') : null;
+  if (photoCanvas) {
+    photoCanvas.width = w;
+    photoCanvas.height = h;
+  }
+  const paint = photoCanvas ? photoCanvas.getContext('2d', { willReadFrequently: true })! : ctx;
   const usingVideo = Boolean(videoFrame && videoFrame.readyState >= 2 && videoFrame.videoWidth > 0);
   const img: CanvasImageSource = usingVideo
     ? videoFrame!
@@ -651,20 +660,20 @@ export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect:
   const panY = Math.max(-1, Math.min(1, framing.y + motionY));
   let imageRect = { x: 0, y: 0, w, h };
   if (scene.fit === 'blur') {
-    blurredCover(ctx, img, sourceWidth, sourceHeight, w, h);
+    blurredCover(paint, img, sourceWidth, sourceHeight, w, h);
     const containScale = Math.min(w / sourceWidth, h / sourceHeight) * zoom;
     const dw = sourceWidth * containScale, dh = sourceHeight * containScale;
     const travel = framingTravel({ width: sourceWidth, height: sourceHeight }, { width: w, height: h }, scene.fit, zoom);
     const overflowX = travel.x, overflowY = travel.y;
     imageRect = { x: (w - dw) / 2 - panX * overflowX, y: (h - dh) / 2 - panY * overflowY, w: dw, h: dh };
-    ctx.drawImage(img, imageRect.x, imageRect.y, dw, dh);
+    paint.drawImage(img, imageRect.x, imageRect.y, dw, dh);
   } else {
     const fitScale = (scene.fit === 'cover' ? Math.max : Math.min)(w / sourceWidth, h / sourceHeight) * zoom;
     const dw = sourceWidth * fitScale, dh = sourceHeight * fitScale;
     const travel = framingTravel({ width: sourceWidth, height: sourceHeight }, { width: w, height: h }, scene.fit, zoom);
     const overflowX = travel.x, overflowY = travel.y;
     imageRect = { x: (w - dw) / 2 - panX * overflowX, y: (h - dh) / 2 - panY * overflowY, w: dw, h: dh };
-    ctx.drawImage(img, imageRect.x, imageRect.y, dw, dh);
+    paint.drawImage(img, imageRect.x, imageRect.y, dw, dh);
   }
   if (hasColorGrade(scene)) {
     const gradeRect = scene.fit === 'contain' ? imageRect : { x: 0, y: 0, w, h };
@@ -672,9 +681,13 @@ export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect:
     const y = Math.max(0, Math.round(gradeRect.y));
     const gradeW = Math.max(1, Math.min(w - x, Math.round(gradeRect.w)));
     const gradeH = Math.max(1, Math.min(h - y, Math.round(gradeRect.h)));
-    const imageData = ctx.getImageData(x, y, gradeW, gradeH);
+    const imageData = paint.getImageData(x, y, gradeW, gradeH);
     applyColorGrade(imageData.data, scene);
-    ctx.putImageData(imageData, x, y);
+    paint.putImageData(imageData, x, y);
+  }
+  if (photoCanvas && photoMask) {
+    applyMaskAlpha(photoCanvas, photoMask);
+    ctx.drawImage(photoCanvas, 0, 0);
   }
   await drawStack(ctx, canvas, scene, overlays, w, h, localSeconds, projectSeconds, timebase, quality !== 'preview', audio);
 }

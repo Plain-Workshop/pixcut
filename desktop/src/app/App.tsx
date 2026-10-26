@@ -8,6 +8,7 @@ import { centreGuides, edgeGuides, snapToTargets } from '../components/preview/s
 import { parseCaptions, placeCaptions } from '../components/text/captions';
 import { applyElementMotion, applyTextMotion } from '../components/animation/keyframes';
 import { KeyframeControls } from '../components/animation/KeyframeControls';
+import { snapOverlayTiming } from '../components/timeline/beats';
 import { MaskControls } from '../components/inspector/MaskControls';
 import { videoGain } from '../components/preview/video-audio';
 import { timelineOverlays, replaceOverlay, constrainOverlay, type TimelineOverlay } from '../components/elements/overlays';
@@ -1464,6 +1465,20 @@ export default function App() {
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
   }
 
+  function addBeatAtPlayhead() {
+    if (!canEdit || !projectTicks) return;
+    const tick = Math.min(projectTicks, Math.max(0, secondsToTicks(position, project.timebase)));
+    const beats = project.beatTicks ?? [];
+    if (beats.some(existing => Math.abs(existing - tick) < 2)) { setNotice('A beat is already there.'); return; }
+    if (beats.length >= 500) { setNotice('A project supports up to 500 beat markers.'); return; }
+    void run({ type: 'beats', beatTicks: [...beats, tick].sort((a, b) => a - b) });
+  }
+
+  function removeBeat(tick: number) {
+    if (!canEdit) return;
+    void run({ type: 'beats', beatTicks: (project.beatTicks ?? []).filter(beat => beat !== tick) });
+  }
+
   function beginOverlayTiming(event: ReactPointerEvent<HTMLElement>, element: TimelineOverlay, edge: 'move' | 'start' | 'end') {
     if (!canEdit || event.button !== 0) return;
     event.preventDefault(); event.stopPropagation(); selectOverlay(element, false);
@@ -1477,6 +1492,11 @@ export default function App() {
       else { const start = Math.max(0, Math.min(element.startTicks + element.durationTicks - 1, element.startTicks + delta)); patch = { startTicks: start, durationTicks: element.durationTicks + element.startTicks - start }; }
       const next = { ...element, ...constrainOverlay(element, projectTicks, patch) };
       if (next.kind === 'video' && next.sourceDurationSeconds) next.durationTicks = Math.min(next.durationTicks, Math.max(1, secondsToTicks(next.sourceDurationSeconds - (next.sourceInSeconds ?? 0), project.timebase)));
+      if (snapping && project.beatTicks?.length) {
+        const snapped = snapOverlayTiming(edge, next.startTicks, next.durationTicks, project.beatTicks, Math.max(1, Math.round(projectTicks / track.width * 8)));
+        next.startTicks = snapped.startTicks;
+        next.durationTicks = snapped.durationTicks;
+      }
       overlayDraftRef.current = next; setOverlayDraft(next);
     };
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); if (moved) commitElement(); else selectOverlay(element); };
@@ -3179,11 +3199,12 @@ export default function App() {
         <section className="timeline" aria-label="Timeline" style={{ height: timelineHeight }}>
           <div className="timeline-toolbar">
             <div><span className="timeline-heading">Your story</span><span className="tiny-label">{scenes.length} scenes</span></div>
-            <div className="timeline-tools"><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene earlier'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes[0]?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: -1 })}><ArrowLeft size={16} /></IconButton><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene later'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes.at(-1)?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: 1 })}><ArrowRight size={16} /></IconButton><IconButton className={snapping ? 'active' : ''} label={tip('timeline.snapping', `Snapping ${snapping ? 'on' : 'off'}`)} onClick={() => runCommandId('timeline.snapping')}><Magnet size={16} /></IconButton><span className="header-divider" /><div className="timeline-zoom" role="group" aria-label="Timeline zoom"><IconButton label="Zoom out timeline" disabled={timelineZoom <= .5} onClick={() => changeTimelineZoom(timelineZoom - .5)}><ZoomOut size={15} /></IconButton><input aria-label="Timeline zoom" type="range" min=".5" max="6" step=".25" value={timelineZoom} onChange={event => changeTimelineZoom(Number(event.target.value))} /><button className="timeline-zoom-label" title="Fit timeline" onClick={() => changeTimelineZoom(1)}>{Math.round(timelineZoom * 100)}%</button><IconButton label="Zoom in timeline" disabled={timelineZoom >= 6} onClick={() => changeTimelineZoom(timelineZoom + .5)}><ZoomIn size={15} /></IconButton></div><span className="header-divider" /><span className="timeline-total"><Clock3 size={14} />{duration.toFixed(1)}s</span></div>
+            <div className="timeline-tools"><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene earlier'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes[0]?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: -1 })}><ArrowLeft size={16} /></IconButton><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene later'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes.at(-1)?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: 1 })}><ArrowRight size={16} /></IconButton><IconButton className={snapping ? 'active' : ''} label={tip('timeline.snapping', `Snapping ${snapping ? 'on' : 'off'}`)} onClick={() => runCommandId('timeline.snapping')}><Magnet size={16} /></IconButton><IconButton label="Add beat at playhead" onClick={addBeatAtPlayhead}><AudioLines size={16} /></IconButton><span className="header-divider" /><div className="timeline-zoom" role="group" aria-label="Timeline zoom"><IconButton label="Zoom out timeline" disabled={timelineZoom <= .5} onClick={() => changeTimelineZoom(timelineZoom - .5)}><ZoomOut size={15} /></IconButton><input aria-label="Timeline zoom" type="range" min=".5" max="6" step=".25" value={timelineZoom} onChange={event => changeTimelineZoom(Number(event.target.value))} /><button className="timeline-zoom-label" title="Fit timeline" onClick={() => changeTimelineZoom(1)}>{Math.round(timelineZoom * 100)}%</button><IconButton label="Zoom in timeline" disabled={timelineZoom >= 6} onClick={() => changeTimelineZoom(timelineZoom + .5)}><ZoomIn size={15} /></IconButton></div><span className="header-divider" /><span className="timeline-total"><Clock3 size={14} />{duration.toFixed(1)}s</span></div>
           </div>
           <div className="timeline-content" ref={timelineScroll}>
             <div className="timeline-inner" style={{ width: `${timelineZoom * 100}%` }}>
             {duration > 0 && <div className="timeline-playhead" style={{ left: `calc(${timelineRatio * 100}% + ${148 - timelineRatio * 198}px)` }} title="Drag playhead" onPointerDown={beginPlayheadDrag}><span className="timeline-playhead-handle" /></div>}
+            {(project.beatTicks ?? []).map(tick => { const ratio = tick / Math.max(1, projectTicks); const seconds = ticksToSeconds(tick, project.timebase); return <button key={tick} className="beat-marker" style={{ left: `calc(${ratio * 100}% + ${148 - ratio * 198}px)` }} title={`Remove beat at ${seconds.toFixed(2)} s`} aria-label={`Remove beat at ${seconds.toFixed(2)} seconds`} disabled={!canEdit} onClick={() => removeBeat(tick)} />; })}
             <div className="timeline-sticky">
               <div className="timeline-ruler-row"><span>00:00</span><span>YOUR TIMELINE · {activeSize.width} × {activeSize.height}</span><span>{timecode(duration, project.timebase)}</span></div>
               <div className="timeline-scrub-row"><input className="scrubber" aria-label="Timeline playhead" type="range" min="0" max={Math.max(duration - frameSeconds, 0)} step={frameSeconds} value={position} disabled={!duration} onChange={e => scrubTo(Number(e.target.value))} /></div>
