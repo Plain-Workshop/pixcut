@@ -6,7 +6,9 @@ independently shippable, keeps preview and export in step, and lands with tests
 and a verification note. Nothing here adds an account, network call, paid tier,
 watermark or telemetry.
 
-Status legend: **shipped** · **in progress** · **planned** · **deferred**
+Status legend: **shipped** · **partial** · **planned** · **deferred**
+
+`*` QSV, AMF and VAAPI argument paths are covered by unit tests; no Intel or AMD GPU was available here, so they are unverified on hardware. VideoToolbox is verified on Apple Silicon.
 
 | # | Feature | Status | Schema |
 |---|---------|--------|--------|
@@ -15,7 +17,7 @@ Status legend: **shipped** · **in progress** · **planned** · **deferred**
 | 3 | Speed ramps and reverse | shipped | no |
 | 4 | Audio EQ and voiceover | shipped | no |
 | 5 | QSV / AMF / VAAPI hardware encoders | shipped* | no |
-| 6 | Multi-track and picture-in-picture | planned | yes (v16) |
+| 6 | Multi-track and picture-in-picture | partial (PiP shipped) | no |
 | 7 | i18n: translatable interface | shipped (shell) | no |
 | 8 | One asset store and a SQLite index | planned | no |
 | 9 | Font subsetting for large faces | planned | no |
@@ -158,7 +160,7 @@ returns.
 **Why it is missing.** Rust enforces exactly one visual track, the timeline is
 one row, and the exporter concatenates one track.
 
-**Approach — scoped, usable PiP first.**
+**Status.** Picture-in-picture ships today through timed image/video overlay elements (media tile → **Picture in picture**): a 34%-width copy in the first free corner with its own timing, keyframes and optional video playback, baked identically in preview and export. The true second visual track, its timeline row and the multi-input export graph described below are not implemented yet.
 
 1. Model: allow `visual` tracks with an optional `role` (`base` | `overlay`) and
    per-clip placement (`x`, `y`, `scale`, `radius`, `shadow`). Exactly one base
@@ -210,6 +212,8 @@ that no extracted key is missing from the shipped locales.
 
 ## 8. One asset store and a SQLite index
 
+**Status.** Not implemented. The native content-addressed store and the browser IndexedDB store share the `pixcut-asset:` reference format and `resolveMediaSource()`, but remain separate physical stores; the project library is still IndexedDB in both builds. The migration and `rusqlite` index below are the next step.
+
 **Why it is missing.** IndexedDB serves the browser build and the native app;
 Rust keeps a second content-addressed store for streaming and export, and the
 library list is JSON files on disk.
@@ -234,6 +238,8 @@ index.
 ---
 
 ## 9. Font subsetting
+
+**Status.** Not implemented. Fonts are embedded whole with the 2 MB cap and the 9 MB project budget; large CJK faces still do not fit.
 
 **Why it is missing.** A face is embedded whole with a 2 MB cap, so large CJK
 faces do not fit.
