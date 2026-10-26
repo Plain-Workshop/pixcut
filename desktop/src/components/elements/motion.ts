@@ -27,3 +27,12 @@ export function elementMotion(animation: ElementLayer['animation'], seconds: num
   if (animation === 'swing') rotation = Math.sin(local * 3.5) * 12;
   return { alpha: entrance ? eased : 1, scale, x: x || 0, y: y || 0, rotation: rotation || 0 };
 }
+
+export const isContinuousMotion = (animation: ElementLayer['animation']) => ['pulse', 'float', 'swing'].includes(animation);
+export function animationSelection(animation: ElementLayer['animation']): Pick<ElementLayer,'animation'|'loop'> {
+  return { animation, loop: isContinuousMotion(animation) };
+}
+/** A dedicated motion clock keeps content animation from hiding the entrance demo. */
+export function motionPreviewSeconds(animation: ElementLayer['animation'], elapsed: number) {
+  return isContinuousMotion(animation) ? elapsed : (1 - Math.cos(elapsed * Math.PI / .8)) / 2 * .6;
+}

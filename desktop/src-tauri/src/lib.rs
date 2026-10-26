@@ -1149,6 +1149,37 @@ fn safe_filename(name: &str) -> String {
     }
 }
 #[tauri::command]
+async fn save_text_file(data: String, file_name: String, extension: String, label: String) -> Result<bool, String> {
+    let extension = extension.to_ascii_lowercase();
+    if !matches!(extension.as_str(), "srt" | "vtt" | "txt") {
+        return Err("Unsupported text file type.".into());
+    }
+    if data.trim().is_empty() {
+        return Err("That file is empty.".into());
+    }
+    if data.len() > 16 * 1024 * 1024 {
+        return Err("That text file is larger than 16 MB.".into());
+    }
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .add_filter(&label, &[extension.as_str()])
+        .set_file_name(format!("{}.{}", safe_filename(&file_name), extension))
+        .save_file()
+        .await
+    else {
+        return Ok(false);
+    };
+    let path = file.path();
+    let parent = path.parent().ok_or("Choose a folder for the file.")?;
+    let temporary = tempfile::Builder::new()
+        .suffix(&format!(".{extension}"))
+        .tempfile_in(parent)
+        .map_err(|e| e.to_string())?;
+    fs::write(temporary.path(), data.as_bytes()).map_err(|e| e.to_string())?;
+    temporary.persist(path).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
 async fn save_project(app: tauri::AppHandle, editor: State<'_, Editor>) -> Result<bool, String> {
     let project = editor
         .session
@@ -2527,6 +2558,7 @@ pub fn run() {
             save_project,
             save_project_file,
             save_still_frame,
+            save_text_file,
             open_project,
             pick_media,
             import_video,

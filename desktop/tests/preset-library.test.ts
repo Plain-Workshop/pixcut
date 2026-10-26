@@ -7,15 +7,15 @@ import { emptyProject,edit,validateProject,type ElementLayer,type Scene } from '
 import { TEMPLATES,buildTemplateProject } from '../src/templates/catalog';
 const scene:Scene={id:'s',name:'Scene',image:'data:image/png;base64,AA==',startTicks:0,sourceInTicks:0,durationTicks:240,title:'',subtitle:'',color:'#FFFFFF',fit:'cover'};
 const base:ElementLayer={id:'e',kind:'label',x:.5,y:.5,width:.4,height:.2,rotation:0,color:'#C5B4FF',opacity:100,startTicks:0,durationTicks:240,animation:'none'};
-describe('200 designer presets',()=>{
- it('has 20 curated collections of ten, distinct identities, usable local artwork and editable text',()=>{
-  expect(ELEMENT_CATALOG).toHaveLength(200);expect(ELEMENT_COLLECTIONS).toHaveLength(20);
-  expect(new Set(ELEMENT_CATALOG.map(p=>p.id)).size).toBe(200);expect(new Set(ELEMENT_CATALOG.map(p=>p.label)).size).toBe(200);
+describe('designer presets',()=>{
+ it('has 22 curated collections of ten, distinct identities, usable local artwork and editable text',()=>{
+  expect(ELEMENT_CATALOG).toHaveLength(220);expect(ELEMENT_COLLECTIONS).toHaveLength(22);
+  expect(new Set(ELEMENT_CATALOG.map(p=>p.id)).size).toBe(220);expect(new Set(ELEMENT_CATALOG.map(p=>p.label)).size).toBe(220);
   expect(Object.keys(PRESET_ICONS).length).toBeGreaterThan(150);
   for(const [id] of ELEMENT_COLLECTIONS){const items=ELEMENT_CATALOG.filter(p=>p.collection===id);expect(items).toHaveLength(10);expect(new Set(items.map(p=>p.variant)).size).toBe(10);}
   for(const p of ELEMENT_CATALOG){expect(PRESET_ICONS[p.icon],p.id).toBeTruthy();expect(p.text.length,p.id).toBeLessThanOrEqual(80);expect(presetAspect(p)).toBeGreaterThan(0);}
  });
- it('preserves all 200 designs, Unicode labels and behavior through schema-13 migration and reopening',()=>{
+ it('preserves all designs, Unicode labels and behavior through schema-13 migration and reopening',()=>{
   const project=edit(emptyProject(),{type:'add',scenes:[scene]});
   for(const p of ELEMENT_CATALOG){const element={...base,kind:p.kind,presetId:p.id,label:'Twoja historia · 東京',behavior:p.behavior};const saved=validateProject({...project,schema_version:13,overlays:[element]});expect(saved.schema_version).toBe(14);expect(saved.overlays[0].presetId).toBe(p.id);expect(saved.overlays[0].label).toBe(element.label);expect(elementDisplayName(saved.overlays[0])).toBe(p.label);expect(validateProject(JSON.parse(JSON.stringify(saved)))).toEqual(saved);}
  });

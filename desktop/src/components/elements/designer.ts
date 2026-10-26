@@ -1,3 +1,5 @@
+import { textDirection } from '../text/language';
+import { BUTTON_ASPECTS, buttonVariant, drawSocialButton } from './buttons';
 import type { ElementLayer } from '../../stores/model';
 import { elementPreset, type ElementPreset } from './catalog';
 import { PRESET_ICONS } from './preset-icons';
@@ -7,12 +9,14 @@ import { countdownValue, completedItems } from './dynamic';
 import { drawCardElement } from './cards';
 
 let fontsReady: Promise<void> | undefined;
-export function prepareDesignerFonts(): Promise<void> {
+export function prepareDesignerFonts(label = ''): Promise<void> {
   if (typeof document === 'undefined' || !document.fonts) return Promise.resolve();
-  return fontsReady ??= Promise.all(['inter','space-grotesk','playfair','caveat'].map(font => document.fonts.load(`600 24px ${fontFamily(font)}`))).then(() => undefined).catch(() => undefined);
+  const base = fontsReady ??= Promise.all(['inter','space-grotesk','playfair','caveat'].map(font => document.fonts.load(`600 24px ${fontFamily(font)}`))).then(() => undefined).catch(() => undefined);
+  return base.then(async () => { if (label) await document.fonts.load(`700 24px ${fontFamily('inter')}`, label).catch(() => {}); });
 }
 
 export function presetAspect(p: ElementPreset): number {
+  if (p.collection === 'buttons' || p.collection === 'buttons-studio') return BUTTON_ASPECTS[buttonVariant(p)] ?? 3;
   if (p.kind === 'qr') return 1;
   if (p.kind === 'mouse') return 1.2;
   if (p.kind === 'keycaps') return 4;
@@ -33,9 +37,10 @@ export function drawPresetIcon(ctx:CanvasRenderingContext2D,name:string,x:number
     if(filled&&tag!=='line'&&tag!=='polyline'){ctx.save();ctx.globalAlpha*=.15;ctx.fill(path);ctx.restore();}ctx.stroke(path);
   }ctx.restore();
 }
-/** Twenty art-directed collections, each with ten purposeful compositions. No downloaded artwork. */
+/** Art-directed collections, each with ten purposeful compositions. No downloaded artwork. */
 export function drawDesignerElement(ctx:CanvasRenderingContext2D,e:ElementLayer,w:number,h:number,seconds:number,bars:number[]=[]) {
   const p=elementPreset(e);if(!p)return false;
+  if(p.collection==='buttons'||p.collection==='buttons-studio'){drawSocialButton(ctx,e,p,w,h,seconds,drawPresetIcon);return true;}
   const W=600,H=W/presetAspect(p),u=Math.min(W,H),v=p.variant,a=e.color,ink=elementForeground(a),dark='#141821',white='#F8FAFF',muted='#ADB6C9';
   const lines=(e.label??p.text).split('\n'),title=lines[0]??'',sub=lines.slice(1).join(' '),phase=(Math.sin(seconds*.9+v)+1)/2;
   ctx.save();ctx.scale(w/W,h/H);ctx.translate(-W/2,-H/2);
@@ -43,7 +48,7 @@ export function drawDesignerElement(ctx:CanvasRenderingContext2D,e:ElementLayer,
   const edge=(x:number,y:number,bw:number,bh:number,color=a,r=u*.08,line=1.5)=>{ctx.strokeStyle=color;ctx.lineWidth=line;ctx.beginPath();ctx.roundRect(x,y,bw,bh,r);ctx.stroke();};
   const circle=(x:number,y:number,r:number,color:string)=>{ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();};
   const stroke=(pts:number[],color:string,width=2)=>{ctx.beginPath();ctx.strokeStyle=color;ctx.lineWidth=width;ctx.lineCap='round';ctx.lineJoin='round';ctx.moveTo(pts[0],pts[1]);for(let i=2;i<pts.length;i+=2)ctx.lineTo(pts[i],pts[i+1]);ctx.stroke();};
-  const text=(s:string,x:number,y:number,size:number,color=white,max=W*.8,align:CanvasTextAlign='left',weight=600,font='inter')=>{ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillStyle=color;let f=size;ctx.font=`${weight} ${f}px ${fontFamily(font)}`;while(ctx.measureText(s).width>max&&f>size*.18){f*=.95;ctx.font=`${weight} ${f}px ${fontFamily(font)}`;}ctx.fillText(s,x,y,max);};
+  const text=(s:string,x:number,y:number,size:number,color=white,max=W*.8,align:CanvasTextAlign='left',weight=600,font='inter')=>{ctx.direction=textDirection(s);ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillStyle=color;let f=size;ctx.font=`${weight} ${f}px ${fontFamily(font)}`;while(ctx.measureText(s).width>max&&f>size*.18){f*=.95;ctx.font=`${weight} ${f}px ${fontFamily(font)}`;}ctx.fillText(s,x,y,max);};
   const icon=(x:number,y:number,size:number,color=a)=>drawPresetIcon(ctx,p.icon,x,y,size,color,true);
   const gradient=(c1:string,c2:string)=>{const g=ctx.createLinearGradient(0,0,W,H);g.addColorStop(0,c1);g.addColorStop(1,c2);return g;};
   const panel=(style=v)=>{if(style%4===0){ctx.fillStyle=gradient('#282D3D',dark);ctx.beginPath();ctx.roundRect(3,3,W-6,H-6,u*.1);ctx.fill();edge(3,3,W-6,H-6,a+'70');}else if(style%4===1){box(3,3,W-6,H-6,a);edge(12,12,W-24,H-24,ink+'35',u*.07);}else if(style%4===2){box(3,3,W-6,H-6,'#F1EEE7');box(3,3,9,H-6,a,4);}else{box(3,3,W-6,H-6,dark);edge(8,8,W-16,H-16,a,u*.1,2.5);}};

@@ -138,3 +138,15 @@ export type AssetUsage = { files: number; bytes: number };
 export async function assetUsage(): Promise<AssetUsage> { return native ? invoke('asset_usage') : { files: 0, bytes: 0 }; }
 export async function referencedRefs(): Promise<string[]> { return native ? invoke('referenced_refs') : []; }
 export async function pruneAssets(keep: string[]): Promise<AssetUsage> { return native ? invoke('prune_assets', { keep }) : { files: 0, bytes: 0 }; }
+
+export async function saveTextFile(data: string, fileName: string, extension: string, label: string): Promise<boolean> {
+  if (native) return invoke('save_text_file', { data, fileName, extension, label });
+  const blob = new Blob([data], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${fileName.replace(/[^\p{L}\p{N} _-]/gu, '') || 'PixCut'}.${extension}`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return true;
+}

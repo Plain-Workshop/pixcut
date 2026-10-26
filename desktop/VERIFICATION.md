@@ -1037,3 +1037,19 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - NVENC uses constant quality (`-rc vbr -cq <crf> -b:v 0`) with p3/p5/p7 presets mapped from the speed setting, plus `hvc1` tagging for QuickTime containers. VideoToolbox keeps its bitrate model.
 - Tests: `nvenc_arguments_use_constant_quality` covers the NVENC arguments, speed presets, HEVC tagging and the VP9 fallback; the macOS `hardware_encoding_uses_videotoolbox_and_a_sane_bitrate` and the real VideoToolbox encode test still pass.
 - Boundary: NVENC was not exercised on real Windows/Linux hardware here — only its arguments and availability logic — so those platforms remain unverified. QSV, AMF and VAAPI are not implemented.
+
+
+### Social Buttons collection — 2026-10-26
+
+- Added ten compact CTA presets in Elements → Social Buttons: subscribe pill/outline, like counter, love sticker, bell signal, alerts switch, share arrow, comment bubble, save ribbon, and split follow button. The original 200 presets retain their identifiers and artwork.
+- The collection uses the shared canvas compositor for gallery thumbnails, preview, and exported overlay frames. Text, accent color, size, entrance, and later actions remain editable. Library counts now follow the catalog.
+- Validation: 223 TypeScript tests passed, including all preset identifiers, local icons, aspect ratios in landscape/square/portrait, and schema migration/reopening. Frontend production build and native debug build passed.
+- Visual QA: inspected the actual editor gallery and all ten compositor-rendered designs in output/playwright/social-buttons-sheet.png. A representative H.264 encode of that sheet matched the canvas at SSIM 0.9982; this checks encoded artwork, not a full native project export.
+
+## SRT caption export — 2026-10-26
+
+- `textLayersAsCaptions()` converts every scene's text layers into absolute-timeline cues (title plus subtitle on a separate line, empty layers skipped, sorted by time); `toSrt()` serialises stable numbering, `HH:MM:SS,mmm` stamps, blank separators and a trailing newline.
+- The Text panel's caption block now offers **Import** and **Export SRT**. Export uses `save_text_file` on desktop (SRT/VTT/TXT only, 16 MB cap, safe filename, tempfile + atomic persist) and a local download in the browser.
+- Tests: `tests/captions-export.test.ts` (5) covers cross-scene absolute times, subtitle lines, empty layers, ordering, timestamp padding/rounding and exact SRT text. Totals: 214 TypeScript tests, 40 project-model tests, 28 native tests.
+- Browser check with two scenes: the downloaded file was `… - captions.srt` containing cues at 0.5–1.5 s and 2.0–3.5 s with the subtitle on its own line, toast “2 captions exported as an SRT file.”, no console errors. Reviewed `output/playwright/captions-export.png`.
+- Boundary: exports every text layer, not only caption-styled ones; no WebVTT output yet (import supports it).

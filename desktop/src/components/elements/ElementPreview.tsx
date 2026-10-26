@@ -1,48 +1,40 @@
 import { elementPreset } from './catalog';
 import { presetSize } from './designer';
 import { defaultElementSize } from './geometry';
-import { isDynamicElement, isCardElement } from './dynamic';
-import { isModernElement } from './modern';
+import { isDynamicElement } from './dynamic';
 import { useEffect, useRef } from 'react';
-import { elementMotion } from './motion';
+import { elementMotion, motionPreviewSeconds } from './motion';
 import { drawElementOverlay } from '../preview/render';
 import type { ElementKind, ElementLayer, Scene } from '../../stores/model';
 
-export function ElementPreview({ kind, color, presetId, animation = 'none', label, reduceMotion = false }: { kind: ElementKind; presetId?: string; color: string; animation?: ElementLayer['animation']; label?: string; reduceMotion?: boolean }) {
+export function ElementPreview({ kind, color, presetId, animation = 'none', label, reduceMotion = false, motionSample = false }: { kind: ElementKind; presetId?: string; color: string; animation?: ElementLayer['animation']; label?: string; reduceMotion?: boolean; motionSample?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const preset = elementPreset({ presetId });
     const size = preset ? presetSize(preset, { width: 240, height: 160 }) : defaultElementSize(kind, { width: 240, height: 160 });
-    const ratio = size.height / size.width;
-    const modernWidth = Math.min(.84, .7 / ratio);
-    const scene: Scene = {
-      id: 'preview', name: '', image: '', startTicks: 0, sourceInTicks: 0, durationTicks: 300,
-      title: '', subtitle: '', color, fit: 'cover',
-      elements: [{ id: 'preview', kind, presetId, behavior: preset?.behavior, label: label ?? preset?.text, x: .5, y: .5, width: (preset || isModernElement(kind) || isCardElement(kind)) ? modernWidth : .78, height: (preset || isModernElement(kind) || isCardElement(kind)) ? modernWidth * ratio : ['line', 'underline', 'progress'].includes(kind) ? .08 : ['subscribe', 'like'].includes(kind) ? .38 : .66, rotation: 0, color, opacity: 100, startTicks: 0, durationTicks: 300, animation }],
+    const ratio = size.height / size.width, width = Math.min(.78, .6 / ratio), height = width * ratio;
+    const element: ElementLayer = { id:'preview', kind, presetId, behavior:preset?.behavior, label:label??preset?.text, x:.5, y:.5, width, height, rotation:0, color, opacity:100, startTicks:0, durationTicks:600, animation:'none' };
+    const scene:Scene = {id:'preview',name:'',image:'',startTicks:0,sourceInTicks:0,durationTicks:600,title:'',subtitle:'',color,fit:'cover',elements:[element]};
+    const target=canvas.current;if(!target)return;
+    let raf=0,visible=false,last=0,start=0,drawing=false;
+    const media=window.matchMedia('(prefers-reduced-motion: reduce)');
+    const draw=async(elapsed:number)=>{
+      if(drawing)return;drawing=true;
+      try {
+        const motion=elementMotion(animation,motionPreviewSeconds(animation,elapsed));
+        const scale=motionSample && animation==='pulse' ? 1+(motion.scale-1)*3 : motion.scale;
+        const translation=motionSample?3:2;
+        element.x=.5+motion.x*translation;element.y=.5+motion.y*translation;
+        element.rotation=motion.rotation;element.width=width*scale;element.height=height*scale;
+        element.opacity=(motionSample?motion.alpha:Math.max(.35,motion.alpha))*100;
+        await drawElementOverlay(target,scene,'preview',elapsed%10,'16:9',undefined,{width:240,height:160},[],true);
+      } finally {drawing=false;}
     };
-    const target = canvas.current;
-    if (!target) return;
-    let raf = 0, visible = false, previous = 0, start = 0;
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const draw = (seconds: number) => {
-      const motion = elementMotion(animation, preset ? (1 - Math.cos(seconds * Math.PI / .6)) / 2 * .6 : seconds);
-      if (preset) {
-        const item = scene.elements![0]; item.animation = 'none'; item.opacity = Math.max(.35, motion.alpha) * 100; item.rotation = motion.rotation; item.width = modernWidth * motion.scale; item.height = modernWidth * ratio * motion.scale;
-      }
-      // Exaggerate translation in these tiny thumbnails so the direction is legible.
-      scene.elements![0].x = .5 + motion.x * 2;
-      scene.elements![0].y = .5 + motion.y * 2;
-      void drawElementOverlay(target, scene, 'preview', seconds, '16:9', undefined, { width: 240, height: 160 }, [], true); };
-    const animate = (now: number) => {
-      if (!visible || reduceMotion || media.matches || (animation === 'none' && !isDynamicElement(kind) && !preset)) return;
-      if (!start) start = now;
-      if (now - previous > 65) { draw(preset || isDynamicElement(kind) ? ((now - start) / 1000) % 7 : animation === 'pulse' || animation === 'float' || animation === 'swing' ? (now - start) / 1000 : ((1 - Math.cos((now - start) / 1000 * Math.PI / .6)) / 2) * .6); previous = now; }
-      raf = requestAnimationFrame(animate);
-    };
-    const restart = () => { cancelAnimationFrame(raf); draw(.35); if (visible) { start = 0; raf = requestAnimationFrame(animate); } };
-    const observer = new IntersectionObserver(entries => { visible = entries[0].isIntersecting; restart(); });
-    draw(.35); observer.observe(target); media.addEventListener('change', restart);
-    return () => { observer.disconnect(); cancelAnimationFrame(raf); media.removeEventListener('change', restart); };
-  }, [kind, color, presetId, animation, label, reduceMotion]);
-  return <canvas ref={canvas} aria-hidden="true" />;
+    const animate=(now:number)=>{if(!visible||reduceMotion||media.matches||(animation==='none'&&!isDynamicElement(kind)&&!preset))return;if(!start)start=now-350;if(now-last>65){void draw((now-start)/1000);last=now;}raf=requestAnimationFrame(animate);};
+    const restart=()=>{cancelAnimationFrame(raf);void draw(.4);if(visible){start=0;raf=requestAnimationFrame(animate);}};
+    const observer=new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;restart();});
+    void draw(.4);observer.observe(target);media.addEventListener('change',restart);
+    return()=>{observer.disconnect();cancelAnimationFrame(raf);media.removeEventListener('change',restart);};
+  },[kind,color,presetId,animation,label,reduceMotion,motionSample]);
+  return <canvas ref={canvas} aria-hidden="true" data-motion={motionSample?animation:undefined}/>;
 }

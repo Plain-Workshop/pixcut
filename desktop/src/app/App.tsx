@@ -1,3 +1,5 @@
+import { ElementTextField } from '../components/elements/ElementTextField';
+import { inspectorKind } from './inspector';
 import { presetSize } from '../components/elements/designer';
 import { PresetGlyph } from '../components/elements/PresetGlyph';
 import { BehaviorControls } from '../components/elements/BehaviorControls';
@@ -8,6 +10,7 @@ import { canvasPng } from '../components/preview/png';
 import { framingTravel } from '../components/preview/framing';
 import { centreGuides, edgeGuides, snapToTargets } from '../components/preview/snapping';
 import { parseCaptions, placeCaptions } from '../components/text/captions';
+import { textLayersAsCaptions, toSrt } from '../components/text/captions-export';
 import { applyElementMotion, applyTextMotion } from '../components/animation/keyframes';
 import { KeyframeControls } from '../components/animation/KeyframeControls';
 import { snapOverlayTiming } from '../components/timeline/beats';
@@ -105,7 +108,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { ElementPreview } from '../components/elements/ElementPreview';
-import { ELEMENT_ANIMATIONS } from '../components/elements/motion';
+import { animationSelection, isContinuousMotion, ELEMENT_ANIMATIONS } from '../components/elements/motion';
 import { Brand } from '../components/BrandLogo';
 import { IconButton } from '../components/IconButton';
 import { SceneForm, TRANSITION_OPTIONS } from '../components/inspector/SceneForm';
@@ -1481,6 +1484,7 @@ export default function App() {
   }
 
   function selectTextLayer(id: string | null) {
+    setTab('text');
     setEditTarget('text');
     setSelectedElementId(null);
     setSelectedTextLayerId(id);
@@ -2504,6 +2508,17 @@ export default function App() {
     if ((project.ducking ?? 0) !== amount) void run({ type: 'ducking', amount });
   }
 
+  async function exportCaptions() {
+    const captions = textLayersAsCaptions(projectScenes(latestProject.current), project.timebase);
+    if (!captions.length) { setError('Add a title or caption layer before exporting captions.'); return; }
+    try {
+      const saved = await bridge.saveTextFile(toSrt(captions), `${project.name} - captions`, 'srt', 'SubRip subtitles');
+      if (saved) setNotice(`${captions.length} caption${captions.length === 1 ? '' : 's'} exported as an SRT file.`);
+    } catch (error) {
+      setError(messageFor(error));
+    }
+  }
+
   async function chooseAudio() {
     if (!canEdit) return;
     if (bridge.native) {
@@ -3341,35 +3356,65 @@ export default function App() {
     </div>;
   }
 
+  const audioInspector = <>
+              <details className="inspector-section ducking-panel"><summary>Music mix</summary>
+                <label className="checkbox-field"><input type="checkbox" checked={(project.ducking ?? 0) > 0} disabled={!canEdit || !hasVideoScenes} onChange={event => void run({ type: 'ducking', amount: event.target.checked ? 60 : 0 })} /> Lower music under video sound</label>
+                {(project.ducking ?? 0) > 0 && <label className="music-control"><span>Reduce music by <b>{duckDraft ?? project.ducking}%</b></span><input type="range" aria-label="Music ducking amount" min="10" max="90" step="5" value={duckDraft ?? project.ducking ?? 60} disabled={!canEdit} onChange={event => setDuckDraft(Number(event.target.value))} onPointerUp={event => commitDucking(Number(event.currentTarget.value))} onKeyUp={event => commitDucking(Number(event.currentTarget.value))} onBlur={event => commitDucking(Number(event.currentTarget.value))} /></label>}
+                <p className="note"><AudioLines size={14} /><span>{hasVideoScenes ? 'Music dips while a clip\'s own sound plays, with a 150 ms ramp. Silent clips do not trigger it.' : 'Add a video clip to duck music under its sound.'}</span></p>
+              </details>
+              {selectedAudio && <div className="audio-editor">
+                <div className="audio-editor-title"><small>{isAssetRef(selectedAudio.data) ? 'Stored locally' : formatBytes(selectedAudio.data.length * .75)} · {selectedAudio.sourceDurationSeconds.toFixed(1)} s source</small></div>
+                <label className="field">Audio track<select aria-label="Audio track" value={selectedAudio.lane} onChange={event => stageAudio({ lane: Number(event.target.value) })} onBlur={commitAudio}>{audioLanes.map((lane, index) => <option key={lane} value={lane}>Track {index + 1}</option>)}<option value={audioLanes.length}>Track {audioLanes.length + 1}</option></select></label>
+                <label className="music-control"><span>Start <b>{ticksToSeconds(selectedAudio.startTicks, project.timebase).toFixed(1)} s</b></span><input aria-label="Audio start" type="range" min="0" max={ticksToSeconds(Math.max(0, projectTicks - selectedAudio.durationTicks), project.timebase)} step={secondsPerTick(project.timebase)} value={ticksToSeconds(selectedAudio.startTicks, project.timebase)} disabled={!canEdit} onChange={event => stageAudio({ startTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <label className="music-control"><span>Trim in <b>{selectedAudio.sourceInSeconds.toFixed(1)} s</b></span><input aria-label="Audio trim in" type="range" min="0" max={Math.max(0, selectedAudio.sourceDurationSeconds - secondsPerTick(project.timebase))} step="0.1" value={selectedAudio.sourceInSeconds} disabled={!canEdit} onChange={event => stageAudio({ sourceInSeconds: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <label className="music-control"><span>Duration <b>{ticksToSeconds(selectedAudio.durationTicks, project.timebase).toFixed(1)} s</b></span><input aria-label="Audio duration" type="range" min="0.1" max={Math.max(0.1, Math.min(ticksToSeconds(projectTicks - selectedAudio.startTicks, project.timebase), selectedAudio.sourceDurationSeconds - selectedAudio.sourceInSeconds))} step="0.1" value={ticksToSeconds(selectedAudio.durationTicks, project.timebase)} disabled={!canEdit} onChange={event => stageAudio({ durationTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <label className="music-control"><span>Volume <b>{Math.round(selectedAudio.volume * 100)}%</b></span><input aria-label="Audio volume" type="range" min="0" max="100" step="1" value={Math.round(selectedAudio.volume * 100)} disabled={!canEdit} onChange={event => stageAudio({ volume: Number(event.target.value) / 100 })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <label className="music-control"><span>Fade in <b>{selectedAudio.fadeIn.toFixed(1)} s</b></span><input aria-label="Audio fade in" type="range" min="0" max={Math.min(30, ticksToSeconds(selectedAudio.durationTicks, project.timebase))} step="0.1" value={selectedAudio.fadeIn} disabled={!canEdit} onChange={event => stageAudio({ fadeIn: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <label className="music-control"><span>Fade out <b>{selectedAudio.fadeOut.toFixed(1)} s</b></span><input aria-label="Audio fade out" type="range" min="0" max={Math.min(30, ticksToSeconds(selectedAudio.durationTicks, project.timebase))} step="0.1" value={selectedAudio.fadeOut} disabled={!canEdit} onChange={event => stageAudio({ fadeOut: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <div className="beat-sync">
+                  <div className="beat-sync-head"><strong>Beat tools</strong>{beatTempo ? <span>{beatTempo} BPM</span> : null}</div>
+                  <div className="beat-sync-actions">
+                    <button className="button" disabled={!canEdit || beatBusy} onClick={() => void detectAudioBeats()}><AudioLines size={14} />{beatBusy ? 'Listening…' : 'Detect beats'}</button>
+                    <button className="button" disabled={!canEdit || beatBusy} onClick={() => void snapCutsToBeat()}><Magnet size={14} />Snap cuts</button>
+                  </div>
+                  <small>All local: detects the pulse in this clip, adds timeline markers, and can move photo cuts within 0.35 s of a beat. Markers snap overlay moves and trims.</small>
+                </div>
+                <p className="note"><Music size={14} /><span>{audio.length} audio clip{audio.length === 1 ? '' : 's'} · drag a clip on the timeline to move it, or drag its edges to trim. Mixed into the export at 192 kbps.</span></p>
+              </div>}
+  </>;
+  const propertyKind = inspectorKind(editTarget, { scene: Boolean(selectedScene), text: Boolean(selectedTextLayer), element: Boolean(selectedElement), audio: Boolean(selectedAudio) });
+  const [sceneInspectorTool, setSceneInspectorTool] = useState('video');
+
   const elementInspector = selectedElement && selectedScene && <div className="element-controls">
                 <div className="element-controls-head"><strong>{elementName(selectedElement)}</strong><button className="text-button danger" onClick={() => removeElement(selectedElement.id)}><Trash2 size={12} /> Delete</button></div>
+                {(selectedElement.presetId || ELEMENT_LABEL_DEFAULTS[selectedElement.kind] !== undefined) && <ElementTextField key={selectedElement.id} value={selectedElement.label ?? elementPreset(selectedElement)?.text ?? ELEMENT_LABEL_DEFAULTS[selectedElement.kind] ?? ''} stage={label => stageElement({ label })} commit={commitElement} />}
+                {selectedElement.kind !== 'image' && selectedElement.kind !== 'video' && <div className="element-color-row">{ELEMENT_COLORS.map(color => <button key={color} className={`element-color ${selectedElement.color === color ? 'active' : ''}`} style={{ background: color }} aria-label={`Element color ${color}`} onClick={() => updateElement({ color })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} />)}</div>}
+                {selectedElement.kind === 'video' && <p className="note">Overlay audio is muted. Add music on an audio track.</p>}
                 {sceneLayerStack.length > 1 && <StackOrder position={elementStackPosition(selectedElement)} total={sceneLayerStack.length} disabled={!canEdit} onMove={moveElementLayer} />}
-                <div className="overlay-timing">
+                <details className="inspector-section" open><summary>Timing</summary><div className="overlay-timing">
                   <label className="field">Start (project seconds)<input aria-label="Overlay start" type="number" min="0" max={ticksToSeconds(projectTicks - 1, project.timebase)} step={secondsPerTick(project.timebase)} value={Number(ticksToSeconds(selectedElement.startTicks, project.timebase).toFixed(3))} onChange={event => stageElement({ startTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onBlur={commitElement} onKeyDown={event => { if (event.key === 'Enter') commitElement(); }} /></label>
                   <label className="field">Duration (seconds)<input aria-label="Overlay duration" type="number" min={secondsPerTick(project.timebase)} max={ticksToSeconds(projectTicks - selectedElement.startTicks, project.timebase)} step={secondsPerTick(project.timebase)} value={Number(ticksToSeconds(selectedElement.durationTicks, project.timebase).toFixed(3))} onChange={event => stageElement({ durationTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onBlur={commitElement} onKeyDown={event => { if (event.key === 'Enter') commitElement(); }} /></label>
-                <label className="music-control"><span>Start <b>{ticksToSeconds(selectedElement.startTicks, project.timebase).toFixed(1)} s</b></span><input type="range" min="0" max={Math.max(0, ticksToSeconds(projectTicks - 1, project.timebase))} step={secondsPerTick(project.timebase)} aria-label="Overlay start slider" value={ticksToSeconds(selectedElement.startTicks, project.timebase)} onChange={event => stageElement({ startTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
-                <label className="music-control"><span>Duration <b>{ticksToSeconds(selectedElement.durationTicks, project.timebase).toFixed(1)} s</b></span><input type="range" min={secondsPerTick(project.timebase)} max={Math.max(secondsPerTick(project.timebase), ticksToSeconds(projectTicks - selectedElement.startTicks, project.timebase))} step={secondsPerTick(project.timebase)} aria-label="Overlay duration slider" value={ticksToSeconds(selectedElement.durationTicks, project.timebase)} onChange={event => stageElement({ durationTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
-                </div>
-                <KeyframeControls layer={selectedElement} playheadSeconds={Math.max(0, position - ticksToSeconds(selectedElement.startTicks, project.timebase))} durationSeconds={ticksToSeconds(selectedElement.durationTicks, project.timebase)} disabled={!canEdit} onChange={keyframes => updateElement({ keyframes })} />
-                {(selectedElement.kind === 'image' || selectedElement.kind === 'video') && <MaskControls mask={selectedElement.mask} disabled={!canEdit} onStage={mask => stageElement({ mask })} onCommit={commitElement} onApply={mask => updateElement({ mask })} />}
+                </div></details>
+<details className="inspector-section motion-properties" open><summary>Motion</summary>
                 <BehaviorControls canvas={activeSize} element={selectedElement} audio={project.audio} update={updateElement} stage={stageElement} commit={commitElement} preview={seconds => { commitElement(); setPosition(Math.min(ticksToSeconds(projectTicks - 1, project.timebase), ticksToSeconds(selectedElement.startTicks, project.timebase) + seconds)); setPlaying(true); }} />
-                <details className="element-motion"><summary>Entrance · {ELEMENT_ANIMATIONS.find(([id]) => id === selectedElement.animation)?.[1]}</summary>                <div className="library-label">ENTRANCE <span>{ELEMENT_ANIMATIONS.length - 1} motions</span></div>
-                <div className="animation-choices">{ELEMENT_ANIMATIONS.map(([id, label]) => <button key={id} aria-pressed={selectedElement.animation === id} className={selectedElement.animation === id ? 'active' : ''} onClick={() => updateElement({ animation: id, loop: false })}><span className="motion-preview"><ElementPreview presetId={selectedElement.presetId} kind={selectedElement.kind === 'image' || selectedElement.kind === 'video' ? 'rectangle' : selectedElement.kind} color={selectedElement.color} animation={id} label={selectedElement.label} reduceMotion={preferences.reduceMotion} /></span><span>{label}</span></button>)}</div>
-                <label className="checkbox-field element-repeat"><input type="checkbox" checked={selectedElement.loop ?? false} disabled={selectedElement.animation === 'none'} onChange={event => updateElement({ loop: event.target.checked })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /> Repeat entrance</label>
+                <section className="element-motion"><h3>Entrance</h3>                <div className="library-label">ENTRANCE <span>{ELEMENT_ANIMATIONS.length - 1} motions</span></div>
+                <div className="animation-choices">{ELEMENT_ANIMATIONS.map(([id, label]) => <button key={id} aria-pressed={selectedElement.animation === id} className={selectedElement.animation === id ? 'active' : ''} onClick={() => updateElement(animationSelection(id))}><span className="motion-preview"><ElementPreview motionSample kind="name-tag" color={selectedElement.color} animation={id} label="Aa\nMotion" reduceMotion={preferences.reduceMotion} /></span><span>{label}</span></button>)}</div>
+                <label className="checkbox-field element-repeat"><input type="checkbox" checked={selectedElement.loop ?? false} disabled={selectedElement.animation === 'none'} onChange={event => updateElement({ loop: event.target.checked })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /> {isContinuousMotion(selectedElement.animation) ? 'Repeat motion' : 'Repeat entrance'}</label>
                 {selectedElement.animation !== 'none' && <label className="field">Entrance duration<input aria-label="Element animation duration" type="number" min="0.1" max="5" step="0.1" value={selectedElement.animationDuration ?? .6} onChange={event => stageElement({ animationDuration: Math.max(.1, Math.min(5, Number(event.target.value) || .6)) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>}
-                </details>
-                <div className="overlay-action"><label className="field">Later action<select aria-label="Element action" value={selectedElement.action?.kind ?? 'none'} onChange={event => updateElement({ action: event.target.value === 'none' ? undefined : { kind: event.target.value as 'ring', startTicks: Math.min(selectedElement.durationTicks - 1, secondsToTicks(1, project.timebase)), durationTicks: Math.min(selectedElement.durationTicks, secondsToTicks(2, project.timebase)), repeat: false, sound: false } })}><option value="none">None</option><option value="ring">Ring / shake</option><option value="pulse">Pulse</option><option value="float">Float</option><option value="spin">Spin</option></select></label>
+                </section>
+                <details className="overlay-action"><summary>Timed action</summary><label className="field">Later action<select aria-label="Element action" value={selectedElement.action?.kind ?? 'none'} onChange={event => updateElement({ action: event.target.value === 'none' ? undefined : { kind: event.target.value as 'ring', startTicks: Math.min(selectedElement.durationTicks - 1, secondsToTicks(1, project.timebase)), durationTicks: Math.min(selectedElement.durationTicks, secondsToTicks(2, project.timebase)), repeat: false, sound: false } })}><option value="none">None</option><option value="ring">Ring / shake</option><option value="pulse">Pulse</option><option value="float">Float</option><option value="spin">Spin</option></select></label>
                 {selectedElement.action && <>
                   <label className="field">Action starts after (seconds)<input aria-label="Action start" type="number" min="0" max={ticksToSeconds(selectedElement.durationTicks - 1, project.timebase)} step="0.1" value={ticksToSeconds(selectedElement.action.startTicks, project.timebase)} onChange={event => stageElement({ action: { ...selectedElement.action!, startTicks: secondsToTicks(Number(event.target.value), project.timebase) } })} onBlur={commitElement} onKeyDown={event => { if (event.key === 'Enter') commitElement(); }} /></label>
                   <label className="field">Action duration (seconds)<input aria-label="Action duration" type="number" min="0.1" max={ticksToSeconds(selectedElement.durationTicks - selectedElement.action.startTicks, project.timebase)} step="0.1" value={ticksToSeconds(selectedElement.action.durationTicks, project.timebase)} onChange={event => stageElement({ action: { ...selectedElement.action!, durationTicks: secondsToTicks(Number(event.target.value), project.timebase) } })} onBlur={commitElement} /></label>
                   <label className="checkbox-field"><input type="checkbox" checked={selectedElement.action.repeat} onChange={event => updateElement({ action: { ...selectedElement.action!, repeat: event.target.checked } })} /> Repeat action</label>
                   {selectedElement.action.kind === 'ring' && <label className="checkbox-field"><input type="checkbox" checked={selectedElement.action.sound} onChange={event => updateElement({ action: { ...selectedElement.action!, sound: event.target.checked } })} /> Bell sound</label>}
                 </>}
-                </div>
-                {(selectedElement.presetId || ELEMENT_LABEL_DEFAULTS[selectedElement.kind] !== undefined) && <label className="field">{selectedElement.kind === 'subscribe' || selectedElement.kind === 'like' ? 'Button text' : 'Text'}{selectedElement.presetId || ['name-tag', 'quote', 'chapter', 'comparison', 'checklist', 'end-screen'].includes(selectedElement.kind) ? <textarea aria-label="Element text" rows={2} maxLength={80} value={selectedElement.label ?? elementPreset(selectedElement)?.text ?? ELEMENT_LABEL_DEFAULTS[selectedElement.kind]} onChange={event => stageElement({ label: event.target.value })} onKeyUp={commitElement} onBlur={commitElement} /> : <input aria-label={selectedElement.kind === 'subscribe' || selectedElement.kind === 'like' ? 'Element button text' : 'Element text'} maxLength={80} value={selectedElement.label ?? elementPreset(selectedElement)?.text ?? ELEMENT_LABEL_DEFAULTS[selectedElement.kind]} onChange={event => stageElement({ label: event.target.value })} placeholder="Your text, in any language" onKeyUp={commitElement} onBlur={commitElement} />}</label>}
-                {selectedElement.kind !== 'image' && selectedElement.kind !== 'video' && <div className="element-color-row">{ELEMENT_COLORS.map(color => <button key={color} className={`element-color ${selectedElement.color === color ? 'active' : ''}`} style={{ background: color }} aria-label={`Element color ${color}`} onClick={() => updateElement({ color })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} />)}</div>}
-                {selectedElement.kind === 'video' && <p className="note">Overlay audio is muted. Add music on an audio track.</p>}
+                </details>
+</details>
                 <details className="element-adjustments"><summary>Size & position</summary>
+                <KeyframeControls layer={selectedElement} playheadSeconds={Math.max(0, position - ticksToSeconds(selectedElement.startTicks, project.timebase))} durationSeconds={ticksToSeconds(selectedElement.durationTicks, project.timebase)} disabled={!canEdit} onChange={keyframes => updateElement({ keyframes })} />
+                {(selectedElement.kind === 'image' || selectedElement.kind === 'video') && <MaskControls mask={selectedElement.mask} disabled={!canEdit} onStage={mask => stageElement({ mask })} onCommit={commitElement} onApply={mask => updateElement({ mask })} />}
+
                 <label className="music-control"><span>Opacity <b>{Math.round(selectedElement.opacity)}%</b></span><input type="range" min="0" max="100" step="1" value={selectedElement.opacity} onChange={event => stageElement({ opacity: Number(event.target.value) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
                 <label className="music-control"><span>Rotation <b>{Math.round(selectedElement.rotation)}°</b></span><input type="range" min="-180" max="180" step="1" value={selectedElement.rotation} onChange={event => stageElement({ rotation: Number(event.target.value) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
                 <label className="music-control"><span>Width <b>{Math.round(selectedElement.width * 100)}%</b></span><input type="range" min="2" max="100" step="1" value={Math.round(selectedElement.width * 100)} onChange={event => stageElement({ width: Number(event.target.value) / 100 })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
@@ -3563,9 +3608,14 @@ export default function App() {
               {!sourceMedia.length && <div className="library-empty"><ImagePlus size={34} /><strong>A story starts with a photo.</strong><p>Import images from your device.<br />Nothing gets uploaded.</p></div>}
               {sourceMedia.length > 0 && !filteredScenes.length && <div className="library-empty"><Search size={30} /><strong>No matching media.</strong><p>Try a different name, or clear the search.</p></div>}
             </> : tab === 'text' ? <div className="title-library">
+              {selectedScene && sceneTextLayers(selectedScene).length > 0 && <div className="library-item-list" aria-label="Text layers in selected scene"><div className="library-label">IN THIS SCENE</div>{sceneTextLayers(selectedScene).map((layer,index) => <button key={layer.id} className={editTarget === 'text' && selectedTextLayerId === layer.id ? 'active' : ''} aria-pressed={editTarget === 'text' && selectedTextLayerId === layer.id} onClick={() => selectTextLayer(layer.id)}><Type size={14} /><span>{layer.title || `Text layer ${index+1}`}</span></button>)}</div>}
+
               <div className="caption-import">
-                <button className="button" disabled={!canEdit || !scenes.length} onClick={() => captionInput.current?.click()}><Captions size={14} /> Import captions</button>
-                <small>SRT or WebVTT become editable text layers.</small>
+                <div className="caption-import-actions">
+                  <button className="button" disabled={!canEdit || !scenes.length} onClick={() => captionInput.current?.click()}><Captions size={14} /> Import</button>
+                  <button className="button" disabled={!canEdit || !scenes.length} onClick={() => void exportCaptions()}><Download size={14} /> Export SRT</button>
+                </div>
+                <small>Import SRT or WebVTT as editable layers; export every text layer back as subtitles.</small>
               </div>
               {TITLE_PRESETS.map(preset => <button key={preset.name} className={`title-preset ${preset.id}`} disabled={!selectedScene || !canEdit || sceneTextLayers(selectedScene).length >= 8} onClick={() => addTextLayerAtPlayhead(preset.layer)} aria-label={`Add ${preset.name} title`}>
                 <span className="title-preset-art" style={{ fontFamily: fontOption(preset.layer.font ?? 'inter').family }}><span>{preset.sample}</span></span><strong>{preset.name}</strong><Plus size={13} />
@@ -3575,39 +3625,13 @@ export default function App() {
               {audio.length ? <div className="audio-list">{audio.map(clip => {
                 const start = ticksToSeconds(clip.startTicks, project.timebase);
                 const length = ticksToSeconds(clip.durationTicks, project.timebase);
-                return <div className={`audio-list-item ${selectedAudio?.id === clip.id ? 'active' : ''}`} key={clip.id}>
+                return <div className={`audio-list-item ${editTarget === 'audio' && selectedAudio?.id === clip.id ? 'active' : ''}`} key={clip.id}>
                   <button className="audio-list-select" onClick={() => focusAudio(clip)}><Music size={15} /><span><strong>{clip.name}</strong><small>{start.toFixed(1)} s · {length.toFixed(1)} s</small></span></button>
-                  <button className="icon-button" aria-label={`Remove ${clip.name}`} disabled={!canEdit} onClick={() => removeAudio(clip.id)}><Trash2 size={14} /></button>
                 </div>;
               })}</div> : <div className="library-empty music-empty">
                 <Music size={34} />
                 <strong>Give your story a soundtrack.</strong>
                 <p>Add as many audio clips as you need.<br />Stays on this device.</p>
-                <button className="button primary" disabled={!canEdit || !projectTicks} onClick={() => void chooseAudio()}><Upload size={15} /> Add audio</button>
-              </div>}
-              <div className="ducking-panel">
-                <label className="checkbox-field"><input type="checkbox" checked={(project.ducking ?? 0) > 0} disabled={!canEdit || !hasVideoScenes} onChange={event => void run({ type: 'ducking', amount: event.target.checked ? 60 : 0 })} /> Lower music under video sound</label>
-                {(project.ducking ?? 0) > 0 && <label className="music-control"><span>Reduce music by <b>{duckDraft ?? project.ducking}%</b></span><input type="range" aria-label="Music ducking amount" min="10" max="90" step="5" value={duckDraft ?? project.ducking ?? 60} disabled={!canEdit} onChange={event => setDuckDraft(Number(event.target.value))} onPointerUp={event => commitDucking(Number(event.currentTarget.value))} onKeyUp={event => commitDucking(Number(event.currentTarget.value))} onBlur={event => commitDucking(Number(event.currentTarget.value))} /></label>}
-                <p className="note"><AudioLines size={14} /><span>{hasVideoScenes ? 'Music dips while a clip\'s own sound plays, with a 150 ms ramp. Silent clips do not trigger it.' : 'Add a video clip to duck music under its sound.'}</span></p>
-              </div>
-              {selectedAudio && <div className="audio-editor">
-                <div className="audio-editor-title"><strong>{selectedAudio.name}</strong><small>{isAssetRef(selectedAudio.data) ? 'Stored locally' : formatBytes(selectedAudio.data.length * .75)} · {selectedAudio.sourceDurationSeconds.toFixed(1)} s source</small></div>
-                <label className="field">Audio track<select aria-label="Audio track" value={selectedAudio.lane} onChange={event => stageAudio({ lane: Number(event.target.value) })} onBlur={commitAudio}>{audioLanes.map((lane, index) => <option key={lane} value={lane}>Track {index + 1}</option>)}<option value={audioLanes.length}>Track {audioLanes.length + 1}</option></select></label>
-                <label className="music-control"><span>Start <b>{ticksToSeconds(selectedAudio.startTicks, project.timebase).toFixed(1)} s</b></span><input type="range" min="0" max={ticksToSeconds(Math.max(0, projectTicks - selectedAudio.durationTicks), project.timebase)} step={secondsPerTick(project.timebase)} value={ticksToSeconds(selectedAudio.startTicks, project.timebase)} disabled={!canEdit} onChange={event => stageAudio({ startTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
-                <label className="music-control"><span>Trim in <b>{selectedAudio.sourceInSeconds.toFixed(1)} s</b></span><input type="range" min="0" max={Math.max(0, selectedAudio.sourceDurationSeconds - secondsPerTick(project.timebase))} step="0.1" value={selectedAudio.sourceInSeconds} disabled={!canEdit} onChange={event => stageAudio({ sourceInSeconds: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
-                <label className="music-control"><span>Duration <b>{ticksToSeconds(selectedAudio.durationTicks, project.timebase).toFixed(1)} s</b></span><input type="range" min="0.1" max={Math.max(0.1, Math.min(ticksToSeconds(projectTicks - selectedAudio.startTicks, project.timebase), selectedAudio.sourceDurationSeconds - selectedAudio.sourceInSeconds))} step="0.1" value={ticksToSeconds(selectedAudio.durationTicks, project.timebase)} disabled={!canEdit} onChange={event => stageAudio({ durationTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
-                <label className="music-control"><span>Volume <b>{Math.round(selectedAudio.volume * 100)}%</b></span><input type="range" min="0" max="100" step="1" value={Math.round(selectedAudio.volume * 100)} disabled={!canEdit} onChange={event => stageAudio({ volume: Number(event.target.value) / 100 })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
-                <label className="music-control"><span>Fade in <b>{selectedAudio.fadeIn.toFixed(1)} s</b></span><input type="range" min="0" max={Math.min(30, Math.max(1, ticksToSeconds(selectedAudio.durationTicks, project.timebase)))} step="0.1" value={selectedAudio.fadeIn} disabled={!canEdit} onChange={event => stageAudio({ fadeIn: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
-                <label className="music-control"><span>Fade out <b>{selectedAudio.fadeOut.toFixed(1)} s</b></span><input type="range" min="0" max={Math.min(30, Math.max(1, ticksToSeconds(selectedAudio.durationTicks, project.timebase)))} step="0.1" value={selectedAudio.fadeOut} disabled={!canEdit} onChange={event => stageAudio({ fadeOut: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
-                <div className="beat-sync">
-                  <div className="beat-sync-head"><strong>Beat tools</strong>{beatTempo ? <span>{beatTempo} BPM</span> : null}</div>
-                  <div className="beat-sync-actions">
-                    <button className="button" disabled={!canEdit || beatBusy} onClick={() => void detectAudioBeats()}><AudioLines size={14} />{beatBusy ? 'Listening…' : 'Detect beats'}</button>
-                    <button className="button" disabled={!canEdit || beatBusy} onClick={() => void snapCutsToBeat()}><Magnet size={14} />Snap cuts</button>
-                  </div>
-                  <small>All local: detects the pulse in this clip, adds timeline markers, and can move photo cuts within 0.35 s of a beat. Markers snap overlay moves and trims.</small>
-                </div>
-                <p className="note"><Music size={14} /><span>{audio.length} audio clip{audio.length === 1 ? '' : 's'} · drag a clip on the timeline to move it, or drag its edges to trim. Mixed into the export at 192 kbps.</span></p>
               </div>}
             </div> : tab === 'templates' ? <div className="template-tab">
               <button className="import-button" onClick={() => setModal('templates')}><LayoutTemplate size={16} /> Browse the full gallery <span>{TEMPLATES.length}</span></button>
@@ -3625,9 +3649,9 @@ export default function App() {
                 {allOverlays.map(element => <button key={element.id} className={`element-list-row ${selectedElementId === element.id ? 'active' : ''}`} onClick={() => selectOverlay(element)}><span className="element-list-row-icon" style={{ color: element.color }}><ElementGlyph presetId={element.presetId} kind={element.kind} size={12} /></span><span>{elementName(element)}</span><small>{ticksToSeconds(element.startTicks, project.timebase).toFixed(1)}s</small></button>)}
               </details>}
               <div className="element-library-tools">
-                <label className="element-search"><Search size={15} /><input aria-label="Search elements" placeholder="Search 200 elements…" value={elementSearch} onChange={e => { setElementSearch(e.target.value); setElementLimit(40); }} /></label>
-                <select aria-label="Element collection" value={elementCollection} onChange={e => { setElementCollection(e.target.value); setElementCategory('All'); setElementLimit(40); }}><option value="All">All 20 collections</option>{ELEMENT_COLLECTIONS.map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select>
-                <div className="element-library-count"><strong>{filteredElements.length} elements</strong><span>200 in your library</span></div>
+                <label className="element-search"><Search size={15} /><input aria-label="Search elements" placeholder={`Search ${ELEMENT_CATALOG.length} elements…`} value={elementSearch} onChange={e => { setElementSearch(e.target.value); setElementLimit(40); }} /></label>
+                <select aria-label="Element collection" value={elementCollection} onChange={e => { setElementCollection(e.target.value); setElementCategory('All'); setElementLimit(40); }}><option value="All">All {ELEMENT_COLLECTIONS.length} collections</option>{ELEMENT_COLLECTIONS.map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select>
+                <div className="element-library-count"><strong>{filteredElements.length} elements</strong><span>{ELEMENT_CATALOG.length} in your library</span></div>
               </div>
               <div className="element-categories" role="group" aria-label="Element categories">{ELEMENT_CATEGORIES.map(category => <button key={category} aria-pressed={elementCategory === category} className={elementCategory === category ? 'active' : ''} onClick={() => { setElementCategory(category); setElementCollection('All'); setElementLimit(40); }}>{category}</button>)}</div>
               <div className="element-grid">{filteredElements.slice(0, elementLimit).map(item => <button key={item.id} className="element-card" aria-label={`Add ${item.label}`} disabled={!selectedScene || !canEdit || allOverlays.length >= 64} onClick={() => addElement(item.id)}><span className="element-card-icon"><ElementPreview presetId={item.id} kind={item.kind} color={item.color} animation={item.animation} reduceMotion={preferences.reduceMotion} /></span><strong>{item.label}</strong><Plus size={12} /></button>)}</div>
@@ -3712,16 +3736,15 @@ export default function App() {
 
           <div className="splitter vertical" onPointerDown={e => beginResize('inspector', inspectorWidth, e.clientX)} />
 
-          <aside className="inspector" style={{ width: inspectorWidth }}>
-            {selectedCount > 1 && <div className="multi-select-banner">
-              <span><Layers size={13} /> Editing {selectedCount} clips</span>
+          <aside className="inspector" aria-label="Selected item properties" style={{ width: inspectorWidth }}>
+            <div className="inspector-heading"><Settings2 size={16} /><h2>{({scene: selectedScene?.mediaKind === 'video' ? 'Video properties' : 'Scene properties', text:'Text properties', element:'Element properties', audio:'Audio properties', none:'Properties'})[propertyKind]}</h2></div>
+            {propertyKind === 'scene' && selectedCount > 1 && <div className="multi-select-banner"><span><Layers size={13} /> Editing {selectedCount} clips</span><button className="text-button" onClick={() => { if(selectedScene){setSelectedIds([selectedScene.id]);setPrimarySelected(selectedScene.id);selectionAnchor.current=selectedScene.id;} }}>Edit only this clip</button></div>}
+            {propertyKind === 'audio' && selectedAudio ? <fieldset disabled={!canEdit} className="inspector-fields"><div className="inspector-item-actions"><strong>{selectedAudio.name}</strong><button className="icon-button danger" aria-label="Delete selected audio" onClick={() => removeAudio(selectedAudio.id)}><Trash2 size={15} /></button></div>{audioInspector}</fieldset> : propertyKind === 'element' ? <fieldset disabled={!canEdit} className="inspector-fields">{elementInspector}</fieldset> : (propertyKind === 'scene' || propertyKind === 'text') && selectedScene ? <fieldset disabled={!canEdit} className="inspector-fields">
+              <SceneForm mode={propertyKind === 'text' ? 'text' : 'scene'} onToolChange={setSceneInspectorTool} scene={inspectorScene!} timebase={project.timebase} update={updateSelection} onPreview={setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} flushRef={inspectorFlush} onReplaceImage={() => requestReplaceImage()} textLayerId={selectedTextLayerId} onSelectTextLayer={selectTextLayer} textStartTicks={textStartTicks} playheadSeconds={previewLocalSeconds} focusText={textFocus} framingActive={framingMode} onToggleFraming={() => { setFramingMode(value => !value); setEditingText(false); }} formatName={activeFormat?.name ?? 'Original'} formatCount={project.formats.length} onApplyFramingToAll={applyFramingToAllFormats} overlays={renderOverlays} onReorderLayer={reorderLayer} />
+              {propertyKind === 'text' && <div className="inspector-item-actions"><button className="button danger" aria-label="Delete selected text layer" onClick={deleteSelected}><Trash2 size={14} /> Delete text layer</button></div>}
+              {propertyKind === 'scene' && hasSceneSelection && <div className="scene-actions compact-scene-actions">{sceneInspectorTool === 'video' && <button type="button" className="button replace-scene-image" aria-label="Replace selected scene media" onClick={() => requestReplaceImage()} disabled={selectedCount !== 1}><ImagePlus size={15} /> Replace media…</button>}<IconButton label={tip('clip.duplicate', 'Duplicate clip')} onClick={duplicateSelected}><Copy size={16} /></IconButton><IconButton label={tip('clip.delete', 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>}
+            </fieldset> : <div className="inspector-empty"><Settings2 size={26} /><p>Select a scene, text layer, element or audio clip to edit its properties.</p></div>}
 
-              <button className="text-button" onClick={() => { if (selectedScene) { setSelectedIds([selectedScene.id]); setPrimarySelected(selectedScene.id); selectionAnchor.current = selectedScene.id; } }}>Edit only this clip</button>
-            </div>}
-            {selectedScene ? <fieldset disabled={!canEdit} className="inspector-fields">
-              <SceneForm elementPanel={elementInspector} elementSelection={selectedElement?.id} onDeselectElement={() => setSelectedElementId(null)} scene={inspectorScene!} timebase={project.timebase} update={updateSelection} onPreview={setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} flushRef={inspectorFlush} onReplaceImage={() => requestReplaceImage()} textLayerId={selectedTextLayerId} onSelectTextLayer={selectTextLayer} textStartTicks={textStartTicks} playheadSeconds={previewLocalSeconds} focusText={textFocus} framingActive={framingMode} onToggleFraming={() => { setFramingMode(value => !value); setEditingText(false); }} formatName={activeFormat?.name ?? 'Original'} formatCount={project.formats.length} onApplyFramingToAll={applyFramingToAllFormats} overlays={renderOverlays} onReorderLayer={reorderLayer} />
-              {hasSceneSelection && !selectedElement && <div className="scene-actions compact-scene-actions"><button type="button" className="button replace-scene-image" aria-label="Replace selected scene media" onClick={() => requestReplaceImage()} disabled={selectedCount !== 1}><ImagePlus size={15} /> Replace media…</button><IconButton label={tip('clip.duplicate', 'Duplicate clip')} onClick={duplicateSelected}><Copy size={16} /></IconButton><IconButton label={tip('clip.delete', editTarget === 'text' ? 'Delete selected text' : 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>}
-            </fieldset> : <div className="inspector-empty"><Settings2 size={26} /><p>Select a scene to adjust its timing, framing, and text.</p></div>}
           </aside>
         </div>
 

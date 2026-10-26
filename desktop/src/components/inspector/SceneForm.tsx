@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
-import { AlignCenter, AlignLeft, AlignRight, Blend, Crop, Maximize2, SlidersHorizontal, SunDim, Wand2, Shapes, Check, ClipboardPaste, Copy, Gauge, Move, Plus, RotateCcw, Search, Sparkles, Trash2, Type } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, Blend, Crop, Maximize2, SlidersHorizontal, SunDim, Wand2, Check, ClipboardPaste, Copy, Gauge, Move, Plus, RotateCcw, Search, Sparkles, Type } from 'lucide-react';
 import { sceneSeconds, secondsToTicks, setSceneSeconds, ticksToSeconds, type ElementLayer, type Scene, type ScenePatchKey, type TextAnimation, type TextLayer, type Timebase, type TransitionType } from '../../stores/model';
 import { DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TEXT_SIZE, DEFAULT_TEXT_SUBTITLE_SCALE, DEFAULT_TEXT_WEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_X, DEFAULT_TEXT_Y, FONTS, clampWeight, fontOption, fontWeights } from '../text/fonts';
-import { MAX_TEXT_LAYERS, TEXT_LAYER_STYLE_DEFAULTS, createTextLayer, layerTimingLabel } from '../text/layers';
+import { MAX_TEXT_LAYERS, TEXT_LAYER_STYLE_DEFAULTS, createTextLayer } from '../text/layers';
 import { KeyframeControls } from '../animation/KeyframeControls';
 import { FramingKeyframeControls } from '../animation/FramingKeyframeControls';
 import { MaskControls } from './MaskControls';
@@ -298,12 +298,13 @@ function RangeField({
       onChange={event => onChange(Number(event.target.value))}
       onPointerUp={onCommit}
       onKeyUp={onCommit}
+      onBlur={onCommit}
     />
   </div>;
 }
 
 export function SceneForm({
-  elementPanel, elementSelection, onDeselectElement,
+  mode = 'scene', onToolChange,
   scene,
   update,
   onPreview,
@@ -324,9 +325,8 @@ export function SceneForm({
   overlays = [],
   onReorderLayer,
 }: {
-  elementPanel?: ReactNode;
-  elementSelection?: string;
-  onDeselectElement?: () => void;
+  mode?: 'scene' | 'text';
+  onToolChange?: (tab: string) => void;
   scene: Scene;
   update: (scene: Scene, force?: ScenePatchKey[]) => Promise<boolean> | void;
   onPreview: (scene: Scene | null) => void;
@@ -350,7 +350,7 @@ export function SceneForm({
   overlays?: ElementLayer[];
   onReorderLayer?: (kind: 'text' | 'element' | 'overlay', id: string, z: number) => void;
 }) {
-  const [tab, setTab] = useState<Tab>('video');
+  const [tab, setTab] = useState<Tab>(mode === 'text' ? 'text' : 'video');
   const [draft, setDraft] = useState(scene);
   const [dirty, setDirty] = useState(false);
   const [filterQuery, setFilterQuery] = useState('');
@@ -401,11 +401,12 @@ export function SceneForm({
     if (inspector) inspector.scrollTop = 0;
   }, [tab, scene.id]);
 
-  useEffect(() => { if (elementSelection) setTab('elements'); else if (tab === 'elements') setTab('video'); }, [elementSelection]);
+  useEffect(() => { setTab(mode === 'text' ? 'text' : 'video'); }, [mode]);
+  useEffect(() => { if(mode === 'scene') onToolChange?.(tab); }, [tab, mode, onToolChange]);
 
   useEffect(() => {
-    if (focusText) setTab('text');
-  }, [focusText]);
+    if (focusText && mode === 'text') setTab('text');
+  }, [focusText, mode]);
 
   useEffect(() => { if (scene.mediaKind !== 'video' && tab === 'speed') setTab('video'); }, [scene.mediaKind, tab]);
 
@@ -527,12 +528,6 @@ export function SceneForm({
     onSelectTextLayer(layer.id);
   }
 
-  function removeTextLayer(id: string) {
-    const nextLayers = (draftRef.current.textLayers ?? []).filter(layer => layer.id !== id);
-    replaceLayers(nextLayers);
-    onSelectTextLayer(nextLayers[0]?.id ?? null);
-  }
-
   function resetTextStyle() {
     if (!selectedLayer) return;
     applyLayer({ ...TEXT_STYLE_DEFAULTS });
@@ -605,15 +600,13 @@ export function SceneForm({
   }, [filterQuery]);
 
   return <>
-    <div className="inspector-icon-tabs" role="tablist" aria-label="Scene inspector">
+    {mode === 'scene' && <div className="inspector-icon-tabs" role="tablist" aria-label="Scene inspector">
       {([
-        ['elements', 'Element', Shapes], ['video', 'Framing', Crop], ['text', 'Text', Type], ['transition', 'Transitions', Blend],
+        ['video', 'Framing', Crop], ['transition', 'Transitions', Blend],
         ['color', 'Color', SlidersHorizontal], ['speed', 'Speed', Gauge], ['fade', 'Fades', SunDim], ['filters', 'Looks', Wand2],
-      ] as const).filter(([id]) => (id !== 'elements' || Boolean(elementSelection)) && (id !== 'speed' || draft.mediaKind === 'video')).map(([value, label, Icon]) => <button key={value} role="tab" aria-label={label} title={label} aria-selected={tab === value} className={tab === value ? 'active' : ''} onClick={() => { internalFlushRef.current(); setTab(value); if (value !== 'elements') onDeselectElement?.(); if (value !== 'video' && framingActive) onToggleFraming(); }}><Icon size={18} /></button>)}
-    </div>
-    <div className="inspector-current-tool">{({ elements: 'Element', video: 'Framing', text: 'Text', transition: 'Transitions', color: 'Color', speed: 'Speed', fade: 'Fades', filters: 'Looks' })[tab]}</div>
-
-    {tab === 'elements' && elementPanel}
+      ] as const).filter(([id]) => (id !== 'speed' || draft.mediaKind === 'video')).map(([value, label, Icon]) => <button key={value} role="tab" aria-label={label} title={label} aria-selected={tab === value} className={tab === value ? 'active' : ''} onClick={() => { internalFlushRef.current(); setTab(value); if (value !== 'video' && framingActive) onToggleFraming(); }}><Icon size={18} /></button>)}
+    </div>}
+    {mode === 'scene' && <div className="inspector-current-tool">{({ elements: 'Element', video: 'Framing', text: 'Text', transition: 'Transitions', color: 'Color', speed: 'Speed', fade: 'Fades', filters: 'Looks' })[tab]}</div>}
 
     {tab === 'video' && <>
       <RangeField label="Duration" value={duration} min={0.5} max={draft.mediaKind === 'video' ? 600 : 30} step={0.1} unit="s" onChange={stageDuration} onCommit={() => commit()} />
@@ -650,17 +643,6 @@ export function SceneForm({
     </>}
 
     {tab === 'text' && <>
-      {layers.length > 0 && <div className="text-layer-list">
-        {layers.map((layer, index) => <div className={`text-layer-item ${selectedLayer?.id === layer.id ? 'active' : ''}`} key={layer.id}>
-          <button className="text-layer-select" onClick={() => onSelectTextLayer(layer.id)} aria-pressed={selectedLayer?.id === layer.id}>
-            <Type size={14} />
-            <span><strong>{layer.title || `Text layer ${index + 1}`}</strong><small>{layerTimingLabel(layer, timebase)}</small></span>
-          </button>
-          <button className="icon-button" aria-label={`Delete ${layer.title || `text layer ${index + 1}`}`} onClick={() => removeTextLayer(layer.id)}><Trash2 size={14} /></button>
-        </div>)}
-      </div>}
-      {layers.length > 0 && <button type="button" className="button text-add-layer" onClick={addTextLayer} disabled={layers.length >= MAX_TEXT_LAYERS}><Plus size={14} /> Add text layer <span>{layers.length}/{MAX_TEXT_LAYERS}</span></button>}
-
       {selectedLayer ? <>
         <label className="field">Text<textarea aria-label="Text layer content" maxLength={120} rows={3} placeholder="Give this moment a title…" value={selectedLayer.title} onChange={event => stageLayer({ title: event.target.value })} onBlur={() => commit()} /></label>
         <label className="field">Subtitle<input aria-label="Text layer subtitle" maxLength={200} placeholder="A little more to the story" value={selectedLayer.subtitle} onChange={event => stageLayer({ subtitle: event.target.value })} onBlur={() => commit()} /></label>

@@ -545,7 +545,7 @@ function elementVisibleAt(element: ElementLayer, localSeconds: number, timebase:
 async function drawMediaOrShape(ctx: CanvasRenderingContext2D, raw: ElementLayer, w: number, h: number, local: number, precise: boolean, timebase: Timebase = DEFAULT_TIMEBASE, audio: AudioClip[] = [], projectSeconds = local, sample = false) {
   // Keyframes replace the layer's geometry before the entrance/exit motion is
   // combined with it, so preview, still frames and exported overlay frames agree.
-  if (raw.presetId) await prepareDesignerFonts();
+  if (raw.presetId) await prepareDesignerFonts(raw.label);
   const element = raw.keyframes?.length ? applyElementMotion(raw, local) : raw;
   const motion = elementTransform(element, local, timebase);
   if (element.kind !== 'image' && element.kind !== 'video') {
