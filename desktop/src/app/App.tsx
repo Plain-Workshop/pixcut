@@ -9,6 +9,7 @@ import { parseCaptions, placeCaptions } from '../components/text/captions';
 import { applyElementMotion, applyTextMotion } from '../components/animation/keyframes';
 import { KeyframeControls } from '../components/animation/KeyframeControls';
 import { snapOverlayTiming } from '../components/timeline/beats';
+import { beatMarkerTicks, detectBeats, snapScenesToBeats } from '../components/timeline/beat-sync';
 import { MaskControls } from '../components/inspector/MaskControls';
 import { videoGain } from '../components/preview/video-audio';
 import { timelineOverlays, replaceOverlay, constrainOverlay, type TimelineOverlay } from '../components/elements/overlays';
@@ -20,6 +21,7 @@ import { LatestRenderQueue } from '../components/preview/render-queue';
 import { loadMediaBin, saveMediaBin, uniqueMediaSources } from '../stores/media-bin';
 import { missingAssets, replaceAssetRef, type MissingAsset } from '../stores/missing-assets';
 import { syncAudioElement } from '../components/preview/audio';
+import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
 import { defaultElementSize } from '../components/elements/geometry';
 import { shouldCheckForUpdates, showUpdateNotice } from './updates';
@@ -112,9 +114,9 @@ import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers, sc
 import { clampWeight, fontOption } from '../components/text/fonts';
 import { FORMAT_GROUPS, FORMAT_PRESETS, createCustomFormat, createFormat, formatSlug, formatSize, groupFormatsByOutput, resolveSceneForFormat, resolveScenesForFormat } from '../stores/formats';
 import { errorTitle, isImageFile, messageFor } from './errors';
-import { deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, listProjects, projectThumbnail, renameProjectGroup, saveLibraryProject, setProjectFavorite, setProjectGroup, type ProjectSummary } from '../stores/library';
+import { deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, listProjects, renameProjectGroup, saveLibraryProject, setProjectFavorite, setProjectGroup, type ProjectSummary } from '../stores/library';
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from '../stores/preferences';
-import { SAMPLE_TEMPLATE, TEMPLATES, buildTemplateProject, templatePreview, type TemplateDefinition } from '../templates/catalog';
+import { SAMPLE_TEMPLATE, TEMPLATE_CATEGORIES, TEMPLATES, buildTemplateProject, templatePreview, type TemplateDefinition } from '../templates/catalog';
 import {
   COMMANDS,
   bindingMatchesEvent,
@@ -133,7 +135,6 @@ const INITIAL: Session = { project: emptyProject(), canUndo: false, canRedo: fal
 const AVAILABLE: CommandAvailability = { disabled: false };
 const HINTS_KEY = 'pixcut-hints-dismissed';
 const RANGE_NAVIGATION_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
-const TEMPLATE_CATEGORIES = ['All', 'Travel', 'Family', 'Birthday', 'Product', 'Social'] as const;
 const EXPORT_QUALITY_CRF: Record<'draft' | 'standard' | 'high', number> = { draft: 28, standard: 23, high: 18 };
 // Codecs use different CRF scales; ProRes maps the value to a 422 profile.
 const EXPORT_CODEC_CRF: Record<bridge.ExportCodec, Record<'draft' | 'standard' | 'high', number>> = {
@@ -373,7 +374,6 @@ export default function App() {
   const [elementCategory, setElementCategory] = useState('All');
   const [templateQuery, setTemplateQuery] = useState(''), [mediaQuery, setMediaQuery] = useState('');
   const [templateCategory, setTemplateCategory] = useState<'All' | TemplateDefinition['category']>('All');
-  const [templateThumbs, setTemplateThumbs] = useState<Record<string, string>>({});
   const [pendingTemplate, setPendingTemplate] = useState<TemplateDefinition | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]), [libraryReady, setLibraryReady] = useState(false);
   const [projectMenu, setProjectMenu] = useState<string | null>(null), [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
@@ -388,6 +388,7 @@ export default function App() {
   const [reorderId, setReorderId] = useState<string | null>(null);
   const [audioDraft, setAudioDraft] = useState<AudioClip | null>(null);
   const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
+  const [beatBusy, setBeatBusy] = useState(false), [beatTempo, setBeatTempo] = useState<number | null>(null);
   const [previewAudio, setPreviewAudio] = useState<AudioClip[] | null>(null);
   const [previewSize, setPreviewSize] = useState<{ width: number; height: number } | null>(null);
   const [notice, setNotice] = useState(''), [error, setError] = useState(''), [exporter, setExporter] = useState(false), [exporting, setExporting] = useState(false), [exportProgress, setExportProgress] = useState(0), [status, setStatus] = useState('Saved');
@@ -427,6 +428,7 @@ export default function App() {
   const [preferences, setPreferences] = useState<Preferences>(loadPreferences);
   const [storageLabel, setStorageLabel] = useState('Checking local storage…');
   const [snapping, setSnapping] = useState(() => loadPreferences().snapping), [playDirection, setPlayDirection] = useState<1 | -1>(1);
+  const [duckDraft, setDuckDraft] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [fadeDrag, setFadeDrag] = useState<{ sceneId: string; side: 'in' | 'out'; value: number } | null>(null);
   const [layout, setLayout] = useState(() => { try { return JSON.parse(localStorage.getItem('pixcut-layout') || '{}'); } catch { return {}; } });
@@ -493,6 +495,7 @@ export default function App() {
   const projectFormatOutputs = groupFormatsByOutput(project.formats);
   const displayAspect = project.aspect;
   const cueAudio = useMemo(() => actionAudio(project), [project]);
+  const videoDuckWindows = useMemo(() => audibleVideoWindows(projectScenes(project), project.timebase), [project.tracks, project.timebase]);
   const audioClips = previewAudio ?? project.audio;
   const audio = audioClips.map(clip => audioDraft?.id === clip.id ? audioDraft : clip);
   const selectedAudio = audioDraft ?? audio.find(clip => clip.id === selectedAudioId) ?? audio[0] ?? null;
@@ -712,36 +715,28 @@ export default function App() {
   useEffect(() => { void refreshLibrary(); }, [refreshLibrary]);
   useEffect(() => { if (screen === 'home') void refreshLibrary(); }, [screen, refreshLibrary]);
   useEffect(() => {
-    if (!ready || (screen !== 'home' && modal !== 'templates')) return;
-    let cancelled = false;
-    void (async () => {
-      for (const template of TEMPLATES) {
-        if (templateThumbs[template.id]) continue;
-        try {
-          const thumbnail = await projectThumbnail(buildTemplateProject(template));
-          if (!cancelled) setTemplateThumbs(current => current[template.id] ? current : { ...current, [template.id]: thumbnail });
-        } catch { /* the generated art remains as a fallback */ }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [ready, screen, modal, templateThumbs]);
-  useEffect(() => {
     if (!ready) return;
     const timeout = setTimeout(() => { void persistCurrent(); }, preferences.autosaveMs);
     return () => clearTimeout(timeout);
   }, [project, ready, persistCurrent, preferences.autosaveMs]);
-  useEffect(() => { audioDraftRef.current = null; setAudioDraft(null); }, [project.id, selectedAudioId]);
+  useEffect(() => { audioDraftRef.current = null; setAudioDraft(null); setBeatTempo(null); }, [project.id, selectedAudioId]);
   useEffect(() => {
     if (!project.audio.length) { setSelectedAudioId(null); return; }
     setSelectedAudioId(id => id && project.audio.some(clip => clip.id === id) ? id : project.audio[0].id);
   }, [project.audio]);
   useEffect(() => {
-    for (const clip of [...audio, ...cueAudio]) {
+    const duck = duckGain(position, videoDuckWindows, project.ducking ?? 0);
+    for (const clip of audio) {
+      const element = audioElements.current.get(clip.id);
+      if (!element) continue;
+      syncAudioElement(element, clip, position, playing && playDirection > 0, project.timebase, undefined, duck);
+    }
+    for (const clip of cueAudio) {
       const element = audioElements.current.get(clip.id);
       if (!element) continue;
       syncAudioElement(element, clip, position, playing && playDirection > 0, project.timebase);
     }
-  }, [position, playing, playDirection, audio, cueAudio, project.timebase]);
+  }, [position, playing, playDirection, audio, cueAudio, project.timebase, videoDuckWindows, project.ducking]);
   useEffect(() => () => { for (const element of audioElements.current.values()) element.pause(); }, []);
   useEffect(() => {
     if (!projectMenu) return;
@@ -1935,7 +1930,7 @@ export default function App() {
   }
 
   async function startTemplate(template: TemplateDefinition) {
-    await launchProject(buildTemplateProject(template, sourceMedia));
+    await launchProject(await buildTemplateProject(template, sourceMedia));
   }
 
   function chooseTemplate(template: TemplateDefinition) {
@@ -2196,6 +2191,12 @@ export default function App() {
     }
   }
 
+  function commitDucking(amount: number) {
+    setDuckDraft(null);
+    if (!canEdit) return;
+    if ((project.ducking ?? 0) !== amount) void run({ type: 'ducking', amount });
+  }
+
   async function chooseAudio() {
     if (!canEdit) return;
     if (bridge.native) {
@@ -2305,6 +2306,81 @@ export default function App() {
     setPrimarySelected(null);
     setSelectedElementId(null);
     setTab('audio');
+  }
+
+  async function detectAudioBeats() {
+    if (!selectedAudio || !canEdit) return;
+    setBeatBusy(true);
+    setError('');
+    try {
+      const analysis = await detectBeats(selectedAudio.data);
+      if (!analysis?.beats.length) {
+        setError('No clear beat was found in this audio. Try a track with a steady pulse, or add markers at the playhead.');
+        return;
+      }
+      setBeatTempo(analysis.bpm);
+      const ticks = beatMarkerTicks(analysis.beats, selectedAudio.startTicks, project.timebase, projectTicks);
+      if (!ticks.length) {
+        setNotice('The detected beats fall outside this timeline.');
+        return;
+      }
+      const merged = [...new Set([...(project.beatTicks ?? []), ...ticks])].sort((a, b) => a - b).slice(0, 500);
+      const added = Math.max(0, merged.length - (project.beatTicks?.length ?? 0));
+      if (!added) {
+        setNotice(`Found ${analysis.bpm ? `${analysis.bpm} BPM` : 'a pulse'} · these beat markers are already on the timeline.`);
+        return;
+      }
+      if (await run({ type: 'beats', beatTicks: merged })) {
+        setNotice(`Found ${analysis.bpm ? `${analysis.bpm} BPM` : 'a pulse'} · ${added} beat marker${added === 1 ? '' : 's'} added. Overlay moves and trims now snap to them.`);
+      }
+    } catch (error) {
+      setError(messageFor(error));
+    } finally {
+      setBeatBusy(false);
+    }
+  }
+
+  async function snapCutsToBeat() {
+    if (!selectedAudio || !canEdit) return;
+    const photoScenes = projectScenes(project);
+    if (photoScenes.some(scene => scene.mediaKind === 'video')) {
+      setError('Beat sync currently works with photo stories. Video cuts keep their own source timing.');
+      return;
+    }
+    if (photoScenes.length < 2) {
+      setError('Add at least two photo scenes before snapping cuts to a beat.');
+      return;
+    }
+    setBeatBusy(true);
+    setError('');
+    try {
+      let beats = (project.beatTicks ?? []).map(tick => ticksToSeconds(tick, project.timebase));
+      let offsetSeconds = 0;
+      let bpm = beatTempo;
+      if (!beats.length) {
+        const analysis = await detectBeats(selectedAudio.data);
+        if (!analysis?.beats.length) {
+          setError('No clear beat was found in this audio. Try a track with a steady pulse, or add markers at the playhead.');
+          return;
+        }
+        beats = analysis.beats;
+        offsetSeconds = ticksToSeconds(selectedAudio.startTicks, project.timebase);
+        bpm = analysis.bpm;
+        setBeatTempo(bpm);
+      }
+      const result = snapScenesToBeats(photoScenes, beats, offsetSeconds, project.timebase);
+      if (!result.moved) {
+        setNotice(`Found ${bpm ? `${bpm} BPM` : 'a pulse'}, but no cut was within 0.35 s of a beat.`);
+        return;
+      }
+      if (await run({ type: 'updateMany', scenes: result.scenes })) {
+        setNotice(`Snapped ${result.moved} cut${result.moved === 1 ? '' : 's'} to ${bpm ? `${bpm} BPM` : 'the beat'}.`);
+      }
+    } catch (error) {
+      setError(messageFor(error));
+    } finally {
+      setBeatBusy(false);
+    }
   }
 
   function beginAudioMove(event: ReactPointerEvent<HTMLElement>, clip: AudioClip) {
@@ -2792,7 +2868,7 @@ export default function App() {
     return category && haystack.includes(templateQuery.trim().toLowerCase());
   });
 
-  function templateImage(template: TemplateDefinition) { return templateThumbs[template.id] ?? templatePreview(template); }
+  function templateImage(template: TemplateDefinition) { return templatePreview(template); }
 
   function renderProjectCard(entry: ProjectSummary) {
     const active = entry.id === project.id;
@@ -3075,6 +3151,11 @@ export default function App() {
                 <p>Add as many audio clips as you need.<br />Up to 50 MB each. Stays on this device.</p>
                 <button className="button primary" disabled={!canEdit || !projectTicks} onClick={() => void chooseAudio()}><Upload size={15} /> Add audio</button>
               </div>}
+              <div className="ducking-panel">
+                <label className="checkbox-field"><input type="checkbox" checked={(project.ducking ?? 0) > 0} disabled={!canEdit || !hasVideoScenes} onChange={event => void run({ type: 'ducking', amount: event.target.checked ? 60 : 0 })} /> Lower music under video sound</label>
+                {(project.ducking ?? 0) > 0 && <label className="music-control"><span>Reduce music by <b>{duckDraft ?? project.ducking}%</b></span><input type="range" aria-label="Music ducking amount" min="10" max="90" step="5" value={duckDraft ?? project.ducking ?? 60} disabled={!canEdit} onChange={event => setDuckDraft(Number(event.target.value))} onPointerUp={event => commitDucking(Number(event.currentTarget.value))} onKeyUp={event => commitDucking(Number(event.currentTarget.value))} onBlur={event => commitDucking(Number(event.currentTarget.value))} /></label>}
+                <p className="note"><AudioLines size={14} /><span>{hasVideoScenes ? 'Music dips while a clip\'s own sound plays, with a 150 ms ramp. Silent clips do not trigger it.' : 'Add a video clip to duck music under its sound.'}</span></p>
+              </div>
               {selectedAudio && <div className="audio-editor">
                 <div className="audio-editor-title"><strong>{selectedAudio.name}</strong><small>{formatBytes(selectedAudio.data.length * .75)} · {selectedAudio.sourceDurationSeconds.toFixed(1)} s source</small></div>
                 <label className="field">Audio track<select aria-label="Audio track" value={selectedAudio.lane} onChange={event => stageAudio({ lane: Number(event.target.value) })} onBlur={commitAudio}>{audioLanes.map((lane, index) => <option key={lane} value={lane}>Track {index + 1}</option>)}<option value={audioLanes.length}>Track {audioLanes.length + 1}</option></select></label>
@@ -3084,6 +3165,14 @@ export default function App() {
                 <label className="music-control"><span>Volume <b>{Math.round(selectedAudio.volume * 100)}%</b></span><input type="range" min="0" max="100" step="1" value={Math.round(selectedAudio.volume * 100)} disabled={!canEdit} onChange={event => stageAudio({ volume: Number(event.target.value) / 100 })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
                 <label className="music-control"><span>Fade in <b>{selectedAudio.fadeIn.toFixed(1)} s</b></span><input type="range" min="0" max={Math.min(30, Math.max(1, ticksToSeconds(selectedAudio.durationTicks, project.timebase)))} step="0.1" value={selectedAudio.fadeIn} disabled={!canEdit} onChange={event => stageAudio({ fadeIn: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
                 <label className="music-control"><span>Fade out <b>{selectedAudio.fadeOut.toFixed(1)} s</b></span><input type="range" min="0" max={Math.min(30, Math.max(1, ticksToSeconds(selectedAudio.durationTicks, project.timebase)))} step="0.1" value={selectedAudio.fadeOut} disabled={!canEdit} onChange={event => stageAudio({ fadeOut: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <div className="beat-sync">
+                  <div className="beat-sync-head"><strong>Beat tools</strong>{beatTempo ? <span>{beatTempo} BPM</span> : null}</div>
+                  <div className="beat-sync-actions">
+                    <button className="button" disabled={!canEdit || beatBusy} onClick={() => void detectAudioBeats()}><AudioLines size={14} />{beatBusy ? 'Listening…' : 'Detect beats'}</button>
+                    <button className="button" disabled={!canEdit || beatBusy} onClick={() => void snapCutsToBeat()}><Magnet size={14} />Snap cuts</button>
+                  </div>
+                  <small>All local: detects the pulse in this clip, adds timeline markers, and can move photo cuts within 0.35 s of a beat. Markers snap overlay moves and trims.</small>
+                </div>
                 <p className="note"><Music size={14} /><span>{audio.length} audio clip{audio.length === 1 ? '' : 's'} · drag a clip on the timeline to move it, or drag its edges to trim. Mixed into the export at 192 kbps. Files up to 50 MB each.</span></p>
               </div>}
             </div> : tab === 'templates' ? <div className="template-tab">
@@ -3353,7 +3442,7 @@ export default function App() {
         </> : modal === 'templates' ? <>
           <h2 id="modal-title">Start from a story.</h2><p>Real scenes, timing, looks, and text effects — bundled and ready offline. {projects.length ? 'Your current project is saved before a template opens.' : ''}</p>
           <label className="shortcut-search template-search"><Search size={15} /><input aria-label="Search templates" placeholder="Search templates…" value={templateQuery} onChange={e => setTemplateQuery(e.target.value)} /></label>
-          <div className="template-categories" role="tablist" aria-label="Template categories">{TEMPLATE_CATEGORIES.map(category => <button key={category} role="tab" aria-selected={templateCategory === category} className={templateCategory === category ? 'active' : ''} onClick={() => setTemplateCategory(category)}>{category}</button>)}</div>
+          <div className="template-categories" role="tablist" aria-label="Template categories">{['All', ...TEMPLATE_CATEGORIES].map(category => <button key={category} role="tab" aria-selected={templateCategory === category} className={templateCategory === category ? 'active' : ''} onClick={() => setTemplateCategory(category as typeof templateCategory)}>{category}</button>)}</div>
           {templateMatches.length ? <div className="template-grid">{templateMatches.map(template => <button key={template.id} className="template-card" disabled={!canEdit} onClick={() => chooseTemplate(template)}>
             <div className="template-preview"><span className="template-frame"><img src={templateImage(template)} alt="" /></span><span className="template-aspect">{template.aspect}</span></div>
             <div className="template-body">

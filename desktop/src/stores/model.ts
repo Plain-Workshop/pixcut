@@ -295,7 +295,7 @@ type LegacyMusic = {
   fadeOut: number;
   durationSeconds: number;
 };
-export type Project = { schema_version: 13; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; overlays: ElementLayer[]; formats: FormatVariant[]; beatTicks?: number[]; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
+export type Project = { schema_version: 13; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; overlays: ElementLayer[]; formats: FormatVariant[]; beatTicks?: number[]; ducking?: number; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
 export type Command =
   | { type: 'replace'; project: Project }
   | { type: 'rename'; name: string }
@@ -304,6 +304,7 @@ export type Command =
   | { type: 'overlays'; overlays: ElementLayer[] }
   | { type: 'formats'; formats: FormatVariant[] }
   | { type: 'beats'; beatTicks: number[] }
+  | { type: 'ducking'; amount: number }
   | { type: 'add'; scenes: Scene[] }
   | { type: 'update'; scene: Scene }
   | { type: 'remove'; id: string }
@@ -805,7 +806,8 @@ export function validateProject(value: unknown): Project {
   const audio = readAudio(p.audio, p.music, total, timebase);
   const formats = readFormats(p.formats, p.aspect, clipIds);
   const beatTicks = readBeats(p.beatTicks, total);
-  return { schema_version: 13, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, overlays, formats, ...(beatTicks.length ? { beatTicks } : {}), policy: { ...policy } };
+  const ducking = p.ducking === undefined ? undefined : readNumber(p.ducking, 0, 100, 0, 'music ducking');
+  return { schema_version: 13, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, overlays, formats, ...(beatTicks.length ? { beatTicks } : {}), ...(ducking ? { ducking } : {}), policy: { ...policy } };
 }
 const SCENE_PATCH_FIELDS = [
   { key: 'durationTicks', value: (scene: Scene) => scene.durationTicks },
@@ -921,6 +923,7 @@ export function edit(project: Project, command: Exclude<Command, { type: 'undo' 
     case 'overlays': p.overlays = command.overlays; break;
     case 'formats': p.formats = command.formats; break;
     case 'beats': p.beatTicks = command.beatTicks; break;
+    case 'ducking': p.ducking = command.amount; break;
     case 'add': clips.push(...command.scenes); break;
     case 'update': clips = clips.map(s => s.id === command.scene.id ? command.scene : s); break;
     case 'remove': clips = clips.filter(s => s.id !== command.id); break;

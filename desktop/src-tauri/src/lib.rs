@@ -1307,6 +1307,21 @@ fn filter_path(path: &Path) -> String {
     format!("'{escaped}'")
 }
 
+/// FFmpeg volume expression that lowers music inside the given timeline windows.
+/// Times are clip-local, so the windows are shifted by the clip's start.
+fn ducking_expression(windows: &[(f64, f64)], clip_start: f64, amount: f64) -> String {
+    const RAMP: f64 = 0.15;
+    let terms: Vec<String> = windows
+        .iter()
+        .map(|(start, end)| {
+            format!(
+                "min(max((t+{clip_start:.6}-{start:.6})/{RAMP:.6},0),1)*min(max(({end:.6}-(t+{clip_start:.6}))/{RAMP:.6},0),1)"
+            )
+        })
+        .collect();
+    format!("1-{:.6}*max(0,{})", amount / 100.0, terms.join(","))
+}
+
 /// True when the media file carries an audio track. A missing ffprobe is not an
 /// error: the export simply keeps behaving like it always has, without the
 /// clip's own sound.
@@ -1382,6 +1397,7 @@ fn encode_plan(
     // Imported video clips contribute their own soundtrack: (input, speed,
     // duration, timeline start, fade in, fade out).
     let mut video_audio: Vec<(usize, f64, f64, f64, f64, f64, Option<f64>)> = Vec::new();
+    let mut duck_windows: Vec<(f64, f64)> = Vec::new();
     let mut input_index = 0usize;
     let mut timeline_offset = 0.0f64;
     for (index, segment) in plan.segments.iter().enumerate() {
@@ -1418,6 +1434,9 @@ fn encode_plan(
                 let source_length = (duration * speed).max(duration);
                 command.args(["-ss", &format!("{start:.6}"), "-t", &format!("{source_length:.6}"), "-i"]).arg(path.clone());
                 if segment.include_audio && has_audio_stream(&binary, &path) {
+                    if segment.video_volume.unwrap_or(100.0) > 0.0 {
+                        duck_windows.push((segment_start, segment_start + duration));
+                    }
                     video_audio.push((
                         input_index,
                         speed,
@@ -1533,11 +1552,16 @@ fn encode_plan(
             fade_index += 1;
         }
     }
+    let ducking = project.ducking.unwrap_or(0.0);
     let mut audio_nodes: Vec<String> = Vec::new();
     for (index, (_, clip)) in audio_files.iter().enumerate() {
         let input = audio_start + index;
         let duration = project.timebase.ticks_to_seconds(clip.duration_ticks);
         let mut node = format!("[{input}:a]asetpts=PTS-STARTPTS,aresample=48000,volume={:.3}", clip.volume);
+        if ducking > 0.0 && !duck_windows.is_empty() {
+            let clip_start = project.timebase.ticks_to_seconds(clip.start_ticks);
+            node.push_str(&format!(",volume='{}':eval=frame", ducking_expression(&duck_windows, clip_start, ducking)));
+        }
         if clip.fade_in > 0.0 {
             node.push_str(&format!(",afade=t=in:st=0:d={:.3}", clip.fade_in.min(duration)));
         }
@@ -2185,7 +2209,22 @@ mod integration_tests {
         assert!(!has_audio_stream(&binary, &silent));
 
         let video = format!("data:video/mp4;base64,{}", STANDARD.encode(fs::read(&clip).unwrap()));
-        let (project, frames) = fixture_project();
+        let (mut project, frames) = fixture_project();
+        // A music bed plus ducking exercises the volume expression in the graph.
+        project.audio = vec![AudioClip {
+            id: "music".into(),
+            name: "Bed.wav".into(),
+            data: format!("data:audio/wav;base64,{}", STANDARD.encode(wav_silence(1.0))).into(),
+            lane: 0,
+            start_ticks: 0,
+            duration_ticks: 30,
+            source_in_seconds: 0.0,
+            source_duration_seconds: 1.0,
+            volume: 0.8,
+            fade_in: 0.0,
+            fade_out: 0.0,
+        }];
+        project.ducking = Some(60.0);
         let plan = |include_audio: bool| ExportPlan {
             segments: vec![
                 PlanSegment {
@@ -2222,7 +2261,9 @@ mod integration_tests {
         let db: f64 = mean.split("mean_volume:").nth(1).unwrap_or(" -inf ").split("dB").next().unwrap_or(" -inf ").trim().parse().unwrap_or(-100.0);
         assert!(db > -40.0, "expected the imported tone, got {mean}");
 
-        // The export dialog's include-audio switch must silence the clip again.
+        // The export dialog's include-audio switch also drops the music bed.
+        project.audio.clear();
+        project.ducking = None;
         let muted = temp.path().join("video-muted.mp4");
         encode_plan(&project, plan(false), binary.clone(), muted.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
         let muted_probe = Process::new(binary.with_file_name("ffprobe"))
@@ -2463,6 +2504,18 @@ mod integration_tests {
         assert_eq!(safe_filename("../../etc/passwd"), "etcpasswd");
         assert_eq!(safe_filename("   "), "PixCut project");
         assert_eq!(safe_filename(&"x".repeat(200)).chars().count(), 120);
+    }
+
+    #[test]
+    fn ducking_expression_targets_video_windows() {
+        let expression = ducking_expression(&[(2.0, 4.0)], 1.0, 60.0);
+        assert!(expression.starts_with("1-0.600000*max(0,"), "{expression}");
+        assert!(expression.contains("t+1.000000-2.000000"), "{expression}");
+        assert!(expression.contains("4.000000-(t+1.000000)"), "{expression}");
+        let two = ducking_expression(&[(2.0, 4.0), (6.0, 8.0)], 0.0, 50.0);
+        assert_eq!(two.matches("min(max(").count(), 4);
+        assert!(!two.contains("clip("));
+        assert!(ducking_expression(&[(2.0, 4.0)], 0.0, 0.0).starts_with("1-0.000000*max(0,"));
     }
 
     #[test]

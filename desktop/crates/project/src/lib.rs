@@ -864,6 +864,9 @@ pub struct Project {
     /// Manual beat markers, in project ticks, sorted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub beat_ticks: Vec<u64>,
+    /// How much music is lowered while a video clip is audible (0–100).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ducking: Option<f64>,
     #[serde(default, skip_serializing, rename = "music")]
     pub legacy_music: Option<MusicTrack>,
     #[serde(default, skip_serializing, rename = "scenes")]
@@ -883,6 +886,7 @@ impl Default for Project {
             overlays: vec![],
             formats: vec![],
             beat_ticks: vec![],
+            ducking: None,
             legacy_music: None,
             legacy_scenes: vec![],
             policy: Policy::default(),
@@ -1348,6 +1352,9 @@ impl Project {
             }
         }
         self.tracks = tracks;
+        if self.ducking.is_some_and(|amount| !amount.is_finite() || !(0.0..=100.0).contains(&amount)) {
+            return Err("Invalid music ducking amount.".into());
+        }
         let total_beats = self.total_ticks();
         self.beat_ticks.sort_unstable();
         self.beat_ticks.dedup();
@@ -1429,6 +1436,7 @@ pub enum Command {
         #[serde(rename = "beatTicks")]
         beat_ticks: Vec<u64>,
     },
+    Ducking { amount: f64 },
     Overlays { overlays: Vec<ElementLayer> },
     Add { scenes: Vec<Scene> },
     Update { scene: Scene },
@@ -1558,6 +1566,9 @@ impl Session {
         if let Command::Beats { beat_ticks } = &command {
             p.beat_ticks = beat_ticks.clone();
         }
+        if let Command::Ducking { amount } = &command {
+            p.ducking = (*amount > 0.0).then_some(*amount);
+        }
         let track_index = p
             .tracks
             .iter()
@@ -1567,7 +1578,7 @@ impl Session {
         {
             let clips = &mut p.tracks[track_index].clips;
             match command {
-                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } | Command::Beats { .. } | Command::Overlays { .. } | Command::Order { .. } => {}
+                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } | Command::Beats { .. } | Command::Ducking { .. } | Command::Overlays { .. } | Command::Order { .. } => {}
                 Command::Add { scenes } => clips.extend(scenes),
                 Command::Update { scene } => {
                     if let Some(s) = clips.iter_mut().find(|s| s.id == scene.id) {

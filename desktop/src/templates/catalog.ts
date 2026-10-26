@@ -1,59 +1,247 @@
-import { defaultFormat, emptyProject, normalizeStarts, projectScenes, secondsToTicks, type FilterId, type Project, type Scene, type TextLayer } from '../stores/model';
-import { templateArt, type TemplateKind } from './art';
+import { defaultFormat, emptyProject, normalizeStarts, projectScenes, secondsToTicks, type ElementLayer, type FilterId, type Project, type Scene, type TextLayer } from '../stores/model';
+import { bundledPhotoDataUrl, templatePhotoDataUrl, templatePhotoUrl, FALLBACK_PHOTO_FILE, type TemplatePhotoId } from './photos';
 import { createTextLayer } from '../components/text/layers';
 
-export type TemplateDefinition = {
-  id: TemplateKind; name: string; category: 'Travel' | 'Family' | 'Birthday' | 'Product' | 'Social';
-  description: string; aspect: Project['aspect']; previewIndex: number; filter: FilterId;
-  filterIntensity: number; sceneCount: number; duration: number; build: () => Scene[];
+export const TEMPLATE_CATEGORIES = ['Nature', 'Travel', 'People', 'Family', 'Birthday', 'Social', 'Food'] as const;
+export type TemplateCategory = typeof TEMPLATE_CATEGORIES[number];
+
+type StorySpec = {
+  id: string; name: string; category: TemplateCategory; description: string;
+  photos: [TemplatePhotoId, TemplatePhotoId, TemplatePhotoId];
+  titles: [string, string, string]; captions: [string, string, string];
+  aspect: Project['aspect']; seconds: number;
+  font: string; weight?: number; size?: number; lineHeight?: number; letterSpacing?: number;
+  italic?: boolean; align?: 'left' | 'center'; x?: number; y?: number; width?: number;
+  backdrop?: number; motion?: Scene['motion']; transition: NonNullable<Scene['transition']>['type'];
+  filter?: FilterId; filterIntensity?: number; accent?: string;
 };
 
-type Story = { id: TemplateKind; name: string; category: TemplateDefinition['category']; description: string; aspect: Project['aspect']; color: string; font: string; titles: string[]; captions: string[] };
-const STORIES: Story[] = [
-  { id: 'travel', name: 'Travel journal', category: 'Travel', description: 'Three photo-led chapters with a quiet title and location caption.', aspect: '16:9', color: '#FFFFFF', font: 'playfair', titles: ['Take the long way.', 'A little off the map.', 'Bring back a story.'], captions: ['01 / THE DEPARTURE', '02 / THE DETOUR', '03 / THE MEMORY'] },
-  { id: 'family', name: 'Everyday moments', category: 'Family', description: 'A simple memory reel with a handwritten caption over your photos.', aspect: '4:5', color: '#FFFFFF', font: 'caveat', titles: ['Our kind of Sunday', 'The good little things', 'Keep this feeling'], captions: ['A NOTE TO REMEMBER', 'RIGHT HERE, TOGETHER', 'WITH LOVE, ALWAYS'] },
-  { id: 'birthday', name: 'Birthday reel', category: 'Birthday', description: 'A vertical birthday reel with bold editable titles.', aspect: '9:16', color: '#FFFFFF', font: 'bebas-neue', titles: ['YOUR\nDAY.', 'BIG\nWISHES.', 'MORE\nLIFE.'], captions: ['TURN IT UP', 'MAKE THEM COUNT', 'HERE’S TO YOU'] },
-  { id: 'product', name: 'Product reveal', category: 'Product', description: 'A clean opening, detail shot, and closing call to action.', aspect: '1:1', color: '#FFFFFF', font: 'space-grotesk', titles: ['Form.\nFeeling.', 'Every detail,\nconsidered.', 'Made to\nstay.'], captions: ['OBJECT / STUDY — 001', 'LESS, WITH PURPOSE', 'THE NEW COLLECTION'] },
-  { id: 'social', name: 'Social story', category: 'Social', description: 'Three vertical moments with large readable titles.', aspect: '9:16', color: '#FFFFFF', font: 'archivo-black', titles: ['THIS\nIS IT.', 'KEEP\nGOING.', 'PLAY IT\nAGAIN.'], captions: ['A MOMENT IN MOTION', 'MAKE YOUR OWN MOMENT', 'SAVE THE FEELING'] },
-];
+export type TemplateDefinition = StorySpec & { sceneCount: number; duration: number; build: (images: string[]) => Scene[] };
 
-function buildStory(story: Story): Scene[] {
-  return story.titles.map((title, index) => {
-    const durationTicks = secondsToTicks(4);
-    const layer = (patch: Partial<TextLayer>) => createTextLayer(durationTicks, { color: story.color, x: .08, y: .19, width: .78, font: story.font, fontWeight: story.id === 'social' || story.id === 'birthday' ? 400 : 600, size: story.id === 'birthday' ? .20 : story.id === 'social' ? .22 : story.id === 'family' ? .12 : .11, lineHeight: 1.05, animation: 'slide-up', animationDuration: .7, ...patch });
+/** A 1×1 image keeps a scene valid if even the fallback file cannot be read. */
+const BLANK_PHOTO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
+
+function accentBar(spec: StorySpec, durationTicks: number): ElementLayer | null {
+  if (!spec.accent) return null;
+  return {
+    id: crypto.randomUUID(), kind: 'rectangle', x: (spec.x ?? .08) + .02, y: (spec.y ?? .6) - .045,
+    width: .06, height: .008, rotation: 0, opacity: 90, color: spec.accent,
+    startTicks: 0, durationTicks, animation: 'fade', animationDuration: .5,
+  };
+}
+
+/** Turns a story description into three editable scenes that share one look. */
+export function buildStory(spec: StorySpec, images: string[]): Scene[] {
+  const durationTicks = secondsToTicks(spec.seconds);
+  const color = '#FFFFFF';
+  const titleY = spec.y ?? .6;
+  const size = spec.size ?? .1;
+  const weight = spec.weight ?? 600;
+  return spec.titles.map((title, index) => {
+    const layer = (patch: Partial<TextLayer>) => createTextLayer(durationTicks, {
+      color, x: spec.x ?? .08, y: titleY, width: spec.width ?? .8, font: spec.font,
+      fontWeight: weight, fontStyle: spec.italic ? 'italic' : 'normal',
+      size, lineHeight: spec.lineHeight ?? 1.04, letterSpacing: spec.letterSpacing ?? 0,
+      align: spec.align ?? 'left',
+      backdropEnabled: Boolean(spec.backdrop), backdropOpacity: spec.backdrop ?? 0,
+      backdropBlur: 26, backdropPadding: 26, backdropRadius: 18,
+      shadowEnabled: true, shadowIntensity: 70, shadowBlur: 18, shadowOffsetY: 4,
+      animation: 'slide-up', animationDuration: .7, ...patch,
+    });
     const layers = [
-      layer({ title, subtitle: '', y: story.id === 'family' ? .66 : .57, width: story.id === 'product' ? .62 : .8 }),
-      layer({ title: story.captions[index], subtitle: '', y: .08, size: .02, font: 'space-grotesk', letterSpacing: .004, animation: 'fade' }),
-      layer({ title: `0${index + 1} / 03`, subtitle: '', y: .89, size: .022, font: 'dm-sans', animation: 'fade' }),
+      layer({ title }),
+      layer({ title: spec.captions[index], y: .075, size: .019, font: 'space-grotesk', fontWeight: 500, letterSpacing: .006, backdropEnabled: false, shadowEnabled: false, animation: 'fade' }),
+      layer({ title: `0${index + 1} / 03`, y: .9, size: .02, font: 'dm-sans', fontWeight: 400, shadowEnabled: false, animation: 'fade' }),
     ];
-    return {
+    const accent = accentBar(spec, durationTicks);
+    const scene: Scene = {
       id: crypto.randomUUID(), startTicks: 0, sourceInTicks: 0, name: title.replaceAll('\n', ' '),
-      image: templateArt(story.id, index), durationTicks, title, subtitle: '', color: story.color,
-      fit: 'cover', speed: 1, pitch: true, filter: 'none', filterIntensity: 100,
-      brightness: 1, contrast: 1, saturation: 1, textX: .08, textY: .19, textWidth: .8, textAlign: 'left', textLayers: layers,
-      motion: story.id === 'travel' ? 'zoom-in' : 'none',
-      transition: { type: story.id === 'social' ? 'slide-up' : story.id === 'birthday' ? 'circle' : 'fade', duration: .5 },
-      elements: [],
+      image: images[index] ?? images[0] ?? BLANK_PHOTO, durationTicks, title, subtitle: '', color,
+      fit: 'cover', speed: 1, pitch: true,
+      filter: spec.filter ?? 'none', filterIntensity: spec.filterIntensity ?? 100,
+      brightness: 1, contrast: 1, saturation: 1,
+      textX: spec.x ?? .08, textY: titleY, textWidth: spec.width ?? .8, textAlign: spec.align ?? 'left',
+      textLayers: layers,
+      motion: spec.motion ?? 'none',
+      transition: { type: spec.transition, duration: .5 },
+      elements: accent ? [accent] : [],
     };
+    return scene;
   });
 }
 
-export const TEMPLATES: TemplateDefinition[] = STORIES.map(story => ({ ...story, previewIndex: 0, filter: 'none', filterIntensity: 100, sceneCount: 3, duration: 12, build: () => buildStory(story) }));
+const STORIES: StorySpec[] = [
+  {
+    id: 'wild-escape', name: 'Wild escape', category: 'Nature',
+    description: 'Bold condensed type over valleys, pines and river mist.',
+    photos: ['nature-valley', 'nature-pines', 'nature-river'],
+    titles: ['GO\nOUTSIDE.', 'BREATHE\nDEEP.', 'STAY\nWILD.'],
+    captions: ['01 / THE TRAILHEAD', '02 / THE QUIET PART', '03 / THE WAY BACK'],
+    aspect: '16:9', seconds: 4, font: 'bebas-neue', size: .19, lineHeight: .92, align: 'left', y: .5,
+    backdrop: 22, motion: 'zoom-in', transition: 'fade', accent: '#E8FF6A',
+  },
+  {
+    id: 'golden-hour', name: 'Golden hour', category: 'Nature',
+    description: 'Warm serif titles for sunset, balloons and slow light.',
+    photos: ['coast-sunset', 'sky-balloon', 'nature-ridge'],
+    titles: ['Chase the light.', 'A little higher.', 'Stay for the colours.'],
+    captions: ['GOLDEN HOUR', 'NO RUSH', 'LAST LIGHT'],
+    aspect: '16:9', seconds: 4.2, font: 'playfair', italic: true, size: .092, align: 'center', x: .1, y: .58, width: .8,
+    backdrop: 18, motion: 'ken-burns', transition: 'fade', filter: 'warm', filterIntensity: 40,
+  },
+  {
+    id: 'mountain-air', name: 'Mountain air', category: 'Nature',
+    description: 'Vertical lettering for peaks, cloud inversions and aurora.',
+    photos: ['nature-peak', 'nature-mist', 'nature-aurora'],
+    titles: ['ABOVE\nTHE CLOUDS', 'UP HERE,\nNOTHING RUSHES', 'NIGHT\nSKY'],
+    captions: ['ALTITUDE', 'THIN AIR', 'AURORA'],
+    aspect: '9:16', seconds: 3.6, font: 'archivo-black', size: .135, lineHeight: .98, y: .58, width: .84,
+    backdrop: 26, motion: 'zoom-out', transition: 'slide-up', accent: '#FFFFFF',
+  },
+  {
+    id: 'coastline', name: 'Coastline', category: 'Travel',
+    description: 'Clean, quiet captions for waves, rocks and long beaches.',
+    photos: ['coast-waves', 'coast-rocks', 'people-splash'],
+    titles: ['Salt in the air.', 'Nowhere to be.', 'One more swim.'],
+    captions: ['THE COAST', 'OFF SEASON', 'LAST DIP'],
+    aspect: '16:9', seconds: 4, font: 'space-grotesk', weight: 500, size: .082, y: .62, width: .62,
+    motion: 'pan-right', transition: 'fade', filter: 'cool', filterIntensity: 30,
+  },
+  {
+    id: 'city-nights', name: 'City nights', category: 'Travel',
+    description: 'Night-market energy with tall condensed headlines.',
+    photos: ['street-night', 'city-venice', 'fashion-car'],
+    titles: ['AFTER\nDARK', 'STILL\nOPEN', 'CITY\nLIGHTS'],
+    captions: ['22:40', 'LAST ORDERS', 'WALK HOME'],
+    aspect: '9:16', seconds: 3.4, font: 'bebas-neue', size: .2, lineHeight: .92, y: .5,
+    backdrop: 20, motion: 'ken-burns', transition: 'slide-up', accent: '#FF4D6D',
+  },
+  {
+    id: 'weekend-away', name: 'Weekend away', category: 'Travel',
+    description: 'A four-by-five road-trip diary with understated captions.',
+    photos: ['road-truck', 'people-snow', 'nature-river'],
+    titles: ['Two tanks\nand a map.', 'Cold hands,\nfull camera.', 'Home by\nSunday.'],
+    captions: ['FRIDAY', 'SATURDAY', 'SUNDAY'],
+    aspect: '4:5', seconds: 3.8, font: 'dm-sans', weight: 600, size: .078, lineHeight: 1.12, y: .64,
+    motion: 'pan-left', transition: 'fade', filter: 'film', filterIntensity: 35,
+  },
+  {
+    id: 'everyday-moments', name: 'Everyday moments', category: 'Family',
+    description: 'Handwritten notes over the small, ordinary bits.',
+    photos: ['friends-boys', 'couple-cozy', 'people-window'],
+    titles: ['Our kind of Sunday', 'The good little things', 'Keep this feeling'],
+    captions: ['A NOTE TO REMEMBER', 'RIGHT HERE, TOGETHER', 'WITH LOVE, ALWAYS'],
+    aspect: '4:5', seconds: 4.2, font: 'caveat', weight: 600, size: .125, lineHeight: 1.02, y: .66,
+    backdrop: 18, transition: 'fade',
+  },
+  {
+    id: 'best-friends', name: 'Best friends', category: 'Social',
+    description: 'Loud, punchy type for group photos and loud nights.',
+    photos: ['friends-girls', 'action-jump', 'food-brunch'],
+    titles: ['GOOD\nPEOPLE.', 'SAME\nCHAOS.', 'AGAIN\nTOMORROW.'],
+    captions: ['THE GROUP CHAT', 'NO PLANS, BEST NIGHT', 'SAME TIME NEXT WEEK'],
+    aspect: '9:16', seconds: 3.2, font: 'archivo-black', size: .15, lineHeight: .96, y: .5,
+    backdrop: 24, motion: 'zoom-in', transition: 'circle', accent: '#FFD166',
+  },
+  {
+    id: 'birthday-reel', name: 'Birthday reel', category: 'Birthday',
+    description: 'Big vertical type, confetti transitions, zero subtlety.',
+    photos: ['action-jump', 'food-brunch', 'coffee-friends'],
+    titles: ['YOUR\nDAY.', 'BIG\nWISHES.', 'MORE\nLIFE.'],
+    captions: ['TURN IT UP', 'MAKE THEM COUNT', 'HERE’S TO YOU'],
+    aspect: '9:16', seconds: 3.2, font: 'bebas-neue', size: .23, lineHeight: .9, align: 'center', x: .1, y: .46, width: .8,
+    backdrop: 20, motion: 'zoom-out', transition: 'circle', accent: '#FFB3C7',
+  },
+  {
+    id: 'cafe-diary', name: 'Café diary', category: 'Food',
+    description: 'Slow serif captions for brunch, coffee and street food.',
+    photos: ['coffee-friends', 'food-street', 'food-brunch'],
+    titles: ['Slow mornings.', 'Eat where they eat.', 'One more cup.'],
+    captions: ['CAFÉ DIARY', 'MARKET DAY', 'STAY A WHILE'],
+    aspect: '1:1', seconds: 3.6, font: 'playfair', italic: true, size: .078, y: .6, width: .7,
+    motion: 'ken-burns', transition: 'fade', filter: 'warm', filterIntensity: 45,
+  },
+  {
+    id: 'portrait-study', name: 'Portrait study', category: 'People',
+    description: 'Editorial framing and tracked-out labels for portraits.',
+    photos: ['people-portrait', 'people-man', 'people-shore'],
+    titles: ['STUDY 01', 'STUDY 02', 'STUDY 03'],
+    captions: ['NATURAL LIGHT', 'BETWEEN TAKES', 'THE LONG WAY HOME'],
+    aspect: '4:5', seconds: 3.6, font: 'space-grotesk', weight: 500, size: .062, letterSpacing: .012, y: .66, width: .8,
+    motion: 'none', transition: 'fade', filter: 'noir', filterIntensity: 25, accent: '#FFFFFF',
+  },
+  {
+    id: 'love-story', name: 'Love story', category: 'People',
+    description: 'Soft serif lines for couples, weddings and hand-in-hand walks.',
+    photos: ['couple-beach', 'couple-sunset', 'hands-autumn'],
+    titles: ['You, me,\ngolden light.', 'Still my\nfavourite person.', 'Hold on\na bit longer.'],
+    captions: ['THE TWO OF US', 'NO REASON NEEDED', 'AND THEN SOME'],
+    aspect: '9:16', seconds: 4, font: 'playfair', italic: true, size: .095, lineHeight: 1.08, align: 'center', x: .1, y: .6, width: .8,
+    backdrop: 16, motion: 'ken-burns', transition: 'fade', filter: 'dream', filterIntensity: 30,
+  },
+  {
+    id: 'wedding-day', name: 'Wedding day', category: 'People',
+    description: 'Quiet serif promises over the ceremony and the after-party.',
+    photos: ['couple-wedding', 'couple-beach', 'hands-autumn'],
+    titles: ['I do.', 'Just us, then.', 'Forever starts\non a Tuesday.'],
+    captions: ['THE DAY', 'THE GOLDEN HOUR', 'THE REST OF IT'],
+    aspect: '9:16', seconds: 4, font: 'playfair', size: .1, lineHeight: 1.06, align: 'center', x: .1, y: .62, width: .8,
+    backdrop: 14, motion: 'zoom-in', transition: 'fade', filter: 'film', filterIntensity: 25,
+  },
+];
+
+export const TEMPLATES: TemplateDefinition[] = STORIES.map(spec => ({
+  ...spec,
+  sceneCount: 3,
+  duration: spec.seconds * 3,
+  build: (images: string[]) => buildStory(spec, images),
+}));
+
 export const SAMPLE_TEMPLATE = TEMPLATES[0];
-export function templatePreview(template: TemplateDefinition) { return templateArt(template.id, template.previewIndex); }
-export function buildTemplateProject(template: TemplateDefinition, sources: readonly Scene[] = []): Project {
+
+/** Gallery artwork: the story's first bundled photo, no decoding required. */
+export function templatePreview(template: TemplateDefinition) {
+  return templatePhotoUrl(template.photos[0]);
+}
+
+/**
+ * Builds the project behind a template. Photos are read from the app bundle and
+ * embedded as data URLs (that is how a saved story stays self-contained); a
+ * neutral placeholder stands in if one file cannot be read, so a template always
+ * opens. `load` is injectable for tests.
+ */
+export async function buildTemplateProject(
+  template: TemplateDefinition,
+  sources: readonly Scene[] = [],
+  load: (id: TemplatePhotoId) => Promise<string> = templatePhotoDataUrl,
+): Promise<Project> {
+  const images = await Promise.all(template.photos.map(async id => {
+    try {
+      return await load(id);
+    } catch {
+      try {
+        return await bundledPhotoDataUrl(FALLBACK_PHOTO_FILE);
+      } catch {
+        return BLANK_PHOTO;
+      }
+    }
+  }));
   const project = emptyProject(template.name);
   project.aspect = template.aspect;
   project.formats = [defaultFormat(template.aspect)];
   const track = projectScenes(project) as Scene[];
-  const scenes = template.build().map((scene, index) => {
-    const source = sources[index % sources.length];
+  const scenes = template.build(images).map((scene, index) => {
+    const source = sources[index % Math.max(1, sources.length)];
     if (!source) return scene;
     const durationTicks = source.mediaKind === 'video' ? Math.min(scene.durationTicks, source.durationTicks) : scene.durationTicks;
-    return { ...scene, image: source.image, mediaKind: source.mediaKind, videoPoster: source.videoPoster, sourceInTicks: source.sourceInTicks, durationTicks,
+    return {
+      ...scene, image: source.image, mediaKind: source.mediaKind, videoPoster: source.videoPoster,
+      sourceInTicks: source.sourceInTicks, durationTicks,
       motion: source.mediaKind === 'video' ? 'none' as const : scene.motion,
-      textLayers: scene.textLayers?.map(layer => ({ ...layer, durationTicks, color: '#FFFFFF', shadowEnabled: true, shadowIntensity: 85, backdropEnabled: true, backdropOpacity: 35 })) };
+      textLayers: scene.textLayers?.map(layer => ({ ...layer, durationTicks, color: '#FFFFFF', shadowEnabled: true, shadowIntensity: 85, backdropEnabled: true, backdropOpacity: 35 })),
+    };
   });
-  track.splice(0, track.length, ...scenes); normalizeStarts(track);
+  track.splice(0, track.length, ...scenes);
+  normalizeStarts(track);
   return project;
 }
