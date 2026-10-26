@@ -11,6 +11,7 @@ import { framingTravel } from '../components/preview/framing';
 import { centreGuides, edgeGuides, snapToTargets } from '../components/preview/snapping';
 import { registerCustomFonts } from '../components/text/fonts';
 import { splitTransition } from '../components/preview/transition-timing';
+import { isRamped, sourceSecondsAt, sourceSpan, speedAt, speedCurve } from '../components/preview/speed';
 import { parseCaptions, placeCaptions } from '../components/text/captions';
 import { textLayersAsCaptions, toSrt } from '../components/text/captions-export';
 import { applyElementMotion, applyTextMotion } from '../components/animation/keyframes';
@@ -1041,26 +1042,29 @@ export default function App() {
   useEffect(() => {
     const element = sceneVideo.current;
     if (!element || !videoScene) return;
-    const speed = Math.max(.25, Math.min(4, videoScene.speed ?? 1));
-    const sourceIn = ticksToSeconds(videoScene.sourceInTicks ?? 0, project.timebase);
-    const fallback = sourceIn + ticksToSeconds(videoScene.durationTicks, project.timebase);
-    const end = Number.isFinite(element.duration) && element.duration > 0 ? element.duration : fallback;
-    const target = Math.max(0, Math.min(sourceIn + previewLocalSeconds * speed, end - 0.04));
-    if (element.playbackRate !== speed) element.playbackRate = speed;
     const clipSeconds = Math.max(0.001, ticksToSeconds(videoScene.durationTicks, project.timebase));
+    const inPoint = ticksToSeconds(videoScene.sourceInTicks ?? 0, project.timebase);
+    const fallback = inPoint + sourceSpan(videoScene, clipSeconds);
+    const end = Number.isFinite(element.duration) && element.duration > 0 ? element.duration : fallback;
+    const target = Math.max(0, Math.min(sourceSecondsAt(videoScene, previewLocalSeconds, project.timebase), end - 0.04));
+    // A reversed clip is stepped by seeking; `playbackRate` cannot go negative.
+    if (!videoScene.reverse) {
+      const speed = speedAt(videoScene, previewLocalSeconds, clipSeconds);
+      if (element.playbackRate !== speed) element.playbackRate = speed;
+    }
     element.volume = videoGain(previewLocalSeconds, clipSeconds, videoScene.fadeIn ?? 0, videoScene.fadeOut ?? 0, videoScene.videoVolume ?? 100);
     if (element.readyState >= 2 && Math.abs(element.currentTime - target) > 0.12) element.currentTime = target;
-  }, [previewLocalSeconds, videoScene?.id, videoScene?.speed, videoScene?.fadeIn, videoScene?.fadeOut, project.timebase]);
+  }, [previewLocalSeconds, videoScene?.id, videoScene?.speed, videoScene?.speedEnd, videoScene?.reverse, videoScene?.fadeIn, videoScene?.fadeOut, project.timebase]);
 
   useEffect(() => {
     const element = sceneVideo.current;
     if (!element || !videoScene) return;
     // The clip's own soundtrack only plays while moving forward; scrubbing and
     // reverse playback stay silent, matching how the audio clips behave.
-    element.muted = !(playing && playDirection > 0);
-    if (playing && playDirection > 0) element.play().catch(() => { /* the poster stays visible */ });
+    element.muted = !(playing && playDirection > 0) || Boolean(videoScene.reverse);
+    if (playing && playDirection > 0 && !videoScene.reverse) element.play().catch(() => { /* the poster stays visible */ });
     else element.pause();
-  }, [playing, playDirection, videoScene?.id]);
+  }, [playing, playDirection, videoScene?.id, videoScene?.reverse]);
 
   useEffect(() => {
     if (!previewTarget || !preview.current) return;
@@ -3204,7 +3208,9 @@ export default function App() {
         segments.push({
           kind: 'video', video: scene.image,
           sourceInSeconds: ticksToSeconds(scene.sourceInTicks, source.timebase),
-          fit: scene.fit, speed: Math.max(.25, Math.min(4, scene.speed ?? 1)),
+          fit: scene.fit, speed: speedCurve(scene).start,
+          ...(isRamped(scene) ? { speedEnd: speedCurve(scene).end } : {}),
+          ...(scene.reverse ? { reverse: true } : {}),
           lut: gradeLutCube(scene) ?? undefined,
           fadeIn: Math.max(0, Math.min(scene.fadeIn ?? 0, ticksToSeconds(scene.durationTicks, source.timebase))),
           fadeOut: Math.max(0, Math.min(scene.fadeOut ?? 0, ticksToSeconds(scene.durationTicks, source.timebase))),
@@ -3220,12 +3226,11 @@ export default function App() {
           try {
             const toFrame = nextReader ? await nextReader.seek(ticksToSeconds(next.sourceInTicks ?? 0, source.timebase)) : null;
             const canvas = document.createElement('canvas');
-            const speed = Math.max(.25, Math.min(4, scene.speed ?? 1));
             for (let frame = 0; frame < transitionTicks; frame++) {
               if (exportCancelled.current) throw new Error('Export cancelled.');
               const localTicks = mainTicks + frame;
               const localSeconds = ticksToSeconds(localTicks, source.timebase);
-              const fromFrame = await reader.seek(ticksToSeconds(scene.sourceInTicks ?? 0, source.timebase) + localSeconds * speed);
+              const fromFrame = await reader.seek(sourceSecondsAt(scene, localSeconds, source.timebase));
               const progress = Math.min(1, (frame + 1) / transitionTicks);
               await drawTransition(canvas, scene, next, transition.type, source.aspect, 'export', progress, localSeconds, 0, source.timebase, size, visualAudio, fromFrame, toFrame);
               await drawProjectOverlays(canvas, source.overlays, ticksToSeconds(scene.startTicks + localTicks, source.timebase), source.timebase, true, visualAudio);

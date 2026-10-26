@@ -1858,6 +1858,12 @@ struct PlanSegment {
     /// Playback speed for imported video clips. 1.0 means real time.
     #[serde(default)]
     speed: Option<f64>,
+    /// End of a linear speed ramp. Missing means constant speed.
+    #[serde(default)]
+    speed_end: Option<f64>,
+    /// Picture-only reverse playback.
+    #[serde(default)]
+    reverse: bool,
     /// A `.cube` 3D LUT baked from the same grade the preview canvas uses.
     #[serde(default)]
     lut: Option<String>,
@@ -1926,6 +1932,9 @@ fn validate_plan(project: &Project, plan: &ExportPlan) -> Result<(), String> {
                 let speed = segment.speed.unwrap_or(1.0);
                 if !speed.is_finite() || !(0.25..=4.0).contains(&speed) {
                     return Err("A video segment has an invalid speed.".into());
+                }
+                if segment.speed_end.is_some_and(|value| !value.is_finite() || !(0.25..=4.0).contains(&value)) {
+                    return Err("A video segment has an invalid end speed.".into());
                 }
                 if let Some(audio_ticks) = segment.audio_duration_ticks {
                     if audio_ticks < segment.duration_ticks {
@@ -2031,6 +2040,46 @@ fn atempo_chain(speed: f64) -> String {
         .join(",")
 }
 
+/// Splits the soundtrack into equal output slices and applies one `atempo`
+/// value per slice, so a linear speed ramp keeps picture and sound together.
+fn ramp_atempo_nodes(input: &str, start: f64, end: f64, duration: f64, tag: &str) -> (Vec<String>, String) {
+    const STEPS: usize = 8;
+    let seconds = duration.max(0.001);
+    let split_labels: String = (0..STEPS).map(|index| format!("[{tag}s{index}]")).collect();
+    let mut nodes = vec![format!("{input}asplit={STEPS}{split_labels}")];
+    let mut labels = String::new();
+    let mut source = 0.0;
+    let output_slice = seconds / STEPS as f64;
+    for index in 0..STEPS {
+        let midpoint = (index as f64 + 0.5) / STEPS as f64;
+        let speed = (start + (end - start) * midpoint).clamp(0.25, 4.0);
+        let source_slice = speed * output_slice;
+        nodes.push(format!(
+            "[{tag}s{index}]atrim=start={source:.6}:end={:.6},asetpts=PTS-STARTPTS,atempo={speed:.6}[{tag}{index}]",
+            source + source_slice
+        ));
+        source += source_slice;
+        labels.push_str(&format!("[{tag}{index}]"));
+    }
+    nodes.push(format!("{labels}concat=n={STEPS}:v=0:a=1[{tag}]"));
+    (nodes, format!("[{tag}]"))
+}
+
+/// `setpts` expression for a linear speed ramp. Solving
+/// `s = v0·t + (v1−v0)·t²/(2D)` for output time gives the inverse curve; the
+/// result is converted back to timebase units.
+fn ramp_setpts(start: f64, end: f64, duration: f64) -> Option<String> {
+    if (end - start).abs() <= 1e-9 {
+        return None;
+    }
+    let acceleration = (end - start) / (2.0 * duration.max(0.001));
+    Some(format!(
+        "setpts='(-{start:.6}+sqrt({start:.6}*{start:.6}+{:.9}*(PTS*TB)))/{:.9}/TB'",
+        acceleration * 4.0,
+        acceleration * 2.0
+    ))
+}
+
 fn write_plan_payload(directory: &Path, name: &str, data: &str, prefix: &str) -> Result<PathBuf, String> {
     let payload = data.strip_prefix(prefix).ok_or("A media payload has an unsupported format.")?;
     if payload.len() > 160_000_000 {
@@ -2060,9 +2109,19 @@ fn encode_plan(
     command.args(["-y", "-nostdin", "-hide_banner", "-loglevel", "error"]);
     let mut visual: Vec<(usize, f64, String, f64, Option<PathBuf>)> = Vec::new();
     let mut overlays: Vec<(usize, f64, f64)> = Vec::new();
-    // Imported video clips contribute their own soundtrack: (input, speed,
-    // duration, timeline start, fade in, fade out).
-    let mut video_audio: Vec<(usize, f64, f64, f64, f64, f64, Option<f64>)> = Vec::new();
+    // Imported video clips contribute their own soundtrack.
+    #[derive(Clone, Copy)]
+    struct VideoAudio {
+        input: usize,
+        speed: f64,
+        speed_end: f64,
+        duration: f64,
+        start: f64,
+        fade_in: f64,
+        fade_out: f64,
+        volume: Option<f64>,
+    }
+    let mut video_audio: Vec<VideoAudio> = Vec::new();
     let mut duck_windows: Vec<(f64, f64)> = Vec::new();
     let mut input_index = 0usize;
     let mut timeline_offset = 0.0f64;
@@ -2101,26 +2160,34 @@ fn encode_plan(
                     path
                 };
                 speed = segment.speed.unwrap_or(1.0);
+                let speed_end = segment.speed_end.unwrap_or(speed);
                 let start = segment.source_in_seconds.unwrap_or(0.0).max(0.0);
                 let audio_duration = segment
                     .audio_duration_ticks
                     .map(|ticks| project.timebase.ticks_to_seconds(ticks))
                     .unwrap_or(duration);
-                let source_length = (audio_duration.max(duration) * speed).max(duration);
+                // A ramp consumes the average rate over the clip; a constant
+                // speed consumes `speed` seconds per output second.
+                let visual_span = duration * (speed + speed_end) / 2.0;
+                let audio_span = audio_duration * (speed + speed_end) / 2.0;
+                let source_length = visual_span.max(audio_span).max(duration);
                 command.args(["-ss", &format!("{start:.6}"), "-t", &format!("{source_length:.6}"), "-i"]).arg(path.clone());
-                if segment.include_audio && has_audio_stream(&binary, &path) {
+                // Reverse is picture-only: a reversed soundtrack is rarely
+                // wanted, and the preview stays silent for the same reason.
+                if segment.include_audio && !segment.reverse && has_audio_stream(&binary, &path) {
                     if segment.video_volume.unwrap_or(100.0) > 0.0 {
                         duck_windows.push((segment_start, segment_start + audio_duration));
                     }
-                    video_audio.push((
-                        input_index,
+                    video_audio.push(VideoAudio {
+                        input: input_index,
                         speed,
-                        audio_duration,
-                        segment_start,
-                        segment.fade_in.min(audio_duration),
-                        segment.fade_out.min(audio_duration),
-                        segment.video_volume,
-                    ));
+                        speed_end,
+                        duration: audio_duration,
+                        start: segment_start,
+                        fade_in: segment.fade_in.min(audio_duration),
+                        fade_out: segment.fade_out.min(audio_duration),
+                        volume: segment.video_volume,
+                    });
                 }
                 if let Some(lut) = segment.lut.as_deref() {
                     let path = temp.path().join(format!("grade-{index}.cube"));
@@ -2182,7 +2249,17 @@ fn encode_plan(
             format!("scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}")
         };
         let mut chain = format!("[{input}:v]{geometry},setsar=1");
-        if (speed - 1.0).abs() > 1e-9 {
+        if let Some(segment) = plan.segments.get(index) {
+            if segment.reverse {
+                chain.push_str(",reverse");
+            }
+        }
+        chain.push_str(",setpts=PTS-STARTPTS");
+        let speed_end = plan.segments.get(index).and_then(|segment| segment.speed_end).unwrap_or(*speed);
+        if let Some(expression) = ramp_setpts(*speed, speed_end, *duration) {
+            chain.push(',');
+            chain.push_str(&expression);
+        } else if (speed - 1.0).abs() > 1e-9 {
             chain.push_str(&format!(",setpts=(PTS-STARTPTS)/{speed:.6}"));
         }
         chain.push_str(&format!(
@@ -2253,24 +2330,39 @@ fn encode_plan(
         node.push_str(&format!(",adelay={delay}:all=1[am{}]", index));
         audio_nodes.push(node);
     }
-    for (index, (input, speed, duration, start, fade_in, fade_out, volume)) in video_audio.iter().enumerate() {
-        let mut node = format!("[{input}:a]asetpts=PTS-STARTPTS,aresample=48000");
-        if let Some(volume) = volume {
-            if *volume < 99.999 {
+    for (index, clip) in video_audio.iter().enumerate() {
+        let mut node = String::new();
+        if (clip.speed_end - clip.speed).abs() > 1e-9 {
+            // A ramp is a piecewise `atempo` chain: eight equal output slices,
+            // each with its own rate, concatenated back together.
+            let (mut extra, label) = ramp_atempo_nodes(
+                &format!("[{}:a]", clip.input),
+                clip.speed,
+                clip.speed_end,
+                clip.duration,
+                &format!("ra{index}"),
+            );
+            audio_nodes.append(&mut extra);
+            node.push_str(&format!("{label}aresample=48000"));
+        } else {
+            node.push_str(&format!("[{}:a]asetpts=PTS-STARTPTS,aresample=48000", clip.input));
+            if (clip.speed - 1.0).abs() > 1e-9 {
+                node.push_str(&format!(",{}", atempo_chain(clip.speed)));
+            }
+        }
+        if let Some(volume) = clip.volume {
+            if volume < 99.999 {
                 node.push_str(&format!(",volume={:.3}", volume / 100.0));
             }
         }
-        if (speed - 1.0).abs() > 1e-9 {
-            node.push_str(&format!(",{}", atempo_chain(*speed)));
+        node.push_str(&format!(",atrim=duration={:.6},asetpts=PTS-STARTPTS", clip.duration));
+        if clip.fade_in > 0.0 {
+            node.push_str(&format!(",afade=t=in:st=0:d={:.3}", clip.fade_in));
         }
-        node.push_str(&format!(",atrim=duration={duration:.6},asetpts=PTS-STARTPTS"));
-        if *fade_in > 0.0 {
-            node.push_str(&format!(",afade=t=in:st=0:d={fade_in:.3}"));
+        if clip.fade_out > 0.0 {
+            node.push_str(&format!(",afade=t=out:st={:.3}:d={:.3}", (clip.duration - clip.fade_out).max(0.0), clip.fade_out));
         }
-        if *fade_out > 0.0 {
-            node.push_str(&format!(",afade=t=out:st={:.3}:d={fade_out:.3}", (duration - fade_out).max(0.0)));
-        }
-        let delay = (start * 1000.0).round() as u64;
+        let delay = (clip.start * 1000.0).round() as u64;
         node.push_str(&format!(",adelay={delay}:all=1[av{index}]"));
         audio_nodes.push(node);
     }
@@ -2905,7 +2997,7 @@ mod integration_tests {
             let plan = ExportPlan {
                 segments: frames.into_iter().map(|png| PlanSegment {
                     kind: "image".into(), png: Some(png), video: None, source_in_seconds: None,
-                    fit: None, speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
+                    fit: None, speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
                 }).collect(),
                 options: options.clone(),
             };
@@ -2936,7 +3028,7 @@ mod integration_tests {
             let mut options = export_options(); options.width = 320; options.height = 240; options.codec = ExportCodec::Hevc; options.container = container; options.speed = EncodeSpeed::Fast;
             let output = temp.path().join(format!("photo.{}", container.extension()));
             encode_movie(project.clone(), frames.clone(), vec![15,15], options.clone(), binary.clone(), output.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
-            let plan = ExportPlan { segments: frames.into_iter().map(|png| PlanSegment { kind: "image".into(), png: Some(png), video: None, source_in_seconds: None, fit: None, speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![] }).collect(), options };
+            let plan = ExportPlan { segments: frames.into_iter().map(|png| PlanSegment { kind: "image".into(), png: Some(png), video: None, source_in_seconds: None, fit: None, speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![] }).collect(), options };
             let plan_output = temp.path().join(format!("plan.{}", container.extension()));
             encode_plan(&project, plan, binary.clone(), plan_output.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
             for file in [output, plan_output] {
@@ -2948,16 +3040,49 @@ mod integration_tests {
         }
     }
     #[test]
+    fn ramp_and_reverse_arguments_are_well_formed() {
+        assert!(ramp_setpts(1.0, 1.0, 2.0).is_none());
+        let ramp = ramp_setpts(1.0, 2.0, 2.0).expect("ramp");
+        assert!(ramp.starts_with("setpts="), "{ramp}");
+        assert!(ramp.contains("sqrt(") && ramp.contains("PTS*TB") && ramp.contains("/TB"), "{ramp}");
+        // The inverse curve must map source 0 to output 0.
+        assert!(ramp.contains("(-1.000000+sqrt(1.000000*1.000000+"), "{ramp}");
+
+        let (nodes, label) = ramp_atempo_nodes("[2:a]", 1.0, 2.0, 2.0, "rt");
+        assert_eq!(label, "[rt]");
+        assert!(nodes[0].contains("asplit=8"), "{}", nodes[0]);
+        assert_eq!(nodes.iter().filter(|node| node.contains("atempo=")).count(), 8);
+        assert!(nodes.last().unwrap().contains("concat=n=8:v=0:a=1[rt]"));
+        // The eight slices consume the ramp's source span (3 s for 2 s at 1→2×).
+        let consumed: f64 = nodes.iter()
+            .filter_map(|node| node.split("atrim=start=").nth(1))
+            .filter_map(|rest| rest.split(":end=").next())
+            .filter_map(|value| value.parse::<f64>().ok())
+            .fold(0.0, |sum, value| sum + value);
+        assert!(consumed > 0.0);
+        let mut previous = 0.0;
+        let mut total = 0.0;
+        for node in nodes.iter().filter(|node| node.contains("atrim=start=")) {
+            let start: f64 = node.split("atrim=start=").nth(1).unwrap().split(':').next().unwrap().parse().unwrap();
+            let end: f64 = node.split(":end=").nth(1).unwrap().split(',').next().unwrap().parse().unwrap();
+            assert!((start - previous).abs() < 1e-6, "slices must be contiguous");
+            previous = end;
+            total += end - start;
+        }
+        assert!((total - 3.0).abs() < 0.02, "span {total}");
+    }
+
+    #[test]
     fn plan_allows_sound_to_outlast_a_shortened_video_segment() {
         let (project, frames) = fixture_project();
         let image = |ticks: u64| PlanSegment {
             kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
-            fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0,
+            fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0,
             video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: ticks, overlays: vec![],
         };
         let video = |audio: Option<u64>| PlanSegment {
             kind: "video".into(), png: None, video: Some("data:video/mp4;base64,AA==".into()),
-            source_in_seconds: Some(0.0), fit: Some("cover".into()), speed: None, lut: None,
+            source_in_seconds: Some(0.0), fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None,
             fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true,
             audio_duration_ticks: audio, duration_ticks: 16, overlays: vec![],
         };
@@ -2977,11 +3102,11 @@ mod integration_tests {
         let (project, frames) = fixture_project();
         let image = || PlanSegment {
             kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
-            fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
+            fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
         };
         let video = |speed: Option<f64>, lut: Option<String>| PlanSegment {
             kind: "video".into(), png: None, video: Some("data:video/mp4;base64,AA==".into()),
-            source_in_seconds: Some(0.0), fit: Some("cover".into()), speed, lut,
+            source_in_seconds: Some(0.0), fit: Some("cover".into()), speed, speed_end: None, reverse: false, lut,
             fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
         };
         let plan = |second: PlanSegment| ExportPlan { segments: vec![image(), second], options: export_options() };
@@ -2998,7 +3123,7 @@ mod integration_tests {
         let (project, frames) = fixture_project();
         let segment = |fade_in: f64, fade_out: f64| PlanSegment {
             kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
-            fit: None, speed: None, lut: None, fade_in, fade_out, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
+            fit: None, speed: None, speed_end: None, reverse: false, lut: None, fade_in, fade_out, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
         };
         let plan = |first: PlanSegment, second: PlanSegment| ExportPlan { segments: vec![first, second], options: export_options() };
         assert!(validate_plan(&project, &plan(segment(0.25, 0.25), segment(0.25, 0.25))).is_ok());
@@ -3075,12 +3200,12 @@ mod integration_tests {
             segments: vec![
                 PlanSegment {
                     kind: "video".into(), png: None, video: Some(video.clone()), source_in_seconds: Some(0.0),
-                    fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio,
+                    fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio,
                     duration_ticks: 15, audio_duration_ticks: None, overlays: vec![],
                 },
                 PlanSegment {
                     kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
-                    fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio,
+                    fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio,
                     duration_ticks: 15, audio_duration_ticks: None, overlays: vec![],
                 },
             ],
@@ -3149,7 +3274,7 @@ mod integration_tests {
         let plan = ExportPlan {
             segments: vec![PlanSegment {
                 kind: "video".into(), png: None, video: Some(video), source_in_seconds: Some(0.0),
-                fit: Some("cover".into()), speed: Some(2.0), lut: Some(lut),
+                fit: Some("cover".into()), speed: Some(2.0), speed_end: None, reverse: false, lut: Some(lut),
                 fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
             }],
             options,
@@ -3194,14 +3319,14 @@ mod integration_tests {
         options.width = 320; options.height = 240; options.speed = EncodeSpeed::Fast;
         let mut segments = vec![PlanSegment {
             kind: "video".into(), png: None, video: Some(video), source_in_seconds: Some(0.0),
-            fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0,
+            fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0,
             video_volume: None, include_audio: true, audio_duration_ticks: Some(30),
             duration_ticks: 16, overlays: vec![],
         }];
         for _ in 0..14 {
             segments.push(PlanSegment {
                 kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
-                fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0,
+                fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0,
                 video_volume: None, include_audio: true, audio_duration_ticks: None,
                 duration_ticks: 1, overlays: vec![],
             });
@@ -3217,6 +3342,81 @@ mod integration_tests {
         assert!(streams.iter().any(|stream| stream["codec_type"] == "audio"));
         let duration: f64 = info["format"]["duration"].as_str().unwrap().parse().unwrap();
         assert!((duration - 1.0).abs() < 0.08, "duration {duration}");
+    }
+
+    #[test]
+    #[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+    fn real_reverse_and_ramp_video_export() {
+        let binary = ffmpeg().expect("FFmpeg is installed");
+        assert!(encoder_available(&binary, ExportCodec::H264));
+        let temp = tempfile::tempdir().unwrap();
+        let (project, frames) = fixture_project();
+        let mut options = export_options();
+        options.width = 320; options.height = 240; options.speed = EncodeSpeed::Fast;
+        let probe_duration = |file: &Path| -> f64 {
+            let probe = Process::new(binary.with_file_name("ffprobe"))
+                .args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"])
+                .arg(file).output().unwrap();
+            String::from_utf8_lossy(&probe.stdout).trim().parse().unwrap()
+        };
+        let frame_at = |file: &Path, seconds: &str| -> Vec<u8> {
+            let output = Process::new(&binary)
+                .args(["-v", "error", "-ss", seconds, "-i"]).arg(file)
+                .args(["-frames:v", "1", "-vf", "scale=2:2,format=gray", "-f", "rawvideo", "-"])
+                .output().unwrap();
+            assert!(output.status.success());
+            output.stdout
+        };
+
+        // A clip that ends on a white flash: reversing puts the flash first.
+        let source = temp.path().join("flash.mp4");
+        let status = Process::new(&binary)
+            .args([
+                "-y", "-v", "error",
+                "-f", "lavfi", "-i", "color=c=black:s=160x120:r=30:d=0.9",
+                "-f", "lavfi", "-i", "color=c=white:s=160x120:r=30:d=0.1",
+                "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            ])
+            .arg(&source).status().unwrap();
+        assert!(status.success());
+        let video = format!("data:video/mp4;base64,{}", STANDARD.encode(fs::read(&source).unwrap()));
+        let reverse_plan = ExportPlan {
+            segments: vec![PlanSegment {
+                kind: "video".into(), png: None, video: Some(video), source_in_seconds: Some(0.0),
+                fit: Some("cover".into()), speed: None, speed_end: None, reverse: true, lut: None,
+                fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true,
+                audio_duration_ticks: None, duration_ticks: 30, overlays: vec![],
+            }],
+            options: options.clone(),
+        };
+        let reversed = temp.path().join("reversed.mp4");
+        encode_plan(&project, reverse_plan, binary.clone(), reversed.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        assert!((probe_duration(&reversed) - 1.0).abs() < 0.08);
+        let first = frame_at(&reversed, "0.05");
+        let last = frame_at(&reversed, "0.7");
+        assert!(first.iter().all(|value| *value > 180), "reversed start should be the white flash: {first:?}");
+        assert!(last.iter().all(|value| *value < 70), "reversed end should be black: {last:?}");
+
+        // A 1 s output with a 1×→2× ramp consumes 1.5 s of a 2 s source.
+        let ramp_source = temp.path().join("ramp.mp4");
+        let status = Process::new(&binary)
+            .args(["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=320x240:r=30:d=2", "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+            .arg(&ramp_source).status().unwrap();
+        assert!(status.success());
+        let ramp_video = format!("data:video/mp4;base64,{}", STANDARD.encode(fs::read(&ramp_source).unwrap()));
+        let ramp_plan = ExportPlan {
+            segments: vec![PlanSegment {
+                kind: "video".into(), png: None, video: Some(ramp_video), source_in_seconds: Some(0.0),
+                fit: Some("cover".into()), speed: Some(1.0), speed_end: Some(2.0), reverse: false, lut: None,
+                fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true,
+                audio_duration_ticks: None, duration_ticks: 30, overlays: vec![],
+            }],
+            options: options.clone(),
+        };
+        let ramped = temp.path().join("ramped.mp4");
+        encode_plan(&project, ramp_plan, binary.clone(), ramped.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        assert!((probe_duration(&ramped) - 1.0).abs() < 0.1, "ramp duration {}", probe_duration(&ramped));
     }
 
     fn fixture_project() -> (Project, Vec<String>) {
@@ -3274,6 +3474,8 @@ mod integration_tests {
                 filter: "none".into(),
                 filter_intensity: 100.0,
                 speed: 1.0,
+                speed_end: None,
+                reverse: false,
                 pitch: true,
                 video_volume: None,
                 fade_in: 0.0,
@@ -3484,12 +3686,12 @@ mod integration_tests {
             segments: vec![
                 PlanSegment {
                     kind: "video".into(), png: None, video: Some(format!("pixcut-asset:{id}")), source_in_seconds: Some(0.0),
-                    fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None,
+                    fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None,
                     include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
                 },
                 PlanSegment {
                     kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
-                    fit: Some("cover".into()), speed: None, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None,
+                    fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None,
                     include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
                 },
             ],
@@ -3625,7 +3827,7 @@ mod integration_tests {
                     video: None,
                     source_in_seconds: None,
                     fit: Some("cover".into()),
-                    speed: None,
+                    speed: None, speed_end: None, reverse: false,
                     lut: None,
                     fade_in: 0.0,
                     fade_out: 0.0,
@@ -3641,7 +3843,7 @@ mod integration_tests {
                     video: Some(video),
                     source_in_seconds: Some(0.0),
                     fit: Some("cover".into()),
-                    speed: None,
+                    speed: None, speed_end: None, reverse: false,
                     lut: None,
                     fade_in: 0.0,
                     fade_out: 0.0,

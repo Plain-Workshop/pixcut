@@ -460,6 +460,27 @@ export function SceneForm({
     const resized = setSceneSeconds(draftRef.current, duration, timebase);
     return {
       speed: target,
+      speedEnd: target,
+      durationTicks: resized.durationTicks,
+      fadeIn: resized.fadeIn,
+      fadeOut: resized.fadeOut,
+    };
+  }
+
+  /**
+   * Moving the end speed keeps the same amount of source footage: the new
+   * duration is the old source span divided by the new average rate.
+   */
+  function rampPatch(target: number): Partial<Scene> {
+    const current = draftRef.current;
+    const duration = sceneSeconds(current, timebase);
+    const start = current.speed ?? 1;
+    const previousEnd = current.speedEnd ?? start;
+    const span = duration * (start + previousEnd) / 2;
+    const nextDuration = clamp(span / Math.max(.25, (start + target) / 2), 0.5, current.mediaKind === 'video' ? 600 : 30);
+    const resized = setSceneSeconds(current, nextDuration, timebase);
+    return {
+      speedEnd: target,
       durationTicks: resized.durationTicks,
       fadeIn: resized.fadeIn,
       fadeOut: resized.fadeOut,
@@ -790,6 +811,9 @@ export function SceneForm({
     {displayTab === 'speed' && draft.mediaKind === 'video' && <>
       <div className="speed-presets">{SPEED_PRESETS.map(value => <button key={value} className={`button ${Math.abs(speed - value) < 0.01 ? 'active' : ''}`} onClick={() => applySpeed(value)}>{value}×</button>)}</div>
       <RangeField label="Speed" value={speed} min={0.25} max={4} step={0.05} unit="×" onChange={stageSpeed} onCommit={() => applySpeed(draftRef.current.speed ?? 1)} />
+      <RangeField label="End speed" value={draft.speedEnd ?? speed} min={0.25} max={4} step={0.05} unit="×" onChange={value => preview(stage(rampPatch(value)))} onCommit={() => apply(rampPatch(draftRef.current.speedEnd ?? speed), ['speedEnd'])} />
+      <p className="inspector-inline-status">{Math.abs((draft.speedEnd ?? speed) - speed) < 0.01 ? `Constant ${speed}×` : `Ramps ${speed}× → ${draft.speedEnd ?? speed}×`}</p>
+      <label className="checkbox-field"><input type="checkbox" checked={Boolean(draft.reverse)} onChange={event => apply({ reverse: event.target.checked }, ['reverse'])} /> Play this clip backwards (picture only)</label>
       <RangeField label="Clip sound" value={draft.videoVolume ?? 100} min={0} max={100} step={1} unit="%" onChange={value => stage({ videoVolume: value })} onCommit={() => commit()} />
       <label className="checkbox-field"><input type="checkbox" checked={(draft.videoVolume ?? 100) > 0} onChange={event => apply({ videoVolume: event.target.checked ? 100 : 0 }, ['videoVolume'])} /> Play the clip's own audio</label>
       <p className="inspector-inline-status">Duration · {duration.toFixed(1)} s</p>

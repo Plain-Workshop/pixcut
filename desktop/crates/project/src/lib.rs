@@ -370,6 +370,11 @@ pub struct Scene {
     pub filter_intensity: f64,
     #[serde(default = "default_one")]
     pub speed: f64,
+    /// End of a linear speed ramp. Missing means the clip is constant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed_end: Option<f64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reverse: bool,
     #[serde(default = "default_true")]
     pub pitch: bool,
     /// Imported clip sound level, 0–100. Missing means 100.
@@ -1186,6 +1191,7 @@ impl Project {
                     || !(0.0..=100.0).contains(&s.filter_intensity)
                     || !s.speed.is_finite()
                     || !(0.25..=4.0).contains(&s.speed)
+                    || s.speed_end.is_some_and(|value| !value.is_finite() || !(0.25..=4.0).contains(&value))
                     || s.video_volume.is_some_and(|volume| !volume.is_finite() || !(0.0..=100.0).contains(&volume))
                     || !s.fade_in.is_finite()
                     || s.fade_in < 0.0
@@ -1793,6 +1799,8 @@ mod tests {
             motion: None,
             motion_amount: None,
             video_volume: None,
+            speed_end: None,
+            reverse: false,
             id: "one".into(),
             name: "Test".into(),
             image: "data:image/png;base64,AA==".into(),
