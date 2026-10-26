@@ -1,13 +1,20 @@
 import { useEffect, useRef } from 'react';
+import { resolveMediaSource } from './media-url';
 export function AudioSource({ id, data, register }: { id: string; data: string; register: (id: string, element: HTMLAudioElement | null) => void }) {
   const audio = useRef<HTMLAudioElement | null>(null);
   useEffect(() => {
     const element = audio.current;
     if (!element) return;
     if (data.startsWith('pixcut-asset:')) {
+      let cancelled = false;
       element.removeAttribute('src');
       element.load();
-      return;
+      void resolveMediaSource(data).then(resolved => {
+        if (cancelled || !resolved) return;
+        element.src = resolved;
+        element.load();
+      }).catch(() => { /* the timeline shows the clip without sound */ });
+      return () => { cancelled = true; element.pause(); element.removeAttribute('src'); element.load(); };
     }
     let url = data;
     const comma = data.indexOf(',');

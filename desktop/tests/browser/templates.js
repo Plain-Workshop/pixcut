@@ -12,7 +12,7 @@ async (page) => {
   await page.locator('.home-card, .quick-card, button').filter({ hasText: /^New Video$/ }).first().click().catch(() => {});
   await page.waitForTimeout(400);
   // Home → Templates card opens the gallery.
-  await page.getByRole('button', { name: /Templates/ }).first().click();
+  await page.getByRole('button', { name: /^Templates Start with a ready-made design/ }).click();
   const grid = page.locator('.template-grid');
   await grid.waitFor();
   const cards = grid.locator('img');

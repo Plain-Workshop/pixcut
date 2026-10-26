@@ -1,3 +1,4 @@
+import { resolveMediaSource } from '../preview/media-url';
 export type WaveformPeaks = Float32Array;
 
 const BUCKETS = 320;
@@ -66,12 +67,14 @@ export async function decodeWaveform(clipId: string, data: string, buckets = BUC
   const hit = cache.get(key);
   if (hit) return hit;
   const Context = globalThis.OfflineAudioContext;
-  if (!Context || typeof globalThis.fetch !== 'function' || !data.startsWith('data:audio/')) return null;
+  if (!Context || typeof globalThis.fetch !== 'function' || (!data.startsWith('data:audio/') && !data.startsWith('pixcut-asset:'))) return null;
+  const source = await resolveMediaSource(data);
+  if (!source) return null;
   const run = queue.then(async () => {
     const cached = cache.get(key);
     if (cached) return cached;
     try {
-      const response = await fetch(data);
+      const response = await fetch(source);
       const bytes = await response.arrayBuffer();
       const context = new Context(1, 1, 8000);
       const buffer = await context.decodeAudioData(bytes);

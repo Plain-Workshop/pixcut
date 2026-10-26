@@ -9,7 +9,7 @@ import { parseCaptions, placeCaptions } from '../components/text/captions';
 import { applyElementMotion, applyTextMotion } from '../components/animation/keyframes';
 import { KeyframeControls } from '../components/animation/KeyframeControls';
 import { snapOverlayTiming } from '../components/timeline/beats';
-import { resolveAssetUrl, resolveMediaSource } from '../components/preview/media-url';
+import { isAssetRef, resolveAssetUrl, resolveMediaSource } from '../components/preview/media-url';
 import { beatMarkerTicks, detectBeats, snapScenesToBeats } from '../components/timeline/beat-sync';
 import { MaskControls } from '../components/inspector/MaskControls';
 import { videoGain } from '../components/preview/video-audio';
@@ -118,6 +118,7 @@ import { errorTitle, isImageFile, messageFor } from './errors';
 import { deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, listProjects, renameProjectGroup, saveLibraryProject, setProjectFavorite, setProjectGroup, type ProjectSummary } from '../stores/library';
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from '../stores/preferences';
 import { SAMPLE_TEMPLATE, TEMPLATE_CATEGORIES, TEMPLATES, buildTemplateProject, templatePreview, type TemplateDefinition } from '../templates/catalog';
+import { TEMPLATE_PHOTOS } from '../templates/photos';
 import {
   COMMANDS,
   bindingMatchesEvent,
@@ -315,14 +316,15 @@ async function audioFileData(file: File) {
   return `data:${mime};base64,${raw.slice(raw.indexOf(',') + 1)}`;
 }
 
-function audioDuration(data: string) {
-  if (data.startsWith('pixcut-asset:')) return Promise.resolve(0);
+async function audioDuration(data: string) {
+  const source = await resolveMediaSource(data);
+  if (!source) return 0;
   return new Promise<number>(resolve => {
     const audio = new Audio();
     audio.preload = 'metadata';
     audio.onloadedmetadata = () => resolve(Number.isFinite(audio.duration) ? audio.duration : 0);
     audio.onerror = () => resolve(0);
-    audio.src = data;
+    audio.src = source;
   });
 }
 
@@ -1959,7 +1961,9 @@ export default function App() {
   }
 
   async function startTemplate(template: TemplateDefinition) {
-    await launchProject(await buildTemplateProject(template, sourceMedia));
+    // A template is a fresh story: always use its bundled photography, never
+    // the photos from whichever project happened to be open underneath it.
+    await launchProject(await buildTemplateProject(template));
   }
 
   function chooseTemplate(template: TemplateDefinition) {
@@ -2179,7 +2183,7 @@ export default function App() {
    * Native video import keeps the file in the local asset store and writes only
    * a reference into the project, so long clips no longer live in memory.
    */
-  async function importStreamedVideo(imported: bridge.ImportedVideo) {
+  async function importStreamedVideo(imported: bridge.ImportedMedia) {
     if (operation.current) return;
     setPlaying(false); setBusy(true); operation.current = true;
     try {
@@ -2254,12 +2258,42 @@ export default function App() {
     if (!canEdit) return;
     if (bridge.native) {
       try {
-        const picked = await bridge.pickMedia('audio');
-        if (picked?.length) await importAudio(fileFromPicked(picked[0]));
+        const imported = await bridge.importAudioAsset();
+        if (imported) await importStreamedAudio(imported);
       } catch (e) { setError(messageFor(e)); }
       return;
     }
     audioInput.current?.click();
+  }
+
+  async function importStreamedAudio(imported: bridge.ImportedMedia) {
+    if (!projectTicks) { setNotice('Add photos before adding audio.'); return; }
+    try {
+      const url = await resolveAssetUrl(imported.reference);
+      const sourceDuration = Math.round((await audioDuration(url)) * 100) / 100;
+      const desiredStart = secondsToTicks(position, project.timebase);
+      const startTicks = desiredStart >= projectTicks ? 0 : Math.min(desiredStart, projectTicks - 1);
+      const remaining = ticksToSeconds(projectTicks - startTicks, project.timebase);
+      const duration = Math.max(secondsPerTick(project.timebase), Math.min(sourceDuration || remaining, remaining));
+      const clip = constrainAudio({
+        id: crypto.randomUUID(),
+        name: imported.name,
+        data: imported.reference,
+        lane: audioLaneRef.current,
+        startTicks,
+        durationTicks: secondsToTicks(duration, project.timebase),
+        sourceInSeconds: 0,
+        sourceDurationSeconds: sourceDuration || duration,
+        volume: .8,
+        fadeIn: 0,
+        fadeOut: 0,
+      });
+      if (await run({ type: 'audio', audio: [...project.audio, clip] })) {
+        setEditTarget('audio'); setSelectedAudioId(clip.id);
+        setTab('audio');
+        setNotice(`Audio added at ${ticksToSeconds(clip.startTicks, project.timebase).toFixed(1)} s. It stays on this device.`);
+      }
+    } catch (e) { setError(messageFor(e)); }
   }
 
   async function importFiles(files: FileList | File[] | null) {
@@ -3201,7 +3235,7 @@ export default function App() {
               })}</div> : <div className="library-empty music-empty">
                 <Music size={34} />
                 <strong>Give your story a soundtrack.</strong>
-                <p>Add as many audio clips as you need.<br />Up to 50 MB each. Stays on this device.</p>
+                <p>Add as many audio clips as you need.<br />Stays on this device.</p>
                 <button className="button primary" disabled={!canEdit || !projectTicks} onClick={() => void chooseAudio()}><Upload size={15} /> Add audio</button>
               </div>}
               <div className="ducking-panel">
@@ -3210,7 +3244,7 @@ export default function App() {
                 <p className="note"><AudioLines size={14} /><span>{hasVideoScenes ? 'Music dips while a clip\'s own sound plays, with a 150 ms ramp. Silent clips do not trigger it.' : 'Add a video clip to duck music under its sound.'}</span></p>
               </div>
               {selectedAudio && <div className="audio-editor">
-                <div className="audio-editor-title"><strong>{selectedAudio.name}</strong><small>{formatBytes(selectedAudio.data.length * .75)} · {selectedAudio.sourceDurationSeconds.toFixed(1)} s source</small></div>
+                <div className="audio-editor-title"><strong>{selectedAudio.name}</strong><small>{isAssetRef(selectedAudio.data) ? 'Stored locally' : formatBytes(selectedAudio.data.length * .75)} · {selectedAudio.sourceDurationSeconds.toFixed(1)} s source</small></div>
                 <label className="field">Audio track<select aria-label="Audio track" value={selectedAudio.lane} onChange={event => stageAudio({ lane: Number(event.target.value) })} onBlur={commitAudio}>{audioLanes.map((lane, index) => <option key={lane} value={lane}>Track {index + 1}</option>)}<option value={audioLanes.length}>Track {audioLanes.length + 1}</option></select></label>
                 <label className="music-control"><span>Start <b>{ticksToSeconds(selectedAudio.startTicks, project.timebase).toFixed(1)} s</b></span><input type="range" min="0" max={ticksToSeconds(Math.max(0, projectTicks - selectedAudio.durationTicks), project.timebase)} step={secondsPerTick(project.timebase)} value={ticksToSeconds(selectedAudio.startTicks, project.timebase)} disabled={!canEdit} onChange={event => stageAudio({ startTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
                 <label className="music-control"><span>Trim in <b>{selectedAudio.sourceInSeconds.toFixed(1)} s</b></span><input type="range" min="0" max={Math.max(0, selectedAudio.sourceDurationSeconds - secondsPerTick(project.timebase))} step="0.1" value={selectedAudio.sourceInSeconds} disabled={!canEdit} onChange={event => stageAudio({ sourceInSeconds: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
@@ -3226,7 +3260,7 @@ export default function App() {
                   </div>
                   <small>All local: detects the pulse in this clip, adds timeline markers, and can move photo cuts within 0.35 s of a beat. Markers snap overlay moves and trims.</small>
                 </div>
-                <p className="note"><Music size={14} /><span>{audio.length} audio clip{audio.length === 1 ? '' : 's'} · drag a clip on the timeline to move it, or drag its edges to trim. Mixed into the export at 192 kbps. Files up to 50 MB each.</span></p>
+                <p className="note"><Music size={14} /><span>{audio.length} audio clip{audio.length === 1 ? '' : 's'} · drag a clip on the timeline to move it, or drag its edges to trim. Mixed into the export at 192 kbps.</span></p>
               </div>}
             </div> : tab === 'templates' ? <div className="template-tab">
               <button className="import-button" onClick={() => setModal('templates')}><LayoutTemplate size={16} /> Browse the full gallery <span>{TEMPLATES.length}</span></button>
@@ -3512,7 +3546,12 @@ export default function App() {
               <small>{template.sceneCount} scenes · {template.duration.toFixed(1)} s · {template.category}</small>
               <span className="button primary">Use template <ArrowRight size={15} /></span>
             </div>
-          </button>)}</div> : <div className="shortcut-empty"><Search size={24} /><strong>No templates match “{templateQuery}”.</strong><span>Try Travel, Family, or Social.</span></div>}
+          </button>)}</div> : <div className="shortcut-empty"><Search size={24} /><strong>No templates match “{templateQuery}”.</strong><span>Try Nature, Travel, People or Food.</span></div>}
+          <details className="template-credits">
+            <summary>Photo credits</summary>
+            <p>Every template photo ships with the app as a CC0 (public-domain) image, mostly Unsplash photographs archived on Wikimedia Commons. Nothing is downloaded while you edit.</p>
+            <ul>{Object.values(TEMPLATE_PHOTOS).sort((a, b) => a.author.localeCompare(b.author)).map(photo => <li key={photo.file}><span>{photo.title}</span>{photo.author}</li>)}</ul>
+          </details>
         </> : modal === 'new' ? <>
           {pendingTemplate ? <>
             <h2 id="modal-title">Start with {pendingTemplate.name}?</h2>

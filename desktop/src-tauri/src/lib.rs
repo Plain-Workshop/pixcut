@@ -405,7 +405,7 @@ fn asset_path(app: tauri::AppHandle, reference: String) -> Result<String, String
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ImportedVideo {
+struct ImportedMedia {
     reference: String,
     name: String,
     bytes: u64,
@@ -414,7 +414,7 @@ struct ImportedVideo {
 /// Imports a video by streaming it into the local asset store, so the editor
 /// keeps only a reference in memory instead of a base64 copy.
 #[tauri::command]
-async fn import_video(app: tauri::AppHandle) -> Result<Option<ImportedVideo>, String> {
+async fn import_video(app: tauri::AppHandle) -> Result<Option<ImportedMedia>, String> {
     let Some(file) = rfd::AsyncFileDialog::new()
         .add_filter("Videos", &["mp4", "m4v", "mov", "webm"])
         .pick_file()
@@ -470,7 +470,63 @@ async fn import_video(app: tauri::AppHandle) -> Result<Option<ImportedVideo>, St
     if !destination.exists() {
         temporary.persist(&destination).map_err(|e| e.to_string())?;
     }
-    Ok(Some(ImportedVideo { reference: format!("pixcut-asset:{id}"), name, bytes: written }))
+    Ok(Some(ImportedMedia { reference: format!("pixcut-asset:{id}"), name, bytes: written }))
+}
+
+#[tauri::command]
+async fn import_audio(app: tauri::AppHandle) -> Result<Option<ImportedMedia>, String> {
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .add_filter("Audio", &["mp3", "wav", "m4a", "aac", "ogg", "oga", "webm"])
+        .pick_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    let source = file.path().to_path_buf();
+    let name = source
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("Audio")
+        .to_string();
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !["mp3", "wav", "m4a", "aac", "ogg", "oga", "webm"].contains(&extension.as_str()) {
+        return Err("Choose an MP3, WAV, M4A, AAC, OGG, or WebM audio file.".into());
+    }
+    let size = fs::metadata(&source).map_err(|e| e.to_string())?.len();
+    if size == 0 {
+        return Err("That audio file is empty.".into());
+    }
+    if size > 1024 * 1024 * 1024 {
+        return Err("That audio file is larger than 1 GB. Choose a shorter clip.".into());
+    }
+    let directory = asset_store_dir(&app)?;
+    fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    let mut input = fs::File::open(&source).map_err(|e| e.to_string())?;
+    let mut temporary = tempfile::Builder::new()
+        .suffix(&format!(".{extension}"))
+        .tempfile_in(&directory)
+        .map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1 << 20];
+    let mut written = 0u64;
+    loop {
+        let read = input.read(&mut buffer).map_err(|e| e.to_string())?;
+        if read == 0 { break; }
+        hasher.update(&buffer[..read]);
+        temporary.write_all(&buffer[..read]).map_err(|e| e.to_string())?;
+        written += read as u64;
+    }
+    temporary.flush().map_err(|e| e.to_string())?;
+    let id = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let destination = directory.join(format!("{id}.{extension}"));
+    if !destination.exists() {
+        temporary.persist(&destination).map_err(|e| e.to_string())?;
+    }
+    Ok(Some(ImportedMedia { reference: format!("pixcut-asset:{id}"), name, bytes: written }))
 }
 
 fn asset_store_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -604,6 +660,7 @@ fn hydrate_project(directory: &Path, project: &mut Project, keep_video_refs: boo
         }
     }
     for clip in &mut project.audio {
+        if keep_video_refs { continue; }
         if let Some(id) = clip.data.strip_prefix("pixcut-asset:") {
             if let Some(data) = load(id)? { clip.data = data.into(); }
         }
@@ -1171,12 +1228,13 @@ async fn export_movie(
     let _guard = ExportGuard(&editor.exporting);
     let cancel = Arc::clone(&editor.cancel_export);
     cancel.store(false, Ordering::SeqCst);
-    let project = editor
+    let mut project = editor
         .session
         .lock()
         .map_err(|e| e.to_string())?
         .project
         .clone();
+    hydrate_project(&asset_store_dir(&app)?, &mut project, false)?;
     if project.id != project_id
         || project.visual_clips().is_empty()
         || frames.is_empty()
@@ -1249,7 +1307,8 @@ async fn export_variants(
     let cancel = Arc::clone(&editor.cancel_export);
     cancel.store(false, Ordering::SeqCst);
     let project = match snapshot { Some(project) => project, None => editor.session.lock().map_err(|e| e.to_string())?.project.clone() };
-    let project = checked_export_snapshot(&project_id, project)?;
+    let mut project = checked_export_snapshot(&project_id, project)?;
+    hydrate_project(&asset_store_dir(&app)?, &mut project, false)?;
     for job in &jobs {
         if job.frames.is_empty()
             || job.frames.len() != job.durations.len()
@@ -1600,7 +1659,7 @@ fn encode_plan(
         .audio
         .iter()
         .enumerate()
-        .map(|(index, clip)| write_audio(temp.path(), clip, index).map(|path| (path, clip)))
+        .map(|(index, clip)| write_audio(temp.path(), clip, index, asset_dir).map(|path| (path, clip)))
         .collect::<Result<Vec<_>, _>>()?;
     let audio_start = input_index;
     for (path, clip) in &audio_files {
@@ -1861,7 +1920,10 @@ async fn export_plan_variants(
     .map_err(|e| e.to_string())?
 }
 
-fn write_audio(dir: &Path, clip: &AudioClip, index: usize) -> Result<PathBuf, String> {
+fn write_audio(dir: &Path, clip: &AudioClip, index: usize, asset_dir: &Path) -> Result<PathBuf, String> {
+    if let Some(id) = clip.data.strip_prefix("pixcut-asset:") {
+        return asset_file(asset_dir, id).ok_or_else(|| "An audio clip is missing from the local store. Relink it and export again.".into());
+    }
     let (meta, payload) = clip.data.split_once(',').ok_or("Invalid audio data.")?;
     let mime = meta
         .strip_prefix("data:")
@@ -1936,7 +1998,7 @@ fn encode_movie(
         .audio
         .iter()
         .enumerate()
-        .map(|(index, clip)| write_audio(temp.path(), clip, index).map(|path| (path, clip)))
+        .map(|(index, clip)| write_audio(temp.path(), clip, index, temp.path()).map(|path| (path, clip)))
         .collect::<Result<Vec<_>, _>>()?;
     let mut command = Process::new(binary);
     command.current_dir(temp.path()).args([
@@ -2094,6 +2156,7 @@ pub fn run() {
             open_project,
             pick_media,
             import_video,
+            import_audio,
             asset_path,
             missing_asset_refs,
             exporter_available,
@@ -2671,7 +2734,23 @@ mod integration_tests {
         fs::create_dir_all(&store).unwrap();
         fs::write(store.join(format!("{id}.mp4")), &bytes).unwrap();
 
-        let (project, frames) = fixture_project();
+        let audio_bytes = wav_silence(1.0);
+        let audio_id = asset_hash(&audio_bytes);
+        fs::write(store.join(format!("{audio_id}.wav")), &audio_bytes).unwrap();
+        let (mut project, frames) = fixture_project();
+        project.audio = vec![AudioClip {
+            id: "streamed-audio".into(),
+            name: "Bed.wav".into(),
+            data: format!("pixcut-asset:{audio_id}").into(),
+            lane: 0,
+            start_ticks: 0,
+            duration_ticks: 30,
+            source_in_seconds: 0.0,
+            source_duration_seconds: 1.0,
+            volume: 0.8,
+            fade_in: 0.0,
+            fade_out: 0.0,
+        }];
         let plan = ExportPlan {
             segments: vec![
                 PlanSegment {
@@ -2700,6 +2779,7 @@ mod integration_tests {
         let video = info["streams"].as_array().unwrap().iter().find(|stream| stream["codec_type"] == "video").unwrap();
         assert_eq!(video["width"], 1920);
         assert_eq!(video["height"], 1080);
+        assert!(info["streams"].as_array().unwrap().iter().any(|stream| stream["codec_type"] == "audio"));
     }
 
     #[test]
@@ -3007,6 +3087,19 @@ mod integration_tests {
         project.tracks[0].clips[0].elements = vec![serde_json::from_value(overlay).unwrap()];
         project.overlays = project.tracks[0].clips[0].elements.clone();
         project.overlays[0].id = "global-overlay".into();
+        project.audio = vec![AudioClip {
+            id: "audio-1".into(),
+            name: "Bed.wav".into(),
+            data: format!("data:audio/wav;base64,{}", STANDARD.encode(wav_silence(1.0))).into(),
+            lane: 0,
+            start_ticks: 0,
+            duration_ticks: 15,
+            source_in_seconds: 0.0,
+            source_duration_seconds: 1.0,
+            volume: 0.8,
+            fade_in: 0.0,
+            fade_out: 0.0,
+        }];
         project.validate().unwrap();
         let path = temp.path().join("overlay.pixcut");
         write_project_bundle(&path, &project, None).unwrap();
@@ -3017,6 +3110,7 @@ mod integration_tests {
         assert!(project.tracks[0].clips[0].elements[0].source.as_ref().unwrap().starts_with("pixcut-asset:"));
         assert!(project.overlays[0].source.as_ref().unwrap().starts_with("pixcut-asset:"));
         hydrate_project(&directory, &mut project, true).unwrap();
+        hydrate_project(&directory, &mut project, false).unwrap();
         assert_eq!(project, original);
     }
     #[test]
@@ -3108,7 +3202,8 @@ mod integration_tests {
         let mut again = original.clone();
         persist_project(&directory, &mut again).unwrap();
         assert_eq!(fs::read_dir(&directory).unwrap().count(), 3);
-        hydrate_project(&directory, &mut project, true).unwrap();
+        // This test round-trips the stored media, so resolve every reference.
+        hydrate_project(&directory, &mut project, false).unwrap();
         assert_eq!(project, original);
     }
     #[test]

@@ -120,8 +120,9 @@ export async function restartToUpdate(): Promise<void> {
   await relaunch();
 }
 
-export type ImportedVideo = { reference: string; name: string; bytes: number };
-/** Native only: streams the picked video into the local asset store. */
-export async function importVideoAsset(): Promise<ImportedVideo | null> { return native ? invoke('import_video') : null; }
+export type ImportedMedia = { reference: string; name: string; bytes: number };
+/** Native only: streams the picked media into the local asset store. */
+export async function importVideoAsset(): Promise<ImportedMedia | null> { return native ? invoke('import_video') : null; }
+export async function importAudioAsset(): Promise<ImportedMedia | null> { return native ? invoke('import_audio') : null; }
 
 export async function missingAssetRefs(references: string[]): Promise<string[]> { return native ? invoke('missing_asset_refs', { references }) : references; }

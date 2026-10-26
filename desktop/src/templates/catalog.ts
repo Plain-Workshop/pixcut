@@ -95,7 +95,7 @@ const STORIES: StorySpec[] = [
     photos: ['nature-peak', 'nature-mist', 'nature-aurora'],
     titles: ['ABOVE\nTHE CLOUDS', 'UP HERE,\nNOTHING RUSHES', 'NIGHT\nSKY'],
     captions: ['ALTITUDE', 'THIN AIR', 'AURORA'],
-    aspect: '9:16', seconds: 3.6, font: 'archivo-black', size: .135, lineHeight: .98, y: .58, width: .84,
+    aspect: '9:16', seconds: 3.6, font: 'archivo-black', size: .12, lineHeight: .98, y: .58, width: .84,
     backdrop: 26, motion: 'zoom-out', transition: 'slide-up', accent: '#FFFFFF',
   },
   {
@@ -238,7 +238,14 @@ export async function buildTemplateProject(
       ...scene, image: source.image, mediaKind: source.mediaKind, videoPoster: source.videoPoster,
       sourceInTicks: source.sourceInTicks, durationTicks,
       motion: source.mediaKind === 'video' ? 'none' as const : scene.motion,
-      textLayers: scene.textLayers?.map(layer => ({ ...layer, durationTicks, color: '#FFFFFF', shadowEnabled: true, shadowIntensity: 85, backdropEnabled: true, backdropOpacity: 35 })),
+      // Your photo replaces the bundled one, so keep the type readable without
+      // flattening the design: a strong shadow always, a backdrop only where the
+      // template already uses one.
+      textLayers: scene.textLayers?.map(layer => ({
+        ...layer, durationTicks, color: '#FFFFFF',
+        shadowEnabled: true, shadowIntensity: 90, shadowBlur: 24, shadowOffsetY: 6,
+        backdropOpacity: layer.backdropEnabled ? Math.max(layer.backdropOpacity, 30) : layer.backdropOpacity,
+      })),
     };
   });
   track.splice(0, track.length, ...scenes);
