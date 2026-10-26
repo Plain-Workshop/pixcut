@@ -1185,6 +1185,14 @@ export default function App() {
       case 'timeline.snapping':
       case 'view.safe_area':
         return editor ? AVAILABLE : { disabled: true, reason: 'Open a story to use editor controls.' };
+      case 'edit.select_all':
+        return scenes.length && canEdit ? AVAILABLE : { disabled: true, reason: 'Open a project with scenes first.' };
+      case 'edit.deselect':
+        return AVAILABLE;
+      case 'beat.add':
+        return projectTicks && canEdit ? AVAILABLE : { disabled: true, reason: 'Add a scene before placing a beat.' };
+      case 'text.add':
+        return selectedScene && canEdit ? AVAILABLE : { disabled: true, reason: 'Select a scene first.' };
       default: return AVAILABLE;
     }
   }
@@ -1946,6 +1954,22 @@ export default function App() {
       case 'timeline.prev_frame': stepFrame(-1); break;
       case 'timeline.next_frame': stepFrame(1); break;
       case 'timeline.snapping': toggleSnapping(); break;
+      case 'edit.select_all': {
+        const ids = scenes.map(scene => scene.id);
+        if (!ids.length) break;
+        setSelectedIds(ids);
+        setPrimarySelected(ids[ids.length - 1]);
+        selectionAnchor.current = ids[ids.length - 1];
+        break;
+      }
+      case 'edit.deselect':
+        setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null;
+        setSelectedTextLayerId(null); setSelectedElementId(null);
+        setOverlayDraft(null); overlayDraftRef.current = null;
+        setEditingText(false); setFramingMode(false);
+        break;
+      case 'beat.add': addBeatAtPlayhead(); break;
+      case 'text.add': addTextLayerAtPlayhead(); break;
       case 'view.safe_area': setSafeArea(value => !value); break;
     }
   }

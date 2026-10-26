@@ -1069,3 +1069,10 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Tests: `tests/font-import.test.ts` (4) covers storing fonts, bundled fallbacks outside a document, bad data/duplicate/empty names, the eight-font cap and clearing; Rust adds `validates_imported_fonts`. Totals: 218 TypeScript tests, 41 project-model tests, 28 native tests.
 - Browser check imported the system Andale Mono face: the picker gained “Andale Mono · Custom”, the FontFace registered and loaded, the canvas rendered the monospaced face, the toast confirmed, and there were no console errors. Reviewed `output/playwright/font-import.png`.
 - Boundary: fonts are embedded in the project (not subset), so very large CJK faces exceed the 2 MB limit; no font management UI beyond the cap message.
+
+## Selection and quick-add shortcuts — 2026-10-26
+
+- Four commands join the registry: **Select all clips** (`Mod+A`), **Clear selection** (`Esc`), **Add beat marker** (`B`), and **Add text layer** (`T`). They appear in the palette, the shortcut reference, settings and remapping like every other command.
+- Availability is context-aware: select-all needs scenes, beat needs a timeline, text needs a selected scene; clearing is always available. Clearing also drops text/element selections and any overlay draft.
+- Tests: `tests/shortcuts.test.ts` now checks the four default bindings, conflict-free defaults and event matching (8 tests in the file). Totals: 220 TypeScript tests, 41 project-model tests, 28 native tests.
+- Browser check: `Mod+A` marked both clips selected, `Esc` cleared them, `T` added a text layer and `B` a beat marker, with no console errors. Reviewed `output/playwright/timeline-shortcuts.png`.

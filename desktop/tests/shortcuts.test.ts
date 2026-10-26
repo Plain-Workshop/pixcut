@@ -12,6 +12,7 @@ import {
   parseShortcutSettings,
   presetSettings,
   shortcutReference,
+  COMMAND_BY_ID,
 } from '../src/shortcuts/registry';
 
 const event = (key: string, overrides: Partial<KeyboardEvent> = {}) => ({
@@ -85,5 +86,22 @@ describe('shortcut registry', () => {
     const reserved = parseShortcutSettings({ ...presetSettings('pixcut', 'macos'), bindings: { ...defaultBindings('macos'), 'clip.split': 'Mod+Q' } }, 'macos');
     expect(reserved.settings).toBeUndefined();
     expect(reserved.error).toMatch(/reserved/);
+  });
+});
+
+describe('selection and marker shortcuts', () => {
+  it('binds select all, clear selection, beat markers and text layers', () => {
+    expect(COMMAND_BY_ID.get('edit.select_all')?.defaultMac).toBe('Mod+A');
+    expect(COMMAND_BY_ID.get('edit.deselect')?.defaultMac).toBe('Escape');
+    expect(COMMAND_BY_ID.get('beat.add')?.defaultMac).toBe('B');
+    expect(COMMAND_BY_ID.get('text.add')?.defaultMac).toBe('T');
+    expect(findConflicts(defaultBindings('macos'))).toEqual([]);
+  });
+
+  it('matches the new bindings through the keyboard event matcher', () => {
+    expect(bindingMatchesEvent('Mod+A', event('a', { metaKey: true }), 'macos')).toBe(true);
+    expect(bindingMatchesEvent('Escape', event('Escape'), 'macos')).toBe(true);
+    expect(bindingMatchesEvent('B', event('b'), 'macos')).toBe(true);
+    expect(bindingMatchesEvent('T', event('t'), 'macos')).toBe(true);
   });
 });
