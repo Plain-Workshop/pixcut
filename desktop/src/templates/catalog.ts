@@ -1,5 +1,6 @@
 import { defaultFormat, emptyProject, normalizeStarts, projectScenes, secondsToTicks, type ElementLayer, type FilterId, type Project, type Scene, type TextLayer } from '../stores/model';
 import { bundledPhotoDataUrl, templatePhotoDataUrl, templatePhotoUrl, FALLBACK_PHOTO_FILE, type TemplatePhotoId } from './photos';
+import { TEMPLATE_AUDIO, TEMPLATE_VIDEO, templateAudioDataUrl, templateVideoDataUrl, templateVideoPosterDataUrl, templateVideoPosterUrl, type TemplateAudioId, type TemplateVideoId } from './media';
 import { createTextLayer } from '../components/text/layers';
 
 export const TEMPLATE_CATEGORIES = ['Nature', 'Travel', 'People', 'Family', 'Birthday', 'Social', 'Food'] as const;
@@ -14,6 +15,8 @@ type StorySpec = {
   italic?: boolean; align?: 'left' | 'center'; x?: number; y?: number; width?: number;
   backdrop?: number; motion?: Scene['motion']; transition: NonNullable<Scene['transition']>['type'];
   filter?: FilterId; filterIntensity?: number; accent?: string;
+  /** Video templates use a bundled motion background and a generated score. */
+  kind?: 'photo' | 'video'; video?: TemplateVideoId; audio?: TemplateAudioId; audioVolume?: number;
 };
 
 export type TemplateDefinition = StorySpec & { sceneCount: number; duration: number; build: (images: string[]) => Scene[] };
@@ -79,6 +82,15 @@ const STORIES: StorySpec[] = [
     captions: ['01 / THE TRAILHEAD', '02 / THE QUIET PART', '03 / THE WAY BACK'],
     aspect: '16:9', seconds: 4, font: 'bebas-neue', size: .19, lineHeight: .92, align: 'left', y: .5,
     backdrop: 22, motion: 'zoom-in', transition: 'fade', accent: '#E8FF6A',
+  },
+  {
+    id: 'motion-opener', name: 'Motion opener', category: 'Social', kind: 'video', video: 'aurora-motion',
+    description: 'A six-second animated opener with generated music, built for titles over motion.',
+    photos: ['nature-aurora', 'nature-mist', 'nature-ridge'],
+    titles: ['MOVE\nWITH IT.', 'KEEP\nGOING.', 'ONE\nMORE.'],
+    captions: ['A NEW CHAPTER', 'IN MOTION', 'OUT NOW'],
+    aspect: '16:9', seconds: 2, font: 'bebas-neue', size: .2, lineHeight: .92, align: 'center', x: .1, y: .5, width: .8,
+    backdrop: 18, transition: 'fade', accent: '#FFD166', audio: 'night-drive', audioVolume: .62,
   },
   {
     id: 'golden-hour', name: 'Golden hour', category: 'Nature',
@@ -192,6 +204,9 @@ const STORIES: StorySpec[] = [
 
 export const TEMPLATES: TemplateDefinition[] = STORIES.map(spec => ({
   ...spec,
+  kind: spec.kind ?? 'photo',
+  audio: spec.audio ?? (['Social', 'Birthday', 'Food'].includes(spec.category) ? 'night-drive' : 'soft-pulse'),
+  audioVolume: spec.audioVolume ?? (spec.kind === 'video' ? .6 : .48),
   sceneCount: 3,
   duration: spec.seconds * 3,
   build: (images: string[]) => buildStory(spec, images),
@@ -199,9 +214,9 @@ export const TEMPLATES: TemplateDefinition[] = STORIES.map(spec => ({
 
 export const SAMPLE_TEMPLATE = TEMPLATES[0];
 
-/** Gallery artwork: the story's first bundled photo, no decoding required. */
+/** Gallery artwork: the story's first bundled photo, or a video poster. */
 export function templatePreview(template: TemplateDefinition) {
-  return templatePhotoUrl(template.photos[0]);
+  return template.video ? templateVideoPosterUrl(template.video) : templatePhotoUrl(template.photos[0]);
 }
 
 /**
@@ -214,6 +229,9 @@ export async function buildTemplateProject(
   template: TemplateDefinition,
   sources: readonly Scene[] = [],
   load: (id: TemplatePhotoId) => Promise<string> = templatePhotoDataUrl,
+  loadVideo: (id: TemplateVideoId) => Promise<string> = templateVideoDataUrl,
+  loadPoster: (id: TemplateVideoId) => Promise<string> = templateVideoPosterDataUrl,
+  loadAudio: (id: TemplateAudioId) => Promise<string> = templateAudioDataUrl,
 ): Promise<Project> {
   const images = await Promise.all(template.photos.map(async id => {
     try {
@@ -230,7 +248,7 @@ export async function buildTemplateProject(
   project.aspect = template.aspect;
   project.formats = [defaultFormat(template.aspect)];
   const track = projectScenes(project) as Scene[];
-  const scenes = template.build(images).map((scene, index) => {
+  let scenes = template.build(images).map((scene, index) => {
     const source = sources[index % Math.max(1, sources.length)];
     if (!source) return scene;
     const durationTicks = source.mediaKind === 'video' ? Math.min(scene.durationTicks, source.durationTicks) : scene.durationTicks;
@@ -248,7 +266,52 @@ export async function buildTemplateProject(
       })),
     };
   });
+  if (template.kind === 'video' && template.video) {
+    try {
+      const [video, poster] = await Promise.all([loadVideo(template.video), loadPoster(template.video)]);
+      const metadata = TEMPLATE_VIDEO[template.video];
+      const segmentSeconds = template.seconds;
+      scenes = scenes.map((scene, index) => ({
+        ...scene,
+        image: video,
+        mediaKind: 'video',
+        videoPoster: poster,
+        sourceDurationSeconds: metadata.duration,
+        sourceInTicks: secondsToTicks(index * segmentSeconds, project.timebase),
+        durationTicks: secondsToTicks(segmentSeconds, project.timebase),
+        motion: 'none',
+        transition: null,
+      }));
+    } catch {
+      // Keep the bundled-photo fallback if a video file cannot be read.
+    }
+  }
   track.splice(0, track.length, ...scenes);
   normalizeStarts(track);
+  if (template.audio) {
+    try {
+      const data = await loadAudio(template.audio);
+      const metadata = TEMPLATE_AUDIO[template.audio];
+      const total = track.reduce((end, scene) => end + scene.durationTicks, 0);
+      const duration = Math.min(total, secondsToTicks(metadata.duration, project.timebase));
+      if (duration > 0) {
+        project.audio = [{
+          id: `template-audio-${crypto.randomUUID()}`,
+          name: metadata.title,
+          data,
+          lane: 0,
+          startTicks: 0,
+          durationTicks: duration,
+          sourceInSeconds: 0,
+          sourceDurationSeconds: metadata.duration,
+          volume: template.audioVolume ?? .48,
+          fadeIn: .8,
+          fadeOut: 1.2,
+        }];
+      }
+    } catch {
+      // A missing score leaves a silent template instead of breaking creation.
+    }
+  }
   return project;
 }

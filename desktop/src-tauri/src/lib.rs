@@ -12,8 +12,57 @@ use std::{
         Arc, Mutex,
     },
 };
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, State};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
+
+/// Native application menu. Items carry the same ids the command palette uses,
+/// so a menu click and a keyboard shortcut run the same code. Accelerators are
+/// left to the webview so a user-remapped shortcut never fires twice.
+fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let item = |id: &str, label: &str| MenuItem::with_id(app, id, label, true, None::<&str>);
+    let app_menu = Submenu::with_items(app, "PixCut", true, &[
+        &PredefinedMenuItem::about(app, Some("About PixCut"), None)?,
+        &PredefinedMenuItem::separator(app)?,
+        &PredefinedMenuItem::hide(app, None)?,
+        &PredefinedMenuItem::hide_others(app, None)?,
+        &PredefinedMenuItem::show_all(app, None)?,
+        &PredefinedMenuItem::separator(app)?,
+        &PredefinedMenuItem::quit(app, None)?,
+    ])?;
+    let file = Submenu::with_items(app, "File", true, &[
+        &item("project.new", "New Project")?,
+        &item("project.open", "Open Project…")?,
+        &item("project.save", "Save")?,
+        &PredefinedMenuItem::separator(app)?,
+        &item("project.import", "Import Media…")?,
+        &item("export.open", "Export Video…")?,
+        &PredefinedMenuItem::separator(app)?,
+        &PredefinedMenuItem::close_window(app, None)?,
+    ])?;
+    let edit = Submenu::with_items(app, "Edit", true, &[
+        &item("history.undo", "Undo")?,
+        &item("history.redo", "Redo")?,
+    ])?;
+    let view = Submenu::with_items(app, "View", true, &[
+        &item("view.home", "Home")?,
+        &PredefinedMenuItem::separator(app)?,
+        &item("view.fullscreen", "Fullscreen Preview")?,
+        &item("view.safe_area", "Safe Area")?,
+        &PredefinedMenuItem::separator(app)?,
+        &item("settings.open", "Settings…")?,
+    ])?;
+    let playback = Submenu::with_items(app, "Playback", true, &[
+        &item("playback.toggle", "Play / Pause")?,
+        &item("playback.forward", "Play Forward")?,
+        &item("playback.reverse", "Play Backwards")?,
+        &item("playback.stop", "Stop")?,
+    ])?;
+    let help = Submenu::with_items(app, "Help", true, &[
+        &item("help.shortcuts", "Keyboard Shortcuts…")?,
+    ])?;
+    Menu::with_items(app, &[&app_menu, &file, &edit, &view, &playback, &help])
+}
 
 fn guard<T>(what: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
@@ -2166,6 +2215,14 @@ pub fn run() {
             export_plan_variants,
             cancel_export
         ])
+        .setup(|app| {
+            let menu = build_app_menu(app.handle())?;
+            app.set_menu(menu)?;
+            app.on_menu_event(|app, event| {
+                let _ = app.emit("menu", event.id().0.as_str());
+            });
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("Unable to start PixCut");
     app.run(|app_handle, event| {

@@ -1,10 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { validateProject, type Scene } from '../src/stores/model';
 import { TEMPLATE_CATEGORIES, TEMPLATES, buildTemplateProject, templatePreview } from '../src/templates/catalog';
+import { TEMPLATE_AUDIO, TEMPLATE_VIDEO } from '../src/templates/media';
 import { TEMPLATE_PHOTOS, templatePhotoUrl, type TemplatePhotoId } from '../src/templates/photos';
 
 const stub = (id: string) => `data:image/jpeg;base64,${btoa(id)}`;
 const loader = async (id: TemplatePhotoId) => stub(id);
+const audioLoader = async () => 'data:audio/mp4;base64,AA==';
+const videoLoader = async () => 'data:video/mp4;base64,AA==';
+const posterLoader = async () => stub('poster');
+const build = (template: (typeof TEMPLATES)[number], sources: Scene[] = []) => buildTemplateProject(template, sources, loader, videoLoader, posterLoader, audioLoader);
 
 describe('bundled templates', () => {
   it('ships three bundled photos for every story, all from the CC0 catalogue', () => {
@@ -29,8 +34,8 @@ describe('bundled templates', () => {
     expect(new Set(TEMPLATES.map(template => template.name)).size).toBe(TEMPLATES.length);
     expect(new Set(TEMPLATE_CATEGORIES).size).toBe(TEMPLATE_CATEGORIES.length);
     for (const template of TEMPLATES) {
-      expect(templatePreview(template)).toBe(templatePhotoUrl(template.photos[0]));
-      expect(templatePreview(template)).toMatch(/\/templates\/[a-z-]+\.jpg$/);
+      expect(templatePreview(template)).toMatch(template.video ? /\/templates\/media\/aurora-motion\.jpg$/ : /\/templates\/[a-z-]+\.jpg$/);
+      if (!template.video) expect(templatePreview(template)).toBe(templatePhotoUrl(template.photos[0]));
     }
     // Every bundled file is listed once and has a usable id.
     for (const [id, photo] of Object.entries(TEMPLATE_PHOTOS)) {
@@ -41,19 +46,26 @@ describe('bundled templates', () => {
 
   it('builds a valid, editable project that embeds the photos', async () => {
     for (const template of TEMPLATES) {
-      const project = await buildTemplateProject(template, [], loader);
+      const project = await build(template);
       const validated = validateProject(JSON.parse(JSON.stringify(project)));
       const scenes = validated.tracks[0].clips;
       expect(scenes).toHaveLength(3);
       expect(validated.aspect).toBe(template.aspect);
       expect(validated.formats[0].aspect).toBe(template.aspect);
       scenes.forEach((scene, index) => {
-        expect(scene.image).toBe(stub(template.photos[index]));
-        expect(scene.mediaKind).toBeUndefined();
+        if (template.video) {
+          expect(scene.image).toBe('data:video/mp4;base64,AA==');
+          expect(scene.mediaKind).toBe('video');
+          expect(scene.sourceDurationSeconds).toBe(TEMPLATE_VIDEO[template.video].duration);
+        } else {
+          expect(scene.image).toBe(stub(template.photos[index]));
+          expect(scene.mediaKind).toBeUndefined();
+        }
         expect(scene.textLayers?.[0].title).toBe(template.titles[index]);
         // The caption and the "01 / 03" counter are editable layers too.
         expect(scene.textLayers?.length).toBeGreaterThanOrEqual(3);
-        expect(scene.transition?.type).toBe(template.transition);
+        if (template.video) expect(scene.transition).toBeNull();
+        else expect(scene.transition?.type).toBe(template.transition);
         expect(scene.durationTicks).toBeGreaterThan(0);
       });
       // Scenes are laid end to end so the story plays without gaps.
@@ -70,7 +82,7 @@ describe('bundled templates', () => {
       durationTicks, title: '', subtitle: '', color: '#FFFFFF', fit: 'cover',
     });
     const video: Scene = { ...photo('clip'), image: 'data:video/mp4;base64,AA==', mediaKind: 'video', sourceInTicks: 30, videoPoster: 'data:image/png;base64,AA==', durationTicks: 30 };
-    const project = await buildTemplateProject(template, [photo('a'), video], loader);
+    const project = await build(template, [photo('a'), video]);
     const scenes = validateProject(JSON.parse(JSON.stringify(project))).tracks[0].clips;
     expect(scenes[0].image).toBe('data:image/png;base64,AA==');
     expect(scenes[1].mediaKind).toBe('video');
@@ -83,12 +95,35 @@ describe('bundled templates', () => {
   });
 
   it('still opens a template when a photo cannot be read', async () => {
-    const template = TEMPLATES[1];
+    const template = TEMPLATES.find(item => !item.video)!;
     const failing = async () => { throw new Error('offline'); };
-    const project = await buildTemplateProject(template, [], failing);
+    const project = await buildTemplateProject(template, [], failing, videoLoader, posterLoader, audioLoader);
     const scenes = validateProject(JSON.parse(JSON.stringify(project))).tracks[0].clips;
     for (const scene of scenes) expect(scene.image.startsWith('data:image/')).toBe(true);
     expect(scenes).toHaveLength(3);
+  });
+
+  it('ships a video opener and a generated score for templates', async () => {
+    const videoTemplate = TEMPLATES.find(item => item.video)!;
+    expect(videoTemplate).toBeTruthy();
+    const project = await build(videoTemplate);
+    const scenes = validateProject(JSON.parse(JSON.stringify(project))).tracks[0].clips;
+    expect(scenes).toHaveLength(3);
+    for (const scene of scenes) {
+      expect(scene.mediaKind).toBe('video');
+      expect(scene.image).toBe('data:video/mp4;base64,AA==');
+      expect(scene.videoPoster).toBe(stub('poster'));
+      expect(scene.sourceDurationSeconds).toBe(6);
+    }
+    expect(scenes.map(scene => scene.sourceInTicks)).toEqual([0, 60, 120]);
+    expect(project.audio).toHaveLength(1);
+    expect(project.audio[0].name).toBe(TEMPLATE_AUDIO['night-drive'].title);
+    expect(project.audio[0].durationTicks).toBe(180);
+    expect(project.audio[0].sourceDurationSeconds).toBe(20);
+    for (const template of TEMPLATES) {
+      expect(template.audio).toBeTruthy();
+      expect(TEMPLATE_AUDIO[template.audio!].license).toBe('CC0');
+    }
   });
 
   it('keeps every story visually distinct', () => {

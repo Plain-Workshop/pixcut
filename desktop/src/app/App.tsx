@@ -41,6 +41,8 @@ import {
   Ban,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clapperboard,
   Clock3,
   Command as CommandIcon,
@@ -89,6 +91,8 @@ import {
   Triangle,
   Type,
   Undo2,
+  Volume2,
+  VolumeX,
   Youtube,
   Upload,
   WifiOff,
@@ -332,6 +336,12 @@ function formatBytes(bytes: number) {
   return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
+function previewClock(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const whole = Math.floor(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}
+
 function cssImage(value: string) {
   return value.startsWith('pixcut-asset:') ? undefined : `url(${value})`;
 }
@@ -357,6 +367,12 @@ export default function App() {
   const [language, setLanguage] = useState(() => localStorage.getItem('pixcut-language') || 'en');
   const [mediaBin, setMediaBin] = useState<{ projectId: string; items: Scene[] }>({ projectId: '', items: [] });
   const [sourcePreview, setSourcePreview] = useState<Scene | null>(null);
+  const previewVideo = useRef<HTMLVideoElement | null>(null);
+  const [previewVideoTime, setPreviewVideoTime] = useState(0);
+  const [previewVideoDuration, setPreviewVideoDuration] = useState(0);
+  const [previewVideoPlaying, setPreviewVideoPlaying] = useState(false);
+  const [previewVolume, setPreviewVolume] = useState(.8);
+  const [previewMuted, setPreviewMuted] = useState(false);
   const customElementInput = useRef<HTMLInputElement>(null);
   const customElementKind = useRef<'image' | 'video'>('image');
   const [exportElapsed, setExportElapsed] = useState(0);
@@ -476,7 +492,7 @@ export default function App() {
   const mediaInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null), replaceInput = useRef<HTMLInputElement>(null), audioInput = useRef<HTMLInputElement>(null), captionInput = useRef<HTMLInputElement>(null), videoInput = useRef<HTMLInputElement>(null), sceneVideo = useRef<HTMLVideoElement>(null), preview = useRef<HTMLCanvasElement>(null), audioElements = useRef<Map<string, HTMLAudioElement>>(new Map()), previewArea = useRef<HTMLDivElement>(null), previewStage = useRef<HTMLDivElement>(null), operation = useRef(false);
   const replaceTargetId = useRef<string | null>(null), inspectorFlush = useRef<() => void>(() => {}), audioDraftRef = useRef<AudioClip | null>(null), audioLaneRef = useRef(0);
   const sceneQueue = useRef<Command[]>([]), previewQueue = useRef<LatestRenderQueue | null>(null), timelineScroll = useRef<HTMLDivElement>(null);
-  const positionRef = useRef(0), closeModalRef = useRef<() => void>(() => {}), commandRef = useRef<(id: string) => void>(() => {});
+  const positionRef = useRef(0), closeModalRef = useRef<() => void>(() => {}), commandRef = useRef<(id: string) => void>(() => {}), fullscreenRef = useRef<() => void>(() => {});
   const selectionAnchor = useRef<string | null>(null), reorderRef = useRef<string | null>(null);
   useEffect(() => { if (!exporting) return; const start = performance.now(); const timer = setInterval(() => setExportElapsed((performance.now() - start) / 1000), 500); return () => clearInterval(timer); }, [exporting]);
   const project = session.project, duration = totalDuration(project);
@@ -580,6 +596,11 @@ export default function App() {
   const sceneForPreview = resolvedPreviewTarget && framingStaged && previewScene ? { ...resolvedPreviewTarget, imageX: previewScene.imageX, imageY: previewScene.imageY, imageZoom: previewScene.imageZoom, fit: previewScene.fit, framingBackground: previewScene.framingBackground } : resolvedPreviewTarget;
   const resolvedNextScene = previewTransition?.next ? resolveSceneForFormat(previewTransition.next, activeFormat) : undefined;
   const filteredScenes = sourceMedia.filter(s => s.name.toLowerCase().includes(mediaQuery.trim().toLowerCase()));
+  const previewList = useMemo(() => {
+    if (!sourcePreview) return sourceMedia;
+    return filteredScenes.some(item => item.id === sourcePreview.id) ? filteredScenes : sourceMedia;
+  }, [filteredScenes, sourceMedia, sourcePreview]);
+  const previewIndex = sourcePreview ? previewList.findIndex(item => item.id === sourcePreview.id) : -1;
   const canEdit = ready && !busy;
 
   const refreshLibrary = useCallback(async () => {
@@ -738,6 +759,20 @@ export default function App() {
     })();
     return () => { disposed = true; unlisten?.(); };
   }, [persistCurrent]);
+  useEffect(() => {
+    if (!bridge.native) return;
+    let unlisten: (() => void) | undefined, cancelled = false;
+    void bridge.onMenu(id => {
+      if (id === 'view.home') { setScreen('home'); return; }
+      if (id === 'view.fullscreen') { fullscreenRef.current(); return; }
+      commandRef.current(id);
+    })?.then(fn => {
+      if (!fn) return;
+      if (cancelled) fn(); else unlisten = fn;
+    }).catch(() => { /* the editor keeps working without menus */ });
+    return () => { cancelled = true; unlisten?.(); };
+  }, []);
+
   useEffect(() => { void refreshLibrary(); }, [refreshLibrary]);
   useEffect(() => { if (screen === 'home') void refreshLibrary(); }, [screen, refreshLibrary]);
   useEffect(() => {
@@ -1826,6 +1861,7 @@ export default function App() {
   }
 
   commandRef.current = runCommandId;
+  fullscreenRef.current = () => { const element = document.querySelector('.preview-panel'); if (!document.fullscreenElement) void element?.requestFullscreen?.(); else void document.exitFullscreen(); };
   closeModalRef.current = requestCloseModal;
   const commandAvailability: Record<string, CommandAvailability> = Object.fromEntries(COMMANDS.map(command => [command.id, availabilityFor(command.id)]));
 
@@ -2102,7 +2138,91 @@ export default function App() {
     setSourcePreview(added[0] ?? null); if (added.length) setModal('source');
   }
 
-  function previewMedia(scene: Scene) { setPlaying(false); setSourcePreview(scene); setModal('source'); }
+  function previewMedia(scene: Scene) {
+    setPlaying(false);
+    setSourcePreview(scene);
+    setPreviewVideoTime(0);
+    setPreviewVideoDuration(0);
+    setPreviewVideoPlaying(false);
+    setModal('source');
+  }
+
+  function switchPreview(delta: number) {
+    if (!sourcePreview || previewList.length < 2) return;
+    const index = previewIndex < 0 ? 0 : previewIndex;
+    const next = previewList[(index + delta + previewList.length) % previewList.length];
+    if (!next || next.id === sourcePreview.id) return;
+    setSourcePreview(next);
+    setPreviewVideoTime(0);
+    setPreviewVideoDuration(0);
+    setPreviewVideoPlaying(false);
+  }
+
+  function togglePreviewPlayback() {
+    const video = previewVideo.current;
+    if (!video) return;
+    if (video.paused) void video.play().catch(() => setPreviewVideoPlaying(false));
+    else video.pause();
+  }
+
+  function seekPreview(seconds: number) {
+    const video = previewVideo.current;
+    if (!video || !Number.isFinite(seconds)) return;
+    video.currentTime = Math.max(0, Math.min(video.duration || previewVideoDuration, seconds));
+    setPreviewVideoTime(video.currentTime);
+  }
+
+  function changePreviewVolume(value: number) {
+    const volume = Math.max(0, Math.min(1, value));
+    setPreviewVolume(volume);
+    setPreviewMuted(volume === 0);
+    const video = previewVideo.current;
+    if (video) { video.volume = volume; video.muted = volume === 0; }
+  }
+
+  function togglePreviewMute() {
+    const muted = !previewMuted;
+    setPreviewMuted(muted);
+    if (previewVideo.current) previewVideo.current.muted = muted;
+  }
+
+  useEffect(() => {
+    setPreviewVideoTime(0);
+    setPreviewVideoDuration(0);
+    setPreviewVideoPlaying(false);
+  }, [sourcePreview?.id]);
+
+  useEffect(() => {
+    const video = previewVideo.current;
+    if (!video) return;
+    video.volume = previewVolume;
+    video.muted = previewMuted;
+  }, [previewVolume, previewMuted, sourcePreview?.id]);
+
+  useEffect(() => {
+    if (modal !== 'source' || !sourcePreview) return;
+    const key = (event: KeyboardEvent) => {
+      if (event.isComposing || event.target instanceof HTMLInputElement || isTextEntryTarget(event.target)) return;
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        switchPreview(event.key === 'ArrowLeft' ? -1 : 1);
+        return;
+      }
+      if (!sourcePreview.mediaKind || sourcePreview.image.startsWith('pixcut-asset:')) return;
+      if (event.key === ' ') {
+        event.preventDefault();
+        togglePreviewPlayback();
+      } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        changePreviewVolume(previewVolume + (event.key === 'ArrowUp' ? .05 : -.05));
+      } else if (event.key.toLowerCase() === 'm') {
+        event.preventDefault();
+        togglePreviewMute();
+      }
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [modal, sourcePreview, previewList, previewVolume, previewMuted, previewVideoPlaying]);
 
   async function appendMedia(scene: Scene) {
     const next = { ...structuredClone(scene), id: crypto.randomUUID(), startTicks: 0, elements: [], textLayers: [], title: '', subtitle: '', transition: null };
@@ -3267,10 +3387,10 @@ export default function App() {
               <div className="library-label">BUNDLED STORIES <span>OFFLINE</span></div>
               <div className="template-tab-list">{TEMPLATES.map(template => <button key={template.id} className="template-tab-card" disabled={!canEdit} onClick={() => chooseTemplate(template)}>
                 <span className="template-tab-art"><img src={templateImage(template)} alt="" /></span>
-                <span className="template-tab-copy"><strong>{template.name}</strong><small>{template.aspect} · {template.sceneCount} scenes · {template.duration.toFixed(1)} s</small></span>
+                <span className="template-tab-copy"><strong>{template.name}</strong><small>{template.aspect} · {template.sceneCount} scenes · {template.duration.toFixed(1)} s</small><span className="template-badges">{template.video && <span className="template-badge video">VIDEO</span>}{template.audio && <span className="template-badge music">MUSIC</span>}</span></span>
                 <Plus size={15} />
               </button>)}</div>
-              <p className="template-tab-note">Templates include real scenes, timing, looks, and text effects. Your current story is saved before a template replaces it.</p>
+              <p className="template-tab-note">Templates include real scenes, timing, looks, text effects, a local music bed, and one animated video opener. Your current story is saved before a template replaces it.</p>
             </div> : <div className="elements-panel">
               <div className="custom-import-actions"><button className="button" disabled={!selectedScene || !canEdit} onClick={() => void chooseCustomElement('image')}><ImagePlus size={15} /> Import graphic</button><button className="button" disabled={!selectedScene || !canEdit} onClick={() => void chooseCustomElement('video')}><Layers size={15} /> Video overlay</button></div>
               {allOverlays.length > 0 && <div className="element-list">
@@ -3524,10 +3644,38 @@ export default function App() {
         <div className="modal-header"><span className="eyebrow">{modalEyebrow}</span><IconButton label="Close dialog" onClick={requestCloseModal}><X size={20} /></IconButton></div>
         {modal === 'source' && sourcePreview ? <>
           <h2 id="modal-title">{sourcePreview.name}</h2>
-          <div className="source-preview">{sourcePreview.mediaKind === 'video' ? <video src={mediaSource(sourcePreview.image)} controls playsInline autoPlay /> : mediaSource(sourcePreview.image) ? <img src={mediaSource(sourcePreview.image)} alt={sourcePreview.name} /> : <div className="source-missing"><ImagePlus size={28} /><strong>This file is missing.</strong><span>Relink the project’s media before adding it again.</span></div>}</div>
-          <div className="source-preview-actions"><button className="button primary" disabled={!mediaSource(sourcePreview.image)} onClick={() => void appendMedia(sourcePreview)}><Plus size={15} /> Append to timeline</button><button className="button" disabled={!selectedScene || !mediaSource(sourcePreview.image)} onClick={() => void addMediaOverlay(sourcePreview).catch(error => setError(messageFor(error)))}><Layers size={15} /> Place on top</button></div>
+          <div className="source-preview">
+            {sourcePreview.mediaKind === 'video' ? <video
+              key={sourcePreview.id}
+              ref={previewVideo}
+              src={mediaSource(sourcePreview.image)}
+              controls={false}
+              playsInline
+              autoPlay
+              muted={previewMuted}
+              onLoadedMetadata={event => setPreviewVideoDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
+              onTimeUpdate={event => setPreviewVideoTime(event.currentTarget.currentTime)}
+              onPlay={() => setPreviewVideoPlaying(true)}
+              onPause={() => setPreviewVideoPlaying(false)}
+              onEnded={() => setPreviewVideoPlaying(false)}
+            /> : mediaSource(sourcePreview.image) ? <img src={mediaSource(sourcePreview.image)} alt={sourcePreview.name} /> : <div className="source-missing"><ImagePlus size={28} /><strong>This file is missing.</strong><span>Relink the project’s media before adding it again.</span></div>}
+            {previewList.length > 1 && <>
+              <button className="source-nav previous" aria-label="Previous media" title="Previous media (←)" onClick={() => switchPreview(-1)}><ChevronLeft size={22} /></button>
+              <button className="source-nav next" aria-label="Next media" title="Next media (→)" onClick={() => switchPreview(1)}><ChevronRight size={22} /></button>
+              <span className="source-counter" aria-live="polite">{previewIndex + 1} / {previewList.length}</span>
+            </>}
+          </div>
+          {sourcePreview.mediaKind === 'video' && mediaSource(sourcePreview.image) && <div className="source-controls">
+            <button className="source-play-button" aria-label={previewVideoPlaying ? 'Pause preview' : 'Play preview'} onClick={togglePreviewPlayback}>{previewVideoPlaying ? <Pause size={15} /> : <Play size={15} fill="currentColor" />}</button>
+            <span className="source-time">{previewClock(previewVideoTime)} / {previewClock(previewVideoDuration || sourcePreview.sourceDurationSeconds || 0)}</span>
+            <input className="source-seek" aria-label="Preview position" type="range" min="0" max={Math.max(.01, previewVideoDuration || sourcePreview.sourceDurationSeconds || 0)} step=".01" value={Math.min(previewVideoTime, previewVideoDuration || sourcePreview.sourceDurationSeconds || 0)} onChange={event => seekPreview(Number(event.target.value))} />
+            <button className="source-mute" aria-label={previewMuted ? 'Unmute preview' : 'Mute preview'} onClick={togglePreviewMute}>{previewMuted || previewVolume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>
+            <input className="source-volume" aria-label="Preview volume" type="range" min="0" max="1" step=".01" value={previewVolume} onChange={event => changePreviewVolume(Number(event.target.value))} />
+            <span className="source-volume-label">{Math.round(previewVolume * 100)}%</span>
+          </div>}
+          <div className="source-preview-actions"><button className="button primary" disabled={!mediaSource(sourcePreview.image)} onClick={() => void appendMedia(sourcePreview)}><Plus size={15} /> Append to timeline</button><button className="button" disabled={!selectedScene || !mediaSource(sourcePreview.image)} onClick={() => void addMediaOverlay(sourcePreview).catch(error => setError(messageFor(error)))}><Layers size={15} /> Place on top</button><span className="source-keyboard-hint">{sourcePreview.mediaKind === 'video' ? '← → switch · Space play · ↑ ↓ volume' : '← → switch media'}</span></div>
         </> : modal === 'templates' ? <>
-          <h2 id="modal-title">Start from a story.</h2><p>Real scenes, timing, looks, and text effects — bundled and ready offline. {projects.length ? 'Your current project is saved before a template opens.' : ''}</p>
+          <h2 id="modal-title">Start from a story.</h2><p>Photo stories, one animated video opener, and local music — all bundled and ready offline. {projects.length ? 'Your current project is saved before a template opens.' : ''}</p>
           <label className="shortcut-search template-search"><Search size={15} /><input aria-label="Search templates" placeholder="Search templates…" value={templateQuery} onChange={e => setTemplateQuery(e.target.value)} /></label>
           <div className="template-categories" role="tablist" aria-label="Template categories">{['All', ...TEMPLATE_CATEGORIES].map(category => <button key={category} role="tab" aria-selected={templateCategory === category} className={templateCategory === category ? 'active' : ''} onClick={() => setTemplateCategory(category as typeof templateCategory)}>{category}</button>)}</div>
           {templateMatches.length ? <div className="template-grid">{templateMatches.map(template => <button key={template.id} className="template-card" disabled={!canEdit} onClick={() => chooseTemplate(template)}>
@@ -3544,12 +3692,13 @@ export default function App() {
               <strong>{template.name}</strong>
               <span>{template.description}</span>
               <small>{template.sceneCount} scenes · {template.duration.toFixed(1)} s · {template.category}</small>
+              <span className="template-badges">{template.video && <span className="template-badge video">VIDEO</span>}{template.audio && <span className="template-badge music">MUSIC</span>}</span>
               <span className="button primary">Use template <ArrowRight size={15} /></span>
             </div>
           </button>)}</div> : <div className="shortcut-empty"><Search size={24} /><strong>No templates match “{templateQuery}”.</strong><span>Try Nature, Travel, People or Food.</span></div>}
           <details className="template-credits">
-            <summary>Photo credits</summary>
-            <p>Every template photo ships with the app as a CC0 (public-domain) image, mostly Unsplash photographs archived on Wikimedia Commons. Nothing is downloaded while you edit.</p>
+            <summary>Media credits</summary>
+            <p>Every template photo ships with the app as a CC0 (public-domain) image, mostly Unsplash photographs archived on Wikimedia Commons. Template music and the motion background are generated for PixCut and released CC0. Nothing is downloaded while you edit.</p>
             <ul>{Object.values(TEMPLATE_PHOTOS).sort((a, b) => a.author.localeCompare(b.author)).map(photo => <li key={photo.file}><span>{photo.title}</span>{photo.author}</li>)}</ul>
           </details>
         </> : modal === 'new' ? <>
@@ -3558,7 +3707,7 @@ export default function App() {
             <p>Your current story is already saved in the local library. This template opens as a new project with {pendingTemplate.sceneCount} editable scenes.</p>
             <div className="template-confirm">
               <span className="template-confirm-art"><img src={templateImage(pendingTemplate)} alt="" /></span>
-              <div><strong>{pendingTemplate.name}</strong><small>{pendingTemplate.aspect} · {pendingTemplate.sceneCount} scenes · {pendingTemplate.duration.toFixed(1)} s</small><p>{pendingTemplate.description}</p></div>
+              <div><strong>{pendingTemplate.name}</strong><small>{pendingTemplate.aspect} · {pendingTemplate.sceneCount} scenes · {pendingTemplate.duration.toFixed(1)} s</small><p>{pendingTemplate.description}</p><span className="template-badges">{pendingTemplate.video && <span className="template-badge video">VIDEO</span>}{pendingTemplate.audio && <span className="template-badge music">MUSIC</span>}</span></div>
             </div>
             <div className="modal-actions">
               <button className="button primary" disabled={!canEdit} onClick={() => void startTemplate(pendingTemplate)}>Start with {pendingTemplate.name} <ArrowRight size={15} /></button>

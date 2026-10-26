@@ -126,3 +126,5 @@ export async function importVideoAsset(): Promise<ImportedMedia | null> { return
 export async function importAudioAsset(): Promise<ImportedMedia | null> { return native ? invoke('import_audio') : null; }
 
 export async function missingAssetRefs(references: string[]): Promise<string[]> { return native ? invoke('missing_asset_refs', { references }) : references; }
+
+export function onMenu(handler: (id: string) => void): Promise<UnlistenFn> | null { return native ? listen<string>('menu', event => handler(event.payload)) : null; }

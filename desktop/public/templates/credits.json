@@ -196,5 +196,23 @@
   "author": "jamie r. mink",
   "license": "CC0",
   "source": "https://commons.wikimedia.org/wiki/File:Rusted_truck_Great_Ocean_Road_(Unsplash).jpg"
+ },
+ "audio:soft-pulse": {
+  "title": "Soft pulse",
+  "author": "PixCut",
+  "license": "CC0",
+  "source": "Generated locally for PixCut"
+ },
+ "audio:night-drive": {
+  "title": "Night drive",
+  "author": "PixCut",
+  "license": "CC0",
+  "source": "Generated locally for PixCut"
+ },
+ "video:aurora-motion": {
+  "title": "Aurora motion",
+  "author": "PixCut",
+  "license": "CC0",
+  "source": "Generated locally for PixCut"
  }
 }

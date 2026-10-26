@@ -925,3 +925,26 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Tests: new `tests/templates.test.ts` (6 tests) checks every story has three CC0 photos with a Commons source, unique ids/names, valid categories/aspects/durations, three editable text layers per scene, embedded data URLs, scene chaining without gaps, user-photo substitution (including a video clip keeping its own duration and losing motion), the fallback path, and that each story has a distinct typographic signature. Suite: 201 TypeScript tests in 27 files; `npx tsc -b` and `npm run build` pass.
 - Browser check `desktop/tests/browser/templates.js` against the Vite preview: 8 category tabs, 13 cards, 0 broken images (naturalWidth 1200), and starting “Wild escape” produced 3 scenes whose images are `data:image/jpeg` (no network links) with the expected titles; no console errors. Reviewed `output/playwright/templates-gallery.png`, `templates-scene.png`, `templates-credits.png`, `preview-mountain-air.png`, `preview-caf-diary.png`, and `output/playwright/template-*` for 9:16 and 1:1 stories. A layout probe over every story at its real project size found no title overflowing its box (right edge ≤ 97 %, bottom ≤ 95 %).
 - Not changed: opening a template while another story with photos is open still fills the new scenes with those photos (existing behaviour); the gallery artwork shows the bundled photo, which is what the card advertises.
+
+## Native application menu — 2026-10-26
+
+- A native menu is built during setup: PixCut (about, hide, quit), File (new, open, save, import, export, close), Edit (undo/redo), View (home, fullscreen preview, safe area, settings), Playback (play/pause, forward, backwards, stop), and Help (keyboard shortcuts).
+- Menu items emit their id to the webview and run through the same `runCommandId` path as shortcuts, so disabled states and notices match. Home and fullscreen are handled directly; accelerators are intentionally left to the webview so a remapped shortcut cannot fire twice.
+- Verification: `cargo test` compiles the menu, `npm run ci` passes, and the debug bundle builds. Menu clicks were not automated (the packaged webview is not scriptable from this environment); the mapping is a one-to-one copy of existing command ids.
+
+## Media preview navigation and video controls — 2026-10-26
+
+- The media preview now has previous/next buttons and ←/→ keyboard navigation across the current media list (the filtered list when it contains the previewed item, otherwise all project media). The counter shows the position, and switching resets the video transport.
+- Video previews use a custom transport instead of native browser chrome: play/pause, a seek slider with elapsed/total time, mute, and a 0–100 % volume slider. Space toggles playback, ↑/↓ change volume, and M toggles mute; these shortcuts are ignored while a slider or text field has focus.
+- Audio volume is shared across previews and applied when the video element mounts. The preview keeps `autoPlay`; if the browser blocks audible autoplay the user can start it with Space or the play button.
+- Browser check: a project with two video entries and one image opened `Aurora A` at `1 / 2` (identical videos are deduplicated), ← moved to `Still frame`, → returned to `Aurora A`, Space paused the already-playing clip, ↓ reduced volume from 0.80 to 0.75, and the mouse next arrow switched again. The transport rendered one seek slider and one volume slider. No console errors. Reviewed `output/playwright/media-preview-controls.png`.
+
+## Video template and local template music — 2026-10-26
+
+- `src/templates/media.ts` adds a bundled six-second generated motion background (`aurora-motion.mp4` + poster), two generated 20-second music beds (`soft-pulse`, `night-drive`), and data-URL loaders. All are CC0, generated for PixCut, and listed in `public/templates/credits.json`.
+- Every template now carries a local score, selected by category, with a clip volume, fade-in and fade-out. Photo templates use `soft-pulse`; Social/Birthday/Food templates use `night-drive`. A missing score falls back to a silent template instead of failing creation.
+- A new **Motion opener** template builds three two-second video scenes from the bundled clip with poster frames, source windows at 0/2/4 s, text layers, and `Night drive` audio. Its gallery card shows VIDEO and MUSIC badges. Templates that cannot read their video keep the bundled-photo fallback.
+- `buildTemplateProject()` accepts injectable video, poster, and audio loaders for tests. `tests/templates.test.ts` now has 7 tests covering the video/poster/image paths, source windows, score duration and CC0 metadata.
+- Browser check: applying **Motion opener** produced `Motion opener`, three timeline clips with VIDEO badges, and an audio clip named `Night drive`; no console errors. Reviewed `output/playwright/video-template.png` and `output/playwright/template-gallery-media.png`.
+- Verification: 209 TypeScript tests in 28 files, 39 project-model tests, 23 non-ignored native tests, and all 10 ignored FFmpeg tests pass.
+- Boundary: the motion background and scores are generated assets, not a curated stock-video or licensed-music library. Video templates currently use one bundled clip; user-supplied video slots and per-template video galleries remain future work.

@@ -115,3 +115,4 @@ export function drawWaveform(canvas: HTMLCanvasElement, peaks: WaveformPeaks, st
     context.fillRect(index * bar, top, Math.max(1, bar - .6), Math.max(1.4, bottom - top));
   }
 }
+
