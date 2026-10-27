@@ -16,6 +16,8 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, State};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
+mod library_index;
+
 /// Native application menu. Items carry the same ids the command palette uses,
 /// so a menu click and a keyboard shortcut run the same code. Accelerators are
 /// left to the webview so a user-remapped shortcut never fires twice.
@@ -209,6 +211,11 @@ fn queue_open_project(app: &tauri::AppHandle, path: PathBuf) {
 }
 const BUNDLE_FORMAT: &str = "pixcut";
 const BUNDLE_VERSION: u32 = 1;
+/// Large projects stream their media; the package limit is a disk/archive guard,
+/// not the old embedded-image memory budget.
+const MAX_BUNDLE_BYTES: u64 = 32 * 1024 * 1024 * 1024;
+const MAX_BUNDLE_ASSET_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+const MAX_BUNDLE_ASSET_TOTAL: u64 = 64 * 1024 * 1024 * 1024;
 const BUNDLE_MANIFEST: &str = "manifest.json";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -427,6 +434,75 @@ fn write_project_bundle(path: &Path, project: &Project, asset_dir: Option<&Path>
     tmp.persist(path).map_err(|e| e.to_string())?;
     Ok(())
 }
+/// Opens a `.pixcut` package by streaming each asset straight into the native
+/// asset store. Project media stays referenced, so a multi-gigabyte video does
+/// not have to be base64-decoded into memory just to reopen its project.
+fn read_project_bundle_to_store(path: &Path, directory: &Path) -> Result<Project, String> {
+    if fs::metadata(path).map_err(|e| e.to_string())?.len() > MAX_BUNDLE_BYTES {
+        return Err("Project package exceeds the 32 GB limit.".into());
+    }
+    let file = fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut archive = ZipArchive::new(file).map_err(|e| format!("Cannot open .pixcut package: {e}"))?;
+    let manifest_text = {
+        let mut entry = archive.by_name(BUNDLE_MANIFEST).map_err(|_| "The .pixcut package is missing its manifest.")?;
+        if entry.size() > 5_000_000 { return Err("The .pixcut manifest is too large.".into()); }
+        let mut text = String::new();
+        entry.take(5_000_001).read_to_string(&mut text).map_err(|e| e.to_string())?;
+        text
+    };
+    let manifest: BundleManifest = serde_json::from_str(&manifest_text).map_err(|e| format!("Invalid .pixcut manifest: {e}"))?;
+    if manifest.format != BUNDLE_FORMAT || manifest.format_version != BUNDLE_VERSION {
+        return Err("This .pixcut package version is not supported.".into());
+    }
+    fs::create_dir_all(directory).map_err(|e| e.to_string())?;
+    let mut total = 0u64;
+    for asset in &manifest.assets {
+        if !asset.path.starts_with("assets/") || asset.path.contains("..") {
+            return Err("The .pixcut package contains an unsafe asset path.".into());
+        }
+        let extension = asset_extension(&asset.mime).ok_or("The .pixcut package contains an unsupported asset type.")?;
+        if asset.bytes > MAX_BUNDLE_ASSET_BYTES { return Err("A .pixcut asset exceeds the 8 GB limit.".into()); }
+        let mut entry = archive.by_name(&asset.path).map_err(|_| "The .pixcut package is missing an asset.")?;
+        if entry.size() > MAX_BUNDLE_ASSET_BYTES { return Err("A .pixcut asset exceeds the 8 GB limit.".into()); }
+        let mut temporary = tempfile::Builder::new().suffix(&format!(".{extension}")).tempfile_in(directory).map_err(|e| e.to_string())?;
+        let mut hasher = Sha256::new();
+        let mut written = 0u64;
+        let mut buffer = vec![0u8; 1 << 20];
+        loop {
+            let read = entry.read(&mut buffer).map_err(|e| e.to_string())?;
+            if read == 0 { break; }
+            hasher.update(&buffer[..read]);
+            temporary.write_all(&buffer[..read]).map_err(|e| e.to_string())?;
+            written += read as u64;
+            if written > MAX_BUNDLE_ASSET_BYTES { return Err("A .pixcut asset exceeds the 8 GB limit.".into()); }
+        }
+        if written != asset.bytes {
+            return Err("A .pixcut asset has an unexpected size.".into());
+        }
+        let id = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        if id != asset.id {
+            return Err("A .pixcut asset failed its integrity check.".into());
+        }
+        total += written;
+        if total > MAX_BUNDLE_ASSET_TOTAL { return Err("The .pixcut package exceeds the 64 GB asset budget.".into()); }
+        let destination = directory.join(format!("{id}.{extension}"));
+        if !destination.exists() {
+            temporary.persist(&destination).map_err(|e| e.to_string())?;
+        }
+    }
+    let mut project = manifest.project;
+    project.validate()?;
+    Ok(project)
+}
+
+fn read_project_to_store(path: &Path, directory: &Path) -> Result<Project, String> {
+    if is_zip_file(path)? {
+        read_project_bundle_to_store(path, directory)
+    } else {
+        read_project(path)
+    }
+}
+
 fn read_project_bundle(path: &Path) -> Result<Project, String> {
     if fs::metadata(path).map_err(|e| e.to_string())?.len() > 200_000_000 {
         return Err("Project package exceeds 200 MB.".into());
@@ -1130,8 +1206,9 @@ fn initialize(app: tauri::AppHandle, editor: State<Editor>) -> Result<View, Stri
         .map_err(|e| e.to_string())?
         .take();
     if let Some(source) = pending {
-        let mut project = read_project(&source)?;
-        hydrate_project(&asset_store_dir(&app)?, &mut project, true)?;
+        let directory = asset_store_dir(&app)?;
+        let mut project = read_project_to_store(&source, &directory)?;
+        hydrate_project(&directory, &mut project, true)?;
         session.project = project;
         session.past.clear();
         session.future.clear();
@@ -1171,8 +1248,9 @@ fn take_pending_project(
     else {
         return Ok(None);
     };
-    let mut project = read_project(&source)?;
-    hydrate_project(&asset_store_dir(&app)?, &mut project, true)?;
+    let directory = asset_store_dir(&app)?;
+    let mut project = read_project_to_store(&source, &directory)?;
+    hydrate_project(&directory, &mut project, true)?;
     let mut session = editor.session.lock().map_err(|e| e.to_string())?;
     let previous = std::mem::replace(&mut session.project, project);
     session.past.push(previous);
@@ -1376,8 +1454,9 @@ async fn open_project(
     else {
         return Ok(None);
     };
-    let mut project = read_project(file.path())?;
-    hydrate_project(&asset_store_dir(&app)?, &mut project, true)?;
+    let directory = asset_store_dir(&app)?;
+    let mut project = read_project_to_store(file.path(), &directory)?;
+    hydrate_project(&directory, &mut project, true)?;
     dispatch(app, editor, Command::Replace { project }).map(Some)
 }
 fn ffmpeg() -> Option<PathBuf> {
@@ -2899,12 +2978,18 @@ pub fn run() {
             exporter_capabilities,
             exporter_hardware,
             set_app_menu,
+            library_index::library_index_list,
+            library_index::library_index_upsert,
+            library_index::library_index_remove,
+            library_index::library_index_clear,
+            library_index::library_index_count,
             export_movie,
             export_variants,
             export_plan_variants,
             cancel_export
         ])
         .setup(|app| {
+            app.manage(library_index::LibraryIndex::default());
             let menu = build_app_menu(app.handle(), "en")?;
             app.set_menu(menu)?;
             app.on_menu_event(|app, event| {
@@ -4202,6 +4287,21 @@ mod integration_tests {
         hydrate_project(&directory, &mut project, false).unwrap();
         assert_eq!(project, original);
     }
+    #[test]
+    fn bundles_open_into_the_asset_store_without_loading_media() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("streamed-open.pixcut");
+        let directory = temp.path().join("assets");
+        let (project, _) = fixture_project();
+        write_project_bundle(&path, &project, None).unwrap();
+        let opened = read_project_bundle_to_store(&path, &directory).unwrap();
+        assert!(opened.visual_clips()[0].image.starts_with("pixcut-asset:"));
+        assert!(directory.read_dir().unwrap().count() > 0);
+        let mut hydrated = opened;
+        hydrate_project(&directory, &mut hydrated, false).unwrap();
+        assert_eq!(hydrated, project);
+    }
+
     #[test]
     fn video_overlay_assets_keep_their_mime_when_reopened() {
         for mime in ["video/mp4", "video/webm", "video/quicktime", "video/x-m4v"] {

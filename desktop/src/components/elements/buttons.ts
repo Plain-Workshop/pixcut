@@ -53,7 +53,7 @@ export function drawSocialButton(ctx: CanvasRenderingContext2D, e: ElementLayer,
     }
     if(phase>.7&&phase<1.6){
       const x=W*.77,y=H*.68+Math.max(0,1.1-phase)*H*.25;
-      ctx.save();ctx.translate(x,y);ctx.fillStyle=white;ctx.strokeStyle=dark;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(H*.11,H*.2);ctx.lineTo(H*.035,H*.18);ctx.lineTo(-H*.02,H*.25);ctx.lineTo(-H*.065,H*.22);ctx.lineTo(-H*.01,H*.15);ctx.lineTo(-H*.09,H*.15);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
+      ctx.save();ctx.translate(x,y);ctx.scale(H*.012,H*.012);ctx.fillStyle=white;ctx.strokeStyle=dark;ctx.lineWidth=1.6;ctx.lineJoin='round';ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(0,18);ctx.lineTo(4.5,13.5);ctx.lineTo(8.5,21.5);ctx.lineTo(11.5,20);ctx.lineTo(7.5,12);ctx.lineTo(14,12);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
     }
     if(clicked&&phase<1.6){ctx.save();ctx.globalAlpha*=1-(phase-1.1)/.5;ctx.strokeStyle=accent;ctx.lineWidth=3;ctx.beginPath();ctx.arc(W*.77,H*.68,(phase-1.1)*H*.55+3,0,Math.PI*2);ctx.stroke();ctx.restore();}
     ctx.restore();return;

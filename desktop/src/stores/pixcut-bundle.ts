@@ -6,6 +6,11 @@ import { validateProject, type Project } from './model';
 const FORMAT = 'pixcut';
 const FORMAT_VERSION = 1;
 const MANIFEST = 'manifest.json';
+// Browser packages are expanded in memory, so they use a smaller guard than the
+// native app, which streams each asset straight to disk.
+const MAX_PACKAGE_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_ASSET_BYTES = 1 * 1024 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 4 * 1024 * 1024 * 1024;
 
 const EXTENSIONS: Record<string, string> = {
   'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
@@ -22,12 +27,16 @@ export async function projectToPixcut(project: Project): Promise<Uint8Array> {
   const portable = await persistProjectAssets(validateProject(project));
   const files: Record<string, Uint8Array> = {};
   const assets: BundleAsset[] = [];
+  let total = 0;
   for (const reference of projectAssetRefs(portable)) {
     const id = reference.slice('pixcut-asset:'.length);
     const blob = await loadAssetBlob(id);
     const extension = EXTENSIONS[blob.type];
     if (!extension) throw new Error('A project asset has an unsupported type.');
     const bytes = new Uint8Array(await blob.arrayBuffer());
+    if (bytes.length > MAX_ASSET_BYTES) throw new Error('A project asset exceeds the 1 GB browser limit.');
+    total += bytes.length;
+    if (total > MAX_TOTAL_BYTES) throw new Error('This project exceeds the 4 GB browser package budget.');
     const path = `assets/${id}.${extension}`;
     files[path] = bytes;
     assets.push({ id, path, name: `${id}.${extension}`, mime: blob.type, bytes: bytes.length });
@@ -45,6 +54,7 @@ export async function projectToPixcut(project: Project): Promise<Uint8Array> {
 
 /** Reads a native or browser `.pixcut` package without creating data URLs. */
 export async function readPixcutBundle(data: Uint8Array): Promise<Project> {
+  if (data.length > MAX_PACKAGE_BYTES) throw new Error('This .pixcut package exceeds the 2 GB browser limit.');
   let archive: Record<string, Uint8Array>;
   try { archive = unzipSync(data); }
   catch { throw new Error('This .pixcut package could not be opened.'); }
@@ -64,9 +74,9 @@ export async function readPixcutBundle(data: Uint8Array): Promise<Project> {
     if (!EXTENSIONS[asset.mime]) throw new Error('The .pixcut package contains an unsupported asset type.');
     const bytes = archive[asset.path];
     if (!bytes) throw new Error('The .pixcut package is missing an asset.');
-    if (bytes.length > 50_000_000) throw new Error('A .pixcut asset exceeds the 50 MB limit.');
+    if (bytes.length > MAX_ASSET_BYTES) throw new Error('A .pixcut asset exceeds the 1 GB browser limit.');
     total += bytes.length;
-    if (total > 200_000_000) throw new Error('The .pixcut package exceeds the 200 MB asset budget.');
+    if (total > MAX_TOTAL_BYTES) throw new Error('The .pixcut package exceeds the 4 GB browser asset budget.');
     await storeAssetBytes(bytes, asset.name, asset.mime, asset.id);
     ids.add(asset.id);
   }

@@ -3,6 +3,8 @@ import { hydrateProjectAssets, persistProjectAssets } from './assets';
 import { drawPipClips, drawProjectText, drawScene } from '../components/preview/render';
 import { resolveSceneForFormat } from './formats';
 import { projectAssetRefs } from './missing-assets';
+import * as bridge from '../app/bridge';
+import { parseIndexedSummaries } from './library-index';
 
 export type ProjectSummary = {
   id: string;
@@ -91,6 +93,38 @@ function summaryFrom(project: Project, createdAt: number, thumbnail: string, gro
   };
 }
 
+/**
+ * The native SQLite catalog mirrors summaries so listing does not read every
+ * project record. A failure clears the catalog (the IndexedDB copy is still the
+ * source of truth), so the next list rebuilds it instead of showing stale rows.
+ */
+async function syncIndex(summary: ProjectSummary): Promise<void> {
+  if (!bridge.native) return;
+  try {
+    await bridge.libraryIndexUpsert([{ id: summary.id, name: summary.name, updatedAt: summary.updatedAt, summary: JSON.stringify(summary) }]);
+  } catch {
+    await bridge.libraryIndexClear().catch(() => {});
+  }
+}
+
+async function syncIndexes(summaries: ProjectSummary[]): Promise<void> {
+  if (!bridge.native || !summaries.length) return;
+  try {
+    await bridge.libraryIndexUpsert(summaries.map(summary => ({ id: summary.id, name: summary.name, updatedAt: summary.updatedAt, summary: JSON.stringify(summary) })));
+  } catch {
+    await bridge.libraryIndexClear().catch(() => {});
+  }
+}
+
+async function removeFromIndex(id: string): Promise<void> {
+  if (!bridge.native) return;
+  try {
+    await bridge.libraryIndexRemove(id);
+  } catch {
+    await bridge.libraryIndexClear().catch(() => {});
+  }
+}
+
 export async function setProjectFavorite(id: string, favorite: boolean) {
   const db = await openDatabase();
   const read = db.transaction(META, 'readonly');
@@ -101,6 +135,7 @@ export async function setProjectFavorite(id: string, favorite: boolean) {
   const write = db.transaction(META, 'readwrite');
   write.objectStore(META).put(summary);
   await transactionDone(write);
+  await syncIndex(summary);
 }
 
 export async function renameProjectGroup(from: string, to: string) {
@@ -111,12 +146,15 @@ export async function renameProjectGroup(from: string, to: string) {
   const rows = await requestResult(read.objectStore(META).getAll()) as ProjectSummary[];
   const write = db.transaction(META, 'readwrite');
   const store = write.objectStore(META);
+  const changed: ProjectSummary[] = [];
   for (const summary of rows) {
     if (summary.group !== from) continue;
     summary.group = name;
     store.put(summary);
+    changed.push(summary);
   }
   await transactionDone(write);
+  await syncIndexes(changed);
 }
 
 export async function deleteProjectGroup(group: string) {
@@ -125,12 +163,15 @@ export async function deleteProjectGroup(group: string) {
   const rows = await requestResult(read.objectStore(META).getAll()) as ProjectSummary[];
   const write = db.transaction(META, 'readwrite');
   const store = write.objectStore(META);
+  const changed: ProjectSummary[] = [];
   for (const summary of rows) {
     if (summary.group !== group) continue;
     delete summary.group;
     store.put(summary);
+    changed.push(summary);
   }
   await transactionDone(write);
+  await syncIndexes(changed);
 }
 
 export async function setProjectGroup(id: string, group: string | null) {
@@ -143,6 +184,7 @@ export async function setProjectGroup(id: string, group: string | null) {
   const write = db.transaction(META, 'readwrite');
   write.objectStore(META).put(summary);
   await transactionDone(write);
+  await syncIndex(summary);
 }
 
 async function readSummary(id: string): Promise<ProjectSummary | undefined> {
@@ -151,18 +193,46 @@ async function readSummary(id: string): Promise<ProjectSummary | undefined> {
   return requestResult(transaction.objectStore(META).get(id)) as Promise<ProjectSummary | undefined>;
 }
 
-export async function listProjects(): Promise<ProjectSummary[]> {
+async function listLocalProjects(): Promise<ProjectSummary[]> {
   const db = await openDatabase();
   const transaction = db.transaction(META, 'readonly');
   const rows = await requestResult(transaction.objectStore(META).getAll()) as ProjectSummary[];
   return rows.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+async function countLocalProjects(): Promise<number> {
+  const db = await openDatabase();
+  const transaction = db.transaction(PROJECTS, 'readonly');
+  return requestResult(transaction.objectStore(PROJECTS).count());
+}
+
+export async function listProjects(): Promise<ProjectSummary[]> {
+  if (bridge.native) {
+    try {
+      const [rows, localCount] = await Promise.all([bridge.libraryIndexList(), countLocalProjects()]);
+      // The catalog must mirror the project store exactly. A mismatch (a fresh
+      // install, a cleared webview or a partially failed write) rebuilds it
+      // from IndexedDB, which remains the source of truth.
+      if (rows.length && rows.length === localCount) return parseIndexedSummaries(rows);
+      const local = await listLocalProjects();
+      await bridge.libraryIndexClear().catch(() => {});
+      await syncIndexes(local);
+      return local;
+    } catch { /* fall back to IndexedDB below */ }
+  }
+  return listLocalProjects();
+}
+
 export async function getLibraryProject(id: string): Promise<Project | null> {
   const db = await openDatabase();
   const transaction = db.transaction(PROJECTS, 'readonly');
   const row = await requestResult(transaction.objectStore(PROJECTS).get(id)) as ProjectRow | undefined;
-  if (!row?.project) return null;
+  if (!row?.project) {
+    // The catalog outlived its body (for example after clearing webview data).
+    // Drop the stale card instead of leaving an unopenable project.
+    await removeFromIndex(id);
+    return null;
+  }
   const validated = validateProject(row.project);
   const persisted = await persistProjectAssets(validated);
   if (JSON.stringify(persisted) !== JSON.stringify(validated)) {
@@ -188,6 +258,7 @@ export async function saveLibraryProject(project: Project): Promise<ProjectSumma
   transaction.objectStore(PROJECTS).put({ id: project.id, project: persisted } satisfies ProjectRow);
   transaction.objectStore(META).put(summary);
   await transactionDone(transaction);
+  await syncIndex(summary);
   return summary;
 }
 
@@ -197,6 +268,7 @@ export async function deleteLibraryProject(id: string) {
   transaction.objectStore(PROJECTS).delete(id);
   transaction.objectStore(META).delete(id);
   await transactionDone(transaction);
+  await removeFromIndex(id);
 }
 
 export async function duplicateLibraryProject(id: string) {
@@ -218,16 +290,12 @@ export async function duplicateLibraryProject(id: string) {
  */
 export async function libraryAssetRefs(): Promise<string[]> {
   const db = await openDatabase();
-  try {
-    const read = db.transaction(PROJECTS, 'readonly');
-    const rows = await requestResult(read.objectStore(PROJECTS).getAll()) as ProjectRow[];
-    const refs = new Set<string>();
-    for (const row of rows) {
-      if (!row?.project) continue;
-      for (const ref of projectAssetRefs(row.project)) refs.add(ref);
-    }
-    return [...refs];
-  } finally {
-    db.close();
+  const read = db.transaction(PROJECTS, 'readonly');
+  const rows = await requestResult(read.objectStore(PROJECTS).getAll()) as ProjectRow[];
+  const refs = new Set<string>();
+  for (const row of rows) {
+    if (!row?.project) continue;
+    for (const ref of projectAssetRefs(row.project)) refs.add(ref);
   }
+  return [...refs];
 }

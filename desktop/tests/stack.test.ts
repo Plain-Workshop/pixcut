@@ -129,3 +129,15 @@ describe('layer stack order', () => {
     expect(() => validateProject({ ...emptyProject(), schema_version: 13, tracks: [{ id: 'v', kind: 'visual', name: 'Visuals', clips: [{ ...base, textLayers: [{ ...text('title'), z: -1 }] }] }] })).toThrow();
   });
 });
+
+describe('new overlay ordering', () => {
+  it('inserts above manually reordered text and overlays', async () => {
+    const { newOverlayZ } = await import('../src/components/elements/stack');
+    const owner=scene([], [text('raised title', 9000)]),overlays=[element('raised overlay', 12000)];
+    const z=newOverlayZ(sceneStack(owner,overlays));
+    expect(z).toBe(12001);
+    expect(sceneStack(owner,[...overlays,element('new',z)]).at(-1)?.id).toBe('new');
+    const capped=[element('top',STACK_Z_MAX)];
+    expect(sceneStack(owner,[...capped,element('last',newOverlayZ(sceneStack(owner,capped)))]).at(-1)?.id).toBe('last');
+  });
+});

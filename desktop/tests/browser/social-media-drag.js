@@ -10,6 +10,7 @@ async page=>{
   const p=m.edit(m.emptyProject(name),{type:'add',scenes:[first,second]});
   p.audio=[{id:'music',name:'Local audio',data:bellSound(8,true),lane:0,startTicks:0,durationTicks:240,sourceInSeconds:0,sourceDurationSeconds:8,volume:.7,fadeIn:0,fadeOut:0}];
   p.overlays=[{id:'nameplate',kind:'name-tag',presetId:'lower-thirds-01',label:'Your name\nYour role',x:.5,y:.5,width:.4,height:.2,rotation:0,opacity:100,color:'#C5B4FF',startTicks:0,durationTicks:240,animation:'none',loop:false}];
+  p.overlays.push({...p.overlays[0],id:'legacy-square',presetId:undefined,kind:'rectangle',label:undefined});
   await lib.saveLibraryProject(p);
  },name);
  await page.reload();await page.getByRole('button',{name:new RegExp(`^16:9 ${name}`)}).click();
@@ -22,6 +23,10 @@ async page=>{
  let saved=await stored();for(let i=0;i<20&&saved.tracks[0].clips.length!==3;i++){await page.waitForTimeout(100);saved=await stored();}
  if(saved.tracks[0].clips[2].image!==source||saved.tracks[0].clips[2].mediaKind!=='video')throw Error('Dragging template media changed its source');
  if(await page.getByText('That file needs a different format',{exact:false}).count())throw Error('Internal media drag reported unsupported format');
+ await page.getByRole('button',{name:'Select element Rectangle',exact:true}).click();
+ await right.getByLabel('Replace old decoration',{exact:true}).selectOption('buttons-motion-02');
+ let upgraded;for(let i=0;i<20;i++){upgraded=(await stored()).overlays.find(e=>e.id==='legacy-square');if(upgraded.presetId==='buttons-motion-02')break;await page.waitForTimeout(100);}
+ if(upgraded.presetId!=='buttons-motion-02'||upgraded.startTicks!==0||upgraded.durationTicks!==240)throw Error('Old decoration replacement lost timing');
  await left.getByRole('button',{name:'Elements',exact:true}).click();await left.getByLabel('Element collection').selectOption('buttons-motion');
  if(await left.locator('.element-card').count()!==10)throw Error('New social actions missing');
  await page.screenshot({path:'output/playwright/social-actions-library.png'});

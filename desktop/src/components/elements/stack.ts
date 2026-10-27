@@ -72,3 +72,8 @@ export function stackZ(entries: StackEntry[], kind: StackKind, id: string, move:
   const before = entries[at - 2];
   return clamp(before && below.z > before.z ? (before.z + below.z) / 2 : below.z - .1);
 }
+
+/** Newly inserted overlays follow any manual ordering, including a capped top z. */
+export function newOverlayZ(entries: StackEntry[]): number {
+  return Math.min(STACK_Z_MAX, Math.max(STACK_DEFAULT_Z.overlay - 1, ...entries.map(entry => entry.z)) + 1);
+}

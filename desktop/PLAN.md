@@ -19,7 +19,7 @@ Status legend: **shipped** · **partial** · **planned** · **deferred**
 | 5 | QSV / AMF / VAAPI hardware encoders | shipped* | no |
 | 6 | Multi-track and picture-in-picture | shipped (one overlay track) | no |
 | 7 | i18n: translatable interface | shipped (most UI) | no |
-| 8 | One asset store and a SQLite index | planned | no |
+| 8 | One asset store and a SQLite index | partial (index shipped) | no |
 | 9 | Font subsetting for large faces | planned | no |
 | 10 | Signed and notarised releases | deferred | no |
 
@@ -211,7 +211,7 @@ that no extracted key is missing from the shipped locales.
 
 ## 8. One asset store and a SQLite index
 
-**Status.** Not implemented. The native content-addressed store and the browser IndexedDB store share the `pixcut-asset:` reference format and `resolveMediaSource()`, but remain separate physical stores; the project library is still IndexedDB in both builds. The migration and `rusqlite` index below are the next step.
+**Status.** The SQLite catalog ships in native builds: `rusqlite` (bundled) stores one row per project with its summary JSON, name and timestamp, and listings read it instead of every IndexedDB record; the catalog is rebuilt automatically if it is missing or its row count no longer matches the project store. IndexedDB remains the source of truth for project bodies and old installs migrate on first list without deleting anything. Primary media is already in the Rust content-addressed store; custom element graphics still use the webview store, so the physical stores are not fully merged.
 
 **Why it is missing.** IndexedDB serves the browser build and the native app;
 Rust keeps a second content-addressed store for streaming and export, and the

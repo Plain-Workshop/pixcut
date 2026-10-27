@@ -7,7 +7,7 @@ import { elementMotion, motionPreviewSeconds } from './motion';
 import { drawElementOverlay } from '../preview/render';
 import type { ElementKind, ElementLayer, Scene } from '../../stores/model';
 
-export function ElementPreview({ kind, color, presetId, animation = 'none', label, reduceMotion = false, motionSample = false }: { kind: ElementKind; presetId?: string; color: string; animation?: ElementLayer['animation']; label?: string; reduceMotion?: boolean; motionSample?: boolean }) {
+export function ElementPreview({ kind, color, presetId, animation = 'none', label, reduceMotion = false, motionSample = false, active = true }: { kind: ElementKind; presetId?: string; color: string; animation?: ElementLayer['animation']; label?: string; reduceMotion?: boolean; motionSample?: boolean; active?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const preset = elementPreset({ presetId });
@@ -30,11 +30,11 @@ export function ElementPreview({ kind, color, presetId, animation = 'none', labe
         await drawElementOverlay(target,scene,'preview',elapsed%10,'16:9',undefined,motionSample?{width:160,height:120}:{width:240,height:160},[],true);
       } finally {drawing=false;}
     };
-    const animate=(now:number)=>{if(!visible||reduceMotion||media.matches||(animation==='none'&&!isDynamicElement(kind)&&!preset))return;if(!start)start=now-350;if(now-last>65){void draw((now-start)/1000);last=now;}raf=requestAnimationFrame(animate);};
+    const animate=(now:number)=>{if(!active||!visible||reduceMotion||media.matches||(animation==='none'&&!isDynamicElement(kind)&&!preset))return;if(!start)start=now-350;if(now-last>65){void draw((now-start)/1000);last=now;}raf=requestAnimationFrame(animate);};
     const restart=()=>{cancelAnimationFrame(raf);void draw(.4);if(visible){start=0;raf=requestAnimationFrame(animate);}};
     const observer=new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;restart();});
     void draw(.4);observer.observe(target);media.addEventListener('change',restart);
     return()=>{observer.disconnect();cancelAnimationFrame(raf);media.removeEventListener('change',restart);};
-  },[kind,color,presetId,animation,label,reduceMotion,motionSample]);
+  },[kind,color,presetId,animation,label,reduceMotion,motionSample,active]);
   return <canvas ref={canvas} aria-hidden="true" data-motion={motionSample?animation:undefined}/>;
 }

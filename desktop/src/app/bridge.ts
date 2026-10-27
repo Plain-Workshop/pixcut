@@ -91,6 +91,21 @@ export type UpdateInfo = { version: string; currentVersion: string; notes: strin
 type PendingUpdate = Awaited<ReturnType<typeof import('@tauri-apps/plugin-updater')['check']>>;
 let pendingUpdate: PendingUpdate = null;
 
+export type LibraryIndexEntry = { id: string; name: string; updatedAt: number; summary: string };
+
+export async function libraryIndexList(): Promise<string[]> {
+  return native ? invoke<string[]>('library_index_list') : [];
+}
+export async function libraryIndexUpsert(entries: LibraryIndexEntry[]): Promise<void> {
+  if (native && entries.length) await invoke('library_index_upsert', { entries });
+}
+export async function libraryIndexRemove(id: string): Promise<void> {
+  if (native) await invoke('library_index_remove', { id });
+}
+export async function libraryIndexClear(): Promise<void> {
+  if (native) await invoke('library_index_clear');
+}
+
 export async function setAppMenu(language: string): Promise<void> {
   if (native) await invoke('set_app_menu', { language });
 }

@@ -1,0 +1,17 @@
+PixCut original instrumental music — CC0 1.0 Universal
+
+Compositions, synthesis, and recordings created for PixCut. No third-party
+recordings, samples, vocals or melodies are incorporated. The reproducible
+synthesis source is desktop/scripts/generate-music.py.
+
+To the extent possible under law, PixCut waives all copyright and related
+rights in these compositions and recordings under the CC0 1.0 Universal
+Public Domain Dedication: https://creativecommons.org/publicdomain/zero/1.0/
+
+You may copy, edit, remix, redistribute, and use this music in personal and
+commercial videos on any platform. Attribution is not required.
+
+This dedication also applies to the original PixCut Soft pulse and Night drive
+recordings bundled in templates/media. Other imported music has its own license.
+Automated platform copyright claims are still possible; this document records
+permission for the original bundled tracks, not a platform guarantee.

@@ -1,3 +1,5 @@
+import { HoverVideo } from '../components/preview/HoverVideo';
+import { MUSIC_TRACKS, MUSIC_LICENSE, musicTrackUrl, musicTrackData, type MusicTrack } from '../stores/music-library';
 import { SOUND_EFFECTS, createSoundEffectClip, soundEffectData, type SoundEffectId } from '../components/elements/sound-effects';
 import { ElementTextField } from '../components/elements/ElementTextField';
 import { inspectorKind } from './inspector';
@@ -27,7 +29,7 @@ import { beatMarkerTicks, detectBeats, snapScenesToBeats } from '../components/t
 import { MaskControls } from '../components/inspector/MaskControls';
 import { videoGain } from '../components/preview/video-audio';
 import { timelineOverlays, replaceOverlay, constrainOverlay, type TimelineOverlay } from '../components/elements/overlays';
-import { sceneStack, stackIndex, stackZ, overlaysForScene, type StackMove } from '../components/elements/stack';
+import { sceneStack, stackIndex, stackZ, newOverlayZ, overlaysForScene, type StackMove } from '../components/elements/stack';
 import { StackOrder } from '../components/inspector/StackOrder';
 import { actionAudio } from '../components/elements/sound';
 import { playbackPosition } from '../components/preview/playback-clock';
@@ -549,6 +551,13 @@ export default function App() {
   const mediaDropAt = useRef(0);
   const soundPreviewRef = useRef<HTMLAudioElement | null>(null);
   const [soundEffect, setSoundEffect] = useState<SoundEffectId>('click');
+  const [audioLibraryTab,setAudioLibraryTab]=useState<'project'|'music'|'sounds'>('project');
+  const [musicMood,setMusicMood]=useState('All');
+  const [hoveredElement,setHoveredElement]=useState<string|null>(null);
+  const [hoveredMedia,setHoveredMedia]=useState<string|null>(null);
+  const [previewingAudio,setPreviewingAudio]=useState<string|null>(null);
+  const libraryAudio=useRef<HTMLAudioElement|null>(null),libraryAudioToken=useRef(0),libraryAudioTimer=useRef<number|undefined>(undefined);
+
   useEffect(() => { if (!exporting) return; const start = performance.now(); const timer = setInterval(() => setExportElapsed((performance.now() - start) / 1000), 500); return () => clearInterval(timer); }, [exporting]);
   const project = session.project, duration = totalDuration(project);
   const scenes = projectScenes(project);
@@ -1640,7 +1649,7 @@ export default function App() {
     const count = allOverlays.length;
     if (count >= 64) { setNotice('This project already has 64 overlays.'); return; }
     const element: ElementLayer = {
-      id: crypto.randomUUID(), kind, presetId, label: preset.text, ...(preset.behavior ? { behavior: preset.behavior } : {}), x: .5 + (count % 3) * .035, y: .5 + (count % 2) * .035, ...presetSize(preset, activeSize),
+      id: crypto.randomUUID(), kind, presetId, z: newOverlayZ(sceneLayerStack), label: preset.text, ...(preset.behavior ? { behavior: preset.behavior } : {}), x: .5 + (count % 3) * .035, y: .5 + (count % 2) * .035, ...presetSize(preset, activeSize),
       rotation: 0, color: preset?.color ?? ELEMENT_COLOR_DEFAULTS[kind] ?? '#9D7CFF', opacity: 100,
       ...(kind === 'countdown' ? { behavior: { countFrom: Math.max(0, Math.min(5, Math.ceil(ticksToSeconds(projectTicks, project.timebase) - position) - 2)), countTo: 0, ...preset.behavior } } : {}),
       startTicks: secondsToTicks(position, project.timebase), durationTicks: kind === 'countdown' ? secondsToTicks(7, project.timebase) : selectedScene.durationTicks, loop: false, animation: preset?.animation ?? 'none',
@@ -2484,6 +2493,50 @@ export default function App() {
     setDropTarget(null); setFileDragActive(false);
     if (source) void appendMedia(source); return true;
   }
+  function stopLibraryPreview() {
+    libraryAudioToken.current++;window.clearTimeout(libraryAudioTimer.current);
+    if(libraryAudio.current){libraryAudio.current.pause();libraryAudio.current.removeAttribute('src');libraryAudio.current.load();libraryAudio.current=null;}
+    setPreviewingAudio(null);
+  }
+  function hoverLibraryAudio(id:string,source:string,start=0,length=30,explicit=false) {
+    stopLibraryPreview();if(playing || modal)return;
+    const token=libraryAudioToken.current;
+    const play=(url:string|undefined)=>{
+      if(!url||token!==libraryAudioToken.current)return;
+      const player=new Audio(url);libraryAudio.current=player;player.volume=.5;
+      player.onloadedmetadata=()=>{player.currentTime=Math.min(start,Math.max(0,player.duration-.01));};
+      player.ontimeupdate=()=>{if(player.currentTime>=start+length)stopLibraryPreview();};
+      player.onended=()=>stopLibraryPreview();
+      void player.play().then(()=>{if(token===libraryAudioToken.current)setPreviewingAudio(id);else player.pause();}).catch(()=>{if(token===libraryAudioToken.current){setPreviewingAudio(null);if(explicit)setNotice('Audio preview could not start. Check the app audio permissions and try Listen again.');}});
+    };
+    // Keep direct Listen clicks inside the browser's user-activation event.
+    if(explicit&&!isAssetRef(source)){play(source);return;}
+    const resolve=()=>{void resolveMediaSource(source).then(play);};
+    if(explicit)resolve();else libraryAudioTimer.current=window.setTimeout(resolve,100);
+  }
+
+  useEffect(()=>{stopLibraryPreview();setHoveredMedia(null);setHoveredElement(null);},[tab,audioLibraryTab,playing,modal,project.id]);
+  useEffect(()=>()=>{libraryAudioToken.current++;window.clearTimeout(libraryAudioTimer.current);libraryAudio.current?.pause();},[]);
+  useEffect(()=>{
+    const stop=()=>{stopLibraryPreview();setHoveredMedia(null);setHoveredElement(null);};
+    const visibility=()=>{if(document.hidden)stop();};
+    window.addEventListener('blur',stop);document.addEventListener('visibilitychange',visibility);
+    return()=>{window.removeEventListener('blur',stop);document.removeEventListener('visibilitychange',visibility);};
+  },[]);
+
+  async function addMusic(track:MusicTrack) {
+    if(!canEdit||!projectTicks)return;
+    stopLibraryPreview();setBusy(true);
+    try{
+      const data=await musicTrackData(track),snapshot=latestProject.current,total=totalTicks(snapshot);
+      const startTicks=Math.min(total-1,Math.max(0,secondsToTicks(position,project.timebase)));
+      const durationTicks=Math.min(total-startTicks,Math.max(1,secondsToTicks(track.seconds,snapshot.timebase)));
+      const lane=Array.from({length:8},(_,i)=>i).find(i=>!snapshot.audio.some(c=>(c.lane??0)===i&&c.startTicks<startTicks+durationTicks&&c.startTicks+c.durationTicks>startTicks));
+      const clip:AudioClip={id:crypto.randomUUID(),name:`${track.title} · PixCut CC0`,data,lane:lane??7,startTicks,durationTicks,sourceInSeconds:0,sourceDurationSeconds:track.seconds,volume:.55,fadeIn:.15,fadeOut:Math.min(.6,ticksToSeconds(durationTicks,snapshot.timebase)/3)};
+      if(await run({type:'audio',audio:[...snapshot.audio,clip]}))setNotice(`${track.title} added at the playhead. CC0 · no attribution required.`);
+    }catch(error){setError(messageFor(error));}finally{setBusy(false);}
+  }
+
   function previewSound(id: SoundEffectId) {
     soundPreviewRef.current?.pause();
     const player = new Audio(soundEffectData(id)); soundPreviewRef.current = player;
@@ -2514,7 +2567,7 @@ export default function App() {
     const occupied = new Set(allOverlays.map(element => (element.x < .5 ? 1 : 0) + (element.y >= .5 ? 2 : 0)));
     const corner = [0, 1, 2, 3].find(candidate => !occupied.has(candidate)) ?? allOverlays.length % 4;
     const boxWidth = .34, boxHeight = Math.min(.7, Math.max(.04, boxWidth * activeSize.width / activeSize.height * height / width));
-    const element: ElementLayer = { id: crypto.randomUUID(), kind: source.mediaKind === 'video' ? 'video' : 'image', label: source.name.slice(0, 80), source: source.image,
+    const element: ElementLayer = { id: crypto.randomUUID(), z: newOverlayZ(sceneLayerStack), kind: source.mediaKind === 'video' ? 'video' : 'image', label: source.name.slice(0, 80), source: source.image,
       ...(source.videoPoster ? { poster: source.videoPoster } : {}), sourceInSeconds: ticksToSeconds(source.sourceInTicks, project.timebase), sourceDurationSeconds: sourceDuration,
       x: corner % 2 ? .25 : .75, y: corner < 2 ? Math.max(.25, boxHeight / 2 + .04) : Math.min(.75, 1 - boxHeight / 2 - .04), width: boxWidth, height: boxHeight, color: '#FFFFFF', opacity: 100, rotation: 0,
       startTicks, durationTicks: Math.min(projectTicks - startTicks, source.durationTicks), animation: 'none' };
@@ -3479,7 +3532,7 @@ export default function App() {
   async function openBrowserProject(e: ChangeEvent<HTMLInputElement>) {
     try {
       const file = e.target.files?.[0]; if (!file) return;
-      if (file.size > 200_000_000) throw new Error('Project file exceeds 200 MB.');
+      if (file.size > 2 * 1024 * 1024 * 1024) throw new Error('Project file exceeds the 2 GB browser limit.');
       const bytes = new Uint8Array(await file.arrayBuffer());
       const p = bytes[0] === 0x50 && bytes[1] === 0x4b
         ? await readPixcutBundle(bytes)
@@ -4172,7 +4225,7 @@ export default function App() {
             {tab === 'media' ? <>
               <label className="search-field"><Search size={14} /><input aria-label="Search project media" placeholder="Search media…" value={mediaQuery} onChange={e => setMediaQuery(e.target.value)} /></label>
               <div className="media-grid" onDragOver={event => dragOverTarget(event, 'media-grid')} onDrop={dropIntoMedia}>{filteredScenes.map(source => <div key={source.id} className="media-tile source-tile" draggable={canEdit && hasMedia(source.image)} onDragStart={event => beginMediaDrag(event, source)} onDragEnd={() => { window.setTimeout(() => { if (mediaDragRef.current?.id === source.id) mediaDragRef.current = null; }, 250); setDropTarget(null); }}>
-                <button className="media-source" draggable={canEdit && hasMedia(source.image)} aria-label={`Preview ${source.name}`} onClick={() => previewMedia(source)}><div><AssetImage source={source.videoPoster ?? source.image} alt="" fallback={<span className="media-missing"><ImagePlus size={18} /> Missing</span>} /><span>{source.mediaKind === 'video' ? 'VIDEO · ' : ''}{sceneSeconds(source, project.timebase).toFixed(1)}s</span><Play className="source-play" size={20} /></div><span className="media-name">{source.name}</span></button>
+                <button className="media-source" draggable={canEdit && hasMedia(source.image)} aria-label={`Preview ${source.name}`} onPointerEnter={() => setHoveredMedia(source.id)} onPointerLeave={() => setHoveredMedia(null)} onFocus={() => setHoveredMedia(source.id)} onBlur={() => setHoveredMedia(null)} onClick={() => previewMedia(source)}><div><AssetImage source={source.videoPoster ?? source.image} alt="" fallback={<span className="media-missing"><ImagePlus size={18} /> Missing</span>} />{source.mediaKind === 'video' && <HoverVideo source={source.image} active={hoveredMedia === source.id && !playing && !modal} start={ticksToSeconds(source.sourceInTicks,project.timebase)} duration={sceneSeconds(source,project.timebase)} />}<span>{source.mediaKind === 'video' ? 'VIDEO · ' : ''}{sceneSeconds(source, project.timebase).toFixed(1)}s</span><Play className="source-play" size={20} /></div><span className="media-name">{source.name}</span></button>
                 <div className="media-placement"><button title={hasMedia(source.image) ? 'Append to timeline' : 'Relink this file first'} aria-label={`Append ${source.name}`} disabled={!canEdit || !hasMedia(source.image)} onClick={() => void appendMedia(source)}><Plus size={14} /><span>Add</span></button><button title={hasMedia(source.image) ? 'Picture in picture' : 'Relink this file first'} aria-label={`Picture in picture: ${source.name}`} disabled={!canEdit || !selectedScene || !hasMedia(source.image)} onClick={() => void addMediaPip(source).catch(error => setError(messageFor(error)))}><Layers size={14} /></button></div>
               </div>)}</div>
               {!sourceMedia.length && <div className="library-empty"><ImagePlus size={34} /><strong>A story starts with a photo.</strong><p>Import images from your device.<br />Nothing gets uploaded.</p></div>}
@@ -4205,18 +4258,30 @@ export default function App() {
                 <span className="title-preset-art" style={{ fontFamily: fontOption(preset.layer.font ?? 'inter').family }}><span>{preset.sample}</span></span><strong>{preset.name}</strong><Plus size={13} />
               </button>)}
             </div> : tab === 'audio' ? <div className="music-panel">
+              <div className="audio-library-tabs" role="tablist" aria-label="Audio library">{([['project','Project'],['music','Music'],['sounds','Sounds']] as const).map(([id,label])=><button key={id} role="tab" aria-selected={audioLibraryTab===id} onClick={()=>setAudioLibraryTab(id)}>{label}</button>)}</div>
+              {audioLibraryTab === 'project' ? <>
               {audio.length ? <div className="audio-list">{audio.map(clip => {
                 const start = ticksToSeconds(clip.startTicks, project.timebase);
                 const length = ticksToSeconds(clip.durationTicks, project.timebase);
                 return <div className={`audio-list-item ${editTarget === 'audio' && selectedAudio?.id === clip.id ? 'active' : ''}`} key={clip.id}>
-                  <button className="audio-list-select" onClick={() => focusAudio(clip)}><Music size={15} /><span><strong>{clip.name}</strong><small>{start.toFixed(1)} s · {length.toFixed(1)} s</small></span></button>
+                  <button className={`audio-list-select ${previewingAudio === clip.id ? 'previewing' : ''}`} onPointerEnter={() => hoverLibraryAudio(clip.id,clip.data,clip.sourceInSeconds,ticksToSeconds(clip.durationTicks,project.timebase))} onPointerLeave={stopLibraryPreview} onFocus={() => hoverLibraryAudio(clip.id,clip.data,clip.sourceInSeconds,ticksToSeconds(clip.durationTicks,project.timebase))} onBlur={stopLibraryPreview} onClick={() => { focusAudio(clip); hoverLibraryAudio(clip.id,clip.data,clip.sourceInSeconds,ticksToSeconds(clip.durationTicks,project.timebase),true); }}><Music size={15} /><span><strong>{clip.name}</strong><small>{start.toFixed(1)} s · {length.toFixed(1)} s</small></span></button>
                 </div>;
               })}</div> : <div className="library-empty music-empty">
                 <Music size={34} />
                 <strong>Give your story a soundtrack.</strong>
                 <p>Add as many audio clips as you need.<br />Stays on this device.</p>
               </div>}
-              <details className="library-disclosure sound-library"><summary>Sound effects</summary><div className="sound-effect-list">{SOUND_EFFECTS.map(effect => <div key={effect.id}><button className="icon-button" aria-label={`Listen to ${effect.label}`} onClick={() => previewSound(effect.id)}><Play size={13} /></button><span>{effect.label}</span><button className="icon-button" aria-label={`Add ${effect.label} at playhead`} disabled={!canEdit || !projectTicks} onClick={() => void addSound(effect.id, secondsToTicks(position,project.timebase))}><Plus size={14} /></button></div>)}</div></details>
+              </> : audioLibraryTab === 'music' ? <div className="free-music-library">
+                <label className="field music-mood">Mood<select aria-label="Music mood" value={musicMood} onChange={event=>setMusicMood(event.target.value)}>{['All','Chill','Upbeat','Ambient','Piano','Minimal'].map(mood=><option key={mood}>{mood}</option>)}</select></label>
+                <div className="free-music-list">{MUSIC_TRACKS.filter(track=>musicMood==='All'||track.mood===musicMood).map((track,index)=><div key={track.id} className={`free-music-track ${previewingAudio===track.id?'previewing':''}`} onPointerEnter={()=>hoverLibraryAudio(track.id,musicTrackUrl(track))} onPointerLeave={stopLibraryPreview}>
+                  <button className="music-listen" aria-label={`Listen to ${track.title}`} onFocus={()=>hoverLibraryAudio(track.id,musicTrackUrl(track))} onBlur={stopLibraryPreview} onClick={()=>hoverLibraryAudio(track.id,musicTrackUrl(track),0,track.seconds,true)}><Play size={16}/></button>
+                  <span><strong>{track.title}</strong><small>{track.mood}{track.bpm ? ` · ${track.bpm} BPM` : ''} · {Math.round(track.seconds)}s</small><span className="music-wave" aria-hidden="true">{Array.from({length:22},(_,i)=><i key={i} style={{height:`${4+Math.abs(Math.sin(i*1.7+index))*13}px`}}/>)}</span></span>
+                  <button className="icon-button" aria-label={`Add music ${track.title}`} disabled={!canEdit||!projectTicks} onClick={()=>void addMusic(track)}><Plus size={16}/></button>
+                </div>)}</div>
+                <details className="library-disclosure music-license"><summary>CC0 · Commercial use</summary><p>Original PixCut instrumentals. No attribution required.</p><p>Platform checks can still make automated claims.</p><button className="button" onClick={()=>void navigator.clipboard.writeText(MUSIC_LICENSE).then(()=>setNotice('Music license copied.')).catch(()=>setError('Could not copy the music license. It is included in the music folder.'))}>Copy license</button></details>
+              </div> : <>
+              <div className="sound-library"><div className="sound-effect-list">{SOUND_EFFECTS.map(effect => <div key={effect.id} onPointerEnter={() => hoverLibraryAudio(`sfx-${effect.id}`,soundEffectData(effect.id),0,effect.seconds)} onPointerLeave={stopLibraryPreview}><button className="icon-button" aria-label={`Listen to ${effect.label}`} onClick={() => hoverLibraryAudio(`sfx-${effect.id}`,soundEffectData(effect.id),0,effect.seconds,true)}><Play size={13} /></button><span>{effect.label}</span><button className="icon-button" aria-label={`Add ${effect.label} at playhead`} disabled={!canEdit || !projectTicks} onClick={() => void addSound(effect.id, secondsToTicks(position,project.timebase))}><Plus size={14} /></button></div>)}</div></div>
+              </>}
             </div> : tab === 'templates' ? <div className="template-tab">
               <div className="template-tab-list">{TEMPLATES.map(template => <button key={template.id} className="template-tab-card" disabled={!canEdit} onClick={() => chooseTemplate(template)}>
                 <span className="template-tab-art"><img src={templateImage(template)} alt="" /></span>
@@ -4234,7 +4299,7 @@ export default function App() {
                 <summary>In project <span>{allOverlays.length}</span></summary>
                 {allOverlays.map(element => <button key={element.id} className={`element-list-row ${selectedElementId === element.id ? 'active' : ''}`} onClick={() => selectOverlay(element)}><span className="element-list-row-icon" style={{ color: element.color }}><ElementGlyph presetId={element.presetId} kind={element.kind} size={12} /></span><span>{elementName(element)}</span><small>{ticksToSeconds(element.startTicks, project.timebase).toFixed(1)}s</small></button>)}
               </details>}
-              <div className="element-grid">{filteredElements.slice(0, elementLimit).map(item => <button key={item.id} className="element-card" aria-label={`Add ${item.label}`} disabled={!selectedScene || !canEdit || allOverlays.length >= 64} onClick={() => addElement(item.id)}><span className="element-card-icon"><ElementPreview presetId={item.id} kind={item.kind} color={item.color} animation={item.animation} reduceMotion={preferences.reduceMotion} /></span><strong>{item.label}</strong><Plus size={12} /></button>)}</div>
+              <div className="element-grid">{filteredElements.slice(0, elementLimit).map(item => <button key={item.id} className="element-card" onPointerEnter={() => setHoveredElement(item.id)} onPointerLeave={() => setHoveredElement(null)} onFocus={() => setHoveredElement(item.id)} onBlur={() => setHoveredElement(null)} aria-label={`Add ${item.label}`} disabled={!selectedScene || !canEdit || allOverlays.length >= 64} onClick={() => addElement(item.id)}><span className="element-card-icon"><ElementPreview active={hoveredElement === item.id} presetId={item.id} kind={item.kind} color={item.color} animation={item.animation} reduceMotion={preferences.reduceMotion} /></span><strong>{item.label}</strong><Plus size={12} /></button>)}</div>
               {filteredElements.length === 0 && <p className="note">No matching elements. Try another collection or search.</p>}
               {filteredElements.length > elementLimit && <button className="button element-show-more" onClick={() => setElementLimit(n => n + 40)}>Show 40 more · {Math.min(elementLimit, filteredElements.length)} of {filteredElements.length}</button>}
 
@@ -4578,13 +4643,13 @@ export default function App() {
             </div>
             <div className="modal-actions">
               <button className="button primary" disabled={!canEdit} onClick={() => void startTemplate(pendingTemplate)}>Start with {pendingTemplate.name} <ArrowRight size={15} /></button>
-              <button className="button subtle" onClick={requestCloseModal}>Cancel</button>
+              <button className="button subtle" onClick={requestCloseModal}>{t('Cancel')}</button>
             </div>
           </> : <>
-            <h2 id="modal-title">A fresh start.</h2>
-            <p>Your current story is saved in the local library automatically. Choose the formats you want to deliver.</p>
+            <h2 id="modal-title">{t('A fresh start.')}</h2>
+            <p>{t('Your current story is saved in the local library automatically. Choose the formats you want to deliver.')}</p>
             <div className="project-setup-body">
-            <label className="field new-project-fps">Project frame rate<select value={newProjectFps} onChange={event => setNewProjectFps(Number(event.target.value))}><option value={24}>24 fps · Film</option><option value={25}>25 fps · PAL</option><option value={30}>30 fps · Standard</option><option value={60}>60 fps · Smooth</option></select></label>
+            <label className="field new-project-fps">{t('Project frame rate')}<select value={newProjectFps} onChange={event => setNewProjectFps(Number(event.target.value))}><option value={24}>{t('24 fps · Film')}</option><option value={25}>{t('25 fps · PAL')}</option><option value={30}>{t('30 fps · Standard')}</option><option value={60}>{t('60 fps · Smooth')}</option></select></label>
             {formatFilterChips()}
             <div className="format-groups">{filterFormatGroups(formatFilter).map(group => <section className="format-group" key={group.platform}>
               <div className="format-group-head"><strong>{t(group.label)}</strong><span>{group.presets.length} {group.presets.length === 1 ? 'format' : 'formats'}</span></div>
@@ -4600,14 +4665,14 @@ export default function App() {
               <button className="button" disabled={newFormatSelection.length >= MAX_PROJECT_FORMATS} onClick={addNewCustomFormat}><Plus size={14} /> {t('Add')}</button>
             </div>
             {newCustomFormats.length > 0 && <div className="group-filter">{newCustomFormats.map(format => <span className="group-chip" key={format.id}><Layers size={11} />{format.name} · {format.width}×{format.height}</span>)}</div>}
-            <p className="note"><Layers size={14} /><span>Photos, text, timing, transitions, audio, and looks are common to every format. Size, FPS, quality, and framing (zoom, pan, fit, letterbox) are saved per format.</span></p>
+            <p className="note"><Layers size={14} /><span>{t('Photos, text, timing, transitions, audio, and looks are common to every format. Size, FPS, quality, and framing (zoom, pan, fit, letterbox) are saved per format.')}</span></p>
             </div>
             <div className="project-setup-foot">
-              <div className="format-pick-summary" role="status" aria-live="polite"><Layers size={13} /><span>{newFormatSelection.length ? <><strong>{newFormatSelection.length} format{newFormatSelection.length === 1 ? '' : 's'}</strong> selected · {newFormatOutputs.length} file{newFormatOutputs.length === 1 ? '' : 's'} will be written{newFormatOutputs.length < newFormatSelection.length ? ' · identical sizes are combined' : ''}</> : 'Pick at least one format, or start with the default 16:9.'}</span></div>
+              <div className="format-pick-summary" role="status" aria-live="polite"><Layers size={13} /><span>{newFormatSelection.length ? <><strong>{newFormatSelection.length} format{newFormatSelection.length === 1 ? '' : 's'}</strong> selected · {newFormatOutputs.length} file{newFormatOutputs.length === 1 ? '' : 's'} will be written{newFormatOutputs.length < newFormatSelection.length ? ' · identical sizes are combined' : ''}</> : t('Pick at least one format, or start with the default 16:9.')}</span></div>
               <div className="modal-actions">
-                <button className="button primary" disabled={!canEdit} onClick={() => void startWithFormats()}><Plus size={16} /> Start blank</button>
-                <button className="button" disabled={!canEdit} onClick={() => void startTemplate(SAMPLE_TEMPLATE)}><LayoutTemplate size={16} /> Use Travel sample</button>
-                <button className="button subtle" onClick={requestCloseModal}>Cancel</button>
+                <button className="button primary" disabled={!canEdit} onClick={() => void startWithFormats()}><Plus size={16} /> {t('Start blank')}</button>
+                <button className="button" disabled={!canEdit} onClick={() => void startTemplate(SAMPLE_TEMPLATE)}><LayoutTemplate size={16} /> {t('Use Travel sample')}</button>
+                <button className="button subtle" onClick={requestCloseModal}>{t('Cancel')}</button>
               </div>
             </div>
           </>}
@@ -4617,7 +4682,7 @@ export default function App() {
           <label className="field rename-field">Project name<input autoFocus maxLength={120} value={renameDraft} onChange={event => setRenameDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void renameProject(); } }} /></label>
           <div className="modal-actions">
             <button className="button primary" disabled={!renameDraft.trim()} onClick={() => void renameProject()}><Check size={16} /> Save name</button>
-            <button className="button subtle" onClick={requestCloseModal}>Cancel</button>
+            <button className="button subtle" onClick={requestCloseModal}>{t('Cancel')}</button>
           </div>
         </> : modal === 'group' ? <>
           <h2 id="modal-title">Organize “{groupTarget?.name}”.</h2>
@@ -4627,13 +4692,13 @@ export default function App() {
           <div className="modal-actions">
             <button className="button primary" disabled={!groupDraft.trim()} onClick={() => void confirmGroupProject(groupDraft)}><FolderOpen size={16} /> Move to group</button>
             {groupTarget?.group && <button className="button" onClick={() => void confirmGroupProject(null)}>Remove from group</button>}
-            <button className="button subtle" onClick={requestCloseModal}>Cancel</button>
+            <button className="button subtle" onClick={requestCloseModal}>{t('Cancel')}</button>
           </div>
         </> : modal === 'groups' ? <>
           <h2 id="modal-title">Manage project groups.</h2>
           <p>Rename a group or remove it. Removing a group keeps every project and simply moves those projects back to Ungrouped.</p>
           {projectGroupsList.length ? <div className="group-manager-list">{projectGroupsList.map(group => <div className="group-manager-row" key={group}><input aria-label={`Name for ${group}`} maxLength={60} value={groupDrafts[group] ?? group} onChange={event => setGroupDrafts(current => ({ ...current, [group]: event.target.value }))} onKeyDown={event => { if (event.key === 'Enter') void saveGroupRename(group); }} /><button className="button" disabled={(groupDrafts[group] ?? group).trim() === group || !(groupDrafts[group] ?? '').trim()} onClick={() => void saveGroupRename(group)}><Check size={14} /> Save</button><button className="button danger" onClick={() => void removeGroup(group)}><Trash2 size={14} /> Remove</button></div>)}</div> : <p className="note">No groups yet. Use a project’s ••• menu to move it into one.</p>}
-          <div className="modal-actions"><button className="button primary" onClick={requestCloseModal}>Done</button></div>
+          <div className="modal-actions"><button className="button primary" onClick={requestCloseModal}>{t('Done')}</button></div>
         </> : modal === 'formats' ? <>
           <h2 id="modal-title">{t('Deliverables')}.</h2>
           <p>{t('Choose output formats. Adjust each selected format on the right.')}</p>
