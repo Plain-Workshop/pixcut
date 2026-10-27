@@ -1301,3 +1301,29 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - `registerCustomFonts` now tracks the data behind each face and re-registers it when a refresh changes the bytes under the same font id; previously the cached `FontFace` kept rendering the old subset.
 - Browser check: imported the 22 MB Arial Unicode face (428,833 base64 chars), changed the title to the rare 龘 and refreshed from the same file — the subset grew to 429,877 chars, the list still showed one 315 KB font, the picker kept “Arial Unicode · Custom”, and the canvas rendered the new glyph. Removing it left zero fonts, zero list rows and the eight bundled picker entries. No console errors. Reviewed `output/playwright/font-refresh.png`.
 - Boundary: Refresh needs the original file again (the app intentionally keeps only the subset); removing a font does not rewrite text layers, they fall back to Inter until another font is chosen.
+
+## Polish and Ukrainian for the export studio — 2026-10-27
+
+- The export dialog is fully translated: eyebrow and title, the project line ("Wild escape · 12.0 s · 3 sceny"), codec cards and their notes (Szeroka zgodność, Wydajna kompresja, WebM do sieci, Materiał do montażu, plus the per-codec note under the outputs), container and speed selects, hardware encoder state ("Niedostępne w tej wersji", "Tylko H.264 i H.265", "Koder platformy · znacznie szybciej"), quality labels and their descriptions (Mniejszy / Szybkie wersje robocze, Zbalansowana / Codzienne udostępnianie, Wysoka / Ostrzejsze szczegóły), resolution and frame-rate labels, the audio toggle details, file naming (Nazwa, Wersja, Opcje nazewnictwa, Dodaj nazwę pliku, Dodaj jakość), the video-source rendering note, the outputs summary and combine note, the file-name preview counts, the footer states (desktop-only notice, FFmpeg install hint with the platform command, unavailable codec, ProRes quality note, "możesz kontynuować edycję") and the export button ("Eksportuj wideo" / "Eksportuj: 2 filmy").
+- New plural helpers `renderCount()` and `videoCount()` join `formatCount()`/`fileCount()`, so combined-delivery copy reads correctly: "{formats} dzielą {renders}, więc PixCut zapisze {videos} …" and Ukrainian equivalents; the outputs summary uses `{formats} selected · {files}` placeholders.
+- Also translated the Home template strip (names + "3 sceny · 12.0 s") and the media panel's "Importuj zdjęcia" / "Імпортувати світлини" button.
+- Stored names (deliverable names, project names, "Original") stay as saved — only rendered UI copy is translated.
+- Tests: full suite 318 tests in 48 files, `npx tsc -b` and `npm run build` pass.
+- Browser check in Polish: the whole dialog reads in Polish end to end (encoding, codecs, quality, picture, naming, outputs, footer, button) and the Home template strip shows "Dzika ucieczka · 3 sceny · 12.0 s". Reviewed `output/playwright/export-pl.png`, `home-pl.png` and `home-uk.png`; no console errors.
+
+## Chroma key for image and video overlays — 2026-10-27
+
+- Added an optional `chroma` setting to media overlays: key colour, similarity, softness and spill suppression. It is validated in TypeScript and Rust and is rejected on non-media layers.
+- The renderer applies colour-distance keying plus smooth alpha and spill suppression before the shape mask is applied. The result is baked into the transparent overlay frame used by image scenes, video segments, stills, thumbnails and export.
+- The element inspector adds a **Chroma key** panel with a colour picker and three sliders. Removing the key restores the original overlay; the whole operation is undoable.
+- Browser check: a green overlay with a red centre over a blue scene sampled red at the centre, blue at the keyed overlay edge and blue at the canvas corner. A direct `drawOverlayStack` export frame had alpha `255` at the red centre and `0` on the green area. No console errors. Reviewed `output/playwright/chroma-key.png`.
+- Tests: `tests/chroma-key.test.ts` covers colour distance, alpha falloff, round-trip validation and invalid/shape-layer rejection. Rust adds `chroma_keys_round_trip_and_reject_invalid_values`.
+- Verification: 318 TypeScript tests in 48 files, 48 project-model tests, 37 non-ignored native tests, and all 15 ignored FFmpeg tests pass.
+- Boundary: keying runs per overlay frame in the canvas, so very large video overlays cost CPU during export. The keyed frames are not cached for video; image overlays are re-keyed when drawn.
+
+## Element panel translations — 2026-10-27
+
+- The Elements panel now translates its search placeholder (“Szukaj 230 elementów…”), collection filter (“Wszystkie 23 kolekcji”), category filter (All categories, Titles, Social, Tutorials, Dynamic, Lifestyle, Business, Frames), empty result and “Show 40 more” action. Import graphic/Video overlay tooltips and “In project” were already wired.
+- Category chips/options and the collection counter use `{count}` placeholders; collection names remain product names, like the element cards.
+- Browser check in Polish: search, both filters, all eight category labels and “Pokaż kolejne 40 · 40 / 230” rendered as expected with no console errors. Reviewed `output/playwright/elements-pl.png`.
+- Also records the concurrent tree’s export-studio/chroma-key work in README and the roadmap; the full suite (318 TypeScript, 48 project-model, 37 native) passes.

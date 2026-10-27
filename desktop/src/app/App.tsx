@@ -135,6 +135,7 @@ import { ShortcutSettings } from '../components/shortcuts/ShortcutSettings';
 import * as bridge from './bridge';
 import { MAX_AUDIO_FILE_BYTES, MAX_AUDIO_LANES, MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, MAX_PROJECT_FORMATS, audioMixOf, audioLaneMix, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type AudioMix, type AudioLaneMix, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawOverlayStack, drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
+import { resizeRotatedBox, rotationFromPointer, type ResizeCorner } from '../components/preview/transform-handles';
 import { gradeLutCube } from '../components/preview/filters';
 import { Waveform } from '../components/timeline/Waveform';
 import { probeVideo, videoFileData } from '../components/preview/video';
@@ -1777,6 +1778,45 @@ export default function App() {
       stageElement({ x: x.value, y: y.value }, element);
     };
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); setSnapGuides({ x: null, y: null }); setDraggingOverlay(false); commitElement(); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
+  }
+
+  function beginElementResize(event: ReactPointerEvent<HTMLElement>, element = selectedElement, corner: ResizeCorner = 'se') {
+    if (!element || !canEdit || event.button !== 0) return;
+    event.preventDefault(); event.stopPropagation(); inspectorFlush.current();
+    selectOverlay(element, false);
+    const stage = previewStage.current?.getBoundingClientRect(); if (!stage?.width || !stage.height) return;
+    setPlaying(false); setDraggingOverlay(true);
+    const startX = event.clientX, startY = event.clientY;
+    const base = { cx: element.x * stage.width, cy: element.y * stage.height, w: element.width * stage.width, h: element.height * stage.height, rotation: element.rotation };
+    const limits = { minWidth: Math.max(6, .02 * stage.width), minHeight: Math.max(6, .02 * stage.height), maxWidth: stage.width, maxHeight: stage.height };
+    const move = (e: PointerEvent) => {
+      const box = resizeRotatedBox(base, corner, e.clientX - startX, e.clientY - startY, limits, e.shiftKey);
+      stageElement({
+        x: Math.min(1, Math.max(0, box.cx / stage.width)),
+        y: Math.min(1, Math.max(0, box.cy / stage.height)),
+        width: box.w / stage.width,
+        height: box.h / stage.height,
+      }, element);
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); setDraggingOverlay(false); commitElement(); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
+  }
+
+  function beginElementRotate(event: ReactPointerEvent<HTMLElement>, element = selectedElement) {
+    if (!element || !canEdit || event.button !== 0) return;
+    event.preventDefault(); event.stopPropagation(); inspectorFlush.current();
+    selectOverlay(element, false);
+    const stage = previewStage.current?.getBoundingClientRect(); if (!stage?.width || !stage.height) return;
+    setPlaying(false); setDraggingOverlay(true);
+    const centre = { x: stage.left + element.x * stage.width, y: stage.top + element.y * stage.height };
+    const angleAt = (clientX: number, clientY: number) => Math.atan2(clientY - centre.y, clientX - centre.x) * 180 / Math.PI;
+    const startAngle = angleAt(event.clientX, event.clientY);
+    const startRotation = element.rotation;
+    const move = (e: PointerEvent) => {
+      stageElement({ rotation: rotationFromPointer(startRotation, startAngle, angleAt(e.clientX, e.clientY), e.shiftKey) }, element);
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); setDraggingOverlay(false); commitElement(); };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
   }
 
@@ -4209,6 +4249,7 @@ export default function App() {
                 <label className="music-control"><span>Rotation <b>{Math.round(selectedElement.rotation)}°</b></span><input type="range" min="-180" max="180" step="1" value={selectedElement.rotation} onChange={event => stageElement({ rotation: Number(event.target.value) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
                 <label className="music-control"><span>Width <b>{Math.round(selectedElement.width * 100)}%</b></span><input type="range" min="2" max="100" step="1" value={Math.round(selectedElement.width * 100)} onChange={event => stageElement({ width: Number(event.target.value) / 100 })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
                 <label className="music-control"><span>Height <b>{Math.round(selectedElement.height * 100)}%</b></span><input type="range" min="2" max="100" step="1" value={Math.round(selectedElement.height * 100)} onChange={event => stageElement({ height: Number(event.target.value) / 100 })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
+                <p className="note">Drag a corner handle on the preview to resize (hold Shift to keep proportions); use the round handle above it to rotate (Shift snaps to 15°).</p>
                 </details>
               </div>;
 
@@ -4385,7 +4426,7 @@ export default function App() {
 
             <div className="panel-title"><h2>{t(tabTitles[tab])}</h2><div className="library-header-actions">
               {tab === 'media' && <><IconButton label="Import images" disabled={!canEdit} onClick={() => void chooseImages()}><ImagePlus size={17} /></IconButton><IconButton label="Import video" disabled={!canEdit} onClick={() => void chooseVideo()}><Film size={17} /></IconButton></>}
-              {tab === 'elements' && <><IconButton label="Import graphic" disabled={!selectedScene || !canEdit} onClick={() => void chooseCustomElement('image')}><ImagePlus size={17} /></IconButton><IconButton label="Video overlay" disabled={!selectedScene || !canEdit} onClick={() => void chooseCustomElement('video')}><Layers size={17} /></IconButton></>}
+              {tab === 'elements' && <><IconButton label={t('Import graphic')} disabled={!selectedScene || !canEdit} onClick={() => void chooseCustomElement('image')}><ImagePlus size={17} /></IconButton><IconButton label={t('Video overlay')} disabled={!selectedScene || !canEdit} onClick={() => void chooseCustomElement('video')}><Layers size={17} /></IconButton></>}
               {tab === 'audio' && <button className="button library-add" disabled={!canEdit || !projectTicks} onClick={() => { audioLaneRef.current = selectedAudio?.lane ?? 0; void chooseAudio(); }} title="Add audio at playhead"><Plus size={15} /> Add audio</button>}
               {tab === 'templates' && <IconButton label="Browse the full gallery" onClick={() => setModal('templates')}><LayoutTemplate size={17} /></IconButton>}
             </div></div>
@@ -4466,17 +4507,17 @@ export default function App() {
 
             </div> : <div className="elements-panel">
               <div className="element-library-tools">
-                <label className="element-search"><Search size={15} /><input aria-label="Search elements" placeholder={`Search ${ELEMENT_CATALOG.length} elements…`} value={elementSearch} onChange={e => { setElementSearch(e.target.value); setElementLimit(40); }} /></label>
-                <select aria-label="Element collection" value={elementCollection} onChange={e => { setElementCollection(e.target.value); setElementCategory('All'); setElementLimit(40); }}><option value="All">All {ELEMENT_COLLECTIONS.length} collections</option>{ELEMENT_COLLECTIONS.map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select>
-                <select aria-label="Element category" value={elementCategory} onChange={e => { setElementCategory(e.target.value); setElementCollection('All'); setElementLimit(40); }}>{ELEMENT_CATEGORIES.map(category => <option key={category} value={category}>{category === 'All' ? 'All categories' : category}</option>)}</select>
+                <label className="element-search"><Search size={15} /><input aria-label="Search elements" placeholder={t('Search {count} elements…', { count: ELEMENT_CATALOG.length })} value={elementSearch} onChange={e => { setElementSearch(e.target.value); setElementLimit(40); }} /></label>
+                <select aria-label="Element collection" value={elementCollection} onChange={e => { setElementCollection(e.target.value); setElementCategory('All'); setElementLimit(40); }}><option value="All">{t('All {count} collections', { count: ELEMENT_COLLECTIONS.length })}</option>{ELEMENT_COLLECTIONS.map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select>
+                <select aria-label="Element category" value={elementCategory} onChange={e => { setElementCategory(e.target.value); setElementCollection('All'); setElementLimit(40); }}>{ELEMENT_CATEGORIES.map(category => <option key={category} value={category}>{category === 'All' ? t('All categories') : t(category)}</option>)}</select>
               </div>
               {allOverlays.length > 0 && <details className="element-list element-project-overlays library-disclosure">
-                <summary>In project <span>{allOverlays.length}</span></summary>
+                <summary>{t('In project')} <span>{allOverlays.length}</span></summary>
                 {allOverlays.map(element => <button key={element.id} className={`element-list-row ${selectedElementId === element.id ? 'active' : ''}`} onClick={() => selectOverlay(element)}><span className="element-list-row-icon" style={{ color: element.color }}><ElementGlyph presetId={element.presetId} kind={element.kind} size={12} /></span><span>{elementName(element)}</span><small>{ticksToSeconds(element.startTicks, project.timebase).toFixed(1)}s</small></button>)}
               </details>}
               <div className="element-grid">{filteredElements.slice(0, elementLimit).map(item => <button key={item.id} className="element-card" onPointerEnter={() => setHoveredElement(item.id)} onPointerLeave={() => setHoveredElement(null)} onFocus={() => setHoveredElement(item.id)} onBlur={() => setHoveredElement(null)} aria-label={`Add ${item.label}`} disabled={!selectedScene || !canEdit || allOverlays.length >= 64} onClick={() => addElement(item.id)}><span className="element-card-icon"><ElementPreview active={hoveredElement === item.id} presetId={item.id} kind={item.kind} color={item.color} animation={item.animation} reduceMotion={preferences.reduceMotion} /></span><strong>{item.label}</strong><Plus size={12} /></button>)}</div>
-              {filteredElements.length === 0 && <p className="note">No matching elements. Try another collection or search.</p>}
-              {filteredElements.length > elementLimit && <button className="button element-show-more" onClick={() => setElementLimit(n => n + 40)}>Show 40 more · {Math.min(elementLimit, filteredElements.length)} of {filteredElements.length}</button>}
+              {filteredElements.length === 0 && <p className="note">{t('No matching elements. Try another collection or search.')}</p>}
+              {filteredElements.length > elementLimit && <button className="button element-show-more" onClick={() => setElementLimit(n => n + 40)}>{t('Show 40 more')} · {Math.min(elementLimit, filteredElements.length)} / {filteredElements.length}</button>}
 
             </div>}
 
@@ -4527,7 +4568,12 @@ export default function App() {
                   const motion = elementTransform(shown, local, project.timebase);
                   const selected = selectedElementId === element.id;
                   const rank = sceneLayerRank.get(element.legacySceneId ? `element:${element.legacyId}` : `overlay:${element.id}`) ?? index;
-                  return <div key={element.id} role="button" tabIndex={0} aria-label={`Select overlay ${elementName(element)}`} aria-pressed={selected} className={`overlay-hitbox ${selected ? 'element-box' : ''}`} style={{ left: `${(shown.x + motion.x - shown.width / 2) * 100}%`, top: `${(shown.y + motion.y - shown.height / 2) * 100}%`, width: `${shown.width * 100}%`, height: `${shown.height * 100}%`, transform: `rotate(${shown.rotation + motion.rotation}deg) scale(${motion.scale})`, zIndex: (element.legacySceneId ? 4 : 100) + rank, pointerEvents: playing ? 'none' : undefined }} title={`Drag to move ${elementName(element)}`} onClick={event => { if (event.detail === 0) selectOverlay(element, false); }} onPointerDown={event => beginElementMove(event, element)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectOverlay(element, false); } }}>{selected && <span className="element-box-label">{element.kind === 'image' || element.kind === 'video' ? 'OVERLAY' : 'ELEMENT'}</span>}</div>;
+                  return <div key={element.id} role="button" tabIndex={0} aria-label={`Select overlay ${elementName(element)}`} aria-pressed={selected} className={`overlay-hitbox ${selected ? 'element-box' : ''}`} style={{ left: `${(shown.x + motion.x - shown.width / 2) * 100}%`, top: `${(shown.y + motion.y - shown.height / 2) * 100}%`, width: `${shown.width * 100}%`, height: `${shown.height * 100}%`, transform: `rotate(${shown.rotation + motion.rotation}deg) scale(${motion.scale})`, zIndex: (element.legacySceneId ? 4 : 100) + rank, pointerEvents: playing ? 'none' : undefined }} title={`Drag to move ${elementName(element)}`} onClick={event => { if (event.detail === 0) selectOverlay(element, false); }} onPointerDown={event => beginElementMove(event, element)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectOverlay(element, false); } }}>{selected && <>
+                    <span className="element-box-label">{element.kind === 'image' || element.kind === 'video' ? 'OVERLAY' : 'ELEMENT'}</span>
+                    <span className="element-rotate-stem" aria-hidden="true" />
+                    <span className="element-rotate-handle" title="Drag to rotate · hold Shift to snap to 15°" onPointerDown={event => beginElementRotate(event, element)} />
+                    {(['nw', 'ne', 'sw', 'se'] as const).map(corner => <span key={corner} className={`element-handle ${corner}`} title="Drag to resize · hold Shift to keep proportions" onPointerDown={event => beginElementResize(event, element, corner)} />)}
+                  </>}</div>;
                 })}
                 {editingText && selectedScene && selectedTextLayer && !selectedGlobalText && textBox?.hasText && <div
                   className="text-edit-overlay"

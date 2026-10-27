@@ -1760,6 +1760,14 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .overlay-hitbox:hover, .overlay-hitbox:focus-visible { border-color: #bca7ff; outline: none; }
 .overlay-hitbox.element-box { border: 1px dashed #C4B2FF; background: rgba(157, 124, 255, .07); }
 .overlay-hitbox .element-box-label { pointer-events: none; }
+.element-handle { position: absolute; width: 10px; height: 10px; border-radius: 2px; background: #FFFFFF; border: 1px solid #7C5CFF; box-shadow: 0 1px 5px rgba(0, 0, 0, .5); touch-action: none; }
+.element-handle.nw { left: -5px; top: -5px; cursor: nwse-resize; }
+.element-handle.ne { right: -5px; top: -5px; cursor: nesw-resize; }
+.element-handle.sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
+.element-handle.se { right: -5px; bottom: -5px; cursor: nwse-resize; }
+.element-rotate-handle { position: absolute; left: 50%; top: -32px; width: 13px; height: 13px; margin-left: -7px; border-radius: 50%; background: #7C5CFF; border: 2px solid #FFFFFF; box-shadow: 0 1px 6px rgba(0, 0, 0, .55); cursor: grab; touch-action: none; }
+.element-rotate-handle:active { cursor: grabbing; }
+.element-rotate-stem { position: absolute; left: 50%; top: -19px; width: 1px; height: 16px; margin-left: -.5px; background: #C4B2FF; pointer-events: none; }
 .timeline-playhead { pointer-events: none; }
 .timeline-playhead-handle { pointer-events: auto; cursor: ew-resize; }
 
