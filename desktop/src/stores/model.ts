@@ -209,6 +209,8 @@ export type Scene = {
   subtitle: string;
   textLayers?: TextLayer[];
   transition?: Transition | null;
+  /** Present on picture-in-picture track clips. */
+  pip?: PipStyle;
   color: string;
   fit: 'cover' | 'contain' | 'blur';
   imageX?: number;
@@ -280,11 +282,15 @@ export type Scene = {
   textSubtitleScale?: number;
 };
 export type TrackKind = 'visual' | 'text' | 'audio';
+/** Placement of a clip on the picture-in-picture track. Fractions of the canvas. */
+export type PipStyle = { x: number; y: number; width: number; height: number; radius: number; shadow: number };
 export type Track = {
   id: string;
   kind: TrackKind;
   name: string;
   clips: Scene[];
+  /** Visual tracks are the base timeline or the picture-in-picture layer. */
+  role?: 'base' | 'overlay';
   hidden?: boolean;
   muted?: boolean;
   locked?: boolean;
@@ -327,6 +333,7 @@ export type Command =
   | { type: 'ducking'; amount: number }
   | { type: 'fonts'; fonts: ProjectFont[] }
   | { type: 'globalText'; layers: TextLayer[] }
+  | { type: 'pip'; scenes: Scene[] }
   | { type: 'add'; scenes: Scene[] }
   | { type: 'update'; scene: Scene }
   | { type: 'remove'; id: string }
@@ -346,7 +353,7 @@ export const HISTORY_MEDIA_BYTES = 160_000_000;
 export function projectMediaBytes(project: Project) {
   let bytes = 0;
   for (const element of project.overlays ?? []) bytes += (element.source?.length ?? 0) + (element.poster?.length ?? 0);
-  for (const scene of projectScenes(project)) {
+  for (const track of project.tracks.filter(item => item.kind === 'visual')) for (const scene of track.clips) {
     bytes += scene.image.length;
     for (const element of scene.elements ?? []) bytes += (element.source?.length ?? 0) + (element.poster?.length ?? 0);
   }
@@ -361,7 +368,10 @@ export function trimHistory(past: Project[]): Project[] {
   return kept;
 }
 export const emptyTrack = (kind: TrackKind = 'visual', name = 'Visuals'): Track => ({ id: crypto.randomUUID(), kind, name, clips: [] });
-export const visualTrack = (project: Project) => project.tracks.find(track => track.kind === 'visual') ?? project.tracks[0];
+export const visualTrack = (project: Project) => project.tracks.find(track => track.kind === 'visual' && track.role !== 'overlay') ?? project.tracks[0];
+export const overlayTrack = (project: Project) => project.tracks.find(track => track.kind === 'visual' && track.role === 'overlay');
+export const overlayScenes = (project: Project) => overlayTrack(project)?.clips ?? [];
+export const isPipScene = (project: Project, id: string | null | undefined) => Boolean(id && overlayScenes(project).some(scene => scene.id === id));
 export const projectScenes = (project: Project) => visualTrack(project)?.clips ?? [];
 export function normalizeStarts(clips: Scene[]) {
   let cursor = 0;
@@ -455,6 +465,20 @@ function readMask(value: unknown): LayerMask | undefined {
   }
   if (typeof mask.invert !== 'boolean') throw new Error('An overlay mask needs an invert setting.');
   return { shape: mask.shape as MaskShape, x: mask.x!, y: mask.y!, width: mask.width!, height: mask.height!, rotation: mask.rotation!, feather: mask.feather!, invert: mask.invert };
+}
+
+function readPip(value: unknown): PipStyle | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object') throw new Error('Invalid picture-in-picture placement.');
+  const pip = value as Partial<PipStyle>;
+  return {
+    x: readNumber(pip.x, 0, 1, .8, 'picture-in-picture position'),
+    y: readNumber(pip.y, 0, 1, .78, 'picture-in-picture position'),
+    width: readNumber(pip.width, .05, 1, .32, 'picture-in-picture width'),
+    height: readNumber(pip.height, .05, 1, .32, 'picture-in-picture height'),
+    radius: readNumber(pip.radius, 0, .5, .06, 'picture-in-picture corner radius'),
+    shadow: readNumber(pip.shadow, 0, 100, 60, 'picture-in-picture shadow'),
+  };
 }
 
 function readTextLayers(value: unknown, scene: Scene, durationTicks: number, limit = MAX_TEXT_LAYERS, subject = 'A scene'): TextLayer[] {
@@ -649,7 +673,7 @@ function readAudio(value: unknown, legacyMusic: unknown, total: number, timebase
   return [];
 }
 type SceneInput = Omit<Scene, 'durationTicks' | 'startTicks' | 'sourceInTicks'> & { durationTicks?: number; startTicks?: number; sourceInTicks?: number; duration?: number };
-type TrackInput = { id?: unknown; kind?: unknown; name?: unknown; clips?: SceneInput[]; hidden?: unknown; muted?: unknown; locked?: unknown };
+type TrackInput = { id?: unknown; kind?: unknown; name?: unknown; role?: unknown; clips?: SceneInput[]; hidden?: unknown; muted?: unknown; locked?: unknown };
 type ProjectInput = Omit<Project, 'tracks' | 'timebase' | 'schema_version' | 'audio' | 'formats'> & { schema_version?: number; timebase?: Timebase; tracks?: TrackInput[]; scenes?: SceneInput[]; audio?: unknown; music?: unknown; formats?: unknown };
 function readTimebase(value: unknown): Timebase {
   if (!value || typeof value !== 'object') return { ...DEFAULT_TIMEBASE };
@@ -789,7 +813,7 @@ export function validateProject(value: unknown): Project {
   const minimum = minTicks(timebase), photoMaximum = maxTicks(timebase);
   const clipIds = new Set<string>();
   let bytes = 0;
-  function readClips(candidates: SceneInput[]): Scene[] {
+  function readClips(candidates: SceneInput[], normalize = true): Scene[] {
     if (!Array.isArray(candidates) || candidates.length > 100) throw new Error('Invalid project format.');
     const clips: Scene[] = [];
     for (const candidate of candidates) {
@@ -819,10 +843,13 @@ export function validateProject(value: unknown): Project {
       if (mask && s.mediaKind === 'video') throw new Error('Masks apply to photo scenes and media overlays, not video scenes.');
       if (mask) s.mask = mask;
       else delete s.mask;
+      const pip = readPip(s.pip);
+      if (pip) s.pip = pip;
+      else delete s.pip;
       clipIds.add(s.id); bytes += s.image.length + (s.elements ?? []).reduce((sum, element) => sum + (element.source?.length ?? 0), 0);
       clips.push(s as Scene);
     }
-    normalizeStarts(clips);
+    if (normalize) normalizeStarts(clips);
     return clips;
   }
   const trackIds = new Set<string>();
@@ -835,11 +862,13 @@ export function validateProject(value: unknown): Project {
     trackIds.add(id);
     const name = typeof track.name === 'string' && track.name.length <= 120 ? track.name : `${String(kind)[0].toUpperCase()}${String(kind).slice(1)}`;
     if (kind !== 'visual' && clips.length) throw new Error('Only visual clips are supported in this build.');
+    const role = kind === 'visual' && track.role === 'overlay' ? 'overlay' : kind === 'visual' && track.role === 'base' ? 'base' : undefined;
     return {
       id,
       kind: kind as TrackKind,
       name,
-      clips: kind === 'visual' ? readClips(clips) : [],
+      ...(role ? { role } : {}),
+      clips: kind === 'visual' ? readClips(clips, role !== 'overlay') : [],
       hidden: track.hidden === true,
       muted: track.muted === true,
       locked: track.locked === true,
@@ -852,9 +881,22 @@ export function validateProject(value: unknown): Project {
   } else {
     tracks = [readTrack({ id: 'visual-1', kind: 'visual', name: 'Visuals' }, 0, Array.isArray(p.scenes) ? p.scenes : [])];
   }
-  if (tracks.filter(track => track.kind === 'visual').length !== 1) throw new Error('A project needs exactly one visual track in this build.');
+  const visualTracks = tracks.filter(track => track.kind === 'visual');
+  const baseTrack = visualTracks.find(track => track.role !== 'overlay');
+  const pipTrack = visualTracks.find(track => track.role === 'overlay');
+  if (!baseTrack || visualTracks.length > 2) throw new Error('A project needs one base visual track and at most one picture-in-picture track.');
+  const total = baseTrack.clips.reduce((end, clip) => Math.max(end, clip.startTicks + clip.durationTicks), 0);
+  if (pipTrack) {
+    if (pipTrack.clips.length > 50) throw new Error('A picture-in-picture track supports up to 50 clips.');
+    let end = 0;
+    for (const clip of [...pipTrack.clips].sort((a, b) => a.startTicks - b.startTicks)) {
+      if (!clip.pip) throw new Error('A picture-in-picture clip is missing its placement.');
+      if (clip.startTicks < end) throw new Error('Picture-in-picture clips cannot overlap on the same track.');
+      if (clip.startTicks + clip.durationTicks > total) throw new Error('A picture-in-picture clip extends beyond the timeline.');
+      end = clip.startTicks + clip.durationTicks;
+    }
+  }
   if (bytes > 90_000_000) throw new Error('This prototype supports up to 64 MB of embedded images per project.');
-  const total = tracks.filter(track => track.kind === 'visual').flatMap(track => track.clips).reduce((end, clip) => Math.max(end, clip.startTicks + clip.durationTicks), 0);
   const overlays = readElements(p.overlays, total, 64);
   bytes += overlays.reduce((sum, e) => sum + (e.source?.length ?? 0), 0);
   if (bytes > 140_000_000) throw new Error('Project media exceeds 100 MB.');
@@ -899,6 +941,7 @@ const SCENE_PATCH_FIELDS = [
   { key: 'filterIntensity', value: (scene: Scene) => scene.filterIntensity ?? 100 },
   { key: 'speed', value: (scene: Scene) => scene.speed ?? 1 },
   { key: 'speedEnd', value: (scene: Scene) => scene.speedEnd },
+  { key: 'pip', value: (scene: Scene) => JSON.stringify(scene.pip ?? null) },
   { key: 'reverse', value: (scene: Scene) => Boolean(scene.reverse) },
   { key: 'pitch', value: (scene: Scene) => scene.pitch ?? true },
   { key: 'videoVolume', value: (scene: Scene) => scene.videoVolume ?? 100 },
@@ -991,6 +1034,14 @@ export function edit(project: Project, command: Exclude<Command, { type: 'undo' 
     case 'ducking': p.ducking = command.amount; break;
     case 'fonts': p.fonts = command.fonts; break;
     case 'globalText': p.globalText = command.layers.length ? command.layers : undefined; break;
+    case 'pip': {
+      const existing = p.tracks.find(item => item.kind === 'visual' && item.role === 'overlay');
+      if (command.scenes.length) {
+        if (existing) existing.clips = command.scenes;
+        else p.tracks.push({ ...emptyTrack('visual', 'Picture in picture'), role: 'overlay', clips: command.scenes });
+      } else if (existing) p.tracks = p.tracks.filter(item => item !== existing);
+      return validateProject(p);
+    }
     case 'add': clips.push(...command.scenes); break;
     case 'update': clips = clips.map(s => s.id === command.scene.id ? command.scene : s); break;
     case 'remove': clips = clips.filter(s => s.id !== command.id); break;

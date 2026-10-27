@@ -11,6 +11,7 @@ import { framingTravel } from '../components/preview/framing';
 import { centreGuides, edgeGuides, snapToTargets } from '../components/preview/snapping';
 import { registerCustomFonts } from '../components/text/fonts';
 import { splitTransition } from '../components/preview/transition-timing';
+import { constrainPipTiming, freePipStart, pipSourceRoom } from '../components/timeline/pip';
 import { isRamped, sourceSecondsAt, sourceSpan, speedAt, speedCurve } from '../components/preview/speed';
 import { parseCaptions, placeCaptions } from '../components/text/captions';
 import { textLayersAsCaptions, toSrt } from '../components/text/captions-export';
@@ -123,8 +124,8 @@ import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import { ShortcutSettings } from '../components/shortcuts/ShortcutSettings';
 import * as bridge from './bridge';
-import { MAX_AUDIO_FILE_BYTES, MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, MAX_PROJECT_FORMATS, edit, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
-import { drawOverlayStack, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
+import { MAX_AUDIO_FILE_BYTES, MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, MAX_PROJECT_FORMATS, edit, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
+import { drawOverlayStack, drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
 import { gradeLutCube } from '../components/preview/filters';
 import { Waveform } from '../components/timeline/Waveform';
 import { probeVideo, videoFileData } from '../components/preview/video';
@@ -465,6 +466,9 @@ export default function App() {
   const [textDraft, setTextDraft] = useState({ title: '', subtitle: '' });
   const [selectedTextLayerId, setSelectedTextLayerId] = useState<string | null>(null);
   const [selectedGlobalTextId, setSelectedGlobalTextId] = useState<string | null>(null);
+  const [selectedPipId, setSelectedPipId] = useState<string | null>(null);
+  const [pipDraft, setPipDraft] = useState<Scene | null>(null);
+  const pipDraftRef = useRef<Scene | null>(null);
   const [globalTextDraft, setGlobalTextDraft] = useState<TextLayer[] | null>(null);
   const [textFocus, setTextFocus] = useState(0);
   const [activeFormatId, setActiveFormatId] = useState<string | null>(null);
@@ -636,6 +640,10 @@ export default function App() {
     textLayers: project.globalText,
   } : null, [project.id, project.globalText, projectTicks]);
   const selectedGlobalText = selectedGlobalTextId ? (project.globalText ?? []).find(layer => layer.id === selectedGlobalTextId) ?? null : null;
+  const pipScenes = overlayScenes(project);
+  const selectedPip = selectedPipId ? pipScenes.find(clip => clip.id === selectedPipId) ?? null : null;
+  const renderPipScenes = pipDraft ? pipScenes.map(clip => clip.id === pipDraft.id ? pipDraft : clip) : pipScenes;
+  const activePip = pipDraft?.id === selectedPip?.id ? pipDraft : selectedPip;
   const selectedTextScene = selectedGlobalText ? projectTextScene : (previewScene && selectedScene && previewScene.id === selectedScene.id ? previewScene : selectedScene);
   const selectedTextLayers = selectedGlobalText ? [selectedGlobalText] : (selectedTextScene ? sceneTextLayers(selectedTextScene) : []);
   const selectedTextLayer = selectedGlobalText ?? selectedTextLayers.find(layer => layer.id === selectedTextLayerId) ?? selectedTextLayers[0] ?? null;
@@ -1117,13 +1125,14 @@ export default function App() {
       } else {
         await drawScene(layer, sceneForPreview!, displayAspect, 'preview', previewLocalSeconds, project.timebase, renderSize, videoScene ? sceneVideo.current : null, project.audio, renderOverlays, position);
       }
+      await drawPipClips(layer, renderPipScenes, position, displayAspect, 'preview', project.timebase, project.audio);
       await drawProjectText(layer, globalTextDraft ?? project.globalText ?? [], position, project.timebase);
       if (preview.current && latestProject.current.id === projectId) {
         preview.current.width = layer.width; preview.current.height = layer.height;
         preview.current.getContext('2d')?.drawImage(layer, 0, 0);
       }
     });
-  }, [previewTarget, previewLocalSeconds, displayAspect, project.timebase, project.audio, project.globalText, globalTextDraft, screen, activeFormat?.id, framingStaged, previewTransition?.type, previewTransition?.progress, previewTransition?.next, videoTick, videoScene?.id, renderOverlays, draggingOverlay, playing, activeSize.width, activeSize.height]);
+  }, [previewTarget, previewLocalSeconds, displayAspect, project.timebase, project.audio, project.tracks, pipDraft, project.globalText, globalTextDraft, screen, activeFormat?.id, framingStaged, previewTransition?.type, previewTransition?.progress, previewTransition?.next, videoTick, videoScene?.id, renderOverlays, draggingOverlay, playing, activeSize.width, activeSize.height]);
 
   useEffect(() => {
     const area = previewArea.current;
@@ -1293,6 +1302,7 @@ export default function App() {
     commitElement();
     setSelectedElementId(null); setOverlayDraft(null); overlayDraftRef.current = null;
     setEditingText(false); setSelectedTextLayerId(null); setSelectedGlobalTextId(null); setGlobalTextDraft(null);
+    setSelectedPipId(null); setPipDraft(null); pipDraftRef.current = null;
     setEditTarget('scene');
     const toggle = Boolean(event?.metaKey || event?.ctrlKey);
     const range = Boolean(event?.shiftKey);
@@ -1434,6 +1444,7 @@ export default function App() {
   function deleteSelected() {
     if (editTarget === 'audio') { if (selectedAudioId) removeAudio(selectedAudioId); return; }
     if (editTarget === 'element') { if (selectedElement) removeElement(selectedElement.id); return; }
+    if (selectedPip) { removePip(selectedPip.id); return; }
     if (editTarget === 'text' && selectedGlobalText) {
       const layers = (project.globalText ?? []).filter(layer => layer.id !== selectedGlobalText.id);
       void run({ type: 'globalText', layers });
@@ -1543,6 +1554,7 @@ export default function App() {
     setSelectedElementId(null);
     setSelectedGlobalTextId(null);
     setGlobalTextDraft(null);
+    setSelectedPipId(null);
     setSelectedTextLayerId(id);
     if (!id || !selectedScene) return;
     const layer = sceneTextLayers(selectedScene).find(item => item.id === id);
@@ -1597,7 +1609,7 @@ export default function App() {
 
   function selectOverlay(element: TimelineOverlay, seek = true) {
     setOverlayDraft(null); overlayDraftRef.current = null;
-    setSelectedElementId(element.id); setSelectedTextLayerId(null); setSelectedGlobalTextId(null); setEditTarget('element');
+    setSelectedElementId(element.id); setSelectedTextLayerId(null); setSelectedGlobalTextId(null); setSelectedPipId(null); setEditTarget('element');
     setFramingMode(false); setEditingText(false); setTab('elements'); setPlaying(false);
     const owner = sceneAt(project, ticksToSeconds(element.startTicks, project.timebase))?.scene;
     if (owner) { setSelectedIds([owner.id]); setPrimarySelected(owner.id); }
@@ -2040,7 +2052,7 @@ export default function App() {
       }
       case 'edit.deselect':
         setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null;
-        setSelectedTextLayerId(null); setSelectedGlobalTextId(null); setSelectedElementId(null);
+        setSelectedTextLayerId(null); setSelectedGlobalTextId(null); setSelectedPipId(null); setPipDraft(null); pipDraftRef.current = null; setSelectedElementId(null);
         setOverlayDraft(null); overlayDraftRef.current = null;
         setEditingText(false); setFramingMode(false);
         break;
@@ -2439,6 +2451,122 @@ export default function App() {
       startTicks, durationTicks: Math.min(projectTicks - startTicks, source.durationTicks), animation: 'none' };
     if (await run({ type: 'overlays', overlays: [...project.overlays, element] })) {
       setEditTarget('element'); setSelectedElementId(element.id); setEditingText(false); setFramingMode(false); setModal(null); setTab('elements');
+    }
+  }
+
+  function selectPip(clip: Scene) {
+    setSelectedPipId(clip.id);
+    setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null;
+    setSelectedTextLayerId(null); setSelectedGlobalTextId(null); setSelectedElementId(null);
+    setEditTarget('scene'); setEditingText(false); setFramingMode(false); setPlaying(false);
+    setPosition(ticksToSeconds(clip.startTicks, project.timebase));
+  }
+
+  function stagePip(patch: Partial<Scene>) {
+    if (!selectedPip) return;
+    const base = pipDraftRef.current?.id === selectedPip.id ? pipDraftRef.current : selectedPip;
+    const next = { ...base, ...patch };
+    pipDraftRef.current = next;
+    setPipDraft(next);
+  }
+
+  function stagePipStyle(key: 'x' | 'y' | 'width' | 'height' | 'radius' | 'shadow', value: number) {
+    if (!activePip?.pip) return;
+    stagePip({ pip: { ...activePip.pip, [key]: value } });
+  }
+
+  function commitPip() {
+    const draft = pipDraftRef.current;
+    pipDraftRef.current = null;
+    setPipDraft(null);
+    if (!draft) return;
+    if (draft.pip && (![draft.pip.x, draft.pip.y, draft.pip.width, draft.pip.height, draft.pip.radius, draft.pip.shadow].every(Number.isFinite))) {
+      setError('Picture-in-picture placement is invalid.');
+      return;
+    }
+    void run({ type: 'pip', scenes: overlayScenes(project).map(clip => clip.id === draft.id ? draft : clip) });
+  }
+
+  function removePip(id: string) {
+    void run({ type: 'pip', scenes: overlayScenes(project).filter(clip => clip.id !== id) }).then(ok => {
+      if (ok) { setSelectedPipId(null); setPipDraft(null); pipDraftRef.current = null; setNotice('Picture-in-picture clip removed.'); }
+    });
+  }
+
+  function beginPipTiming(event: ReactPointerEvent<HTMLElement>, clip: Scene, edge: 'move' | 'start' | 'end') {
+    if (!canEdit || event.button !== 0) return;
+    event.preventDefault(); event.stopPropagation(); selectPip(clip);
+    const track = event.currentTarget.closest('.pip-track')?.getBoundingClientRect();
+    if (!track?.width) return;
+    const startX = event.clientX;
+    let moved = false;
+    const move = (moveEvent: PointerEvent) => {
+      const delta = Math.round((moveEvent.clientX - startX) / track.width * projectTicks);
+      moved ||= Math.abs(moveEvent.clientX - startX) > 2;
+      const timing = constrainPipTiming(clip, edge, delta, overlayScenes(project), projectTicks, project.timebase, minTicks(project.timebase));
+      const next = { ...clip, ...timing };
+      pipDraftRef.current = next;
+      setPipDraft(next);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      const draft = pipDraftRef.current;
+      pipDraftRef.current = null;
+      setPipDraft(null);
+      if (moved && draft) void run({ type: 'pip', scenes: overlayScenes(project).map(item => item.id === draft.id ? draft : item) });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up, { once: true });
+  }
+
+  async function addMediaPip(source: Scene) {
+    if (!selectedScene) { setNotice('Select the background scene first, then add picture in picture.'); return; }
+    const existing = overlayScenes(project);
+    if (existing.length >= 50) { setNotice('This project already has 50 picture-in-picture clips.'); return; }
+    try {
+      let sourceAspect = 16 / 9;
+      if (source.mediaKind === 'video') {
+        const probe = await probeVideo((await resolveMediaSource(source.image)) ?? source.image);
+        sourceAspect = probe.width / probe.height;
+      } else {
+        const image = await loadImage(source.image);
+        sourceAspect = image.naturalWidth / image.naturalHeight;
+      }
+      const minimum = minTicks(project.timebase);
+      const desired = Math.max(0, Math.min(projectTicks - 1, secondsToTicks(position, project.timebase)));
+      if (projectTicks - desired < minimum) { setNotice('Move the playhead earlier to fit a picture-in-picture clip.'); return; }
+      let durationTicks = Math.min(source.durationTicks, projectTicks - desired);
+      if (source.mediaKind === 'video' && source.sourceDurationSeconds) {
+        durationTicks = Math.min(durationTicks, pipSourceRoom(source, project.timebase));
+      }
+      durationTicks = Math.max(minimum, Math.min(durationTicks, projectTicks));
+      const startTicks = freePipStart(existing, desired, durationTicks, projectTicks);
+      if (startTicks === null) {
+        setNotice('There is no free space for picture in picture there. Move the playhead or shorten an existing clip.');
+        return;
+      }
+      const width = .32;
+      const height = Math.max(.08, Math.min(.9, width * (activeSize.width / activeSize.height) / Math.max(.1, sourceAspect)));
+      const clip: Scene = {
+        ...structuredClone(source),
+        id: crypto.randomUUID(),
+        startTicks,
+        durationTicks,
+        transition: null,
+        textLayers: [],
+        elements: [],
+        pip: { x: .8, y: .78, width, height, radius: .06, shadow: 60 },
+      };
+      if (await run({ type: 'pip', scenes: [...existing, clip].sort((a, b) => a.startTicks - b.startTicks) })) {
+        setSelectedPipId(clip.id);
+        setSelectedIds([]); setPrimarySelected(null);
+        setEditTarget('scene'); setSelectedTextLayerId(null); setSelectedGlobalTextId(null); setSelectedElementId(null);
+        setPosition(ticksToSeconds(startTicks, project.timebase));
+        setNotice('Picture in picture added. Adjust its corner and size in the inspector.');
+      }
+    } catch (error) {
+      setError(messageFor(error));
     }
   }
 
@@ -3343,13 +3471,14 @@ export default function App() {
         const transition = scene.transition && next ? scene.transition : null;
         const { transitionTicks, mainTicks, audioTicks } = splitTransition(scene.durationTicks, transition, source.timebase);
         const overlays: bridge.PlanOverlay[] = [];
-        if ((scene.elements?.length ?? 0) || sceneTextLayers(scene).length || source.overlays.length) {
+        if ((scene.elements?.length ?? 0) || sceneTextLayers(scene).length || source.overlays.length || overlayScenes(source).length) {
           const frames: string[] = [];
           const canvas = document.createElement('canvas');
           canvas.width = size.width; canvas.height = size.height;
           for (let frame = 0; frame < mainTicks; frame++) {
             if (exportCancelled.current) throw new Error('Export cancelled.');
             await drawOverlayStack(canvas, scene, source.overlays, size, ticksToSeconds(frame, source.timebase), ticksToSeconds(scene.startTicks + frame, source.timebase), source.timebase, true, visualAudio);
+            await drawPipClips(canvas, overlayScenes(source), ticksToSeconds(scene.startTicks + frame, source.timebase), source.aspect, 'export', source.timebase, visualAudio, true);
             await drawProjectText(canvas, source.globalText ?? [], ticksToSeconds(scene.startTicks + frame, source.timebase), source.timebase);
             frames.push(await canvasPng(canvas));
             tick();
@@ -3387,6 +3516,7 @@ export default function App() {
               const progress = Math.min(1, (frame + 1) / transitionTicks);
               await drawTransition(canvas, scene, next, transition.type, source.aspect, 'export', progress, localSeconds, 0, source.timebase, size, visualAudio, fromFrame, toFrame);
               await drawProjectOverlays(canvas, source.overlays, ticksToSeconds(scene.startTicks + localTicks, source.timebase), source.timebase, true, visualAudio);
+              await drawPipClips(canvas, overlayScenes(source), ticksToSeconds(scene.startTicks + localTicks, source.timebase), source.aspect, 'export', source.timebase, visualAudio, true);
               await drawProjectText(canvas, source.globalText ?? [], ticksToSeconds(scene.startTicks + localTicks, source.timebase), source.timebase);
               segments.push({ kind: 'image', png: await canvasPng(canvas), durationTicks: 1, overlays: [] });
               tick();
@@ -3415,6 +3545,7 @@ export default function App() {
         } else {
           await drawScene(canvas, scene, source.aspect, 'export', localSeconds, source.timebase, size, undefined, visualAudio, source.overlays, ticksToSeconds(scene.startTicks + localTicks, source.timebase));
         }
+        await drawPipClips(canvas, overlayScenes(source), ticksToSeconds(scene.startTicks + localTicks, source.timebase), source.aspect, 'export', source.timebase, visualAudio, true);
         await drawProjectText(canvas, source.globalText ?? [], ticksToSeconds(scene.startTicks + localTicks, source.timebase), source.timebase);
         segments.push({ kind: 'image', png: await canvasPng(canvas), durationTicks, overlays: [] });
         tick();
@@ -3438,6 +3569,7 @@ export default function App() {
       } else {
         await drawScene(canvas, sceneForPreview, displayAspect, 'export', previewLocalSeconds, project.timebase, activeSize, videoScene ? sceneVideo.current : null, project.audio, renderOverlays, position);
       }
+      await drawPipClips(canvas, renderPipScenes, position, displayAspect, 'export', project.timebase, project.audio, true);
       await drawProjectText(canvas, project.globalText ?? [], position, project.timebase);
       const saved = await bridge.saveStillFrame(await canvasPng(canvas), `${project.name} - ${activeFormat?.name ?? 'Original'}`);
       if (saved) setNotice(`Still frame saved at ${activeSize.width} × ${activeSize.height}. The preview, overlays and colour match the timeline.`);
@@ -3512,6 +3644,7 @@ export default function App() {
             await drawProjectOverlays(canvas, snapshot.overlays, projectSeconds, snapshot.timebase, true, visualAudio);
           } else {
             await drawScene(canvas, segment.scene, snapshot.aspect, 'export', localSeconds, snapshot.timebase, size, undefined, visualAudio, snapshot.overlays, projectSeconds);
+            await drawPipClips(canvas, overlayScenes(snapshot), projectSeconds, snapshot.aspect, 'export', snapshot.timebase, visualAudio, true);
             await drawProjectText(canvas, snapshot.globalText ?? [], projectSeconds, snapshot.timebase);
           }
           frames.push(await canvasPng(canvas));
@@ -3911,7 +4044,7 @@ export default function App() {
               <div className="library-label">PROJECT MEDIA <span>JPEG · PNG · WEBP</span></div>
               <div className="media-grid" onDragOver={event => dragOverTarget(event, 'media-grid')} onDrop={dropIntoMedia}>{filteredScenes.map(source => <div key={source.id} className="media-tile source-tile">
                 <button className="media-source" aria-label={`Preview ${source.name}`} onClick={() => previewMedia(source)}><div><AssetImage source={source.videoPoster ?? source.image} alt="" fallback={<span className="media-missing"><ImagePlus size={18} /> Missing</span>} /><span>{source.mediaKind === 'video' ? 'VIDEO · ' : ''}{sceneSeconds(source, project.timebase).toFixed(1)}s</span><Play className="source-play" size={20} /></div><span className="media-name">{source.name}</span></button>
-                <div className="media-placement"><button title={hasMedia(source.image) ? 'Append to timeline' : 'Relink this file first'} aria-label={`Append ${source.name}`} disabled={!canEdit || !hasMedia(source.image)} onClick={() => void appendMedia(source)}><Plus size={14} /><span>Add</span></button><button title={hasMedia(source.image) ? 'Picture in picture' : 'Relink this file first'} aria-label={`Picture in picture: ${source.name}`} disabled={!canEdit || !selectedScene || !hasMedia(source.image)} onClick={() => void addMediaOverlay(source).catch(error => setError(messageFor(error)))}><Layers size={14} /></button></div>
+                <div className="media-placement"><button title={hasMedia(source.image) ? 'Append to timeline' : 'Relink this file first'} aria-label={`Append ${source.name}`} disabled={!canEdit || !hasMedia(source.image)} onClick={() => void appendMedia(source)}><Plus size={14} /><span>Add</span></button><button title={hasMedia(source.image) ? 'Picture in picture' : 'Relink this file first'} aria-label={`Picture in picture: ${source.name}`} disabled={!canEdit || !selectedScene || !hasMedia(source.image)} onClick={() => void addMediaPip(source).catch(error => setError(messageFor(error)))}><Layers size={14} /></button></div>
               </div>)}</div>
               {!sourceMedia.length && <div className="library-empty"><ImagePlus size={34} /><strong>A story starts with a photo.</strong><p>Import images from your device.<br />Nothing gets uploaded.</p></div>}
               {sourceMedia.length > 0 && !filteredScenes.length && <div className="library-empty"><Search size={30} /><strong>No matching media.</strong><p>Try a different name, or clear the search.</p></div>}
@@ -4057,9 +4190,21 @@ export default function App() {
           <div className="splitter vertical" onPointerDown={e => beginResize('inspector', inspectorWidth, e.clientX)} />
 
           <aside className="inspector" aria-label="Selected item properties" style={{ width: inspectorWidth }}>
-            <div className="inspector-heading"><Settings2 size={16} /><h2>{({scene: selectedScene?.mediaKind === 'video' ? 'Video properties' : 'Scene properties', text:'Text properties', element:'Element properties', audio:'Audio properties', none:'Properties'})[propertyKind]}</h2></div>
+            <div className="inspector-heading"><Settings2 size={16} /><h2>{selectedPip ? 'Picture in picture' : ({scene: selectedScene?.mediaKind === 'video' ? 'Video properties' : 'Scene properties', text:'Text properties', element:'Element properties', audio:'Audio properties', none:'Properties'})[propertyKind]}</h2></div>
             {propertyKind === 'scene' && selectedCount > 1 && <div className="multi-select-banner"><span><Layers size={13} /> Editing {selectedCount} clips</span><button className="text-button" onClick={() => { if(selectedScene){setSelectedIds([selectedScene.id]);setPrimarySelected(selectedScene.id);selectionAnchor.current=selectedScene.id;} }}>Edit only this clip</button></div>}
-            {propertyKind === 'audio' && selectedAudio ? <fieldset disabled={!canEdit} className="inspector-fields"><div className="inspector-item-actions"><strong>{selectedAudio.name}</strong><button className="icon-button danger" aria-label="Delete selected audio" onClick={() => removeAudio(selectedAudio.id)}><Trash2 size={15} /></button></div>{audioInspector}</fieldset> : propertyKind === 'element' ? <fieldset disabled={!canEdit} className="inspector-fields">{elementInspector}</fieldset> : (propertyKind === 'scene' || propertyKind === 'text') && selectedScene ? <fieldset disabled={!canEdit} className="inspector-fields">
+            {selectedPip && activePip && activePip.pip ? <fieldset disabled={!canEdit} className="inspector-fields">
+              <div className="inspector-item-actions"><strong>{activePip.name}</strong><button className="icon-button danger" aria-label="Delete picture in picture" onClick={() => removePip(activePip.id)}><Trash2 size={15} /></button></div>
+              <p className="note">Its own visual track over the base story. It never extends the timeline and its own audio is muted.</p>
+              <label className="music-control"><span>Start <b>{ticksToSeconds(activePip.startTicks, project.timebase).toFixed(1)} s</b></span><input aria-label="Picture-in-picture start" type="range" min={0} max={Math.max(0, ticksToSeconds(projectTicks - activePip.durationTicks, project.timebase))} step={secondsPerTick(project.timebase)} value={ticksToSeconds(activePip.startTicks, project.timebase)} onChange={event => { const desired = secondsToTicks(Number(event.target.value), project.timebase); const start = freePipStart(pipScenes, desired, activePip.durationTicks, projectTicks); if (start !== null) stagePip({ startTicks: start }); }} onPointerUp={commitPip} onKeyUp={commitPip} onBlur={commitPip} /></label>
+              <label className="music-control"><span>Duration <b>{ticksToSeconds(activePip.durationTicks, project.timebase).toFixed(1)} s</b></span><input aria-label="Picture-in-picture duration" type="range" min={Math.max(secondsPerTick(project.timebase), ticksToSeconds(minTicks(project.timebase), project.timebase))} max={Math.max(secondsPerTick(project.timebase), Math.min(ticksToSeconds(projectTicks - activePip.startTicks, project.timebase), activePip.sourceDurationSeconds ?? 600))} step={secondsPerTick(project.timebase)} value={ticksToSeconds(activePip.durationTicks, project.timebase)} onChange={event => { const wanted = secondsToTicks(Number(event.target.value), project.timebase); stagePip(constrainPipTiming(activePip, 'end', wanted - activePip.durationTicks, pipScenes, projectTicks, project.timebase, minTicks(project.timebase))); }} onPointerUp={commitPip} onKeyUp={commitPip} onBlur={commitPip} /></label>
+              <label className="music-control"><span>Width <b>{Math.round(activePip.pip.width * 100)}%</b></span><input aria-label="Picture-in-picture width" type="range" min={5} max={100} step={1} value={Math.round(activePip.pip.width * 100)} onChange={event => stagePipStyle('width', Number(event.target.value) / 100)} onPointerUp={commitPip} onKeyUp={commitPip} onBlur={commitPip} /></label>
+              <label className="music-control"><span>Height <b>{Math.round(activePip.pip.height * 100)}%</b></span><input aria-label="Picture-in-picture height" type="range" min={5} max={100} step={1} value={Math.round(activePip.pip.height * 100)} onChange={event => stagePipStyle('height', Number(event.target.value) / 100)} onPointerUp={commitPip} onKeyUp={commitPip} onBlur={commitPip} /></label>
+              <label className="music-control"><span>Horizontal <b>{Math.round(activePip.pip.x * 100)}%</b></span><input aria-label="Picture-in-picture horizontal" type="range" min={0} max={100} step={1} value={Math.round(activePip.pip.x * 100)} onChange={event => stagePipStyle('x', Number(event.target.value) / 100)} onPointerUp={commitPip} onKeyUp={commitPip} onBlur={commitPip} /></label>
+              <label className="music-control"><span>Vertical <b>{Math.round(activePip.pip.y * 100)}%</b></span><input aria-label="Picture-in-picture vertical" type="range" min={0} max={100} step={1} value={Math.round(activePip.pip.y * 100)} onChange={event => stagePipStyle('y', Number(event.target.value) / 100)} onPointerUp={commitPip} onKeyUp={commitPip} onBlur={commitPip} /></label>
+              <label className="music-control"><span>Corner radius <b>{Math.round(activePip.pip.radius * 100)}%</b></span><input aria-label="Picture-in-picture corner radius" type="range" min={0} max={50} step={1} value={Math.round(activePip.pip.radius * 100)} onChange={event => stagePipStyle('radius', Number(event.target.value) / 100)} onPointerUp={commitPip} onKeyUp={commitPip} onBlur={commitPip} /></label>
+              <label className="music-control"><span>Shadow <b>{Math.round(activePip.pip.shadow)}%</b></span><input aria-label="Picture-in-picture shadow" type="range" min={0} max={100} step={1} value={Math.round(activePip.pip.shadow)} onChange={event => stagePipStyle('shadow', Number(event.target.value))} onPointerUp={commitPip} onKeyUp={commitPip} onBlur={commitPip} /></label>
+              <label className="field">Fill<select aria-label="Picture-in-picture fill" value={activePip.fit} onChange={event => { stagePip({ fit: event.target.value as Scene['fit'] }); window.setTimeout(commitPip, 0); }}><option value="cover">Fill frame</option><option value="contain">Fit whole image</option><option value="blur">Blur fill</option></select></label>
+            </fieldset> : propertyKind === 'audio' && selectedAudio ? <fieldset disabled={!canEdit} className="inspector-fields"><div className="inspector-item-actions"><strong>{selectedAudio.name}</strong><button className="icon-button danger" aria-label="Delete selected audio" onClick={() => removeAudio(selectedAudio.id)}><Trash2 size={15} /></button></div>{audioInspector}</fieldset> : propertyKind === 'element' ? <fieldset disabled={!canEdit} className="inspector-fields">{elementInspector}</fieldset> : (propertyKind === 'scene' || propertyKind === 'text') && selectedScene ? <fieldset disabled={!canEdit} className="inspector-fields">
               <SceneForm mode={propertyKind === 'text' ? 'text' : 'scene'} hasNextScene={Boolean(selectedScene && scenes.findIndex(scene => scene.id === selectedScene.id) < scenes.length - 1)} scene={selectedGlobalText && selectedTextScene ? selectedTextScene : inspectorScene!} timebase={project.timebase} update={updateSelection} onPreview={selectedGlobalText ? (next: Scene | null) => setGlobalTextDraft(next?.textLayers ?? null) : setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} flushRef={inspectorFlush} onReplaceImage={selectedCount === 1 && !selectedGlobalText ? () => requestReplaceImage() : undefined} textLayerId={selectedGlobalText ? selectedGlobalText.id : selectedTextLayerId} onSelectTextLayer={selectTextLayer} textStartTicks={textStartTicks} playheadSeconds={selectedGlobalText ? Math.max(0, textLayerLocal) : previewLocalSeconds} focusText={textFocus} framingActive={framingMode} onToggleFraming={() => { setFramingMode(value => !value); setEditingText(false); }} formatName={activeFormat?.name ?? 'Original'} formatCount={project.formats.length} onApplyFramingToAll={applyFramingToAllFormats} overlays={renderOverlays} onReorderLayer={reorderLayer} />
               {propertyKind === 'text' && <div className="inspector-item-actions"><button className="button danger" aria-label="Delete selected text layer" onClick={deleteSelected}><Trash2 size={14} /> Delete text layer</button></div>}
               {propertyKind === 'scene' && hasSceneSelection && <div className="scene-actions compact-scene-actions"><IconButton label={tip('clip.duplicate', 'Duplicate clip')} onClick={duplicateSelected}><Copy size={16} /></IconButton><IconButton label={tip('clip.delete', 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>}
@@ -4142,6 +4287,19 @@ export default function App() {
                   {fadeDrag?.sceneId === scene.id && <span className="fade-drag-label" aria-hidden="true">{fadeDrag.side === 'in' ? 'Fade in' : 'Fade out'} {fadeDrag.value.toFixed(1)} s</span>}
                 </button>;
               })}</div></div><div className="timeline-add-slot"><button className="add-clip" aria-label="Add images to timeline" disabled={!canEdit} onClick={() => void chooseImages()}><Plus size={20} /></button></div>
+            </div>
+            <div className="timeline-row pip-row" role="group" aria-label="Picture in picture track">
+              <div className="track-label"><Layers size={14} /><span>Picture in picture</span><span className="track-number">02</span></div>
+              <div className="tracks"><div className="pip-track element-track overlay-track" style={{ height: 38, position: 'relative' }}>
+                {renderPipScenes.map(clip => <button key={clip.id} className={`element-clip ${selectedPipId === clip.id ? 'selected' : ''}`} style={{ left: `${clip.startTicks / Math.max(1, projectTicks) * 100}%`, width: `${clip.durationTicks / Math.max(1, projectTicks) * 100}%`, top: 4 }} aria-label={`Picture in picture ${clip.name}, ${ticksToSeconds(clip.startTicks, project.timebase).toFixed(2)} to ${ticksToSeconds(clip.startTicks + clip.durationTicks, project.timebase).toFixed(2)} seconds`} aria-pressed={selectedPipId === clip.id} onClick={() => selectPip(clip)} onPointerDown={event => beginPipTiming(event, clip, 'move')} title={`${clip.name} · drag to move, drag the edges to trim`}>
+                  <span className="overlay-trim start" onPointerDown={event => beginPipTiming(event, clip, 'start')} aria-label="Trim picture-in-picture start" />
+                  <AssetImage className="overlay-thumb" source={clip.videoPoster ?? clip.image} alt="" fallback={<span className="overlay-thumb missing" />} />
+                  <span>{clip.name}</span>
+                  <span className="overlay-trim end" onPointerDown={event => beginPipTiming(event, clip, 'end')} aria-label="Trim picture-in-picture end" />
+                </button>)}
+                {!renderPipScenes.length && <span className="audio-empty">Pick a media tile → Picture in picture</span>}
+              </div></div>
+              <div className="timeline-add-slot"><button className="add-clip" aria-label="Add picture in picture" disabled={!canEdit} onClick={() => setTab('media')}><Plus size={16} /></button></div>
             </div>
             {audioLanes.map((lane, laneIndex) => <div className="timeline-row audio-row" role="group" aria-label={`Audio track ${laneIndex + 1}`} key={lane}>
               <div className="track-label"><Music size={14} /><span>Audio {laneIndex + 1}</span><span className="track-number">{String((hasMediaOverlays ? 5 : 4) + laneIndex).padStart(2, '0')}</span></div>
@@ -4255,7 +4413,7 @@ export default function App() {
             <input className="source-volume" aria-label="Preview volume" type="range" min="0" max="1" step=".01" value={previewVolume} onChange={event => changePreviewVolume(Number(event.target.value))} />
             <span className="source-volume-label">{Math.round(previewVolume * 100)}%</span>
           </div>}
-          <div className="source-preview-actions"><button className="button primary" disabled={!hasMedia(sourcePreview.image)} onClick={() => void appendMedia(sourcePreview)}><Plus size={15} /> Append to timeline</button><button className="button" disabled={!selectedScene || !hasMedia(sourcePreview.image)} onClick={() => void addMediaOverlay(sourcePreview).catch(error => setError(messageFor(error)))}><Layers size={15} /> Picture in picture</button><span className="source-keyboard-hint">{sourcePreview.mediaKind === 'video' ? '← → switch · Space play · ↑ ↓ volume' : '← → switch media'}</span></div>
+          <div className="source-preview-actions"><button className="button primary" disabled={!hasMedia(sourcePreview.image)} onClick={() => void appendMedia(sourcePreview)}><Plus size={15} /> Append to timeline</button><button className="button" disabled={!selectedScene || !hasMedia(sourcePreview.image)} onClick={() => void addMediaPip(sourcePreview).catch(error => setError(messageFor(error)))}><Layers size={15} /> Picture in picture</button><span className="source-keyboard-hint">{sourcePreview.mediaKind === 'video' ? '← → switch · Space play · ↑ ↓ volume' : '← → switch media'}</span></div>
         </> : modal === 'templates' ? <>
           <h2 id="modal-title">Start from a story.</h2><p>Photo stories, one animated video opener, and local music — all bundled and ready offline. {projects.length ? 'Your current project is saved before a template opens.' : ''}</p>
           <label className="shortcut-search template-search"><Search size={15} /><input aria-label="Search templates" placeholder="Search templates…" value={templateQuery} onChange={e => setTemplateQuery(e.target.value)} /></label>

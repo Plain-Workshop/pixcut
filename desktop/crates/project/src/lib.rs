@@ -290,6 +290,23 @@ fn default_hundred() -> f64 {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct PipStyle {
+    #[serde(default = "default_pip_x")]
+    pub x: f64,
+    #[serde(default = "default_pip_y")]
+    pub y: f64,
+    #[serde(default = "default_pip_width")]
+    pub width: f64,
+    #[serde(default = "default_pip_height")]
+    pub height: f64,
+    #[serde(default = "default_pip_radius")]
+    pub radius: f64,
+    #[serde(default = "default_pip_shadow")]
+    pub shadow: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Scene {
     pub id: String,
     pub name: String,
@@ -322,6 +339,9 @@ pub struct Scene {
     pub text_layers: Vec<TextLayer>,
     #[serde(default)]
     pub transition: Option<Transition>,
+    /// Placement on the picture-in-picture track.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pip: Option<PipStyle>,
     pub color: String,
     pub fit: String,
     #[serde(default)]
@@ -705,6 +725,12 @@ fn text_layer_is_valid(layer: &mut TextLayer, timebase: &Timebase, ids: &mut std
     valid
 }
 
+fn default_pip_x() -> f64 { 0.8 }
+fn default_pip_y() -> f64 { 0.78 }
+fn default_pip_width() -> f64 { 0.32 }
+fn default_pip_height() -> f64 { 0.32 }
+fn default_pip_radius() -> f64 { 0.06 }
+fn default_pip_shadow() -> f64 { 60.0 }
 fn default_one() -> f64 { 1.0 }
 fn default_filter() -> String { "none".into() }
 fn default_intensity() -> f64 { 100.0 }
@@ -769,6 +795,9 @@ pub struct Track {
     pub id: String,
     pub kind: String,
     pub name: String,
+    /// `overlay` marks the picture-in-picture visual track.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
     #[serde(default)]
     pub clips: Vec<Scene>,
     #[serde(default)]
@@ -784,6 +813,7 @@ impl Track {
             id: "visual-1".into(),
             kind: "visual".into(),
             name: "Visuals".into(),
+            role: None,
             clips: vec![],
             hidden: false,
             muted: false,
@@ -946,7 +976,14 @@ impl Project {
     pub fn visual_clips(&self) -> &[Scene] {
         self.tracks
             .iter()
-            .find(|track| track.kind == "visual")
+            .find(|track| track.kind == "visual" && track.role.as_deref() != Some("overlay"))
+            .map(|track| track.clips.as_slice())
+            .unwrap_or(&[])
+    }
+    pub fn overlay_clips(&self) -> &[Scene] {
+        self.tracks
+            .iter()
+            .find(|track| track.kind == "visual" && track.role.as_deref() == Some("overlay"))
             .map(|track| track.clips.as_slice())
             .unwrap_or(&[])
     }
@@ -1096,6 +1133,7 @@ impl Project {
                 id: "visual-1".into(),
                 kind: "visual".into(),
                 name: "Visuals".into(),
+                role: None,
                 clips,
                 hidden: false,
                 muted: false,
@@ -1127,6 +1165,10 @@ impl Project {
             if !["visual", "text", "audio"].contains(&track.kind.as_str()) {
                 return Err("Invalid track kind.".into());
             }
+            if track.role.is_some() && (track.kind != "visual" || !["base", "overlay"].contains(&track.role.as_deref().unwrap_or_default())) {
+                return Err("Invalid track role.".into());
+            }
+            let is_overlay = track.kind == "visual" && track.role.as_deref() == Some("overlay");
             if track.kind == "visual" {
                 visual_count += 1;
             } else if !track.clips.is_empty() {
@@ -1152,8 +1194,26 @@ impl Project {
                 if s.duration_ticks < minimum || s.duration_ticks > maximum {
                     return Err("Invalid scene duration.".into());
                 }
-                s.start_ticks = cursor;
-                cursor += s.duration_ticks;
+                let pip_ok = s.pip.as_ref().is_none_or(|pip| {
+                    pip.x.is_finite() && (0.0..=1.0).contains(&pip.x)
+                        && pip.y.is_finite() && (0.0..=1.0).contains(&pip.y)
+                        && pip.width.is_finite() && (0.05..=1.0).contains(&pip.width)
+                        && pip.height.is_finite() && (0.05..=1.0).contains(&pip.height)
+                        && pip.radius.is_finite() && (0.0..=0.5).contains(&pip.radius)
+                        && pip.shadow.is_finite() && (0.0..=100.0).contains(&pip.shadow)
+                });
+                if !pip_ok || (is_overlay && s.pip.is_none()) {
+                    return Err("Invalid picture-in-picture placement.".into());
+                }
+                if is_overlay {
+                    // Overlay clips keep their own start and cannot carry a
+                    // transition; both are properties of the base track.
+                    s.transition = None;
+                } else {
+                    s.pip = None;
+                    s.start_ticks = cursor;
+                    cursor += s.duration_ticks;
+                }
                 let media_ok = is_asset_ref(&s.image)
                     || if is_video {
                         [
@@ -1305,19 +1365,45 @@ impl Project {
                 bytes += s.image.len() + s.elements.iter().map(|e| e.source.as_ref().map_or(0, String::len)).sum::<usize>();
             }
         }
-        if visual_count != 1 {
-            return Err("A project needs exactly one visual track in this build.".into());
+        let base_count = tracks
+            .iter()
+            .filter(|track| track.kind == "visual" && track.role.as_deref() != Some("overlay"))
+            .count();
+        let overlay_count = tracks
+            .iter()
+            .filter(|track| track.kind == "visual" && track.role.as_deref() == Some("overlay"))
+            .count();
+        if base_count != 1 || overlay_count > 1 {
+            return Err("A project needs one base visual track and at most one picture-in-picture track.".into());
         }
+        let _ = visual_count;
         if bytes > 140_000_000 {
             return Err("Project exceeds the 100 MB media budget.".into());
         }
         let total_ticks = tracks
             .iter()
-            .filter(|track| track.kind == "visual")
+            .filter(|track| track.kind == "visual" && track.role.as_deref() != Some("overlay"))
             .flat_map(|track| track.clips.iter())
             .map(|clip| clip.start_ticks + clip.duration_ticks)
             .max()
             .unwrap_or(0);
+        if let Some(overlay) = tracks.iter().find(|track| track.kind == "visual" && track.role.as_deref() == Some("overlay")) {
+            if overlay.clips.len() > 50 {
+                return Err("A picture-in-picture track supports up to 50 clips.".into());
+            }
+            let mut ordered: Vec<&Scene> = overlay.clips.iter().collect();
+            ordered.sort_by_key(|clip| clip.start_ticks);
+            let mut end = 0;
+            for clip in ordered {
+                if clip.start_ticks < end {
+                    return Err("Picture-in-picture clips cannot overlap on the same track.".into());
+                }
+                if total_ticks == 0 || clip.start_ticks >= total_ticks || clip.start_ticks + clip.duration_ticks > total_ticks {
+                    return Err("A picture-in-picture clip extends beyond the timeline.".into());
+                }
+                end = clip.start_ticks + clip.duration_ticks;
+            }
+        }
         if !validate_elements(&mut self.overlays, total_ticks, 64, &timebase) { return Err("Invalid project overlay or action.".into()); }
         self.normalize_global_text(total_ticks, &timebase)?;
         bytes += self.overlays.iter().map(|e| e.source.as_ref().map_or(0, String::len)).sum::<usize>();
@@ -1577,6 +1663,8 @@ pub enum Command {
     UpdateMany { scenes: Vec<Scene> },
     RemoveMany { ids: Vec<String> },
     DuplicateMany { items: Vec<DuplicateItem> },
+    /// Replaces the picture-in-picture track; an empty list removes it.
+    Pip { scenes: Vec<Scene> },
     /// Stack position only, so a button press never ships media with it.
     Order {
         kind: String,
@@ -1689,6 +1777,25 @@ impl Session {
         if let Command::GlobalText { global_text } = &command {
             p.global_text = global_text.clone();
         }
+        if let Command::Pip { scenes } = &command {
+            if let Some(track) = p.tracks.iter_mut().find(|track| track.kind == "visual" && track.role.as_deref() == Some("overlay")) {
+                track.clips = scenes.clone();
+            } else if !scenes.is_empty() {
+                p.tracks.push(Track {
+                    id: "visual-pip".into(),
+                    kind: "visual".into(),
+                    name: "Picture in picture".into(),
+                    role: Some("overlay".into()),
+                    clips: scenes.clone(),
+                    hidden: false,
+                    muted: false,
+                    locked: false,
+                });
+            }
+            if scenes.is_empty() {
+                p.tracks.retain(|track| !(track.kind == "visual" && track.role.as_deref() == Some("overlay")));
+            }
+        }
         if let Command::Beats { beat_ticks } = &command {
             p.beat_ticks = beat_ticks.clone();
         }
@@ -1704,7 +1811,7 @@ impl Session {
         {
             let clips = &mut p.tracks[track_index].clips;
             match command {
-                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } | Command::Fonts { .. } | Command::GlobalText { .. } | Command::Beats { .. } | Command::Ducking { .. } | Command::Overlays { .. } | Command::Order { .. } => {}
+                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } | Command::Fonts { .. } | Command::GlobalText { .. } | Command::Pip { .. } | Command::Beats { .. } | Command::Ducking { .. } | Command::Overlays { .. } | Command::Order { .. } => {}
                 Command::Add { scenes } => clips.extend(scenes),
                 Command::Update { scene } => {
                     if let Some(s) = clips.iter_mut().find(|s| s.id == scene.id) {
@@ -1837,6 +1944,12 @@ impl Session {
             })
             .collect();
         p.global_text.retain(|layer| total_ticks > 0 && layer.start_ticks < total_ticks);
+        if let Some(track) = p.tracks.iter_mut().find(|track| track.kind == "visual" && track.role.as_deref() == Some("overlay")) {
+            track.clips.retain(|clip| total_ticks > 0 && clip.start_ticks < total_ticks);
+            for clip in &mut track.clips {
+                clip.duration_ticks = clip.duration_ticks.min(total_ticks - clip.start_ticks).max(1);
+            }
+        }
         p.validate()?;
         let previous = std::mem::replace(&mut self.project, p);
         self.remember(previous);
@@ -1857,6 +1970,7 @@ mod tests {
             video_volume: None,
             speed_end: None,
             reverse: false,
+            pip: None,
             id: "one".into(),
             name: "Test".into(),
             image: "data:image/png;base64,AA==".into(),
@@ -1965,6 +2079,73 @@ mod tests {
         p.validate().unwrap();
         assert_eq!(p.policy, Policy::default());
     }
+    #[test]
+    fn validates_the_picture_in_picture_track() {
+        let placement = PipStyle { x: 0.8, y: 0.78, width: 0.32, height: 0.32, radius: 0.06, shadow: 60.0 };
+        let mut pip = scene();
+        pip.id = "pip".into();
+        pip.start_ticks = 30;
+        pip.duration_ticks = 30;
+        pip.pip = Some(placement.clone());
+
+        let mut project = Project::default();
+        project.tracks[0].clips = vec![scene()];
+        project.tracks.push(Track {
+            id: "visual-pip".into(),
+            kind: "visual".into(),
+            name: "Picture in picture".into(),
+            role: Some("overlay".into()),
+            clips: vec![pip.clone()],
+            hidden: false,
+            muted: false,
+            locked: false,
+        });
+        project.validate().unwrap();
+        // Overlay clips do not extend the timeline.
+        assert_eq!(project.total_ticks(), 120);
+        assert_eq!(project.visual_clips().len(), 1);
+        assert_eq!(project.overlay_clips().len(), 1);
+
+        let with_pip = |clips: Vec<Scene>| {
+            let mut next = project.clone();
+            next.tracks.iter_mut().find(|track| track.role.as_deref() == Some("overlay")).unwrap().clips = clips;
+            next
+        };
+        let mut missing = pip.clone();
+        missing.pip = None;
+        assert!(with_pip(vec![missing]).validate().is_err(), "placement is required");
+        let mut overlapping = pip.clone();
+        overlapping.id = "pip-2".into();
+        overlapping.start_ticks = 50;
+        assert!(with_pip(vec![pip.clone(), overlapping]).validate().is_err(), "overlay clips cannot overlap");
+        let mut beyond = pip.clone();
+        beyond.start_ticks = 110;
+        assert!(with_pip(vec![beyond]).validate().is_err(), "overlay clips stay inside the timeline");
+        let mut bad_placement = pip.clone();
+        bad_placement.pip = Some(PipStyle { width: 2.0, ..placement.clone() });
+        assert!(with_pip(vec![bad_placement]).validate().is_err());
+
+        let mut second_overlay = project.clone();
+        second_overlay.tracks.push(Track {
+            id: "visual-pip-2".into(),
+            kind: "visual".into(),
+            name: "Another".into(),
+            role: Some("overlay".into()),
+            clips: vec![],
+            hidden: false,
+            muted: false,
+            locked: false,
+        });
+        assert!(second_overlay.validate().is_err(), "only one overlay track");
+
+        let mut session = Session::default();
+        session.apply(Command::Add { scenes: vec![scene()] }).unwrap();
+        session.apply(Command::Pip { scenes: vec![pip] }).unwrap();
+        assert_eq!(session.project.overlay_clips().len(), 1);
+        session.apply(Command::Pip { scenes: vec![] }).unwrap();
+        assert!(session.project.overlay_clips().is_empty());
+    }
+
     #[test]
     fn validates_project_level_text() {
         let mut p = Project::default();
@@ -2177,6 +2358,36 @@ mod tests {
         let mut too_long = long;
         too_long.duration_ticks = 18_001;
         assert!(session.apply(Command::Update { scene: too_long }).is_err());
+    }
+
+    #[test]
+    fn accepts_compact_output_formats_down_to_160_pixels() {
+        let mut session = Session::default();
+        session.apply(Command::Add { scenes: vec![scene()] }).unwrap();
+        let format = |width: u32, height: u32| FormatVariant {
+            id: "compact".into(),
+            name: "Compact".into(),
+            platform: "Sizes".into(),
+            aspect: "16:9".into(),
+            width,
+            height,
+            fps: 30,
+            quality: "draft".into(),
+            preset_id: Some("tiny-320".into()),
+            overrides: Default::default(),
+        };
+        // The size ladder starts at 320×180, below the old 240 px floor.
+        for (width, height) in [(320, 180), (480, 854), (640, 360), (160, 160)] {
+            session
+                .apply(Command::Formats { formats: vec![format(width, height)] })
+                .unwrap_or_else(|error| panic!("{width}×{height} should be accepted: {error}"));
+        }
+        assert!(session
+            .apply(Command::Formats { formats: vec![format(158, 160)] })
+            .is_err());
+        assert!(session
+            .apply(Command::Formats { formats: vec![format(320, 181)] })
+            .is_err());
     }
 
     #[test]

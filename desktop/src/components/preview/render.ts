@@ -833,6 +833,67 @@ export function demoImage(index: number): string {
 }
 export function demoScenes(): Scene[] { return ['A little further', 'Find your own pace', 'Stay for the view'].map((title, i) => ({ id: crypto.randomUUID(), startTicks: i * secondsToTicks(4), sourceInTicks: 0, name: ['Morning in the mountains', 'The scenic route', 'A quieter place'][i], image: demoImage(i), durationTicks: secondsToTicks(4), title, subtitle: i === 0 ? 'Small moments. Bigger stories.' : '', color: '#ffffff', fit: 'cover', speed: 1, pitch: true, filter: 'none', filterIntensity: 100 })); }
 
+function roundedPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, radius: number) {
+  const r = Math.max(0, Math.min(radius, w / 2, h / 2));
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x, y, w, h, r);
+    return;
+  }
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/**
+ * Composites clips from the picture-in-picture track over the current frame.
+ * Each clip is rendered by the same `drawScene` path as the base track, so its
+ * fit, grade, text and video frame match preview and export.
+ */
+export async function drawPipClips(canvas: HTMLCanvasElement, clips: Scene[], projectSeconds: number, aspect: Project['aspect'], quality: 'preview' | 'thumb' | 'export', timebase: Timebase = DEFAULT_TIMEBASE, audio: AudioClip[] = [], precise = false) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx || !clips.length) return;
+  for (const clip of clips) {
+    const pip = clip.pip;
+    if (!pip) continue;
+    const local = projectSeconds - ticksToSeconds(clip.startTicks, timebase);
+    if (local < 0 || local >= ticksToSeconds(clip.durationTicks, timebase)) continue;
+    const width = Math.max(2, Math.round(canvas.width * pip.width));
+    const height = Math.max(2, Math.round(canvas.height * pip.height));
+    const frame = clip.mediaKind === 'video'
+      ? await overlayVideoFrame(clip.image, ticksToSeconds(clip.sourceInTicks ?? 0, timebase) + local, precise)
+      : null;
+    const layer = document.createElement('canvas');
+    await drawScene(layer, clip, aspect, quality, local, timebase, { width, height }, frame, audio);
+    const x = canvas.width * pip.x - width / 2;
+    const y = canvas.height * pip.y - height / 2;
+    const shadow = Math.max(0, Math.min(100, pip.shadow));
+    ctx.save();
+    if (shadow > 0) {
+      ctx.shadowColor = `rgba(0,0,0,${0.2 + shadow / 200})`;
+      ctx.shadowBlur = Math.min(width, height) * 0.18 * (shadow / 100);
+      ctx.shadowOffsetY = Math.min(width, height) * 0.03;
+    }
+    roundedPath(ctx, x, y, width, height, Math.min(width, height) * pip.radius);
+    ctx.clip();
+    ctx.drawImage(layer, x, y);
+    ctx.restore();
+    ctx.save();
+    roundedPath(ctx, x, y, width, height, Math.min(width, height) * pip.radius);
+    ctx.strokeStyle = 'rgba(255,255,255,.18)';
+    ctx.lineWidth = Math.max(1, canvas.width / 960);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 /**
  * Draws text that belongs to the project rather than a scene. Times are
  * absolute project seconds, so the same layer crosses every cut unchanged.

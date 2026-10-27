@@ -3484,6 +3484,7 @@ mod integration_tests {
                 subtitle: "".into(),
                 text_layers: vec![],
                 transition: None,
+                pip: None,
                 color: "#ffffff".into(),
                 fit: "cover".into(),
                 image_x: 0.0,

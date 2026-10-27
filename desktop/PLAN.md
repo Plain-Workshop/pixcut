@@ -17,7 +17,7 @@ Status legend: **shipped** · **partial** · **planned** · **deferred**
 | 3 | Speed ramps and reverse | shipped | no |
 | 4 | Audio EQ and voiceover | shipped | no |
 | 5 | QSV / AMF / VAAPI hardware encoders | shipped* | no |
-| 6 | Multi-track and picture-in-picture | partial (PiP shipped) | no |
+| 6 | Multi-track and picture-in-picture | shipped (one overlay track) | no |
 | 7 | i18n: translatable interface | shipped (shell) | no |
 | 8 | One asset store and a SQLite index | planned | no |
 | 9 | Font subsetting for large faces | planned | no |
@@ -160,7 +160,7 @@ returns.
 **Why it is missing.** Rust enforces exactly one visual track, the timeline is
 one row, and the exporter concatenates one track.
 
-**Status.** Picture-in-picture ships today through timed image/video overlay elements (media tile → **Picture in picture**): a 34%-width copy in the first free corner with its own timing, keyframes and optional video playback, baked identically in preview and export. The true second visual track, its timeline row and the multi-input export graph described below are not implemented yet.
+**Status.** A real picture-in-picture visual track ships: media tiles create clips on a second visual track, with a timeline row, drag/trim, placement controls (position, size, corner radius, shadow, fill), and a compositor shared by preview, stills, thumbnails and export. The base track stays contiguous and defines the timeline; PiP clips cannot overlap, cannot extend the timeline, and their own audio is muted. One overlay track is supported in this build; the multi-input FFmpeg graph described below is replaced by baking the PiP layer into the same canvas frames as text overlays, which keeps preview and export identical. Timed image/video overlay elements remain available for graphics and imported overlays.
 
 1. Model: allow `visual` tracks with an optional `role` (`base` | `overlay`) and
    per-clip placement (`x`, `y`, `scale`, `radius`, `shadow`). Exactly one base

@@ -651,6 +651,7 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .timeline-sticky { position: sticky; top: 0; z-index: 8; order: 0; background: #0B0E21; padding-top: 4px; }
 .app.theme-dark .timeline-sticky { background: #1e1e21; }
 .video-row { order: 1; }
+.pip-row { order: 1; }
 .media-overlay-row { order: 2; }
 .element-row { order: 3; }
 .text-row { order: 4; }
