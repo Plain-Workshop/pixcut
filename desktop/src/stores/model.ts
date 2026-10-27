@@ -98,6 +98,13 @@ export type ChromaKey = {
   spill: number;
 };
 export const defaultChromaKey = (): ChromaKey => ({ color: '#00ff00', similarity: 35, softness: 20, spill: 30 });
+/** A tone-curve control point in 0–1 input/output space. */
+export type CurvePoint = [number, number];
+export type CurveChannel = 'master' | 'red' | 'green' | 'blue';
+export const CURVE_CHANNELS: CurveChannel[] = ['master', 'red', 'green', 'blue'];
+/** Only customised channels are stored; a missing channel is the identity. */
+export type ToneCurves = Partial<Record<CurveChannel, CurvePoint[]>>;
+export const neutralCurve = (): CurvePoint[] => [[0, 0], [1, 1]];
 export type ElementBehavior = {
   atSeconds?: number; intervalSeconds?: number; countFrom?: number; countTo?: number;
   repeat?: boolean; audioId?: string; variant?: 'click' | 'double-click' | 'drag' | 'phone' | 'browser';
@@ -243,6 +250,8 @@ export type Scene = {
   highlightTintAmount?: number;
   filter?: FilterId;
   filterIntensity?: number;
+  /** RGB tone curves applied after the regular grade. */
+  curves?: ToneCurves;
   speed?: number;
   /** End of a linear speed ramp; equal to `speed` when the clip is constant. */
   speedEnd?: number;
@@ -511,6 +520,29 @@ function readChroma(value: unknown): ChromaKey | undefined {
     if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0 || raw > 100) throw new Error('A chroma key has an invalid value.');
   }
   return { color: chroma.color, similarity: chroma.similarity!, softness: chroma.softness!, spill: chroma.spill! };
+}
+
+function readCurves(value: unknown): ToneCurves | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Colour curves are invalid.');
+  const input = value as Record<string, unknown>;
+  for (const key of Object.keys(input)) if (!CURVE_CHANNELS.includes(key as CurveChannel)) throw new Error('Colour curves contain an unknown channel.');
+  const curves: ToneCurves = {};
+  for (const channel of CURVE_CHANNELS) {
+    const raw = input[channel];
+    if (raw === undefined) continue;
+    if (!Array.isArray(raw) || raw.length < 2 || raw.length > 12) throw new Error('A colour curve needs between 2 and 12 points.');
+    let previous = -Infinity;
+    curves[channel] = raw.map((point, index) => {
+      if (!Array.isArray(point) || point.length !== 2) throw new Error('A colour curve point is invalid.');
+      const [x, y] = point as unknown[];
+      if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) throw new Error('Colour curve points must be between 0 and 1.');
+      if (x <= previous) throw new Error(`Colour curve point ${index + 1} must move left to right.`);
+      previous = x;
+      return [x, y] as CurvePoint;
+    });
+  }
+  return Object.keys(curves).length ? curves : undefined;
 }
 
 function readPip(value: unknown): PipStyle | undefined {
@@ -915,6 +947,9 @@ export function validateProject(value: unknown): Project {
       if (mask && s.mediaKind === 'video') throw new Error('Masks apply to photo scenes and media overlays, not video scenes.');
       if (mask) s.mask = mask;
       else delete s.mask;
+      const curves = readCurves(s.curves);
+      if (curves) s.curves = curves;
+      else delete s.curves;
       const pip = readPip(s.pip);
       if (pip) s.pip = pip;
       else delete s.pip;
@@ -1012,6 +1047,7 @@ const SCENE_PATCH_FIELDS = [
   { key: 'highlightTintAmount', value: (scene: Scene) => scene.highlightTintAmount ?? 0 },
   { key: 'filter', value: (scene: Scene) => scene.filter ?? 'none' },
   { key: 'filterIntensity', value: (scene: Scene) => scene.filterIntensity ?? 100 },
+  { key: 'curves', value: (scene: Scene) => JSON.stringify(scene.curves ?? null) },
   { key: 'speed', value: (scene: Scene) => scene.speed ?? 1 },
   { key: 'speedEnd', value: (scene: Scene) => scene.speedEnd },
   { key: 'pip', value: (scene: Scene) => JSON.stringify(scene.pip ?? null) },
@@ -1062,7 +1098,7 @@ export function scenePatch(base: Scene, next: Scene): Partial<Scene> {
   for (const field of SCENE_PATCH_FIELDS) {
     const before = field.value(base);
     const after = field.value(next);
-    if (before !== after) (patch as Record<string, unknown>)[field.key] = field.key === 'textLayers' ? structuredClone(next.textLayers ?? []) : field.key === 'elements' ? structuredClone(next.elements ?? []) : field.key === 'transition' ? structuredClone(next.transition ?? null) : field.key === 'framingKeyframes' ? structuredClone(next.framingKeyframes ?? []) : field.key === 'mask' ? structuredClone(next.mask ?? null) : after;
+    if (before !== after) (patch as Record<string, unknown>)[field.key] = field.key === 'textLayers' ? structuredClone(next.textLayers ?? []) : field.key === 'elements' ? structuredClone(next.elements ?? []) : field.key === 'transition' ? structuredClone(next.transition ?? null) : field.key === 'framingKeyframes' ? structuredClone(next.framingKeyframes ?? []) : field.key === 'mask' ? structuredClone(next.mask ?? null) : field.key === 'curves' ? structuredClone(next.curves ?? null) : after;
   }
   return patch;
 }

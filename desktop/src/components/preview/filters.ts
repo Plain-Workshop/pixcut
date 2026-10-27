@@ -1,4 +1,5 @@
 import type { FilterId, Scene } from '../../stores/model';
+import { buildCurveLuts, hasToneCurves, sampleCurve } from './curves';
 
 export type FilterPreset = {
   id: FilterId;
@@ -106,6 +107,7 @@ export function hasColorGrade(scene: Scene) {
     || (scene.vibrance ?? 0) !== 0
     || (scene.shadowTintAmount ?? 0) > 0
     || (scene.highlightTintAmount ?? 0) > 0
+    || hasToneCurves(scene.curves)
     || ((scene.filter ?? 'none') !== 'none' && (scene.filterIntensity ?? 100) > 0);
 }
 
@@ -146,6 +148,7 @@ export function applyColorGrade(data: Uint8ClampedArray, scene: Scene) {
   const shadowAmount = (scene.shadowTintAmount ?? 0) / 100;
   const highlightAmount = (scene.highlightTintAmount ?? 0) / 100;
   const tinted = shadowAmount > 0 || highlightAmount > 0;
+  const curveLuts = buildCurveLuts(scene.curves);
   for (let index = 0; index < data.length; index += 4) {
     const r = lut[data[index]], g = lut[data[index + 1]], b = lut[data[index + 2]];
     let nr = m0 * r + m1 * g + m2 * b + offsetR;

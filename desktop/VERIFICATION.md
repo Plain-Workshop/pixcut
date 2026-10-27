@@ -1136,7 +1136,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 
 ## Build state — 2026-10-27 (end of pass)
 
-- `npm run ci` passes: 318 TypeScript tests, 48 project-model tests, 37 native tests (13 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
+- `npm run ci` passes: 323 TypeScript tests, 48 project-model tests, 37 native tests (15 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
 - Ignored FFmpeg tests also pass locally for the new work: `real_video_transition_keeps_duration_and_sound`, `real_reverse_and_ramp_video_export`, and the existing exporter/hardware suites.
 - `npm run tauri -- build --debug --bundles app` produced a fresh `PixCut.app` after the PiP, menu and export-dialog work. The updater tarball could not be signed because `TAURI_SIGNING_PRIVATE_KEY` is not exported in this shell; the app bundle itself is complete and is running from `target/debug/bundle/macos/PixCut.app` (PID 89828). The SQLite catalog survived the rebuild with 10 rows.
 - No release, tag or version bump was made. Signing remains deferred by the user's decision.
