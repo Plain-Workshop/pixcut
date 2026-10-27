@@ -17,7 +17,7 @@ async page=>{
  const left=page.locator('.library'),right=page.getByRole('complementary',{name:'Selected item properties'});
  const stored=async()=>await page.evaluate(async name=>{const lib=await import('/src/stores/library.ts');const entry=(await lib.listProjects()).find(e=>e.name===name);return await lib.getLibraryProject(entry.id);},name);
  const before=await stored(),source=before.tracks[0].clips[1].image;
- await left.locator('.source-tile').last().dragTo(page.locator('.scene-track .timeline-clip').first());
+ await left.locator('.source-tile .media-source').last().dragTo(page.locator('.scene-track .timeline-clip').first());
  await page.waitForFunction(()=>document.querySelectorAll('.scene-track .timeline-clip').length===3);
  let saved=await stored();for(let i=0;i<20&&saved.tracks[0].clips.length!==3;i++){await page.waitForTimeout(100);saved=await stored();}
  if(saved.tracks[0].clips[2].image!==source||saved.tracks[0].clips[2].mediaKind!=='video')throw Error('Dragging template media changed its source');

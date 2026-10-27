@@ -18,7 +18,7 @@ Status legend: **shipped** · **partial** · **planned** · **deferred**
 | 4 | Audio EQ and voiceover | shipped | no |
 | 5 | QSV / AMF / VAAPI hardware encoders | shipped* | no |
 | 6 | Multi-track and picture-in-picture | shipped (one overlay track) | no |
-| 7 | i18n: translatable interface | shipped (shell) | no |
+| 7 | i18n: translatable interface | shipped (most UI) | no |
 | 8 | One asset store and a SQLite index | planned | no |
 | 9 | Font subsetting for large faces | planned | no |
 | 10 | Signed and notarised releases | deferred | no |
@@ -200,8 +200,7 @@ string is hard-coded.
   `t(key, params)` helper; no runtime dependency.
 - Extract the shell first (menus, Home, Settings, export dialog, error
   boundaries, shortcut labels), then the inspector.
-- Ship Polish and Ukrainian for the extracted keys; untranslated keys fall back
-  to English rather than showing a blank.
+- Ship Polish and Ukrainian for the home screen, editor chrome, inspector, timeline, export studio, settings and native application menu; a few deep element/build-detail strings fall back to English rather than showing a blank.
 - Locale affects number/time formatting only; documents and filenames stay
   unchanged.
 

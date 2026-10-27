@@ -32,6 +32,6 @@ describe('designer presets',()=>{
   expect(exportBoundaries({...scene,elements:[{...base,presetId:'travel-01'}]},emptyProject().timebase,false)).toHaveLength(241);
  });
  it('creates every bundled photo/video template without the removed decorative shapes',async()=>{
-  for(const t of TEMPLATES){const p=await buildTemplateProject(t,[],async()=>scene.image,async()=> 'data:video/mp4;base64,AA==',async()=>scene.image,async()=> 'data:audio/mp4;base64,AA==');expect(p.tracks[0].clips.length,t.id).toBeGreaterThan(0);for(const clip of p.tracks[0].clips)for(const element of clip.elements??[])expect(ELEMENT_CATALOG.some(preset=>preset.id===element.presetId),t.id).toBe(true);}
+  for(const t of TEMPLATES){const p=await buildTemplateProject(t,[],async()=>scene.image,async()=> 'data:video/mp4;base64,AA==',async()=>scene.image,async()=> 'data:audio/mp4;base64,AA==');expect(p.tracks[0].clips.length,t.id).toBeGreaterThan(0);for(const clip of p.tracks[0].clips){expect(clip.textLayers?.[2].backdropEnabled,t.id).toBe(false);}for(const clip of p.tracks[0].clips)for(const element of clip.elements??[])expect(ELEMENT_CATALOG.some(preset=>preset.id===element.presetId),t.id).toBe(true);}
  });
 });
