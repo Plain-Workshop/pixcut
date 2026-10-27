@@ -16,7 +16,7 @@ export function prepareDesignerFonts(label = ''): Promise<void> {
 }
 
 export function presetAspect(p: ElementPreset): number {
-  if (p.collection === 'buttons' || p.collection === 'buttons-studio') return BUTTON_ASPECTS[buttonVariant(p)] ?? 3;
+  if (p.collection === 'buttons' || p.collection === 'buttons-studio' || p.collection === 'buttons-motion') return BUTTON_ASPECTS[buttonVariant(p)] ?? 3;
   if (p.kind === 'qr') return 1;
   if (p.kind === 'mouse') return 1.2;
   if (p.kind === 'keycaps') return 4;
@@ -40,7 +40,7 @@ export function drawPresetIcon(ctx:CanvasRenderingContext2D,name:string,x:number
 /** Art-directed collections, each with ten purposeful compositions. No downloaded artwork. */
 export function drawDesignerElement(ctx:CanvasRenderingContext2D,e:ElementLayer,w:number,h:number,seconds:number,bars:number[]=[]) {
   const p=elementPreset(e);if(!p)return false;
-  if(p.collection==='buttons'||p.collection==='buttons-studio'){drawSocialButton(ctx,e,p,w,h,seconds,drawPresetIcon);return true;}
+  if(p.collection==='buttons'||p.collection==='buttons-studio'||p.collection==='buttons-motion'){drawSocialButton(ctx,e,p,w,h,seconds,drawPresetIcon);return true;}
   const W=600,H=W/presetAspect(p),u=Math.min(W,H),v=p.variant,a=e.color,ink=elementForeground(a),dark='#141821',white='#F8FAFF',muted='#ADB6C9';
   const lines=(e.label??p.text).split('\n'),title=lines[0]??'',sub=lines.slice(1).join(' '),phase=(Math.sin(seconds*.9+v)+1)/2;
   ctx.save();ctx.scale(w/W,h/H);ctx.translate(-W/2,-H/2);

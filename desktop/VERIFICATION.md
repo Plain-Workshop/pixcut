@@ -1135,7 +1135,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 
 ## Build state — 2026-10-27 (end of pass)
 
-- `npm run ci` passes: 290 TypeScript tests, 44 project-model tests, 34 native tests (13 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
+- `npm run ci` passes: 291 TypeScript tests, 44 project-model tests, 34 native tests (13 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
 - Ignored FFmpeg tests also pass locally for the new work: `real_video_transition_keeps_duration_and_sound`, `real_reverse_and_ramp_video_export`, and the existing exporter/hardware suites.
 - `npm run tauri -- build --debug --bundles app` produced a fresh `PixCut.app` after the PiP, menu and export-dialog work. The updater tarball could not be signed because `TAURI_SIGNING_PRIVATE_KEY` is not exported in this shell; the app bundle itself is complete and is running from `target/debug/bundle/macos/PixCut.app` (PID 22516).
 - No release, tag or version bump was made. Signing remains deferred by the user's decision.
@@ -1186,3 +1186,39 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - The export studio now translates its section headings and controls: Encoding, Container, Encoding speed, Quality, Picture, Resolution, Frame rate, Project dimensions, Match each output, Include audio, Hardware encoder, File name, Name, Version, File naming options, Add output name, Add quality, Outputs, File names and the empty-selection hint, plus fast/balanced/slower and quality summary labels.
 - The “Video source rendering” note was stale: it claimed video transitions become hard cuts and PiP is unsupported. It now says transitions keep their blend when either side is video and that PiP clips are baked into the encode.
 - The i18n key-parity test still passes, so both translations cover the same keys.
+
+## Shorter editor toolbar — 2026-10-27
+
+- Reduced editor toolbar height from 64 to 44 CSS pixels (31.25%); Save/Export retain 32-pixel targets. Compact mode no longer imposes a conflicting 54-pixel minimum.
+- 290 TypeScript tests, production build, debug macOS bundle and browser sidebar regression passed. Browser checks verify 44-pixel height in both density modes, unclipped buttons and minimum 32-pixel target height. Reviewed compact-editor-header.png. Native app remained running; a native refresh could not be confirmed because input reported that the app changed during restart.
+
+## Bounded deliverables picker — 2026-10-27
+
+- Split the project format picker into Social, Standard sizes (including 4K), and Custom. Preserved all 27 presets. Social platform filtering and search operate inside the selected section; custom creation has a separate panel.
+- Bounded the modal to 680 CSS pixels or the available window height. Only the catalog and selection areas scroll; selected formats, per-format settings and the Done footer remain accessible. Removed long scope explanations from the picker.
+- Validation: 290 TypeScript tests, production build and debug macOS bundle passed. New formats-browser.js regression verifies all 27 presets, platform/search filters and empty search state, selection retention, custom creation and quality persistence, fixed footer and no modal overflow at 1050×720. Reviewed Social, Standard sizes, Custom and minimum-window screenshots.
+- Restarted the saved native app, opened Motion opener, and visually confirmed the new bounded Deliverables dialog with all three tabs. Left the rebuilt desktop app running with the dialog open. No schema or rendering changes.
+
+## Animated transition examples — 2026-10-27
+
+- Replaced static transition swatches with looping A-to-B sample scenes for all nine choices, including a hard-cut example. Enlarged thumbnails preserve readable names and short descriptions. Selecting a sample applies the existing transition.
+- Extracted the existing transition compositing unchanged into drawTransitionFrames, shared by sample canvases and the scene playback/export compositor. Sample frames are generated locally; animation runs only while visible and pauses for app/system reduced motion or a hidden document.
+- Validation: 290 TypeScript tests, production build and debug macOS bundle passed. Browser regression samples every example over a full cycle, checks reduced-motion stability and saved selection, and compares 40 compositor frames with exact pixels using consistent software canvas readback. Reviewed browser and native screenshots.
+- Restarted the saved desktop app and left Motion opener open on the Transitions tab with live sample cards. No schema or transition-math changes.
+
+## Settings and project-card translations — 2026-10-27
+
+- Settings now translates its labels and descriptions: canvas format, photo duration, image scaling, storage refresh, reset preferences, theme (including dark/light descriptions), compact editor, reduce motion, quick-start hints, the theme preview, snapping, reset panel layout, application updates, automatic checks, update actions, diagnostics/FFmpeg checks, the storage note and the privacy cards.
+- Project cards translate their status (Open now / Edited …), relative times (just now, minutes/hours/days ago) and locale-aware scene/format counts, including Polish and Ukrainian plurals. The home library controls translate sort options, Favorites, All and the search placeholder; the ghost card, “Skip the blank page” section and “Browse templates” action follow.
+- `tests/i18n.test.ts` now also covers scene and format plurals (6 tests). Key parity between Polish and Ukrainian still passes.
+- Browser check: home navigation, create cards, section headings and “Przeglądaj szablony” rendered in Polish with no console errors. Reviewed `output/playwright/polish-home-final.png`.
+
+## Portable browser `.pixcut` packages — 2026-10-27
+
+- Browser **Save/Export project** now writes the same ZIP package shape as the native app: `manifest.json` plus binary assets under `assets/<sha256>.<ext>`. The project inside the manifest keeps `pixcut-asset:` references, so no base64 media is written.
+- The package builder reads referenced blobs from IndexedDB, adds SHA-256 asset entries, and stores media with `level: 0` ZIP compression (the files are already encoded photos/video/audio; only the manifest benefits from compression).
+- Browser Open detects the ZIP signature and calls `readPixcutBundle()`, which validates format/version, refuses unsafe paths, checks each asset's SHA-256 and size, writes the bytes into the browser asset store, and returns the reference-shaped project. Legacy `.pixcut.json` imports still work.
+- Native and browser packages are now interchangeable: native `write_project_bundle()` emits the same manifest/assets layout and can open a browser export; browser `readPixcutBundle()` accepts a native export.
+- Browser check: built a one-scene project with a streamed image and audio reference, exported it to a 3,746-byte `.pixcut`, read it back, and confirmed the image/audio references and scene count survived with no data URLs.
+- Verification: 292 TypeScript tests in 42 files, 44 project-model tests, 34 non-ignored native tests, and all 13 ignored FFmpeg tests pass.
+- Boundary: ZIP expansion is bounded by the 200 MB package/file limits, but a malicious compressed archive could still consume memory before the inner size checks; the next hardening pass should inspect central-directory sizes or stream entries. Browser packages use stored (uncompressed) media, so package size is the sum of the source files.

@@ -1,3 +1,4 @@
+import { SOUND_EFFECTS, createSoundEffectClip, soundEffectData, type SoundEffectId } from '../components/elements/sound-effects';
 import { ElementTextField } from '../components/elements/ElementTextField';
 import { inspectorKind } from './inspector';
 import { presetSize } from '../components/elements/designer';
@@ -20,6 +21,7 @@ import { KeyframeControls } from '../components/animation/KeyframeControls';
 import { snapOverlayTiming } from '../components/timeline/beats';
 import { isAssetRef, resolveAssetUrl, resolveMediaSource } from '../components/preview/media-url';
 import { assetExists, assetRef, storeAssetBlob } from '../stores/assets';
+import { readPixcutBundle } from '../stores/pixcut-bundle';
 import { AssetImage, ClipFilmstrip } from '../components/preview/AssetImage';
 import { beatMarkerTicks, detectBeats, snapScenesToBeats } from '../components/timeline/beat-sync';
 import { MaskControls } from '../components/inspector/MaskControls';
@@ -33,7 +35,7 @@ import { LatestRenderQueue } from '../components/preview/render-queue';
 import { loadMediaBin, saveMediaBin, uniqueMediaSources } from '../stores/media-bin';
 import { missingAssets, projectAssetRefs, replaceAssetRef, type MissingAsset } from '../stores/missing-assets';
 import { syncAudioElement } from '../components/preview/audio';
-import { isLocale, projectCount, setLocale, t, type Locale } from '../i18n';
+import { formatCount, isLocale, projectCount, sceneCount, setLocale, t, type Locale } from '../i18n';
 import { applyClipEq } from '../components/preview/eq';
 import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
@@ -271,10 +273,10 @@ function sortProjects(items: ProjectSummary[]) {
 
 function relativeTime(timestamp: number) {
   const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return 'just now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
-  if (seconds < 86_400) return `${Math.floor(seconds / 3600)} h ago`;
-  if (seconds < 604_800) return `${Math.floor(seconds / 86_400)} d ago`;
+  if (seconds < 60) return t('just now');
+  if (seconds < 3600) return t('{count} min ago', { count: Math.floor(seconds / 60) });
+  if (seconds < 86_400) return t('{count} h ago', { count: Math.floor(seconds / 3600) });
+  if (seconds < 604_800) return t('{count} d ago', { count: Math.floor(seconds / 86_400) });
   return new Date(timestamp).toLocaleDateString();
 }
 
@@ -456,6 +458,10 @@ export default function App() {
   const exportCancelled = useRef(false);
   const [customFormatDraft, setCustomFormatDraft] = useState<{ name: string; width: number; height: number; fps: number; quality: 'draft' | 'standard' | 'high' }>({ name: '', width: 1080, height: 1080, fps: 30, quality: 'standard' });
   const [formatFilter, setFormatFilter] = useState('all');
+  const [formatSection, setFormatSection] = useState<'social' | 'sizes' | 'custom'>('social');
+  const [formatPlatform, setFormatPlatform] = useState('all');
+  const [formatSearch, setFormatSearch] = useState('');
+  const formatBrowserGroups = filterFormatGroups('all').filter(group => formatSection === 'social' ? !['Sizes', '4K Master'].includes(group.platform) && (formatPlatform === 'all' || group.platform === formatPlatform) : ['Sizes', '4K Master'].includes(group.platform)).map(group => ({ ...group, presets: group.presets.filter(preset => `${preset.name} ${preset.description} ${preset.platform}`.toLowerCase().includes(formatSearch.trim().toLowerCase())) })).filter(group => group.presets.length);
   const [newCustomFormats, setNewCustomFormats] = useState<FormatVariant[]>([]);
   const [newProjectFps, setNewProjectFps] = useState(30);
   const [editTarget, setEditTarget] = useState<'scene' | 'text' | 'element' | 'audio'>('scene');
@@ -539,6 +545,10 @@ export default function App() {
   const sceneQueue = useRef<Command[]>([]), previewQueue = useRef<LatestRenderQueue | null>(null), timelineScroll = useRef<HTMLDivElement>(null);
   const positionRef = useRef(0), closeModalRef = useRef<() => void>(() => {}), commandRef = useRef<(id: string) => void>(() => {}), fullscreenRef = useRef<() => void>(() => {});
   const selectionAnchor = useRef<string | null>(null), reorderRef = useRef<string | null>(null);
+  const mediaDragRef = useRef<Scene | null>(null);
+  const mediaDropAt = useRef(0);
+  const soundPreviewRef = useRef<HTMLAudioElement | null>(null);
+  const [soundEffect, setSoundEffect] = useState<SoundEffectId>('click');
   useEffect(() => { if (!exporting) return; const start = performance.now(); const timer = setInterval(() => setExportElapsed((performance.now() - start) / 1000), 500); return () => clearInterval(timer); }, [exporting]);
   const project = session.project, duration = totalDuration(project);
   const scenes = projectScenes(project);
@@ -611,12 +621,18 @@ export default function App() {
     void bridge.onDragDrop(event => {
       if (disposed) return;
       if (event.type === 'leave') { setFileDragActive(false); setDropTarget(null); return; }
+      if (reorderRef.current || Date.now() - mediaDropAt.current < 800) return;
+      if (mediaDragRef.current) {
+        if (event.type === 'drop') { const source = mediaDragRef.current; mediaDragRef.current = null; mediaDropAt.current = Date.now(); setFileDragActive(false); setDropTarget(null); if (nativeTimelineAt(event.position)) void appendMedia(source); }
+        return;
+      }
       setFileDragActive(true);
       const sceneId = nativeSceneAt(event.position);
       setDropTarget(sceneId);
       if (event.type !== 'drop') return;
       setFileDragActive(false); setDropTarget(null);
       const paths = (event.paths ?? []).filter(path => /\.(png|jpe?g|webp|mp4|m4v|mov|webm)$/i.test(path));
+      if (!(event.paths?.length)) return;
       if (!paths.length) { setError('Drop a PNG, JPEG, WebP, MP4, MOV, M4V, or WebM file.'); return; }
       if (sceneId) void dropNativeOnScene(sceneId, paths);
       else void importNativePaths(paths);
@@ -2454,6 +2470,31 @@ export default function App() {
     return () => window.removeEventListener('keydown', key);
   }, [modal, sourcePreview, previewList, previewVolume, previewMuted, previewVideoPlaying]);
 
+  function beginMediaDrag(event: ReactDragEvent<HTMLElement>, source: Scene) {
+    if (!canEdit || !hasMedia(source.image)) { event.preventDefault(); return; }
+    mediaDragRef.current = source;
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData('application/x-pixcut-media', source.id);
+    event.dataTransfer.setData('text/plain', source.name);
+  }
+  function dropLibraryMedia(event: ReactDragEvent<HTMLElement>) {
+    if (!mediaDragRef.current && !Array.from(event.dataTransfer.types).includes('application/x-pixcut-media')) return false;
+    event.preventDefault(); event.stopPropagation();
+    const source = mediaDragRef.current; mediaDragRef.current = null; mediaDropAt.current = Date.now();
+    setDropTarget(null); setFileDragActive(false);
+    if (source) void appendMedia(source); return true;
+  }
+  function previewSound(id: SoundEffectId) {
+    soundPreviewRef.current?.pause();
+    const player = new Audio(soundEffectData(id)); soundPreviewRef.current = player;
+    player.volume = .65; void player.play().catch(error => setError(messageFor(error)));
+  }
+  async function addSound(id: SoundEffectId, startTicks: number) {
+    if (!canEdit) return;
+    const clip = createSoundEffectClip(latestProject.current, id, startTicks);
+    if (clip && await run({ type: 'audio', audio: [...latestProject.current.audio, clip] })) setNotice(`${clip.name} added to the audio timeline. Drag it to adjust timing.`);
+  }
+
   async function appendMedia(scene: Scene) {
     const next = { ...structuredClone(scene), id: crypto.randomUUID(), startTicks: 0, elements: [], textLayers: [], title: '', subtitle: '', transition: null };
     const start = totalDuration(latestProject.current);
@@ -3306,6 +3347,7 @@ export default function App() {
   }
 
   function dropScene(event: ReactDragEvent<HTMLElement>, target: Scene) {
+    if (dropLibraryMedia(event)) return;
     const sourceId = reorderRef.current;
     if (sourceId) {
       event.preventDefault();
@@ -3332,7 +3374,7 @@ export default function App() {
   }
 
   function dragOverTarget(event: ReactDragEvent<HTMLElement>, id: string) {
-    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+    if (!mediaDragRef.current && !Array.from(event.dataTransfer.types).includes('Files')) return;
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = 'copy';
@@ -3344,6 +3386,11 @@ export default function App() {
     setDropTarget(null);
     setFileDragActive(false);
     if (event.dataTransfer.files.length) void importFiles(event.dataTransfer.files);
+  }
+
+  function nativeTimelineAt(position: { x: number; y: number }) {
+    const ratio = window.devicePixelRatio || 1;
+    return [[position.x / ratio, position.y / ratio], [position.x / ratio, position.y / ratio - 28], [position.x, position.y]].some(([x,y]) => Boolean(document.elementFromPoint(x,y)?.closest('.timeline')));
   }
 
   function nativeSceneAt(position: { x: number; y: number }) {
@@ -3432,8 +3479,11 @@ export default function App() {
   async function openBrowserProject(e: ChangeEvent<HTMLInputElement>) {
     try {
       const file = e.target.files?.[0]; if (!file) return;
-      if (file.size > 100_000_000) throw new Error('Project file exceeds 100 MB.');
-      const p = validateProject(JSON.parse(await file.text()));
+      if (file.size > 200_000_000) throw new Error('Project file exceeds 200 MB.');
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const p = bytes[0] === 0x50 && bytes[1] === 0x4b
+        ? await readPixcutBundle(bytes)
+        : validateProject(JSON.parse(new TextDecoder().decode(bytes)));
       await persistCurrent();
       if (await run({ type: 'replace', project: p })) { setScreen('editor'); setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null; setPosition(0); }
     } catch (e) { setError(messageFor(e)); } finally { e.target.value = ''; }
@@ -3814,8 +3864,8 @@ export default function App() {
 
   function formatFilterChips(onCustom?: () => void) {
     return <div className="format-filters" role="tablist" aria-label="Format filters">
-      {FORMAT_FILTERS.map(filter => <button key={filter.id} role="tab" aria-selected={formatFilter === filter.id} className={formatFilter === filter.id ? 'active' : ''} onClick={() => setFormatFilter(filter.id)}>{filter.label}</button>)}
-      {onCustom && <button type="button" className="format-filter-custom" onClick={onCustom}><Plus size={11} /> Custom size</button>}
+      {FORMAT_FILTERS.map(filter => <button key={filter.id} role="tab" aria-selected={formatFilter === filter.id} className={formatFilter === filter.id ? 'active' : ''} onClick={() => setFormatFilter(filter.id)}>{t(filter.label)}</button>)}
+      {onCustom && <button type="button" className="format-filter-custom" onClick={onCustom}><Plus size={11} /> {t('Custom size')}</button>}
     </div>;
   }
 
@@ -3835,12 +3885,12 @@ export default function App() {
         </div>
         <div className="project-meta">
           <strong>{entry.name}</strong>
-          <small>{entry.sceneCount} scene{entry.sceneCount === 1 ? '' : 's'} · {timecode(entry.duration, entry.timebase)}</small>
+          <small>{sceneCount(entry.sceneCount)} · {timecode(entry.duration, entry.timebase)}</small>
           {entry.formats && entry.formats.length > 0 && <span className="project-formats" title={entry.formats.map(format => `${format.name} · ${format.width}×${format.height}`).join('\n')}>
             {[...new Set(entry.formats.map(format => format.aspect))].slice(0, 4).map(aspect => <span className="project-format-chip" key={aspect}>{aspect}</span>)}
-            {entry.formats.length > 1 && <span className="project-format-count">{entry.formats.length} formats</span>}
+            {entry.formats.length > 1 && <span className="project-format-count">{formatCount(entry.formats.length)}</span>}
           </span>}
-          <span className="project-status"><span className="status-dot" /> {active ? 'Open now' : `Edited ${relativeTime(entry.updatedAt)}`}</span>
+          <span className="project-status"><span className="status-dot" /> {active ? t('Open now') : t('Edited {time}', { time: relativeTime(entry.updatedAt) })}</span>
         </div>
       </button>
       <button className={`project-favorite ${entry.favorite ? 'active' : ''}`} aria-label={entry.favorite ? `Remove ${entry.name} from favorites` : `Add ${entry.name} to favorites`} aria-pressed={Boolean(entry.favorite)} onClick={() => void toggleProjectFavorite(entry)}><Star size={15} fill={entry.favorite ? 'currentColor' : 'none'} /></button>
@@ -3904,6 +3954,7 @@ export default function App() {
 
   const elementInspector = selectedElement && <div className="element-controls">
                 <div className="element-controls-head"><strong>{elementName(selectedElement)}</strong><button className="text-button danger" onClick={() => removeElement(selectedElement.id)}><Trash2 size={12} /> Delete</button></div>
+                {!selectedElement.presetId && !['image','video'].includes(selectedElement.kind) && <label className="field">Replace old decoration<select aria-label="Replace old decoration" value="" onChange={event => { const preset = ELEMENT_CATALOG.find(p => p.id === event.target.value); if (preset) updateElement({ kind:preset.kind,presetId:preset.id,label:preset.text,color:preset.color,animation:preset.animation,...presetSize(preset,activeSize) }); }}><option value="">Choose a current element…</option>{ELEMENT_CATALOG.filter(p => ['Social','Titles'].includes(p.category)).map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></label>}
                 {(selectedElement.presetId || ELEMENT_LABEL_DEFAULTS[selectedElement.kind] !== undefined) && <ElementTextField key={selectedElement.id} value={selectedElement.label ?? elementPreset(selectedElement)?.text ?? ELEMENT_LABEL_DEFAULTS[selectedElement.kind] ?? ''} stage={label => stageElement({ label })} commit={commitElement} />}
                 {selectedElement.kind !== 'image' && selectedElement.kind !== 'video' && <div className="element-color-row">{ELEMENT_COLORS.map(color => <button key={color} className={`element-color ${selectedElement.color === color ? 'active' : ''}`} style={{ background: color }} aria-label={`Element color ${color}`} onClick={() => updateElement({ color })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} />)}</div>}
                 {selectedElement.kind === 'video' && <p className="note">Overlay audio is muted. Add music on an audio track.</p>}
@@ -3912,6 +3963,7 @@ export default function App() {
                   <label className="field">Start (project seconds)<input aria-label="Overlay start" type="number" min="0" max={ticksToSeconds(projectTicks - 1, project.timebase)} step={secondsPerTick(project.timebase)} value={Number(ticksToSeconds(selectedElement.startTicks, project.timebase).toFixed(3))} onChange={event => stageElement({ startTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onBlur={commitElement} onKeyDown={event => { if (event.key === 'Enter') commitElement(); }} /></label>
                   <label className="field">Duration (seconds)<input aria-label="Overlay duration" type="number" min={secondsPerTick(project.timebase)} max={ticksToSeconds(projectTicks - selectedElement.startTicks, project.timebase)} step={secondsPerTick(project.timebase)} value={Number(ticksToSeconds(selectedElement.durationTicks, project.timebase).toFixed(3))} onChange={event => stageElement({ durationTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onBlur={commitElement} onKeyDown={event => { if (event.key === 'Enter') commitElement(); }} /></label>
                 </div></details>
+<details className="inspector-section element-sounds"><summary>Sound</summary><label className="field">Sound effect<select aria-label="Element sound effect" value={soundEffect} onChange={event => setSoundEffect(event.target.value as SoundEffectId)}>{SOUND_EFFECTS.map(effect => <option key={effect.id} value={effect.id}>{effect.label}</option>)}</select></label><div className="sound-effect-actions"><button className="button" onClick={() => previewSound(soundEffect)}><Play size={13} /> Listen</button><button className="button" onClick={() => void addSound(soundEffect, selectedElement.startTicks)}><Plus size={13} /> At entrance</button>{selectedElement.action && <button className="button" onClick={() => void addSound(soundEffect, selectedElement.startTicks + selectedElement.action!.startTicks)}><Plus size={13} /> At action</button>}</div></details>
 <details className="inspector-section motion-properties" open><summary>Motion</summary>
                 <BehaviorControls canvas={activeSize} element={selectedElement} audio={project.audio} update={updateElement} stage={stageElement} commit={commitElement} preview={seconds => { commitElement(); setPosition(Math.min(ticksToSeconds(projectTicks - 1, project.timebase), ticksToSeconds(selectedElement.startTicks, project.timebase) + seconds)); setPlaying(true); }} />
                 <section className="element-motion"><h3>Entrance</h3>                <div className="library-label">ENTRANCE <span>{ELEMENT_ANIMATIONS.length - 1} motions</span></div>
@@ -4014,12 +4066,12 @@ export default function App() {
             </div>
             {projects.length ? <>
               {homeSection === 'projects' && <div className="library-controls">
-                <label className="search-field"><Search size={14} /><input aria-label="Search projects" placeholder="Search projects or groups…" value={libraryQuery} onChange={event => setLibraryQuery(event.target.value)} /></label>
-                <select aria-label="Sort projects" value={librarySort} onChange={event => setLibrarySort(event.target.value as 'recent' | 'name' | 'duration')}><option value="recent">Recently edited</option><option value="name">Name A–Z</option><option value="duration">Longest first</option></select>
-                <button className={`favorite-filter ${favoriteOnly ? 'active' : ''}`} aria-pressed={favoriteOnly} onClick={() => setFavoriteOnly(value => !value)}><Star size={13} fill={favoriteOnly ? 'currentColor' : 'none'} /> Favorites</button>
+                <label className="search-field"><Search size={14} /><input aria-label="Search projects" placeholder={t('Search projects or groups…')} value={libraryQuery} onChange={event => setLibraryQuery(event.target.value)} /></label>
+                <select aria-label="Sort projects" value={librarySort} onChange={event => setLibrarySort(event.target.value as 'recent' | 'name' | 'duration')}><option value="recent">{t('Recently edited')}</option><option value="name">{t('Name A–Z')}</option><option value="duration">{t('Longest first')}</option></select>
+                <button className={`favorite-filter ${favoriteOnly ? 'active' : ''}`} aria-pressed={favoriteOnly} onClick={() => setFavoriteOnly(value => !value)}><Star size={13} fill={favoriteOnly ? 'currentColor' : 'none'} /> {t('Favorites')}</button>
               </div>}
               {homeSection === 'projects' && <div className="group-filter" role="group" aria-label="Filter projects by group">
-                <button className={`group-chip ${groupFilter === 'all' ? 'active' : ''}`} onClick={() => setGroupFilter('all')}>All <span>{projects.length}</span></button>
+                <button className={`group-chip ${groupFilter === 'all' ? 'active' : ''}`} onClick={() => setGroupFilter('all')}>{t('All')} <span>{projects.length}</span></button>
                 {projectGroupsList.map(group => <button key={group} className={`group-chip ${groupFilter === group ? 'active' : ''}`} onClick={() => setGroupFilter(group)}><FolderOpen size={11} />{group} <span>{projects.filter(entry => entry.group === group).length}</span></button>)}
                 <button className={`group-chip ${groupFilter === 'ungrouped' ? 'active' : ''}`} onClick={() => setGroupFilter('ungrouped')}>Ungrouped <span>{projects.filter(entry => !entry.group).length}</span></button>
                 {projectGroupsList.length > 0 && <button className="group-manage" onClick={openGroupManager}><Settings2 size={11} /> Manage groups</button>}
@@ -4036,8 +4088,8 @@ export default function App() {
                 })}
                 <div className="project-group-section"><div className="project-group-title"><h3>New</h3><span>Start a fresh story</span></div><div className="project-grid">
                   <button className="project-card ghost" onClick={() => setModal('new')} disabled={!canEdit}>
-                    <span className="ghost-art"><span><Plus size={24} /></span><small>Blank canvas</small></span>
-                    <div className="project-meta"><strong>Start something new</strong><small>A fresh story, ready for your photos.</small></div>
+                    <span className="ghost-art"><span><Plus size={24} /></span><small>{t('Blank canvas')}</small></span>
+                    <div className="project-meta"><strong>{t('Start something new')}</strong><small>{t('A fresh story, ready for your photos.')}</small></div>
                   </button>
                 </div></div>
               </> : <div className="project-grid">
@@ -4056,7 +4108,7 @@ export default function App() {
           </section>
 
           {homeSection === 'home' && <section className="thumb-strip" aria-label="Template inspiration">
-            <div className="section-title"><div><h2>Skip the blank page</h2><p>Start from a sample and make it yours.</p></div><button className="text-button" onClick={() => setModal('templates')}>Browse templates <ArrowRight size={14} /></button></div>
+            <div className="section-title"><div><h2>{t('Skip the blank page')}</h2><p>{t('Start from a sample and make it yours.')}</p></div><button className="text-button" onClick={() => setModal('templates')}>{t('Browse templates')} <ArrowRight size={14} /></button></div>
             <div className="thumb-grid">{TEMPLATES.slice(0, 3).map(template => <button key={template.id} className="thumb-card" onClick={() => chooseTemplate(template)}><span className="thumb-art"><img src={templateImage(template)} alt="" /></span><span><strong>{template.name}</strong><small>{template.sceneCount} scenes · {template.duration.toFixed(1)} s</small></span></button>)}</div>
           </section>}
 
@@ -4119,8 +4171,8 @@ export default function App() {
 
             {tab === 'media' ? <>
               <label className="search-field"><Search size={14} /><input aria-label="Search project media" placeholder="Search media…" value={mediaQuery} onChange={e => setMediaQuery(e.target.value)} /></label>
-              <div className="media-grid" onDragOver={event => dragOverTarget(event, 'media-grid')} onDrop={dropIntoMedia}>{filteredScenes.map(source => <div key={source.id} className="media-tile source-tile">
-                <button className="media-source" aria-label={`Preview ${source.name}`} onClick={() => previewMedia(source)}><div><AssetImage source={source.videoPoster ?? source.image} alt="" fallback={<span className="media-missing"><ImagePlus size={18} /> Missing</span>} /><span>{source.mediaKind === 'video' ? 'VIDEO · ' : ''}{sceneSeconds(source, project.timebase).toFixed(1)}s</span><Play className="source-play" size={20} /></div><span className="media-name">{source.name}</span></button>
+              <div className="media-grid" onDragOver={event => dragOverTarget(event, 'media-grid')} onDrop={dropIntoMedia}>{filteredScenes.map(source => <div key={source.id} className="media-tile source-tile" draggable={canEdit && hasMedia(source.image)} onDragStart={event => beginMediaDrag(event, source)} onDragEnd={() => { mediaDragRef.current = null; setDropTarget(null); }}>
+                <button className="media-source" draggable={false} aria-label={`Preview ${source.name}`} onClick={() => previewMedia(source)}><div><AssetImage source={source.videoPoster ?? source.image} alt="" fallback={<span className="media-missing"><ImagePlus size={18} /> Missing</span>} /><span>{source.mediaKind === 'video' ? 'VIDEO · ' : ''}{sceneSeconds(source, project.timebase).toFixed(1)}s</span><Play className="source-play" size={20} /></div><span className="media-name">{source.name}</span></button>
                 <div className="media-placement"><button title={hasMedia(source.image) ? 'Append to timeline' : 'Relink this file first'} aria-label={`Append ${source.name}`} disabled={!canEdit || !hasMedia(source.image)} onClick={() => void appendMedia(source)}><Plus size={14} /><span>Add</span></button><button title={hasMedia(source.image) ? 'Picture in picture' : 'Relink this file first'} aria-label={`Picture in picture: ${source.name}`} disabled={!canEdit || !selectedScene || !hasMedia(source.image)} onClick={() => void addMediaPip(source).catch(error => setError(messageFor(error)))}><Layers size={14} /></button></div>
               </div>)}</div>
               {!sourceMedia.length && <div className="library-empty"><ImagePlus size={34} /><strong>A story starts with a photo.</strong><p>Import images from your device.<br />Nothing gets uploaded.</p></div>}
@@ -4164,6 +4216,7 @@ export default function App() {
                 <strong>Give your story a soundtrack.</strong>
                 <p>Add as many audio clips as you need.<br />Stays on this device.</p>
               </div>}
+              <details className="library-disclosure sound-library"><summary>Sound effects</summary><div className="sound-effect-list">{SOUND_EFFECTS.map(effect => <div key={effect.id}><button className="icon-button" aria-label={`Listen to ${effect.label}`} onClick={() => previewSound(effect.id)}><Play size={13} /></button><span>{effect.label}</span><button className="icon-button" aria-label={`Add ${effect.label} at playhead`} disabled={!canEdit || !projectTicks} onClick={() => void addSound(effect.id, secondsToTicks(position,project.timebase))}><Plus size={14} /></button></div>)}</div></details>
             </div> : tab === 'templates' ? <div className="template-tab">
               <div className="template-tab-list">{TEMPLATES.map(template => <button key={template.id} className="template-tab-card" disabled={!canEdit} onClick={() => chooseTemplate(template)}>
                 <span className="template-tab-art"><img src={templateImage(template)} alt="" /></span>
@@ -4277,9 +4330,9 @@ export default function App() {
               <label className="music-control"><span>Vertical <b>{Math.round(activePip.pip.y * 100)}%</b></span><input aria-label="Picture-in-picture vertical" type="range" min={0} max={100} step={1} value={Math.round(activePip.pip.y * 100)} onChange={event => stagePipStyle('y', Number(event.target.value) / 100)} onPointerUp={commitPip} onKeyUp={commitPip} onBlur={commitPip} /></label>
               <label className="music-control"><span>Corner radius <b>{Math.round(activePip.pip.radius * 100)}%</b></span><input aria-label="Picture-in-picture corner radius" type="range" min={0} max={50} step={1} value={Math.round(activePip.pip.radius * 100)} onChange={event => stagePipStyle('radius', Number(event.target.value) / 100)} onPointerUp={commitPip} onKeyUp={commitPip} onBlur={commitPip} /></label>
               <label className="music-control"><span>Shadow <b>{Math.round(activePip.pip.shadow)}%</b></span><input aria-label="Picture-in-picture shadow" type="range" min={0} max={100} step={1} value={Math.round(activePip.pip.shadow)} onChange={event => stagePipStyle('shadow', Number(event.target.value))} onPointerUp={commitPip} onKeyUp={commitPip} onBlur={commitPip} /></label>
-              <label className="field">Fill<select aria-label="Picture-in-picture fill" value={activePip.fit} onChange={event => { stagePip({ fit: event.target.value as Scene['fit'] }); window.setTimeout(commitPip, 0); }}><option value="cover">Fill frame</option><option value="contain">Fit whole image</option><option value="blur">Blur fill</option></select></label>
+              <label className="field">Fill<select aria-label="Picture-in-picture fill" value={activePip.fit} onChange={event => { stagePip({ fit: event.target.value as Scene['fit'] }); window.setTimeout(commitPip, 0); }}><option value="cover">{t('Fill frame')}</option><option value="contain">{t('Fit whole image')}</option><option value="blur">{t('Blur fill')}</option></select></label>
             </fieldset> : propertyKind === 'audio' && selectedAudio ? <fieldset disabled={!canEdit} className="inspector-fields"><div className="inspector-item-actions"><strong>{selectedAudio.name}</strong><button className="icon-button danger" aria-label="Delete selected audio" onClick={() => removeAudio(selectedAudio.id)}><Trash2 size={15} /></button></div>{audioInspector}</fieldset> : propertyKind === 'element' ? <fieldset disabled={!canEdit} className="inspector-fields">{elementInspector}</fieldset> : (propertyKind === 'scene' || propertyKind === 'text') && selectedScene ? <fieldset disabled={!canEdit} className="inspector-fields">
-              <SceneForm mode={propertyKind === 'text' ? 'text' : 'scene'} hasNextScene={Boolean(selectedScene && scenes.findIndex(scene => scene.id === selectedScene.id) < scenes.length - 1)} scene={selectedGlobalText && selectedTextScene ? selectedTextScene : inspectorScene!} timebase={project.timebase} update={updateSelection} onPreview={selectedGlobalText ? (next: Scene | null) => setGlobalTextDraft(next?.textLayers ?? null) : setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} flushRef={inspectorFlush} onReplaceImage={selectedCount === 1 && !selectedGlobalText ? () => requestReplaceImage() : undefined} textLayerId={selectedGlobalText ? selectedGlobalText.id : selectedTextLayerId} onSelectTextLayer={selectTextLayer} textStartTicks={textStartTicks} playheadSeconds={selectedGlobalText ? Math.max(0, textLayerLocal) : previewLocalSeconds} focusText={textFocus} framingActive={framingMode} onToggleFraming={() => { setFramingMode(value => !value); setEditingText(false); }} formatName={activeFormat?.name ?? 'Original'} formatCount={project.formats.length} onApplyFramingToAll={applyFramingToAllFormats} overlays={renderOverlays} onReorderLayer={reorderLayer} />
+              <SceneForm reduceMotion={preferences.reduceMotion} mode={propertyKind === 'text' ? 'text' : 'scene'} hasNextScene={Boolean(selectedScene && scenes.findIndex(scene => scene.id === selectedScene.id) < scenes.length - 1)} scene={selectedGlobalText && selectedTextScene ? selectedTextScene : inspectorScene!} timebase={project.timebase} update={updateSelection} onPreview={selectedGlobalText ? (next: Scene | null) => setGlobalTextDraft(next?.textLayers ?? null) : setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} flushRef={inspectorFlush} onReplaceImage={selectedCount === 1 && !selectedGlobalText ? () => requestReplaceImage() : undefined} textLayerId={selectedGlobalText ? selectedGlobalText.id : selectedTextLayerId} onSelectTextLayer={selectTextLayer} textStartTicks={textStartTicks} playheadSeconds={selectedGlobalText ? Math.max(0, textLayerLocal) : previewLocalSeconds} focusText={textFocus} framingActive={framingMode} onToggleFraming={() => { setFramingMode(value => !value); setEditingText(false); }} formatName={activeFormat?.name ?? 'Original'} formatCount={project.formats.length} onApplyFramingToAll={applyFramingToAllFormats} overlays={renderOverlays} onReorderLayer={reorderLayer} />
               {propertyKind === 'text' && <div className="inspector-item-actions"><button className="button danger" aria-label="Delete selected text layer" onClick={deleteSelected}><Trash2 size={14} /> Delete text layer</button></div>}
               {propertyKind === 'scene' && hasSceneSelection && <div className="scene-actions compact-scene-actions"><IconButton label={tip('clip.duplicate', 'Duplicate clip')} onClick={duplicateSelected}><Copy size={16} /></IconButton><IconButton label={tip('clip.delete', 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>}
             </fieldset> : <div className="inspector-empty"><Settings2 size={26} /><p>Select a scene, text layer, element or audio clip to edit its properties.</p></div>}
@@ -4296,7 +4349,7 @@ export default function App() {
             <div className="timeline-tools"><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene earlier'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes[0]?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: -1 })}><ArrowLeft size={16} /></IconButton><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene later'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes.at(-1)?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: 1 })}><ArrowRight size={16} /></IconButton><IconButton className={snapping ? 'active' : ''} label={tip('timeline.snapping', `Snapping ${snapping ? 'on' : 'off'}`)} onClick={() => runCommandId('timeline.snapping')}><Magnet size={16} /></IconButton><IconButton label="Add beat at playhead" onClick={addBeatAtPlayhead}><AudioLines size={16} /></IconButton><span className="header-divider" /><div className="timeline-zoom" role="group" aria-label="Timeline zoom"><IconButton label="Zoom out timeline" disabled={timelineZoom <= .5} onClick={() => changeTimelineZoom(timelineZoom - .5)}><ZoomOut size={15} /></IconButton><input aria-label="Timeline zoom" type="range" min=".5" max="6" step=".25" value={timelineZoom} onChange={event => changeTimelineZoom(Number(event.target.value))} /><button className="timeline-zoom-label" title="Fit timeline" onClick={() => changeTimelineZoom(1)}>{Math.round(timelineZoom * 100)}%</button><IconButton label="Zoom in timeline" disabled={timelineZoom >= 6} onClick={() => changeTimelineZoom(timelineZoom + .5)}><ZoomIn size={15} /></IconButton></div><span className="header-divider" /><span className="timeline-total"><Clock3 size={14} />{duration.toFixed(1)}s</span></div>
           </div>
           {fileDragActive && <div className="file-drop-hint" role="status">Drop an image or video on a scene to replace it · or drop it in the media panel</div>}
-          <div className="timeline-content" ref={timelineScroll}>
+          <div className="timeline-content" ref={timelineScroll} onDragOver={event => { if (mediaDragRef.current) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } }} onDrop={event => { dropLibraryMedia(event); }}>
             <div className="timeline-inner" style={{ width: `${timelineZoom * 100}%` }}>
             {duration > 0 && <div className="timeline-playhead" style={{ left: `calc(${timelineRatio * 100}% + ${148 - timelineRatio * 198}px)` }} title="Drag playhead" onPointerDown={beginPlayheadDrag}><span className="timeline-playhead-handle" /></div>}
             {(project.beatTicks ?? []).map(tick => { const ratio = tick / Math.max(1, projectTicks); const seconds = ticksToSeconds(tick, project.timebase); return <button key={tick} className="beat-marker" style={{ left: `calc(${ratio * 100}% + ${148 - ratio * 198}px)` }} title={`Remove beat at ${seconds.toFixed(2)} s`} aria-label={`Remove beat at ${seconds.toFixed(2)} seconds`} disabled={!canEdit} onClick={() => removeBeat(tick)} />; })}
@@ -4454,7 +4507,7 @@ export default function App() {
       </div>}
 
       {exporting && <aside className="export-job" aria-label="Background export"><div><strong>Exporting {exportJob.name}</strong><button className="text-button" onClick={cancelExport} disabled={cancellingExport}>{cancellingExport ? 'Cancelling…' : 'Cancel'}</button></div><span>{exportJob.phase} · {Math.round(exportProgress)}%</span><progress max="100" value={exportProgress} /><span>{exportEta(exportElapsed, exportProgress)}</span><small>You can keep editing. This export uses the version captured when you started.</small></aside>}
-      {modal && <div className="modal-backdrop"><section className={`modal ${modal === 'export' ? 'export-studio' : modal === 'new' ? 'project-setup' : wideModal ? 'wide' : mediumModal ? 'medium' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      {modal && <div className="modal-backdrop"><section className={`modal ${modal === 'export' ? 'export-studio' : modal === 'new' ? 'project-setup' : modal === 'formats' ? 'format-studio' : wideModal ? 'wide' : mediumModal ? 'medium' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div className="modal-header"><span className="eyebrow">{modalEyebrow}</span><IconButton label="Close dialog" onClick={requestCloseModal}><X size={20} /></IconButton></div>
         {modal === 'source' && sourcePreview ? <>
           <h2 id="modal-title">{sourcePreview.name}</h2>
@@ -4534,17 +4587,17 @@ export default function App() {
             <label className="field new-project-fps">Project frame rate<select value={newProjectFps} onChange={event => setNewProjectFps(Number(event.target.value))}><option value={24}>24 fps · Film</option><option value={25}>25 fps · PAL</option><option value={30}>30 fps · Standard</option><option value={60}>60 fps · Smooth</option></select></label>
             {formatFilterChips()}
             <div className="format-groups">{filterFormatGroups(formatFilter).map(group => <section className="format-group" key={group.platform}>
-              <div className="format-group-head"><strong>{group.label}</strong><span>{group.presets.length} {group.presets.length === 1 ? 'format' : 'formats'}</span></div>
+              <div className="format-group-head"><strong>{t(group.label)}</strong><span>{group.presets.length} {group.presets.length === 1 ? 'format' : 'formats'}</span></div>
               <div className="format-group-grid">{group.presets.map(preset => <label key={preset.id} className={`format-card ${newFormatIds.includes(preset.id) ? 'active' : ''}`}><input type="checkbox" checked={newFormatIds.includes(preset.id)} onChange={event => setNewFormatIds(current => event.target.checked ? [...current, preset.id] : current.filter(id => id !== preset.id))} /><span className="format-check" aria-hidden="true">{newFormatIds.includes(preset.id) ? <Check size={11} /> : null}</span><span className="format-ratio">{preset.aspect}</span><strong>{preset.name}</strong><small>{preset.description}</small></label>)}</div>
             </section>)}</div>
-            <div className="settings-section-title">Custom size</div>
+            <div className="settings-section-title">{t('Custom size')}</div>
             <div className="custom-format-form new-custom-format">
-              <label className="field">Name<input placeholder="Client 2:3" value={customFormatDraft.name} onChange={event => setCustomFormatDraft(current => ({ ...current, name: event.target.value }))} /></label>
-              <label className="field">Width<input type="number" min="160" max="3840" step="2" value={customFormatDraft.width} onChange={event => setCustomFormatDraft(current => ({ ...current, width: Number(event.target.value) }))} /></label>
-              <label className="field">Height<input type="number" min="160" max="3840" step="2" value={customFormatDraft.height} onChange={event => setCustomFormatDraft(current => ({ ...current, height: Number(event.target.value) }))} /></label>
+              <label className="field">{t('Name')}<input placeholder="Client 2:3" value={customFormatDraft.name} onChange={event => setCustomFormatDraft(current => ({ ...current, name: event.target.value }))} /></label>
+              <label className="field">{t('Width')}<input type="number" min="160" max="3840" step="2" value={customFormatDraft.width} onChange={event => setCustomFormatDraft(current => ({ ...current, width: Number(event.target.value) }))} /></label>
+              <label className="field">{t('Height')}<input type="number" min="160" max="3840" step="2" value={customFormatDraft.height} onChange={event => setCustomFormatDraft(current => ({ ...current, height: Number(event.target.value) }))} /></label>
               <label className="field">FPS<select value={customFormatDraft.fps} onChange={event => setCustomFormatDraft(current => ({ ...current, fps: Number(event.target.value) }))}><option value={24}>24</option><option value={25}>25</option><option value={30}>30</option><option value={60}>60</option></select></label>
               <label className="field">Quality<select value={customFormatDraft.quality} onChange={event => setCustomFormatDraft(current => ({ ...current, quality: event.target.value as 'draft' | 'standard' | 'high' }))}><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
-              <button className="button" disabled={newFormatSelection.length >= MAX_PROJECT_FORMATS} onClick={addNewCustomFormat}><Plus size={14} /> Add</button>
+              <button className="button" disabled={newFormatSelection.length >= MAX_PROJECT_FORMATS} onClick={addNewCustomFormat}><Plus size={14} /> {t('Add')}</button>
             </div>
             {newCustomFormats.length > 0 && <div className="group-filter">{newCustomFormats.map(format => <span className="group-chip" key={format.id}><Layers size={11} />{format.name} · {format.width}×{format.height}</span>)}</div>}
             <p className="note"><Layers size={14} /><span>Photos, text, timing, transitions, audio, and looks are common to every format. Size, FPS, quality, and framing (zoom, pan, fit, letterbox) are saved per format.</span></p>
@@ -4583,37 +4636,59 @@ export default function App() {
           <div className="modal-actions"><button className="button primary" onClick={requestCloseModal}>Done</button></div>
         </> : modal === 'formats' ? <>
           <h2 id="modal-title">{t('Deliverables')}.</h2>
-          <p>Select the social formats you publish to. Each selected format keeps its own size, frame rate, quality, and image framing.</p>
-          {formatFilterChips(() => { document.getElementById('custom-format-section')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); (document.getElementById('custom-format-name') as HTMLInputElement | null)?.focus(); })}
-          <div className="settings-section-title">{formatFilter === 'social' ? 'Social formats' : formatFilter === 'sizes' ? 'Sizes & drafts' : formatFilter === 'all' ? 'Social formats & sizes' : FORMAT_FILTERS.find(filter => filter.id === formatFilter)?.label ?? 'Formats'}</div>
-          <div className="format-groups">{filterFormatGroups(formatFilter).map(group => <section className="format-group" key={group.platform}>
-            <div className="format-group-head"><strong>{group.label}</strong><span>{group.presets.length} {group.presets.length === 1 ? 'format' : 'formats'}</span></div>
-            <div className="format-group-grid">{group.presets.map(preset => { const active = project.formats.some(format => format.presetId === preset.id); return <label key={preset.id} className={`format-card ${active ? 'active' : ''}`}><input type="checkbox" checked={active} disabled={!canEdit || (!active && project.formats.length >= MAX_PROJECT_FORMATS)} onChange={() => void toggleFormatPreset(preset.id)} /><span className="format-check" aria-hidden="true">{active ? <Check size={11} /> : null}</span><span className="format-ratio">{preset.aspect}</span><strong>{preset.name}</strong><small>{preset.description}</small></label>; })}</div>
-          </section>)}</div>
-          <div className="settings-section-title">Selected formats</div>
-          <div className="format-pick-summary" role="status" aria-live="polite"><Layers size={13} /><span><strong>{project.formats.length} format{project.formats.length === 1 ? '' : 's'}</strong> · {projectFormatOutputs.length} file{projectFormatOutputs.length === 1 ? '' : 's'} when you export{projectFormatOutputs.length < project.formats.length ? '. Formats with the same size, frame rate and framing share one video.' : ''}</span></div>
-          <div className="format-current-list">{project.formats.map(format => <div className={`format-current ${activeFormat?.id === format.id ? 'active' : ''}`} key={format.id}><button className="format-current-select" onClick={() => setActiveFormatId(format.id)}><span className="format-ratio">{format.width}×{format.height}</span><span><strong>{format.name}</strong><small>{format.width}×{format.height} · {format.fps} fps · {format.quality}</small></span></button><button className="icon-button" aria-label={`Remove ${format.name}`} disabled={project.formats.length <= 1} onClick={() => void removeFormat(format.id)}><Trash2 size={14} /></button></div>)}</div>
-          {activeFormat && <div className="format-settings-card" key={activeFormat.id}>
-            <div className="settings-section-title">Settings for {activeFormat.name}</div>
-            <div className="format-settings-grid">
-              <label className="field">Name<input defaultValue={activeFormat.name} maxLength={80} onBlur={event => { if (event.target.value.trim() && event.target.value.trim() !== activeFormat.name) void updateFormatSettings(activeFormat, { name: event.target.value }); }} /></label>
-              <label className="field">Width<input type="number" min="160" max="3840" step="2" defaultValue={activeFormat.width} onBlur={event => { const value = Number(event.target.value); if (value !== activeFormat.width) void updateFormatSettings(activeFormat, { width: value }); }} /></label>
-              <label className="field">Height<input type="number" min="160" max="3840" step="2" defaultValue={activeFormat.height} onBlur={event => { const value = Number(event.target.value); if (value !== activeFormat.height) void updateFormatSettings(activeFormat, { height: value }); }} /></label>
-              <label className="field">{t('Frame rate')}<select value={activeFormat.fps} onChange={event => void updateFormatSettings(activeFormat, { fps: Number(event.target.value) })}><option value={24}>24 fps</option><option value={25}>25 fps</option><option value={30}>30 fps</option><option value={60}>60 fps</option></select></label>
-              <label className="field">Quality<select value={activeFormat.quality} onChange={event => void updateFormatSettings(activeFormat, { quality: event.target.value as 'draft' | 'standard' | 'high' })}><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
-            </div>
-          </div>}
-          <div className="settings-section-title" id="custom-format-section">Custom format</div>
+          <p>{t('Choose output formats. Adjust each selected format on the right.')}</p>
+          <div className="format-studio-body">
+            <div className="format-browser">
+              <div className="format-section-tabs" role="tablist" aria-label="Format type">{([['social','Social'],['sizes','Standard sizes'],['custom','Custom']] as const).map(([id,label]) => <button key={id} id={`format-tab-${id}`} role="tab" aria-selected={formatSection === id} aria-controls="format-browser-panel" onClick={() => { setFormatSection(id); setFormatSearch(''); }}>{t(label)}</button>)}</div>
+              <div id="format-browser-panel" className="format-browser-panel" role="tabpanel" aria-labelledby={`format-tab-${formatSection}`} key={formatSection}>
+              {formatSection === 'custom' ? <>
+          <div className="settings-section-title" id="custom-format-section">{t('Custom format')}</div>
           <div className="custom-format-form">
-            <label className="field">Name<input id="custom-format-name" placeholder="Client vertical" value={customFormatDraft.name} onChange={event => setCustomFormatDraft(current => ({ ...current, name: event.target.value }))} /></label>
+            <label className="field">{t('Name')}<input id="custom-format-name" placeholder="Client vertical" value={customFormatDraft.name} onChange={event => setCustomFormatDraft(current => ({ ...current, name: event.target.value }))} /></label>
             <label className="field">Width<input type="number" min="160" max="3840" step="2" value={customFormatDraft.width} onChange={event => setCustomFormatDraft(current => ({ ...current, width: Number(event.target.value) }))} /></label>
             <label className="field">Height<input type="number" min="160" max="3840" step="2" value={customFormatDraft.height} onChange={event => setCustomFormatDraft(current => ({ ...current, height: Number(event.target.value) }))} /></label>
             <label className="field">FPS<select value={customFormatDraft.fps} onChange={event => setCustomFormatDraft(current => ({ ...current, fps: Number(event.target.value) }))}><option value={24}>24</option><option value={25}>25</option><option value={30}>30</option><option value={60}>60</option></select></label>
             <label className="field">Quality<select value={customFormatDraft.quality} onChange={event => setCustomFormatDraft(current => ({ ...current, quality: event.target.value as 'draft' | 'standard' | 'high' }))}><option value="draft">Draft</option><option value="standard">Standard</option><option value="high">High</option></select></label>
-            <button className="button primary" disabled={!canEdit || project.formats.length >= MAX_PROJECT_FORMATS} onClick={() => void addCustomFormat()}><Plus size={14} /> Add custom</button>
+            <button className="button primary" disabled={!canEdit || project.formats.length >= MAX_PROJECT_FORMATS} onClick={() => void addCustomFormat()}><Plus size={14} /> {t('Add custom')}</button>
           </div>
-          <div className="format-scope-grid"><div><span className="tiny-label">COMMON</span><p>Photos, text content, fonts, timing, transitions, audio, color, and filters.</p></div><div><span className="tiny-label">PER FORMAT</span><p>Size, frame rate, quality, image zoom/pan/fit, and letterbox color.</p></div></div>
-          <div className="modal-actions"><button className="button primary" onClick={requestCloseModal}>Done</button></div>
+
+              </> : <>
+                <div className="format-browser-tools">
+                  <label className="search-field"><Search size={14} /><input aria-label={t('Search formats')} placeholder={t('Search formats…')} value={formatSearch} onChange={event => setFormatSearch(event.target.value)} /></label>
+                  {formatSection === 'social' && <select aria-label="Social platform" value={formatPlatform} onChange={event => setFormatPlatform(event.target.value)}><option value="all">{t('All platforms')}</option>{filterFormatGroups('all').filter(group => !['Sizes','4K Master'].includes(group.platform)).map(group => <option key={group.platform} value={group.platform}>{t(group.label)}</option>)}</select>}
+                </div>
+                <div className="format-preset-scroll">
+          <div className="format-groups">{formatBrowserGroups.map(group => <section className="format-group" key={group.platform}>
+            <div className="format-group-head"><strong>{t(group.label)}</strong><span>{group.presets.length} {group.presets.length === 1 ? 'format' : 'formats'}</span></div>
+            <div className="format-group-grid">{group.presets.map(preset => { const active = project.formats.some(format => format.presetId === preset.id); return <label key={preset.id} className={`format-card ${active ? 'active' : ''}`}><input type="checkbox" aria-label={preset.name} checked={active} disabled={!canEdit || (!active && project.formats.length >= MAX_PROJECT_FORMATS)} onChange={() => void toggleFormatPreset(preset.id)} /><span className="format-check" aria-hidden="true">{active ? <Check size={11} /> : null}</span><span className="format-ratio">{preset.aspect}</span><strong>{preset.name}</strong><small>{preset.description}</small></label>; })}</div>
+          </section>)}</div>
+
+                  {formatBrowserGroups.length === 0 && <p className="note">{t('No matching formats. Try another search.')}</p>}
+                </div>
+              </>}
+              </div>
+            </div>
+            <aside className="format-selection" aria-label="Selected format settings">
+          <div className="settings-section-title">{t('Selected formats')}</div>
+          <div className="format-current-list">{project.formats.map(format => <div className={`format-current ${activeFormat?.id === format.id ? 'active' : ''}`} key={format.id}><button className="format-current-select" onClick={() => setActiveFormatId(format.id)}><span className="format-ratio">{format.width}×{format.height}</span><span><strong>{format.name}</strong><small>{format.width}×{format.height} · {format.fps} fps · {format.quality}</small></span></button><button className="icon-button" aria-label={`Remove ${format.name}`} disabled={project.formats.length <= 1} onClick={() => void removeFormat(format.id)}><Trash2 size={14} /></button></div>)}</div>
+          {activeFormat && <div className="format-settings-card" key={activeFormat.id}>
+            <div className="settings-section-title">{t('Settings for {name}', { name: activeFormat.name })}</div>
+            <div className="format-settings-grid">
+              <label className="field">{t('Name')}<input defaultValue={activeFormat.name} maxLength={80} onBlur={event => { if (event.target.value.trim() && event.target.value.trim() !== activeFormat.name) void updateFormatSettings(activeFormat, { name: event.target.value }); }} /></label>
+              <label className="field">{t('Width')}<input type="number" min="160" max="3840" step="2" defaultValue={activeFormat.width} onBlur={event => { const value = Number(event.target.value); if (value !== activeFormat.width) void updateFormatSettings(activeFormat, { width: value }); }} /></label>
+              <label className="field">{t('Height')}<input type="number" min="160" max="3840" step="2" defaultValue={activeFormat.height} onBlur={event => { const value = Number(event.target.value); if (value !== activeFormat.height) void updateFormatSettings(activeFormat, { height: value }); }} /></label>
+              <label className="field">{t('Frame rate')}<select value={activeFormat.fps} onChange={event => void updateFormatSettings(activeFormat, { fps: Number(event.target.value) })}><option value={24}>24 fps</option><option value={25}>25 fps</option><option value={30}>30 fps</option><option value={60}>60 fps</option></select></label>
+              <label className="field">{t('Quality')}<select value={activeFormat.quality} onChange={event => void updateFormatSettings(activeFormat, { quality: event.target.value as 'draft' | 'standard' | 'high' })}><option value="draft">{t('Draft')}</option><option value="standard">{t('Standard')}</option><option value="high">{t('High')}</option></select></label>
+            </div>
+          </div>}
+
+            </aside>
+          </div>
+          <div className="format-studio-footer">
+          <div className="format-pick-summary" role="status" aria-live="polite"><Layers size={13} /><span><strong>{project.formats.length} format{project.formats.length === 1 ? '' : 's'}</strong> · {projectFormatOutputs.length} file{projectFormatOutputs.length === 1 ? '' : 's'} when you export{projectFormatOutputs.length < project.formats.length ? '. Formats with the same size, frame rate and framing share one video.' : ''}</span></div>
+
+            <button className="button primary" onClick={requestCloseModal}>Done</button>
+          </div>
         </> : modal === 'delete' ? <>
           <h2 id="modal-title">Delete “{deleteTarget?.name}”?</h2>
           <p>This removes the project and its embedded photos from this device. It cannot be undone. Exported videos and downloaded project backups are not affected.</p>
@@ -4645,16 +4720,16 @@ export default function App() {
           {settingsTab === 'general' && <div className="settings-panel">
             <div className="settings-section-title">{t('New project defaults')}</div>
             <div className="settings-grid">
-              <label className="field">Canvas format<select value={preferences.defaultAspect} onChange={event => updatePreferences({ defaultAspect: event.target.value as Project['aspect'] })}><option value="16:9">16:9 · Landscape</option><option value="9:16">9:16 · Vertical</option><option value="1:1">1:1 · Square</option><option value="4:5">4:5 · Portrait</option></select></label>
-              <label className="field">Photo duration<input type="number" min="1" max="10" step="0.5" value={preferences.defaultSceneSeconds} onChange={event => updatePreferences({ defaultSceneSeconds: Math.min(10, Math.max(1, Number(event.target.value) || 4)) })} /></label>
-              <label className="field">Image scaling<select value={preferences.defaultFit} onChange={event => updatePreferences({ defaultFit: event.target.value as Scene['fit'] })}><option value="cover">Fill frame</option><option value="contain">Fit whole image</option><option value="blur">Blur fill</option></select></label>
+              <label className="field">{t('Canvas format')}<select value={preferences.defaultAspect} onChange={event => updatePreferences({ defaultAspect: event.target.value as Project['aspect'] })}><option value="16:9">{t('16:9 · Landscape')}</option><option value="9:16">{t('9:16 · Vertical')}</option><option value="1:1">{t('1:1 · Square')}</option><option value="4:5">{t('4:5 · Portrait')}</option></select></label>
+              <label className="field">{t('Photo duration')}<input type="number" min="1" max="10" step="0.5" value={preferences.defaultSceneSeconds} onChange={event => updatePreferences({ defaultSceneSeconds: Math.min(10, Math.max(1, Number(event.target.value) || 4)) })} /></label>
+              <label className="field">{t('Image scaling')}<select value={preferences.defaultFit} onChange={event => updatePreferences({ defaultFit: event.target.value as Scene['fit'] })}><option value="cover">Fill frame</option><option value="contain">Fit whole image</option><option value="blur">Blur fill</option></select></label>
             </div>
             {bridge.native && <div className="settings-section storage-section">
               <div className="settings-section-title">{t('Local media store')}</div>
               <p className="storage-usage">{storageUsage ? `${storageUsage.files} file${storageUsage.files === 1 ? '' : 's'} · ${formatBytes(storageUsage.bytes)}` : 'Checking…'}</p>
               <p className="note">Imported photos, video and audio live in PixCut's local store. Cleanup keeps anything used by an open project, its undo steps, or a saved project.</p>
               <div className="settings-actions">
-                <button className="button" onClick={() => void refreshAssetUsage()} disabled={storageBusy}>Refresh</button>
+                <button className="button" onClick={() => void refreshAssetUsage()} disabled={storageBusy}>{t('Refresh')}</button>
                 <button className="button" onClick={() => void cleanStorage()} disabled={storageBusy}>{storageBusy ? 'Cleaning…' : storageConfirm ? 'Confirm cleanup' : 'Remove unused media'}</button>
               </div>
               {storageNote && <p className="note" role="status">{storageNote}</p>}
@@ -4662,36 +4737,36 @@ export default function App() {
             <div className="settings-section-title">{t('Language')}</div>
             <label className="field">{t('Interface language')}<select value={language} onChange={e => { const next = isLocale(e.target.value) ? e.target.value : 'en'; setLanguage(next); try { localStorage.setItem('pixcut-language', next); } catch {} }}><option value="en">English</option><option value="pl">Polski</option><option value="uk">Українська</option></select></label>
             <p className="note">{t('Language selection is stored locally and applies to the main screens; some editor panels are still being translated.')}</p>
-            <div className="settings-footer"><button className="button subtle" onClick={resetPreferences}><RefreshCw size={14} /> Reset preferences</button></div>
+            <div className="settings-footer"><button className="button subtle" onClick={resetPreferences}><RefreshCw size={14} /> {t('Reset preferences')}</button></div>
           </div>}
           {settingsTab === 'appearance' && <div className="settings-panel">
             <div className="settings-section-title">{t('Theme')}</div>
-            <label className="field">{t('App theme')}<select value={preferences.theme} onChange={event => updatePreferences({ theme: event.target.value as 'dark' | 'light' })}><option value="dark">Dark gray · default</option><option value="light">Light</option></select></label>
-            <p className="note">Dark gray is the default. The light theme keeps the original bright home and navy editor.</p>
+            <label className="field">{t('App theme')}<select value={preferences.theme} onChange={event => updatePreferences({ theme: event.target.value as 'dark' | 'light' })}><option value="dark">{t('Dark gray · default')}</option><option value="light">{t('Light')}</option></select></label>
+            <p className="note">{t('Dark gray is the default. The light theme keeps the original bright home and navy editor.')}</p>
             <div className="settings-section-title">{t('Editor comfort')}</div>
-            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.compact} onChange={event => updatePreferences({ compact: event.target.checked })} /><span><strong>Compact editor</strong><small>Tighter panels and controls, more timeline space.</small></span></label>
-            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.reduceMotion} onChange={event => updatePreferences({ reduceMotion: event.target.checked })} /><span><strong>Reduce motion</strong><small>Disable interface animations and transitions.</small></span></label>
-            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={showHints && preferences.showHints} onChange={event => { setShowHints(event.target.checked); updatePreferences({ showHints: event.target.checked }); if (!event.target.checked) { try { localStorage.setItem(HINTS_KEY, '1'); } catch { /* optional */ } } else { try { localStorage.removeItem(HINTS_KEY); } catch { /* optional */ } } }} /><span><strong>Quick-start hints</strong><small>Show the shortcut strip the first time you edit.</small></span></label>
-            <div className="settings-preview"><span className="settings-preview-frame"><span /></span><div><strong>Home stays light. Editing stays focused.</strong><p>PixCut uses a light library for browsing and a deep navy workspace for editing. Media never leaves this device.</p></div></div>
+            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.compact} onChange={event => updatePreferences({ compact: event.target.checked })} /><span><strong>{t('Compact editor')}</strong><small>{t('Tighter panels and controls, more timeline space.')}</small></span></label>
+            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.reduceMotion} onChange={event => updatePreferences({ reduceMotion: event.target.checked })} /><span><strong>{t('Reduce motion')}</strong><small>{t('Disable interface animations and transitions.')}</small></span></label>
+            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={showHints && preferences.showHints} onChange={event => { setShowHints(event.target.checked); updatePreferences({ showHints: event.target.checked }); if (!event.target.checked) { try { localStorage.setItem(HINTS_KEY, '1'); } catch { /* optional */ } } else { try { localStorage.removeItem(HINTS_KEY); } catch { /* optional */ } } }} /><span><strong>{t('Quick-start hints')}</strong><small>{t('Show the shortcut strip the first time you edit.')}</small></span></label>
+            <div className="settings-preview"><span className="settings-preview-frame"><span /></span><div><strong>{t('Home stays light. Editing stays focused.')}</strong><p>{t('PixCut uses a light library for browsing and a deep navy workspace for editing. Media never leaves this device.')}</p></div></div>
           </div>}
           {settingsTab === 'editing' && <div className="settings-panel">
             <div className="settings-section-title">{t('Editing behavior')}</div>
             <label className="field">{t('Autosave delay')}<select value={preferences.autosaveMs} onChange={event => updatePreferences({ autosaveMs: Number(event.target.value) })}><option value={300}>Fast · 0.3 s</option><option value={700}>Balanced · 0.7 s</option><option value={1500}>Relaxed · 1.5 s</option><option value={3000}>Battery saver · 3 s</option></select></label>
-            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.snapping} onChange={event => { setSnapping(event.target.checked); updatePreferences({ snapping: event.target.checked }); }} /><span><strong>Snap timeline by default</strong><small>New sessions start with snapping enabled.</small></span></label>
+            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.snapping} onChange={event => { setSnapping(event.target.checked); updatePreferences({ snapping: event.target.checked }); }} /><span><strong>{t('Snap timeline by default')}</strong><small>{t('New sessions start with snapping enabled.')}</small></span></label>
             <p className="note">Undo history is session-only and keeps up to 30 edits. Duration, speed, text, and audio edits commit as undo steps.</p>
-            <div className="settings-footer"><button className="button" onClick={() => { setLayout({}); try { localStorage.removeItem('pixcut-layout'); } catch {} setNotice('Editor layout reset.'); }}><RefreshCw size={14} /> Reset panel layout</button></div>
+            <div className="settings-footer"><button className="button" onClick={() => { setLayout({}); try { localStorage.removeItem('pixcut-layout'); } catch {} setNotice('Editor layout reset.'); }}><RefreshCw size={14} /> {t('Reset panel layout')}</button></div>
           </div>}
           {settingsTab === 'shortcuts' && <ShortcutSettings settings={shortcuts} platform={platform} onApply={applyShortcuts} onDirtyChange={setShortcutDirty} onClose={closeShortcutSettings} />}
           {settingsTab === 'updates' && <div className="settings-panel">
-            <div className="settings-section-title">Application updates</div>
-            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.automaticUpdates} onChange={event => updatePreferences({ automaticUpdates: event.target.checked })} /><span><strong>Automatically check for updates</strong><small>On launch and daily while Home is open. Downloads require your approval.</small></span></label>
+            <div className="settings-section-title">{t('Application updates')}</div>
+            <label className="checkbox-field settings-toggle"><input type="checkbox" checked={preferences.automaticUpdates} onChange={event => updatePreferences({ automaticUpdates: event.target.checked })} /><span><strong>{t('Automatically check for updates')}</strong><small>{t('On launch and daily while Home is open. Downloads require your approval.')}</small></span></label>
             <div className="update-card">
               <div className="update-head">
                 <div>
                   <strong>PixCut {appVersion}</strong>
                   <small>{updateState === 'checking' ? 'Checking the release feed…' : updateState === 'available' ? `Version ${updateInfo?.version ?? ''} is available.` : updateState === 'downloading' ? 'Downloading and verifying the update…' : updateState === 'ready' ? 'The update is ready to install.' : updateState === 'error' ? updateMessage : updateMessage || (preferences.automaticUpdates ? 'Checks on launch and once a day while Home is open.' : 'Automatic checks are off.')}</small>
                 </div>
-                <button className="button subtle" disabled={!bridge.native || updateState === 'checking' || updateState === 'downloading' || updateState === 'ready'} onClick={checkForUpdates}><RefreshCw size={14} className={updateState === 'checking' ? 'spin' : ''} /> Check for updates</button>
+                <button className="button subtle" disabled={!bridge.native || updateState === 'checking' || updateState === 'downloading' || updateState === 'ready'} onClick={checkForUpdates}><RefreshCw size={14} className={updateState === 'checking' ? 'spin' : ''} /> {t('Check for updates')}</button>
               </div>
               {updateState === 'available' && updateInfo && <div className="update-body">
                 <div className="update-version"><span>Version {updateInfo.version}</span>{updateInfo.date && <span>{new Date(updateInfo.date).toLocaleDateString()}</span>}</div>
@@ -4699,7 +4774,7 @@ export default function App() {
                 <button className="button" onClick={downloadUpdate}><Download size={14} /> Download and install</button>
               </div>}
               {updateState === 'downloading' && <div className="export-progress"><div><span style={{ width: `${updateProgress}%` }} /></div><span>{updateProgress}%</span></div>}
-              {updateState === 'ready' && <div className="update-body"><p className="note">Restart PixCut to finish installing version {updateInfo?.version ?? 'the update'}.</p><button className="button" onClick={restartUpdate}><RefreshCw size={14} /> Restart to update</button></div>}
+              {updateState === 'ready' && <div className="update-body"><p className="note">Restart PixCut to finish installing version {updateInfo?.version ?? 'the update'}.</p><button className="button" onClick={restartUpdate}><RefreshCw size={14} /> {t('Restart to update')}</button></div>}
               {updateState === 'error' && <div className="update-body"><button className="button subtle" onClick={copyDownloadLink}><Copy size={14} /> Copy download link</button></div>}
               {!bridge.native && <p className="note">Updates are available in the installed desktop app, not the browser preview.</p>}
               <p className="note">Updates are signed and verified. Automatic checks wait until you return Home.</p>
@@ -4708,12 +4783,12 @@ export default function App() {
             <div className="build-summary"><div><span>Version</span><strong>{appVersion}</strong></div><div><span>Running as</span><strong>{bridge.native ? 'Desktop app' : 'Browser preview'}</strong></div><div><span>Build</span><strong>{__BUILD_SHA__ === 'dev' ? 'Local development' : __BUILD_SHA__.slice(0, 8)}</strong></div><div><span>Built on</span><strong>{new Date(__BUILD_DATE__).toLocaleDateString()}</strong></div><div><span>Video export</span><strong>{!bridge.native ? 'Desktop app only' : exporter ? 'FFmpeg ready' : 'FFmpeg not found'}</strong></div></div>
             <p className="note">These details identify your installed copy. Include the diagnostics below when reporting a problem.</p>
             <pre className="diagnostics">{diagnostics()}</pre>
-            <div className="settings-footer"><button className="button" onClick={copyDiagnostics}><Copy size={14} /> Copy diagnostics</button><button className="button subtle" onClick={recheckExporter}><RefreshCw size={14} /> Recheck FFmpeg</button></div>
+            <div className="settings-footer"><button className="button" onClick={copyDiagnostics}><Copy size={14} /> {t('Copy diagnostics')}</button><button className="button subtle" onClick={recheckExporter}><RefreshCw size={14} /> {t('Recheck FFmpeg')}</button></div>
           </div>}
           {settingsTab === 'privacy' && <div className="settings-panel">
             <div className="settings-section-title">Local storage</div>
-            <div className="storage-card"><HardDrive size={18} /><div><strong>{storageLabel}</strong><small>Projects, recovery, thumbnails, and preferences are stored on this device.</small></div><button className="text-button" onClick={refreshStorage}>Refresh</button></div>
-            <div className="privacy-grid"><div><WifiOff size={16} /><strong>No account</strong><span>No sign-in, cloud sync, or profile.</span></div><div><Ban size={16} /><strong>No trackers</strong><span>No analytics or remote requests while editing.</span></div><div><HardDrive size={16} /><strong>Your files</strong><span>Original photos and audio are never modified.</span></div></div>
+            <div className="storage-card"><HardDrive size={18} /><div><strong>{storageLabel}</strong><small>{t('Projects, recovery, thumbnails, and preferences are stored on this device.')}</small></div><button className="text-button" onClick={refreshStorage}>Refresh</button></div>
+            <div className="privacy-grid"><div><WifiOff size={16} /><strong>{t('No account')}</strong><span>{t('No sign-in, cloud sync, or profile.')}</span></div><div><Ban size={16} /><strong>{t('No trackers')}</strong><span>{t('No analytics or remote requests while editing.')}</span></div><div><HardDrive size={16} /><strong>{t('Your files')}</strong><span>{t('Original photos and audio are never modified.')}</span></div></div>
             <p className="note">Deleting a project removes its local library record and media assets. Exported videos and downloaded project backups are not touched.</p>
           </div>}
         </> : <>

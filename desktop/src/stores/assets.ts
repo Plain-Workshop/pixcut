@@ -109,18 +109,22 @@ export async function storeAssetDataUrl(data: string, name: string) {
 export const assetRef = (id: string) => `${PREFIX}${id}`;
 
 /** Stores a File/Blob without converting it to base64 first. */
-export async function storeAssetBlob(blob: Blob, name: string) {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
+export async function storeAssetBytes(bytes: Uint8Array, name: string, mime: string, expectedId?: string) {
   if (!bytes.length) throw new Error(`“${name}” is empty.`);
   const id = await hashBytes(bytes);
+  if (expectedId && id !== expectedId) throw new Error(`“${name}” failed its integrity check.`);
   const db = await openDatabase();
   const existing = await requestResult(db.transaction(STORE, 'readonly').objectStore(STORE).get(id)) as AssetRow | undefined;
   if (!existing) {
     const transaction = db.transaction(STORE, 'readwrite');
-    transaction.objectStore(STORE).put({ id, name, mime: blob.type, bytes: bytes.length, data: bytes.buffer } satisfies AssetRow);
+    transaction.objectStore(STORE).put({ id, name, mime, bytes: bytes.length, data: bytes.slice().buffer } satisfies AssetRow);
     await transactionDone(transaction);
   }
-  return { id, name, mime: blob.type, bytes: bytes.length };
+  return { id, name, mime, bytes: bytes.length };
+}
+
+export async function storeAssetBlob(blob: Blob, name: string) {
+  return storeAssetBytes(new Uint8Array(await blob.arrayBuffer()), name, blob.type);
 }
 
 export async function loadAssetBlob(id: string): Promise<Blob> {

@@ -6,9 +6,9 @@ import { elementForeground } from './symbols';
 
 type IconPainter = (ctx: CanvasRenderingContext2D, name: string, x: number, y: number, size: number, color: string, filled?: boolean) => void;
 
-export const BUTTON_ASPECTS = [3.5, 3.8, 2.5, 1, 1, 2.8, 2.7, 2.6, 1.3, 3.2, 3.5, 3.3, 1.4, 3.8, 2.8, 1.4, 3, 3.6, 1.3, 3.2] as const;
+export const BUTTON_ASPECTS = [3.5, 3.8, 2.5, 1, 1, 2.8, 2.7, 2.6, 1.3, 3.2, 3.5, 3.3, 1.4, 3.8, 2.8, 1.4, 3, 3.6, 1.3, 3.2, 3.6, 2.8, 3.8, 3, 2.8, 3.2, 3.8, 3.8, 1.3, 3.6] as const;
 
-export const buttonVariant = (p: ElementPreset) => p.variant + (p.collection === 'buttons-studio' ? 10 : 0);
+export const buttonVariant = (p: ElementPreset) => p.variant + (p.collection === 'buttons-studio' ? 10 : p.collection === 'buttons-motion' ? 20 : 0);
 
 /** Compact CTA artwork, shared by thumbnails, canvas preview and export. */
 export function drawSocialButton(ctx: CanvasRenderingContext2D, e: ElementLayer, p: ElementPreset, w: number, h: number, seconds: number, paintIcon: IconPainter) {
@@ -33,6 +33,31 @@ export function drawSocialButton(ctx: CanvasRenderingContext2D, e: ElementLayer,
     ctx.fillText(value, x, y, max);
   };
   const gradient = ctx.createLinearGradient(0, 0, W, H); gradient.addColorStop(0, accent); gradient.addColorStop(1, '#F9E9FF');
+  if (variant >= 20) {
+    const v=variant-20,phase=seconds%3.2,clicked=phase>=1.1,press=Math.max(0,1-Math.abs(phase-1.1)/.16);
+    const activeText=clicked&&detail?detail:title;
+    ctx.translate(W/2,H/2);ctx.scale(1-press*.045,1-press*.045);ctx.translate(-W/2,-H/2);
+    if(v===8){
+      circle(W/2,H*.4,u*.3,accent);icon(p.icon,W/2,H*.4,u*(clicked?.4:.3),ink);
+      text(activeText,W/2,H*.84,u*.08,white,W*.9,'center');
+    }else if(v===7){
+      rect(12,H*.08,W-24,H*.84,'#FAFAFC',H*.15);circle(H*.5,H*.5,H*.25,accent==='#FFFFFF'?'#FF596F':accent);icon(p.icon,H*.5,H*.5,H*.28,dark);
+      text(title,H*.9,H*.34,H*.18,dark,W-H*1.2);rect(H*.9,H*.52,W-H*1.15,H*.25,clicked?'#D8EAD7':'#151820',H*.07);text(detail,H*.98,H*.645,H*.11,clicked?dark:white,W-H*1.4);
+    }else{
+      const filled=[0,3,4,5].includes(v),bg=filled?(clicked?'#DCEBD9':accent):dark,fg=filled?(clicked?dark:ink):white;
+      rect(12,H*.14,W-24,H*.72,bg,v===2||v===9?H*.12:H*.36);
+      if(!filled)outline(12,H*.14,W-24,H*.72,clicked?accent:'#FFFFFF30',v===2||v===9?H*.12:H*.36,2);
+      const angle=v===2||v===9?Math.sin(Math.max(0,phase-1.1)*32)*(clicked?.18:0):0;
+      ctx.save();ctx.translate(H*.5,H*.5);ctx.rotate(angle);icon(clicked&&v!==2&&v!==9?'check-check':p.icon,0,0,H*.31,filled?(clicked?dark:ink):accent);ctx.restore();
+      text(activeText,H*.86,H*.5,H*.2,fg,W-H*1.15);
+    }
+    if(phase>.7&&phase<1.6){
+      const x=W*.77,y=H*.68+Math.max(0,1.1-phase)*H*.25;
+      ctx.save();ctx.translate(x,y);ctx.fillStyle=white;ctx.strokeStyle=dark;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(H*.11,H*.2);ctx.lineTo(H*.035,H*.18);ctx.lineTo(-H*.02,H*.25);ctx.lineTo(-H*.065,H*.22);ctx.lineTo(-H*.01,H*.15);ctx.lineTo(-H*.09,H*.15);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
+    }
+    if(clicked&&phase<1.6){ctx.save();ctx.globalAlpha*=1-(phase-1.1)/.5;ctx.strokeStyle=accent;ctx.lineWidth=3;ctx.beginPath();ctx.arc(W*.77,H*.68,(phase-1.1)*H*.55+3,0,Math.PI*2);ctx.stroke();ctx.restore();}
+    ctx.restore();return;
+  }
   switch (variant) {
     case 0: // Raised subscribe pill with a separate play medallion.
       rect(16, H * .22, W - 32, H * .67, '#00000035', H / 2);

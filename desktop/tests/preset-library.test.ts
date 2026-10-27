@@ -8,9 +8,9 @@ import { TEMPLATES,buildTemplateProject } from '../src/templates/catalog';
 const scene:Scene={id:'s',name:'Scene',image:'data:image/png;base64,AA==',startTicks:0,sourceInTicks:0,durationTicks:240,title:'',subtitle:'',color:'#FFFFFF',fit:'cover'};
 const base:ElementLayer={id:'e',kind:'label',x:.5,y:.5,width:.4,height:.2,rotation:0,color:'#C5B4FF',opacity:100,startTicks:0,durationTicks:240,animation:'none'};
 describe('designer presets',()=>{
- it('has 22 curated collections of ten, distinct identities, usable local artwork and editable text',()=>{
-  expect(ELEMENT_CATALOG).toHaveLength(220);expect(ELEMENT_COLLECTIONS).toHaveLength(22);
-  expect(new Set(ELEMENT_CATALOG.map(p=>p.id)).size).toBe(220);expect(new Set(ELEMENT_CATALOG.map(p=>p.label)).size).toBe(220);
+ it('has 23 curated collections of ten, distinct identities, usable local artwork and editable text',()=>{
+  expect(ELEMENT_CATALOG).toHaveLength(230);expect(ELEMENT_COLLECTIONS).toHaveLength(23);
+  expect(new Set(ELEMENT_CATALOG.map(p=>p.id)).size).toBe(230);expect(new Set(ELEMENT_CATALOG.map(p=>p.label)).size).toBe(230);
   expect(Object.keys(PRESET_ICONS).length).toBeGreaterThan(150);
   for(const [id] of ELEMENT_COLLECTIONS){const items=ELEMENT_CATALOG.filter(p=>p.collection===id);expect(items).toHaveLength(10);expect(new Set(items.map(p=>p.variant)).size).toBe(10);}
   for(const p of ELEMENT_CATALOG){expect(PRESET_ICONS[p.icon],p.id).toBeTruthy();expect(p.text.length,p.id).toBeLessThanOrEqual(80);expect(presetAspect(p)).toBeGreaterThan(0);}
@@ -32,6 +32,6 @@ describe('designer presets',()=>{
   expect(exportBoundaries({...scene,elements:[{...base,presetId:'travel-01'}]},emptyProject().timebase,false)).toHaveLength(241);
  });
  it('creates every bundled photo/video template without the removed decorative shapes',async()=>{
-  for(const t of TEMPLATES){const p=await buildTemplateProject(t,[],async()=>scene.image,async()=> 'data:video/mp4;base64,AA==',async()=>scene.image,async()=> 'data:audio/mp4;base64,AA==');expect(p.tracks[0].clips.length,t.id).toBeGreaterThan(0);for(const clip of p.tracks[0].clips)expect(clip.elements??[],t.id).toHaveLength(0);}
+  for(const t of TEMPLATES){const p=await buildTemplateProject(t,[],async()=>scene.image,async()=> 'data:video/mp4;base64,AA==',async()=>scene.image,async()=> 'data:audio/mp4;base64,AA==');expect(p.tracks[0].clips.length,t.id).toBeGreaterThan(0);for(const clip of p.tracks[0].clips)for(const element of clip.elements??[])expect(ELEMENT_CATALOG.some(preset=>preset.id===element.presetId),t.id).toBe(true);}
  });
 });

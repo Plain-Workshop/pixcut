@@ -1,3 +1,5 @@
+import { ELEMENT_CATALOG } from '../components/elements/catalog';
+import { presetSize } from '../components/elements/designer';
 import { defaultFormat, emptyProject, normalizeStarts, projectScenes, secondsToTicks, type FilterId, type Project, type Scene, type TextLayer } from '../stores/model';
 import { bundledPhotoDataUrl, templatePhotoDataUrl, templatePhotoUrl, FALLBACK_PHOTO_FILE, type TemplatePhotoId } from './photos';
 import { TEMPLATE_AUDIO, TEMPLATE_VIDEO, templateAudioDataUrl, templateVideoDataUrl, templateVideoPosterDataUrl, templateVideoPosterUrl, type TemplateAudioId, type TemplateVideoId } from './media';
@@ -57,7 +59,11 @@ export function buildStory(spec: StorySpec, images: string[]): Scene[] {
       textLayers: layers,
       motion: spec.motion ?? 'none',
       transition: { type: spec.transition, duration: .5 },
-      elements: [],
+      elements: spec.category === 'Social' && index === 2 ? (() => {
+        const preset = ELEMENT_CATALOG.find(p => p.id === (spec.id === 'motion-opener' ? 'buttons-motion-01' : 'buttons-motion-02'))!;
+        const [aw,ah] = spec.aspect.split(':').map(Number);
+        return [{id:crypto.randomUUID(),kind:preset.kind,presetId:preset.id,label:preset.text,x:.5,y:.8,...presetSize(preset,{width:aw*100,height:ah*100}),rotation:0,color:preset.color,opacity:100,startTicks:0,durationTicks,animation:preset.animation}];
+      })() : [],
     };
     return scene;
   });

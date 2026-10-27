@@ -15,6 +15,18 @@ async page=>{
  await page.reload();await page.getByRole('button',{name:new RegExp(`^16:9 ${name}`)}).click();
  const originalSource=await page.evaluate(async name=>{const lib=await import('/src/stores/library.ts');const entry=(await lib.listProjects()).find(e=>e.name===name);return (await lib.getLibraryProject(entry.id)).tracks[0].clips[0].image;},name);
  const left=page.locator('.library'),right=page.getByRole('complementary',{name:'Selected item properties'});
+ const header=page.locator('.editor-header');
+ for(const compact of [false,true]){
+  await page.locator('.app.editor').evaluate((el,value)=>el.classList.toggle('compact',value),compact);
+  const bounds=await header.boundingBox();if(bounds.height!==44)throw Error(`Header height is ${bounds.height} in compact=${compact}`);
+  for(const name of ['Back to home','Save project','Export']){
+   const button=header.getByRole('button',{name:new RegExp(`^${name}`)}),box=await button.boundingBox();
+   if(box.height<32||box.y<bounds.y||box.y+box.height>bounds.y+bounds.height)throw Error(`${name} is clipped or too small`);
+  }
+ }
+ await page.locator('.app.editor').evaluate(el=>el.classList.remove('compact'));
+ await page.screenshot({path:'output/playwright/compact-editor-header.png'});
+
  const libraryOffsets={};
  for(const [tab,selector] of [['Media','.source-tile'],['Titles','.title-preset'],['Elements','.element-card'],['Audio','.audio-list-item'],['Templates','.template-tab-card']]){
   await left.getByRole('button',{name:tab,exact:true}).click();

@@ -318,7 +318,7 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
   color: var(--fg);
 }
 .editor-header {
-  height: 64px;
+  height: 44px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -335,7 +335,7 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .save-status { display: flex; align-items: center; gap: 6px; font-size: 9px; color: #7E85A8; white-space: nowrap; }
 .save-status .status-dot { width: 5px; height: 5px; background: var(--positive); }
 .header-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
-.header-actions .button { margin-left: 4px; }
+.header-actions .button { margin-left: 4px; height: 32px; padding: 5px 12px; }
 .header-save { color: #C7CBEB; }
 .editor-body { display: flex; flex: 1; min-height: 0; }
 .tool-rail {
@@ -865,7 +865,7 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .privacy-grid svg { color: #A996FF; }
 .privacy-grid strong { color: #E3E6F8; font-size: 9.5px; }
 .privacy-grid span { color: #858CAC; font-size: 8px; line-height: 1.5; }
-.app.compact .editor-header { min-height: 54px; }
+.app.compact .editor-header { min-height: 44px; }
 .app.compact .inspector { padding: 15px 12px; }
 .app.compact .button { padding: 7px 9px; }
 .app.compact .inspector-tabs { margin-bottom: 14px; }
@@ -1986,3 +1986,57 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .library .element-project-overlays > summary span { margin-left: auto; }
 .library .template-tab-list { margin-top: 0; }
 .library .elements-panel { gap: 4px; }
+
+/* A bounded format browser keeps the selection and Done action in view. */
+.modal.format-studio { width: min(1000px, calc(100vw - 56px)); height: min(680px, calc(100dvh - 56px)); max-height: none; display: flex; flex-direction: column; overflow: hidden; padding: 18px 22px; }
+.format-studio > .modal-header, .format-studio > h2, .format-studio > p, .format-studio-footer { flex-shrink: 0; }
+.format-studio > h2 { margin: 4px 0 6px; font-size: 24px; }
+.format-studio > p { margin: 0 0 14px; }
+.format-studio-body { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 20px; flex: 1; min-height: 0; }
+.format-browser { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.format-section-tabs { display: flex; gap: 5px; padding-bottom: 10px; flex-shrink: 0; }
+.format-section-tabs button { padding: 8px 12px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); font-size: 12px; }
+.format-section-tabs button[aria-selected="true"] { background: #7350ec; border-color: #9473ff; color: #fff; }
+.format-browser-panel { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: auto; }
+.format-browser-tools { display: flex; gap: 8px; padding-bottom: 10px; flex-shrink: 0; }
+.format-browser-tools .search-field { flex: 1; margin: 0; min-width: 0; }
+.format-browser-tools input { font-size: 12px; height: 34px; }
+.format-browser-tools select { width: 130px; min-width: 0; font-size: 11px; padding: 5px; }
+.format-preset-scroll { min-height: 0; overflow: auto; padding-right: 8px; }
+.format-studio .format-groups { columns: auto; margin: 0; }
+.format-studio .format-group { margin-bottom: 16px; }
+.format-studio .format-group-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.format-studio .format-card { padding: 10px; gap: 5px; }
+.format-studio .format-card strong { padding-right: 16px; font-size: 12px; }
+.format-studio .format-card small { font-size: 11px; }
+.format-studio .format-group-head strong { font-size: 12px; }
+.format-studio .format-ratio { font-size: 10px; }
+.format-selection { min-width: 0; min-height: 0; overflow: auto; padding-left: 16px; border-left: 1px solid var(--line); }
+.format-selection > .settings-section-title { margin: 0 0 10px; }
+.format-selection .format-current-list { margin: 0; max-height: 150px; overflow: auto; }
+.format-selection .format-current-select { min-width: 0; }
+.format-selection .format-current-select > .format-ratio { display: none; }
+.format-selection .format-current-select strong { font-size: 12px; }
+.format-selection .format-current-select small { font-size: 10px; }
+.format-selection .format-settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.format-selection .format-settings-grid > :first-child { grid-column: 1 / -1; }
+.format-studio .field { min-width: 0; font-size: 12px; }
+.format-studio .field input, .format-studio .field select { min-width: 0; font-size: 12px; }
+.format-studio .custom-format-form { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 8px 0; }
+.format-studio .custom-format-form > :first-child, .format-studio .custom-format-form > button { grid-column: 1 / -1; }
+.format-studio-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 14px; }
+.format-studio-footer .format-pick-summary { padding: 0; margin: 0; background: none; border: 0; font-size: 11px; }
+.format-studio :is(.format-preset-scroll,.format-selection,.format-current-list,.format-browser-panel) { scrollbar-width: thin; scrollbar-color: #55505f transparent; }
+@media (max-width: 760px) { .format-studio-body { grid-template-columns: minmax(0, 1fr) 240px; gap: 12px; } .format-studio .format-group-grid { grid-template-columns: 1fr; } }
+
+/* Transition cards show the same compositing used by playback and export. */
+.inspector .transition-card { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; gap: 5px; padding: 6px 6px 9px; overflow: hidden; }
+.transition-example { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 5px; background: #332c48; }
+.inspector .transition-card strong { font-size: 12px; padding: 0 3px; }
+.inspector .transition-card small { font-size: 10px; padding: 0 3px; }
+.source-tile[draggable="true"] { cursor: grab; }
+.source-tile img { -webkit-user-drag: none; user-select: none; }
+.sound-effect-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.sound-effect-actions .button { padding: 6px 8px; font-size: 11px; }
+.sound-effect-list > div { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12px; }
+.sound-effect-list > div > span { flex: 1; }

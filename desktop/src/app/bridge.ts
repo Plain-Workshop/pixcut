@@ -2,6 +2,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { edit, emptyProject, trimHistory, validateProject, type Command, type Project, type Session } from '../stores/model';
 import { persistProjectAssets } from '../stores/assets';
+import { projectToPixcut } from '../stores/pixcut-bundle';
 export const native = isTauri();
 let current = emptyProject();
 let past: Project[] = [], future: Project[] = [];
@@ -34,9 +35,16 @@ export async function applyOrder(command: Command): Promise<History> {
   const view = await dispatch(command);
   return { canUndo: view.canUndo, canRedo: view.canRedo };
 }
-function downloadProject(project: Project) {
-  const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${project.name.replace(/[^\p{L}\p{N} _-]/gu, '') || 'Project'}.pixcut.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); return true;
+async function downloadProject(project: Project) {
+  const data = await projectToPixcut(project);
+  const blob = new Blob([data], { type: 'application/zip' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${project.name.replace(/[^\p{L}\p{N} _-]/gu, '') || 'Project'}.pixcut`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return true;
 }
 export async function saveProject(project: Project): Promise<boolean> {
   if (native) return invoke('save_project');

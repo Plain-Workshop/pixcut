@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { DICTIONARIES, isLocale, projectCount, setLocale, t } from '../src/i18n';
+import { DICTIONARIES, formatCount, isLocale, projectCount, sceneCount, setLocale, t } from '../src/i18n';
 
 afterEach(() => setLocale('en'));
 
@@ -36,6 +36,19 @@ describe('interface language', () => {
     setLocale('uk');
     expect(projectCount(2)).toBe('2 проєкти');
     expect(projectCount(21)).toBe('21 проєкт');
+  });
+
+  it('uses locale-aware scene and format counts', () => {
+    expect(sceneCount(1)).toBe('1 scene');
+    expect(sceneCount(3)).toBe('3 scenes');
+    setLocale('pl');
+    expect(sceneCount(1)).toBe('1 scena');
+    expect(sceneCount(3)).toBe('3 sceny');
+    expect(sceneCount(5)).toBe('5 scen');
+    expect(formatCount(2)).toBe('2 formaty');
+    setLocale('uk');
+    expect(sceneCount(2)).toBe('2 сцени');
+    expect(formatCount(2)).toBe('2 формати');
   });
 
   it('keeps the two translations in sync', () => {

@@ -1,3 +1,4 @@
+import { TransitionPreview } from '../preview/TransitionPreview';
 import { ElementPreview } from '../elements/ElementPreview';
 import { t } from '../../i18n';
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
@@ -306,7 +307,7 @@ function RangeField({
 }
 
 export function SceneForm({
-  mode = 'scene', hasNextScene = true, onReplaceImage,
+  mode = 'scene', hasNextScene = true, onReplaceImage, reduceMotion = false,
   scene,
   update,
   onPreview,
@@ -328,6 +329,7 @@ export function SceneForm({
   onReorderLayer,
 }: {
   mode?: 'scene' | 'text';
+  reduceMotion?: boolean;
   hasNextScene?: boolean;
   scene: Scene;
   update: (scene: Scene, force?: ScenePatchKey[]) => Promise<boolean> | void;
@@ -776,7 +778,7 @@ export function SceneForm({
 
     {displayTab === 'transition' && !hasNextScene && <p className="note">Add a scene after this clip to use a transition.</p>}
     {displayTab === 'transition' && hasNextScene && <>
-      <div className="transition-grid">{TRANSITION_OPTIONS.map(option => <button key={option.id} className={`transition-card ${(draft.transition?.type ?? 'none') === option.id ? 'active' : ''}`} onClick={() => apply({ transition: option.id === 'none' ? null : { type: option.id, duration: draft.transition?.duration ?? .6 } }, ['transition'])}><span className={`transition-swatch ${option.id}`} /><strong>{t(option.label)}</strong><small>{option.description}</small></button>)}</div>
+      <div className="transition-grid">{TRANSITION_OPTIONS.map(option => <button key={option.id} className={`transition-card ${(draft.transition?.type ?? 'none') === option.id ? 'active' : ''}`} onClick={() => apply({ transition: option.id === 'none' ? null : { type: option.id, duration: draft.transition?.duration ?? .6 } }, ['transition'])}><TransitionPreview type={option.id} reduceMotion={reduceMotion} /><strong>{t(option.label)}</strong><small>{option.description}</small></button>)}</div>
       <RangeField label="Transition duration" value={draft.transition?.duration ?? .6} min={0.1} max={Math.min(2, duration / 2)} step={0.1} unit="sec" disabled={!draft.transition} onChange={value => preview(stage({ transition: { type: draft.transition?.type ?? 'fade', duration: value } }))} onCommit={() => commit()} />
     </>}
 
