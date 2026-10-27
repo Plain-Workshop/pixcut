@@ -1133,11 +1133,11 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - The existing timed image/video overlay path is now labelled **Picture in picture** on media tiles and in the source preview, matching what it does: a 34%-width copy in the first free corner, with the source's own timing and optional video playback.
 - This is not a second visual track; the timeline still edits one contiguous base track. The overlay can be moved, resized, faded and keyframed in the element inspector, and it is baked into preview and export identically.
 
-## Build state — 2026-10-26 (end of pass)
+## Build state — 2026-10-27 (end of pass)
 
 - `npm run ci` passes: 290 TypeScript tests, 44 project-model tests, 34 native tests (13 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
 - Ignored FFmpeg tests also pass locally for the new work: `real_video_transition_keeps_duration_and_sound`, `real_reverse_and_ramp_video_export`, and the existing exporter/hardware suites.
-- `npm run tauri -- build --debug --bundles app` produced `PixCut.app` (60.13 MiB). The updater tarball could not be signed because `TAURI_SIGNING_PRIVATE_KEY` is not exported in this shell; the app bundle itself is complete and was launched from `target/debug/bundle/macos/PixCut.app` (PID 89817).
+- `npm run tauri -- build --debug --bundles app` produced a fresh `PixCut.app` after the PiP, menu and export-dialog work. The updater tarball could not be signed because `TAURI_SIGNING_PRIVATE_KEY` is not exported in this shell; the app bundle itself is complete and is running from `target/debug/bundle/macos/PixCut.app` (PID 22516).
 - No release, tag or version bump was made. Signing remains deferred by the user's decision.
 
 ## Selection-driven inspector and motion previews — 2026-10-27
