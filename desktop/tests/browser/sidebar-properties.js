@@ -15,6 +15,21 @@ async page=>{
  await page.reload();await page.getByRole('button',{name:new RegExp(`^16:9 ${name}`)}).click();
  const originalSource=await page.evaluate(async name=>{const lib=await import('/src/stores/library.ts');const entry=(await lib.listProjects()).find(e=>e.name===name);return (await lib.getLibraryProject(entry.id)).tracks[0].clips[0].image;},name);
  const left=page.locator('.library'),right=page.getByRole('complementary',{name:'Selected item properties'});
+ const libraryOffsets={};
+ for(const [tab,selector] of [['Media','.source-tile'],['Titles','.title-preset'],['Elements','.element-card'],['Audio','.audio-list-item'],['Templates','.template-tab-card']]){
+  await left.getByRole('button',{name:tab,exact:true}).click();
+  await left.evaluate(el=>{el.scrollTop=0;});
+  const first=left.locator(selector).first();await first.waitFor({state:'visible'});
+  const bounds=await first.boundingBox(),panel=await left.boundingBox();
+  libraryOffsets[tab]=Math.round(bounds.y-panel.y);
+  if(bounds.y-panel.y>250)throw Error(`${tab} library content is buried: ${libraryOffsets[tab]}px`);
+  if(await left.evaluate(el=>el.scrollWidth>el.clientWidth))throw Error(`${tab} library overflows horizontally`);
+  await page.screenshot({path:`output/playwright/compact-library-${tab.toLowerCase()}.png`});
+ }
+ await left.getByRole('button',{name:'Titles',exact:true}).click();
+ if(await left.getByRole('button',{name:'Import font',exact:true}).isVisible())throw Error('Occasional title tools are expanded by default');
+ await left.locator('.title-tools > summary').click();
+ for(const name of ['Import font','Export SRT','Add project text'])if(!await left.getByRole('button',{name,exact:true}).isVisible())throw Error(`${name} is no longer accessible`);
  async function leftHasNoProperties(){if(await left.locator('input[type="range"],input[type="number"],.element-controls,.audio-editor').count())throw Error('Properties leaked into the left library');}
  await page.locator('.scene-track .timeline-clip').first().click();
  if(!await right.getByRole('button',{name:'Replace selected scene media',exact:true}).isVisible())throw Error('Framing lost media replacement');
@@ -54,5 +69,5 @@ async page=>{
  let saved;
  for(let i=0;i<30;i++){saved=await page.evaluate(async name=>{const lib=await import('/src/stores/library.ts');const entry=(await lib.listProjects()).find(e=>e.name===name);const p=await lib.getLibraryProject(entry.id);return {title:p.tracks[0].clips[0].textLayers[0].title,source:p.tracks[0].clips[0].image,scenes:p.tracks[0].clips.length,audio:p.audio[0].volume,animation:p.overlays[0].animation,loop:p.overlays[0].loop};},name);if(saved.title==='Updated title'&&saved.audio===1&&saved.animation==='float'&&saved.loop)break;if(i===29)throw Error('Property edits did not persist: '+JSON.stringify(saved));await page.waitForTimeout(200);}
  if(saved.scenes!==2||saved.source!==originalSource)throw Error('Text editing replaced scene media');
- return {selectionScopes:['scene','text','audio','element'],leftProperties:0,motionChecks,continuousMotionsRepeat:true,propertyEditsSaved:true};
+ return {libraryOffsets,selectionScopes:['scene','text','audio','element'],leftProperties:0,motionChecks,continuousMotionsRepeat:true,propertyEditsSaved:true};
 }

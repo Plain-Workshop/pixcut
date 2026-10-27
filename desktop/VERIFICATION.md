@@ -1135,7 +1135,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 
 ## Build state — 2026-10-26 (end of pass)
 
-- `npm run ci` passes: 290 TypeScript tests, 44 project-model tests, 33 native tests (13 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
+- `npm run ci` passes: 290 TypeScript tests, 44 project-model tests, 34 native tests (13 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
 - Ignored FFmpeg tests also pass locally for the new work: `real_video_transition_keeps_duration_and_sound`, `real_reverse_and_ramp_video_export`, and the existing exporter/hardware suites.
 - `npm run tauri -- build --debug --bundles app` produced `PixCut.app` (60.13 MiB). The updater tarball could not be signed because `TAURI_SIGNING_PRIVATE_KEY` is not exported in this shell; the app bundle itself is complete and was launched from `target/debug/bundle/macos/PixCut.app` (PID 89817).
 - No release, tag or version bump was made. Signing remains deferred by the user's decision.
@@ -1165,3 +1165,18 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - The timeline now translates its heading, Visuals, Picture in picture, Text and Elements labels, the audio lane prefix, the empty-audio hint and Add text. The preview chrome translates PREVIEW, Local only, Formats and Safe area with on/off states, and the footer translates its local-editor line.
 - Browser check in Polish: the inspector read “Właściwości sceny”, tabs “Kadrowanie / Przejścia / Kolor / Zanikanie / Wygląd”, the duration field “Czas trwania”, the timeline “Twoja historia / Wizualia / Obraz w obrazie / Dźwięk 1”, Add text “Dodaj tekst”, PREVIEW “PODGLĄD” and Local only “Tylko lokalnie”; no console errors. Reviewed `output/playwright/polish-inspector.png`.
 - Remaining English strings fall back cleanly; the deeper element, export and dialog controls are the next extraction pass.
+
+## Content-first libraries — 2026-10-27
+
+- Moved media and element imports into compact, labelled header icon buttons. Audio import shares its heading row; templates start directly with cards. Removed redundant library labels, counts and template explanatory copy.
+- Title presets now appear immediately below one collapsed Layers & text tools disclosure, which retains existing project/scene text selection, project text creation, subtitle import/export and custom font import.
+- Element search precedes a single row of collection/category selectors, replacing wrapping filter chips. Existing overlays remain available in a compact In project disclosure.
+- Validation: 290 TypeScript tests and production build passed. Extended browser sidebar regression passed selection, persistence, animation and accessible utility checks. Main content begins 158 px (media), 150 px (titles), 239 px (elements), and 112 px (audio/templates) below the panel top at the checked viewport. No horizontal overflow. Reviewed screenshots of all five libraries.
+- Rebuilt the debug macOS bundle (60.38 MiB), launched it, and confirmed compact media imports and immediately visible title presets in the saved Motion opener project. Left the desktop app running on Titles.
+
+## Native menu localization — 2026-10-27
+
+- The Tauri application menu is now built from `menu_label(language, key)`: English, Polish and Ukrainian cover the app, File, Edit, View, Playback and Help menus plus every item (New Project, Save, Import Media, Export Video, Undo/Redo, Home, Fullscreen Preview, Safe Area, Settings, Play/Pause, forward/reverse/stop and Keyboard Shortcuts).
+- A `set_app_menu(language)` command rebuilds and replaces the menu; the frontend calls it whenever the stored language changes and at startup, so switching in Settings updates the OS menu without a restart. Unknown languages and keys fall back to English.
+- Test: `menu_labels_follow_the_interface_language` covers Polish, Ukrainian, and both fallbacks. Native counts are listed in the build-state section.
+- Boundary: macOS also localizes some predefined items from the system language; PixCut now supplies explicit labels so the menu follows the in-app choice.

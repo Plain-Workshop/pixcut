@@ -902,6 +902,9 @@ export default function App() {
   }, [modal, settingsTab]);
 
   useEffect(() => { void refreshLibrary(); }, [refreshLibrary]);
+  useEffect(() => {
+    void bridge.setAppMenu(language).catch(() => { /* the native menu is optional in the browser preview */ });
+  }, [language]);
   useEffect(() => { if (screen === 'home') void refreshLibrary(); }, [screen, refreshLibrary]);
   useEffect(() => {
     if (!ready) return;

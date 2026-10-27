@@ -83,6 +83,10 @@ export type UpdateInfo = { version: string; currentVersion: string; notes: strin
 type PendingUpdate = Awaited<ReturnType<typeof import('@tauri-apps/plugin-updater')['check']>>;
 let pendingUpdate: PendingUpdate = null;
 
+export async function setAppMenu(language: string): Promise<void> {
+  if (native) await invoke('set_app_menu', { language });
+}
+
 export async function appVersion(): Promise<string | null> {
   if (!native) return null;
   const { getVersion } = await import('@tauri-apps/api/app');

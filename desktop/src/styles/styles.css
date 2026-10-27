@@ -1957,3 +1957,32 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .project-text-row.active { border-radius: 8px; background: #332a4a; border: 1px solid #8d73c5; }
 .project-text-row .text-button.danger { padding: 6px; }
 .library-item-list .add-project-text { width: 100%; justify-content: center; margin-top: 4px; font-size: 11px; }
+
+/* Libraries put assets first; occasional tools expand only on request. */
+.library .panel-title { min-height: 32px; margin-bottom: 10px; flex-shrink: 0; }
+.library-header-actions { display: flex; align-items: center; gap: 4px; }
+.library-header-actions .icon-button { width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 7px; }
+.library-header-actions .library-add { padding: 7px 9px; font-size: 12px; }
+.library > .search-field { margin-bottom: 12px; flex-shrink: 0; }
+.library-disclosure { min-width: 0; }
+.library-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none; color: var(--muted); font-size: 12px; padding: 7px 0; }
+.library-disclosure > summary::-webkit-details-marker { display: none; }
+.library-disclosure > summary::before { content: '›'; }
+.library-disclosure[open] > summary::before { transform: rotate(90deg); }
+.library-disclosure > summary > svg { margin-left: auto; }
+.library-disclosure[open] > summary > svg { transform: rotate(180deg); }
+.title-library > .title-tools { grid-column: 1 / -1; width: 100%; }
+.library-disclosure-body { display: flex; flex-direction: column; gap: 10px; padding: 6px 0 12px; }
+.library-disclosure-body .library-label { margin: 6px 0; }
+.library-disclosure-body .library-item-list { margin: 0; }
+.library-disclosure-body .caption-import { margin: 0; padding: 0; border: 0; }
+.library-disclosure-body .caption-import small { display: none; }
+.library-disclosure-body .font-import .button { width: 100%; }
+.library .element-library-tools { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin: 0 0 8px; }
+.library .element-search { grid-column: 1 / -1; }
+.library .element-library-tools select { min-width: 0; padding: 7px 5px; font-size: 11px; }
+.library .element-project-overlays { margin: 0 0 8px; }
+.library .element-project-overlays > summary { justify-content: flex-start; padding: 5px 0; }
+.library .element-project-overlays > summary span { margin-left: auto; }
+.library .template-tab-list { margin-top: 0; }
+.library .elements-panel { gap: 4px; }

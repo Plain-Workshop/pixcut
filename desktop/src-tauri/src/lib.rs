@@ -19,18 +19,80 @@ use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 /// Native application menu. Items carry the same ids the command palette uses,
 /// so a menu click and a keyboard shortcut run the same code. Accelerators are
 /// left to the webview so a user-remapped shortcut never fires twice.
-fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
-    let item = |id: &str, label: &str| MenuItem::with_id(app, id, label, true, None::<&str>);
+/// Menu text in the three shipped interface languages. Unknown keys and
+/// languages fall back to English so a new menu item never renders blank.
+fn menu_label(language: &str, english: &'static str) -> &'static str {
+    match (language, english) {
+        ("pl", "About PixCut") => "O PixCut",
+        ("pl", "Hide PixCut") => "Ukryj PixCut",
+        ("pl", "Hide Others") => "Ukryj inne",
+        ("pl", "Show All") => "Pokaż wszystkie",
+        ("pl", "Quit PixCut") => "Zakończ PixCut",
+        ("pl", "File") => "Plik",
+        ("pl", "New Project") => "Nowy projekt",
+        ("pl", "Open Project…") => "Otwórz projekt…",
+        ("pl", "Save") => "Zapisz",
+        ("pl", "Import Media…") => "Importuj media…",
+        ("pl", "Export Video…") => "Eksportuj wideo…",
+        ("pl", "Close Window") => "Zamknij okno",
+        ("pl", "Edit") => "Edycja",
+        ("pl", "Undo") => "Cofnij",
+        ("pl", "Redo") => "Ponów",
+        ("pl", "View") => "Widok",
+        ("pl", "Home") => "Start",
+        ("pl", "Fullscreen Preview") => "Podgląd pełnoekranowy",
+        ("pl", "Safe Area") => "Bezpieczny obszar",
+        ("pl", "Settings…") => "Ustawienia…",
+        ("pl", "Playback") => "Odtwarzanie",
+        ("pl", "Play / Pause") => "Odtwórz / Pauza",
+        ("pl", "Play Forward") => "Odtwarzaj do przodu",
+        ("pl", "Play Backwards") => "Odtwarzaj do tyłu",
+        ("pl", "Stop") => "Zatrzymaj",
+        ("pl", "Help") => "Pomoc",
+        ("pl", "Keyboard Shortcuts…") => "Skróty klawiszowe…",
+        ("uk", "About PixCut") => "Про PixCut",
+        ("uk", "Hide PixCut") => "Сховати PixCut",
+        ("uk", "Hide Others") => "Сховати інші",
+        ("uk", "Show All") => "Показати всі",
+        ("uk", "Quit PixCut") => "Вийти з PixCut",
+        ("uk", "File") => "Файл",
+        ("uk", "New Project") => "Новий проєкт",
+        ("uk", "Open Project…") => "Відкрити проєкт…",
+        ("uk", "Save") => "Зберегти",
+        ("uk", "Import Media…") => "Імпортувати медіа…",
+        ("uk", "Export Video…") => "Експортувати відео…",
+        ("uk", "Close Window") => "Закрити вікно",
+        ("uk", "Edit") => "Редагування",
+        ("uk", "Undo") => "Скасувати",
+        ("uk", "Redo") => "Повторити",
+        ("uk", "View") => "Вигляд",
+        ("uk", "Home") => "Головна",
+        ("uk", "Fullscreen Preview") => "Повноекранний перегляд",
+        ("uk", "Safe Area") => "Безпечна зона",
+        ("uk", "Settings…") => "Налаштування…",
+        ("uk", "Playback") => "Відтворення",
+        ("uk", "Play / Pause") => "Відтворити / Пауза",
+        ("uk", "Play Forward") => "Відтворювати вперед",
+        ("uk", "Play Backwards") => "Відтворювати назад",
+        ("uk", "Stop") => "Зупинити",
+        ("uk", "Help") => "Довідка",
+        ("uk", "Keyboard Shortcuts…") => "Клавіатурні скорочення…",
+        _ => english,
+    }
+}
+
+fn build_app_menu(app: &tauri::AppHandle, language: &str) -> tauri::Result<Menu<tauri::Wry>> {
+    let item = |id: &str, label: &'static str| MenuItem::with_id(app, id, menu_label(language, label), true, None::<&str>);
     let app_menu = Submenu::with_items(app, "PixCut", true, &[
-        &PredefinedMenuItem::about(app, Some("About PixCut"), None)?,
+        &PredefinedMenuItem::about(app, Some(menu_label(language, "About PixCut")), None)?,
         &PredefinedMenuItem::separator(app)?,
-        &PredefinedMenuItem::hide(app, None)?,
-        &PredefinedMenuItem::hide_others(app, None)?,
-        &PredefinedMenuItem::show_all(app, None)?,
+        &PredefinedMenuItem::hide(app, Some(menu_label(language, "Hide PixCut")))?,
+        &PredefinedMenuItem::hide_others(app, Some(menu_label(language, "Hide Others")))?,
+        &PredefinedMenuItem::show_all(app, Some(menu_label(language, "Show All")))?,
         &PredefinedMenuItem::separator(app)?,
-        &PredefinedMenuItem::quit(app, None)?,
+        &PredefinedMenuItem::quit(app, Some(menu_label(language, "Quit PixCut")))?,
     ])?;
-    let file = Submenu::with_items(app, "File", true, &[
+    let file = Submenu::with_items(app, menu_label(language, "File"), true, &[
         &item("project.new", "New Project")?,
         &item("project.open", "Open Project…")?,
         &item("project.save", "Save")?,
@@ -38,13 +100,13 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &item("project.import", "Import Media…")?,
         &item("export.open", "Export Video…")?,
         &PredefinedMenuItem::separator(app)?,
-        &PredefinedMenuItem::close_window(app, None)?,
+        &PredefinedMenuItem::close_window(app, Some(menu_label(language, "Close Window")))?,
     ])?;
-    let edit = Submenu::with_items(app, "Edit", true, &[
+    let edit = Submenu::with_items(app, menu_label(language, "Edit"), true, &[
         &item("history.undo", "Undo")?,
         &item("history.redo", "Redo")?,
     ])?;
-    let view = Submenu::with_items(app, "View", true, &[
+    let view = Submenu::with_items(app, menu_label(language, "View"), true, &[
         &item("view.home", "Home")?,
         &PredefinedMenuItem::separator(app)?,
         &item("view.fullscreen", "Fullscreen Preview")?,
@@ -52,16 +114,23 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &PredefinedMenuItem::separator(app)?,
         &item("settings.open", "Settings…")?,
     ])?;
-    let playback = Submenu::with_items(app, "Playback", true, &[
+    let playback = Submenu::with_items(app, menu_label(language, "Playback"), true, &[
         &item("playback.toggle", "Play / Pause")?,
         &item("playback.forward", "Play Forward")?,
         &item("playback.reverse", "Play Backwards")?,
         &item("playback.stop", "Stop")?,
     ])?;
-    let help = Submenu::with_items(app, "Help", true, &[
+    let help = Submenu::with_items(app, menu_label(language, "Help"), true, &[
         &item("help.shortcuts", "Keyboard Shortcuts…")?,
     ])?;
     Menu::with_items(app, &[&app_menu, &file, &edit, &view, &playback, &help])
+}
+
+#[tauri::command]
+fn set_app_menu(app: tauri::AppHandle, language: String) -> Result<(), String> {
+    let menu = build_app_menu(&app, &language).map_err(|error| error.to_string())?;
+    app.set_menu(menu).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 fn guard<T>(what: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
@@ -2829,13 +2898,14 @@ pub fn run() {
             exporter_available,
             exporter_capabilities,
             exporter_hardware,
+            set_app_menu,
             export_movie,
             export_variants,
             export_plan_variants,
             cancel_export
         ])
         .setup(|app| {
-            let menu = build_app_menu(app.handle())?;
+            let menu = build_app_menu(app.handle(), "en")?;
             app.set_menu(menu)?;
             app.on_menu_event(|app, event| {
                 let _ = app.emit("menu", event.id().0.as_str());
@@ -2869,6 +2939,17 @@ mod integration_tests {
         let hardware = if options.hardware { hardware_candidates(options.codec).first().copied() } else { None };
         video_encoding_args(options, hardware)
     }
+    #[test]
+    fn menu_labels_follow_the_interface_language() {
+        assert_eq!(menu_label("en", "File"), "File");
+        assert_eq!(menu_label("pl", "File"), "Plik");
+        assert_eq!(menu_label("pl", "Export Video…"), "Eksportuj wideo…");
+        assert_eq!(menu_label("uk", "File"), "Файл");
+        assert_eq!(menu_label("uk", "Keyboard Shortcuts…"), "Клавіатурні скорочення…");
+        assert_eq!(menu_label("de", "Save"), "Save", "unknown languages fall back");
+        assert_eq!(menu_label("pl", "A future item"), "A future item", "unknown keys fall back");
+    }
+
     fn export_options() -> ExportOptions {
         ExportOptions { width: 1920, height: 1080, fps: 30, crf: 20, filename: "Test export".into(), codec: ExportCodec::H264, container: ExportContainer::Mp4, speed: EncodeSpeed::Medium, hardware: false }
     }
