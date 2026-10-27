@@ -33,6 +33,7 @@ import type { ProjectFont } from '../../stores/model';
 
 const customFonts = new Map<string, FontOption>();
 const customFaces = new Map<string, FontFace>();
+const customFontData = new Map<string, string>();
 
 /** Bundled faces plus any fonts imported by the open project. */
 export function allFonts(): FontOption[] {
@@ -46,12 +47,16 @@ export function allFonts(): FontOption[] {
  */
 export function registerCustomFonts(fonts: ProjectFont[] | undefined, onLoaded?: () => void): void {
   if (typeof document === 'undefined' || typeof FontFace === 'undefined') return;
-  const keep = new Set((fonts ?? []).map(font => font.id));
+  const byId = new Map((fonts ?? []).map(font => [font.id, font]));
   for (const [id, face] of [...customFaces]) {
-    if (keep.has(id)) continue;
+    // A refreshed subset keeps its id but changes its bytes, so re-register it
+    // instead of silently rendering the old face.
+    const current = byId.get(id);
+    if (current && customFontData.get(id) === current.data) continue;
     try { document.fonts.delete(face); } catch { /* a detached face is harmless */ }
     customFaces.delete(id);
     customFonts.delete(id);
+    customFontData.delete(id);
   }
   for (const font of fonts ?? []) {
     if (customFaces.has(font.id)) continue;
@@ -60,6 +65,7 @@ export function registerCustomFonts(fonts: ProjectFont[] | undefined, onLoaded?:
       const face = new FontFace(family, `url(${font.data})`);
       document.fonts.add(face);
       customFaces.set(font.id, face);
+      customFontData.set(font.id, font.data);
       customFonts.set(font.id, {
         id: font.id,
         label: font.name,

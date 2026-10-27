@@ -30,7 +30,9 @@ import { readPixcutBundle } from '../stores/pixcut-bundle';
 import { AssetImage, ClipFilmstrip } from '../components/preview/AssetImage';
 import { beatMarkerTicks, detectBeats, snapScenesToBeats } from '../components/timeline/beat-sync';
 import { MaskControls } from '../components/inspector/MaskControls';
+import { ChromaControls } from '../components/inspector/ChromaControls';
 import { videoGain } from '../components/preview/video-audio';
+import { videoSeekTarget } from '../components/preview/video-sync';
 import { timelineOverlays, replaceOverlay, constrainOverlay, type TimelineOverlay } from '../components/elements/overlays';
 import { sceneStack, stackIndex, stackZ, layerZ, newOverlayZ, overlaysForScene, type StackMove } from '../components/elements/stack';
 import { StackOrder } from '../components/inspector/StackOrder';
@@ -40,7 +42,7 @@ import { LatestRenderQueue } from '../components/preview/render-queue';
 import { loadMediaBin, saveMediaBin, uniqueMediaSources } from '../stores/media-bin';
 import { missingAssets, projectAssetRefs, replaceAssetRef, type MissingAsset } from '../stores/missing-assets';
 import { syncAudioElement } from '../components/preview/audio';
-import { fileCount, formatCount, isLocale, projectCount, sceneCount, setLocale, t, type Locale } from '../i18n';
+import { fileCount, formatCount, isLocale, projectCount, renderCount, sceneCount, setLocale, t, videoCount, type Locale } from '../i18n';
 import { applyClipEq } from '../components/preview/eq';
 import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
@@ -541,7 +543,7 @@ export default function App() {
 
   const pending = useRef<Promise<boolean>>(Promise.resolve(true)), latestProject = useRef(INITIAL.project);
   const mediaInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null), replaceInput = useRef<HTMLInputElement>(null), audioInput = useRef<HTMLInputElement>(null), captionInput = useRef<HTMLInputElement>(null), fontInput = useRef<HTMLInputElement>(null), videoInput = useRef<HTMLInputElement>(null), sceneVideo = useRef<HTMLVideoElement>(null), preview = useRef<HTMLCanvasElement>(null), audioElements = useRef<Map<string, HTMLAudioElement>>(new Map()), previewArea = useRef<HTMLDivElement>(null), previewStage = useRef<HTMLDivElement>(null), operation = useRef(false);
-  const replaceTargetId = useRef<string | null>(null), inspectorFlush = useRef<() => void>(() => {}), audioDraftRef = useRef<AudioClip | null>(null), mixDraftRef = useRef<AudioMix | null>(null), videoVolumeDraftRef = useRef<{ id: string; value: number } | null>(null), audioLaneRef = useRef(0);
+  const replaceTargetId = useRef<string | null>(null), inspectorFlush = useRef<() => void>(() => {}), audioDraftRef = useRef<AudioClip | null>(null), mixDraftRef = useRef<AudioMix | null>(null), videoVolumeDraftRef = useRef<{ id: string; value: number } | null>(null), fontTargetId = useRef<string | null>(null), audioLaneRef = useRef(0);
   const sceneQueue = useRef<Command[]>([]), previewQueue = useRef<LatestRenderQueue | null>(null), timelineScroll = useRef<HTMLDivElement>(null);
   const positionRef = useRef(0), closeModalRef = useRef<() => void>(() => {}), commandRef = useRef<(id: string) => void>(() => {}), fullscreenRef = useRef<() => void>(() => {});
   const selectionAnchor = useRef<string | null>(null), reorderRef = useRef<string | null>(null);
@@ -1155,8 +1157,13 @@ export default function App() {
       if (element.playbackRate !== speed) element.playbackRate = speed;
     }
     element.volume = videoGain(previewLocalSeconds, clipSeconds, videoScene.fadeIn ?? 0, videoScene.fadeOut ?? 0, videoScene.videoVolume ?? 100) * videoAudioGain({ audioMix });
-    if (element.readyState >= 2 && Math.abs(element.currentTime - target) > 0.12) element.currentTime = target;
-  }, [previewLocalSeconds, videoScene?.id, videoScene?.speed, videoScene?.speedEnd, videoScene?.reverse, videoScene?.fadeIn, videoScene?.fadeOut, videoScene?.videoVolume, project.timebase, audioMix]);
+    // While the clip plays forward its own clock drives the picture, so only a
+    // large drift is corrected. Seeking every frame fights the decoder, which
+    // used to cost frames and silence. Scrubbing and reverse still track exactly.
+    const forward = playing && playDirection > 0 && !videoScene.reverse;
+    const seekTo = videoSeekTarget(element.currentTime, target, forward, element.readyState >= 2, element.seeking);
+    if (seekTo !== null) element.currentTime = seekTo;
+  }, [previewLocalSeconds, videoScene?.id, videoScene?.speed, videoScene?.speedEnd, videoScene?.reverse, videoScene?.fadeIn, videoScene?.fadeOut, videoScene?.videoVolume, project.timebase, audioMix, playing, playDirection]);
 
   useEffect(() => {
     const element = sceneVideo.current;
@@ -1164,9 +1171,13 @@ export default function App() {
     // The clip's own soundtrack only plays while moving forward; scrubbing and
     // reverse playback stay silent, matching how the audio clips behave.
     element.muted = !(playing && playDirection > 0) || Boolean(videoScene.reverse);
-    if (playing && playDirection > 0 && !videoScene.reverse) element.play().catch(() => { /* the poster stays visible */ });
-    else element.pause();
-  }, [playing, playDirection, videoScene?.id, videoScene?.reverse]);
+    if (playing && playDirection > 0 && !videoScene.reverse) {
+      if (element.paused) element.play().catch(() => { /* retried once the source loads */ });
+    } else element.pause();
+    // `videoTick` changes when the source loads or finishes a seek. Pressing Play
+    // before a data URL finished decoding used to leave the clip paused and mute
+    // for the whole scene; retrying here starts it as soon as frames exist.
+  }, [playing, playDirection, videoScene?.id, videoScene?.reverse, videoTick]);
 
   useEffect(() => {
     if (!previewTarget || !preview.current) return;
@@ -2911,11 +2922,14 @@ export default function App() {
   async function importFontFile(files: FileList | null) {
     const file = files?.[0];
     if (!file || !canEdit) return;
+    const targetId = fontTargetId.current;
+    fontTargetId.current = null;
+    const target = targetId ? (project.fonts ?? []).find(font => font.id === targetId) : undefined;
     try {
       const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
       if (!['ttf', 'otf', 'woff', 'woff2'].includes(extension)) throw new Error('Choose a TTF, OTF, WOFF, or WOFF2 font.');
       if (file.size > 40 * 1024 * 1024) throw new Error('Choose a font smaller than 40 MB.');
-      if ((project.fonts?.length ?? 0) >= MAX_PROJECT_FONTS) throw new Error(`A project supports up to ${MAX_PROJECT_FONTS} imported fonts.`);
+      if (!target && (project.fonts?.length ?? 0) >= MAX_PROJECT_FONTS) throw new Error(`A project supports up to ${MAX_PROJECT_FONTS} imported fonts.`);
       if ((extension === 'woff' || extension === 'woff2') && file.size > 2 * 1024 * 1024) {
         throw new Error('WOFF and WOFF2 fonts cannot be subset here. Choose a TTF or OTF under 2 MB, or a large TTF/OTF that PixCut can subset.');
       }
@@ -2954,20 +2968,30 @@ export default function App() {
         throw new Error('This font is still larger than 2 MB after subsetting. Choose a TTF or OTF with fewer glyphs.');
       }
       const font = {
-        id: `custom-${crypto.randomUUID()}`,
-        name: (file.name.replace(/\.[^.]+$/, '').trim() || 'Imported font').slice(0, 60),
+        id: target?.id ?? `custom-${crypto.randomUUID()}`,
+        name: target?.name ?? (file.name.replace(/\.[^.]+$/, '').trim() || 'Imported font').slice(0, 60),
         data,
       };
-      if (await run({ type: 'fonts', fonts: [...(project.fonts ?? []), font] })) {
+      const fonts = target
+        ? (project.fonts ?? []).map(item => item.id === target.id ? font : item)
+        : [...(project.fonts ?? []), font];
+      if (await run({ type: 'fonts', fonts })) {
         setNotice(subsetted
-          ? `“${font.name}” is now in the font picker · subset to ${formatBytes(subsetted)} from ${formatBytes(file.size)}.`
-          : `“${font.name}” is now in the font picker.`);
+          ? `“${font.name}” ${target ? 'subset refreshed' : 'is now in the font picker'} · ${formatBytes(subsetted)} of ${formatBytes(file.size)}.`
+          : `“${font.name}” ${target ? 'updated' : 'is now in the font picker'}.`);
       }
     } catch (error) {
       setError(messageFor(error));
     } finally {
       if (fontInput.current) fontInput.current.value = '';
     }
+  }
+
+  function removeFont(id: string) {
+    const font = (project.fonts ?? []).find(item => item.id === id);
+    void run({ type: 'fonts', fonts: (project.fonts ?? []).filter(item => item.id !== id) }).then(ok => {
+      if (ok) setNotice(`“${font?.name ?? 'Font'}” removed. Text using it falls back to Inter.`);
+    });
   }
 
   async function exportCaptions() {
@@ -4043,7 +4067,7 @@ export default function App() {
   const tabTitles = { media: 'Your media', text: 'Titles', elements: 'Elements', transitions: 'Transitions', effects: 'Effects', audio: 'Audio', templates: 'Templates' } as const;
   const wideModal = modal === 'shortcuts' || modal === 'palette' || modal === 'templates' || (modal === 'settings' && settingsTab === 'shortcuts');
   const mediumModal = modal === 'source' || modal === 'new' || modal === 'formats' || modal === 'missing';
-  const modalEyebrow = modal === 'export' ? 'VIDEO EXPORT' : modal === 'shortcuts' ? 'FIND YOUR FLOW' : modal === 'palette' ? 'EVERY ACTION, ONE PLACE' : modal === 'settings' ? 'MAKE PIXCUT YOURS' : modal === 'delete' ? 'REMOVE FROM THIS DEVICE' : modal === 'rename' ? 'PROJECT DETAILS' : modal === 'group' ? 'ORGANIZE YOUR LIBRARY' : modal === 'groups' ? 'ORGANIZE YOUR LIBRARY' : modal === 'formats' ? 'DELIVERABLES' : modal === 'missing' ? 'RESTORE YOUR MEDIA' : 'YOUR NEXT STORY';
+  const modalEyebrow = modal === 'export' ? t('VIDEO EXPORT') : modal === 'shortcuts' ? 'FIND YOUR FLOW' : modal === 'palette' ? 'EVERY ACTION, ONE PLACE' : modal === 'settings' ? 'MAKE PIXCUT YOURS' : modal === 'delete' ? 'REMOVE FROM THIS DEVICE' : modal === 'rename' ? 'PROJECT DETAILS' : modal === 'group' ? 'ORGANIZE YOUR LIBRARY' : modal === 'groups' ? 'ORGANIZE YOUR LIBRARY' : modal === 'formats' ? 'DELIVERABLES' : modal === 'missing' ? 'RESTORE YOUR MEDIA' : 'YOUR NEXT STORY';
   const projectGroupsList = projectGroups();
   const matchingProjects = projects
     .filter(entry => {
@@ -4179,6 +4203,7 @@ export default function App() {
                 <details className="element-adjustments"><summary>Size & position</summary>
                 <KeyframeControls layer={selectedElement} playheadSeconds={Math.max(0, position - ticksToSeconds(selectedElement.startTicks, project.timebase))} durationSeconds={ticksToSeconds(selectedElement.durationTicks, project.timebase)} disabled={!canEdit} onChange={keyframes => updateElement({ keyframes })} />
                 {(selectedElement.kind === 'image' || selectedElement.kind === 'video') && <MaskControls mask={selectedElement.mask} disabled={!canEdit} onStage={mask => stageElement({ mask })} onCommit={commitElement} onApply={mask => updateElement({ mask })} />}
+                {(selectedElement.kind === 'image' || selectedElement.kind === 'video') && <ChromaControls chroma={selectedElement.chroma} disabled={!canEdit} onStage={chroma => stageElement({ chroma })} onCommit={commitElement} onApply={chroma => updateElement({ chroma })} />}
 
                 <label className="music-control"><span>Opacity <b>{Math.round(selectedElement.opacity)}%</b></span><input type="range" min="0" max="100" step="1" value={selectedElement.opacity} onChange={event => stageElement({ opacity: Number(event.target.value) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
                 <label className="music-control"><span>Rotation <b>{Math.round(selectedElement.rotation)}°</b></span><input type="range" min="-180" max="180" step="1" value={selectedElement.rotation} onChange={event => stageElement({ rotation: Number(event.target.value) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
@@ -4299,13 +4324,13 @@ export default function App() {
             </> : <div className="empty-projects">
               <div className="empty-projects-icon"><Clapperboard size={28} /></div>
               <div><strong>Your next favorite starts here.</strong><p>Start a story above, import a photo movie, or open a saved PixCut project.</p></div>
-              <button className="button subtle" onClick={() => void chooseImages()} disabled={!canEdit}><Upload size={15} /> Import photos</button>
+              <button className="button subtle" onClick={() => void chooseImages()} disabled={!canEdit}><Upload size={15} /> {t('Import photos')}</button>
             </div>}
           </section>
 
           {homeSection === 'home' && <section className="thumb-strip" aria-label="Template inspiration">
             <div className="section-title"><div><h2>{t('Skip the blank page')}</h2><p>{t('Start from a sample and make it yours.')}</p></div><button className="text-button" onClick={() => setModal('templates')}>{t('Browse templates')} <ArrowRight size={14} /></button></div>
-            <div className="thumb-grid">{TEMPLATES.slice(0, 3).map(template => <button key={template.id} className="thumb-card" onClick={() => chooseTemplate(template)}><span className="thumb-art"><img src={templateImage(template)} alt="" /></span><span><strong>{template.name}</strong><small>{template.sceneCount} scenes · {template.duration.toFixed(1)} s</small></span></button>)}</div>
+            <div className="thumb-grid">{TEMPLATES.slice(0, 3).map(template => <button key={template.id} className="thumb-card" onClick={() => chooseTemplate(template)}><span className="thumb-art"><img src={templateImage(template)} alt="" /></span><span><strong>{t(template.name)}</strong><small>{sceneCount(template.sceneCount)} · {template.duration.toFixed(1)} s</small></span></button>)}</div>
           </section>}
 
           {homeSection === 'home' && <section className="home-perks">
@@ -4393,9 +4418,16 @@ export default function App() {
                 <small>Import SRT or WebVTT as editable layers; export every text layer back as subtitles.</small>
               </div>
               <div className="caption-import font-import">
-                <button className="button" disabled={!canEdit || (project.fonts?.length ?? 0) >= MAX_PROJECT_FONTS} onClick={() => fontInput.current?.click()}><Type size={14} /> Import font</button>
+                <button className="button" disabled={!canEdit || (project.fonts?.length ?? 0) >= MAX_PROJECT_FONTS} onClick={() => { fontTargetId.current = null; fontInput.current?.click(); }}><Type size={14} /> Import font</button>
                 <small>{project.fonts?.length ? `${project.fonts.length} custom font${project.fonts.length === 1 ? '' : 's'} in the picker` : 'TTF/OTF up to 40 MB · large faces are subsetted'}</small>
               </div>
+              {(project.fonts?.length ?? 0) > 0 && <div className="font-list" aria-label="Imported fonts">
+                {project.fonts!.map(font => <div className="font-row" key={font.id}>
+                  <span className="font-row-name"><Type size={12} /><span>{font.name}</span><small>{formatBytes(font.data.length * .75)}</small></span>
+                  <button className="text-button" aria-label={`Refresh subset for ${font.name}`} title="Choose the original font file to cover the text you have now" disabled={!canEdit} onClick={() => { fontTargetId.current = font.id; fontInput.current?.click(); }}><RefreshCw size={12} /> Refresh</button>
+                  <button className="text-button danger" aria-label={`Remove ${font.name}`} disabled={!canEdit} onClick={() => removeFont(font.id)}><Trash2 size={12} /></button>
+                </div>)}
+              </div>}
               </div></details>
               {TITLE_PRESETS.map(preset => <button key={preset.name} className={`title-preset ${preset.id}`} disabled={!selectedScene || !canEdit || sceneTextLayers(selectedScene).length >= 8} onClick={() => addTextLayerAtPlayhead(preset.layer)} aria-label={`Add ${preset.name} title`}>
                 <span className="title-preset-art" style={{ fontFamily: fontOption(preset.layer.font ?? 'inter').family }}><span>{preset.sample}</span></span><strong>{preset.name}</strong><Plus size={13} />
@@ -4428,7 +4460,7 @@ export default function App() {
             </div> : tab === 'templates' ? <div className="template-tab">
               <div className="template-tab-list">{TEMPLATES.map(template => <button key={template.id} className="template-tab-card" disabled={!canEdit} onClick={() => chooseTemplate(template)}>
                 <span className="template-tab-art"><img src={templateImage(template)} alt="" /></span>
-                <span className="template-tab-copy"><strong>{template.name}</strong><small>{template.aspect} · {template.sceneCount} scenes · {template.duration.toFixed(1)} s</small><span className="template-badges">{template.video && <span className="template-badge video">VIDEO</span>}{template.audio && <span className="template-badge music">MUSIC</span>}</span></span>
+                <span className="template-tab-copy"><strong>{t(template.name)}</strong><small>{template.aspect} · {sceneCount(template.sceneCount)} · {template.duration.toFixed(1)} s</small><span className="template-badges">{template.video && <span className="template-badge video">VIDEO</span>}{template.audio && <span className="template-badge music">MUSIC</span>}</span></span>
                 <Plus size={15} />
               </button>)}</div>
 
@@ -4657,7 +4689,6 @@ export default function App() {
                     onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectScene(scene); } }}
                   >
                     <span className="audio-trim left" title="Drag to trim the start" onPointerDown={event => beginSceneTrim(event, scene, 'left')} />
-                    <span className="video-audio-wave" aria-hidden="true" />
                     <Film size={10} /><span className="audio-name">{scene.name}</span><small>{level}%</small>
                     {active && <span className="clip-volume" onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
                       <Volume2 size={9} />
@@ -5073,22 +5104,22 @@ export default function App() {
             <p className="note">Deleting a project removes its local library record and media assets. Exported videos and downloaded project backups are not touched.</p>
           </div>}
         </> : <>
-          <div className="export-title"><h2 id="modal-title">{t('Export video')}</h2><p>{project.name} <span>· {duration.toFixed(1)} s · {scenes.length} scenes</span></p></div>
+          <div className="export-title"><h2 id="modal-title">{t('Export video')}</h2><p>{project.name} <span>· {duration.toFixed(1)} s · {sceneCount(scenes.length)}</span></p></div>
           <div className="export-workspace">
             <div className="export-controls">
               <section className="export-section"><h3>{t('Encoding')}</h3>
-                <div className="codec-choices" role="group" aria-label="Video codec">{EXPORT_CODEC_OPTIONS.map(({ id, label, description }) => <button type="button" key={id} aria-pressed={exportCodec === id} disabled={!exportCodecs.includes(id)} className={exportCodec === id ? 'active' : ''} onClick={() => { setExportCodec(id); setExportContainer(current => EXPORT_CONTAINERS[id].includes(current) ? current : EXPORT_CONTAINERS[id][0]); }}><strong>{label}</strong><small>{exportCodecs.includes(id) ? description : 'Encoder unavailable'}</small>{exportCodec === id && <Check size={15} />}</button>)}</div>
+                <div className="codec-choices" role="group" aria-label="Video codec">{EXPORT_CODEC_OPTIONS.map(({ id, label, description }) => <button type="button" key={id} aria-pressed={exportCodec === id} disabled={!exportCodecs.includes(id)} className={exportCodec === id ? 'active' : ''} onClick={() => { setExportCodec(id); setExportContainer(current => EXPORT_CONTAINERS[id].includes(current) ? current : EXPORT_CONTAINERS[id][0]); }}><strong>{label}</strong><small>{exportCodecs.includes(id) ? t(description) : t('Encoder unavailable')}</small>{exportCodec === id && <Check size={15} />}</button>)}</div>
                 <div className="export-pair"><label className="field">{t('Container')}<select aria-label="Video container" value={exportContainer} onChange={event => setExportContainer(event.target.value as bridge.ExportContainer)}>{EXPORT_CONTAINERS[exportCodec].map(id => <option key={id} value={id}>{EXPORT_CONTAINER_LABEL[id]}</option>)}</select></label><label className="field">{t('Encoding speed')}<select aria-label="Encoding speed" value={exportSpeed} disabled={exportCodec === 'prores'} onChange={event => setExportSpeed(event.target.value as 'medium')}><option value="fast">{t('Fast')}</option><option value="medium">{t('Balanced')}</option><option value="slow">{t('Slower · better compression')}</option></select></label></div>
-                <label className="export-audio-toggle"><input type="checkbox" checked={exportHardware} disabled={!hardwareAvailable || (exportCodec !== 'h264' && exportCodec !== 'hevc')} onChange={event => setExportHardware(event.target.checked)} /> {t('Hardware encoder')} <small>{!hardwareAvailable ? 'Unavailable in this build' : exportCodec !== 'h264' && exportCodec !== 'hevc' ? 'H.264 and H.265 only' : 'Platform encoder · much faster'}</small></label>
+                <label className="export-audio-toggle"><input type="checkbox" checked={exportHardware} disabled={!hardwareAvailable || (exportCodec !== 'h264' && exportCodec !== 'hevc')} onChange={event => setExportHardware(event.target.checked)} /> {t('Hardware encoder')} <small>{!hardwareAvailable ? t('Unavailable in this build') : exportCodec !== 'h264' && exportCodec !== 'hevc' ? t('H.264 and H.265 only') : t('Platform encoder · much faster')}</small></label>
               </section>
-              <section className="export-section"><h3>{t('Quality')}</h3><div className="quality-choices" role="group" aria-label="Export quality">{([['draft','Smaller','Quick drafts'],['standard','Balanced','Everyday sharing'],['high','High','Sharper details']] as const).map(([id,label,description]) => <button type="button" key={id} aria-pressed={exportQuality === id} className={exportQuality === id ? 'active' : ''} onClick={() => setExportQuality(id)}><strong>{label}</strong><small>{description}</small></button>)}</div></section>
-              <section className="export-section"><h3>{t('Picture')}</h3><div className="export-pair"><label className="field">{t('Resolution')}<select aria-label="Export resolution" value={exportResolution} onChange={event => setExportResolution(event.target.value)}><option value="project">{t('Project dimensions')}</option><option value="720">720p HD</option><option value="1080">1080p Full HD</option><option value="2160">4K UHD</option></select></label><label className="field">Frame rate<select aria-label="Export frame rate" value={exportFps} onChange={event => setExportFps(event.target.value)}><option value="project">{t('Match each output')}</option>{[24,25,30,60].map(fps => <option key={fps} value={fps}>{fps} fps</option>)}</select></label></div><label className="export-audio-toggle"><input type="checkbox" checked={exportAudio} onChange={event => setExportAudio(event.target.checked)} /> {t('Include audio')} <small>{exportAudio ? (exportCodec === 'vp9' ? 'Opus · 160 kbps' : exportCodec === 'prores' ? 'PCM · 48 kHz' : 'AAC · 192 kbps') : 'Silent video'}</small></label></section>
-              {hasVideoScenes && <details className="export-naming-details"><summary>Video source rendering</summary><p>Trims, speed, color grade, fades, overlays and picture-in-picture clips are baked into the video. Scene transitions keep their blend when either side is a video clip.</p></details>}
-              <section className="export-section export-naming"><h3>{t('File name')}</h3><div className="export-pair name-pair"><label className="field">Name<input aria-label="Export file name" maxLength={100} value={exportSettings.name} onChange={event => setExportSettings(current => ({ ...current, name: event.target.value }))} placeholder={project.name} /></label><label className="field">Version<input aria-label="Export version" maxLength={20} value={exportSettings.version} onChange={event => setExportSettings(current => ({ ...current, version: event.target.value }))} placeholder="v1" /></label></div><details className="export-naming-details"><summary>{t('File naming options')}</summary><label className="checkbox-field"><input type="checkbox" checked={exportSettings.includePreset} onChange={event => setExportSettings(current => ({ ...current, includePreset: event.target.checked }))} /> {t('Add output name')}</label><label className="checkbox-field"><input type="checkbox" checked={exportSettings.includeQuality} onChange={event => setExportSettings(current => ({ ...current, includeQuality: event.target.checked }))} /> {t('Add quality')}</label></details></section>
+              <section className="export-section"><h3>{t('Quality')}</h3><div className="quality-choices" role="group" aria-label="Export quality">{([['draft','Smaller','Quick drafts'],['standard','Balanced','Everyday sharing'],['high','High','Sharper details']] as const).map(([id,label,description]) => <button type="button" key={id} aria-pressed={exportQuality === id} className={exportQuality === id ? 'active' : ''} onClick={() => setExportQuality(id)}><strong>{t(label)}</strong><small>{t(description)}</small></button>)}</div></section>
+              <section className="export-section"><h3>{t('Picture')}</h3><div className="export-pair"><label className="field">{t('Resolution')}<select aria-label="Export resolution" value={exportResolution} onChange={event => setExportResolution(event.target.value)}><option value="project">{t('Project dimensions')}</option><option value="720">720p HD</option><option value="1080">1080p Full HD</option><option value="2160">4K UHD</option></select></label><label className="field">{t('Frame rate')}<select aria-label={t('Export frame rate')} value={exportFps} onChange={event => setExportFps(event.target.value)}><option value="project">{t('Match each output')}</option>{[24,25,30,60].map(fps => <option key={fps} value={fps}>{fps} fps</option>)}</select></label></div><label className="export-audio-toggle"><input type="checkbox" checked={exportAudio} onChange={event => setExportAudio(event.target.checked)} /> {t('Include audio')} <small>{exportAudio ? (exportCodec === 'vp9' ? 'Opus · 160 kbps' : exportCodec === 'prores' ? 'PCM · 48 kHz' : 'AAC · 192 kbps') : 'Silent video'}</small></label></section>
+              {hasVideoScenes && <details className="export-naming-details"><summary>{t('Video source rendering')}</summary><p>{t('Trims, speed, color grade, fades, overlays and picture-in-picture clips are baked into the video. Scene transitions keep their blend when either side is a video clip.')}</p></details>}
+              <section className="export-section export-naming"><h3>{t('File name')}</h3><div className="export-pair name-pair"><label className="field">{t('Name')}<input aria-label={t('Export file name')} maxLength={100} value={exportSettings.name} onChange={event => setExportSettings(current => ({ ...current, name: event.target.value }))} placeholder={project.name} /></label><label className="field">{t('Version')}<input aria-label={t('Export version')} maxLength={20} value={exportSettings.version} onChange={event => setExportSettings(current => ({ ...current, version: event.target.value }))} placeholder="v1" /></label></div><details className="export-naming-details"><summary>{t('File naming options')}</summary><label className="checkbox-field"><input type="checkbox" checked={exportSettings.includePreset} onChange={event => setExportSettings(current => ({ ...current, includePreset: event.target.checked }))} /> {t('Add output name')}</label><label className="checkbox-field"><input type="checkbox" checked={exportSettings.includeQuality} onChange={event => setExportSettings(current => ({ ...current, includeQuality: event.target.checked }))} /> {t('Add quality')}</label></details></section>
             </div>
-            <aside className="export-delivery"><div className="export-output-heading"><h3>{t('Outputs')}</h3><span>{exportFormatIds.length} selected · {exportOutputs.length} file{exportOutputs.length === 1 ? '' : 's'}</span></div>{exportFormatIds.length > exportOutputs.length && <p className="export-combine-note"><Layers size={13} /><span>{exportFormatIds.length} formats share {exportOutputs.length} render{exportOutputs.length === 1 ? '' : 's'}, so PixCut writes {exportOutputs.length === 1 ? 'one video' : `${exportOutputs.length} videos`} with every platform in the file name.</span></p>}<div className="export-output-list">{exportFormats.map(format => <label key={format.id} className={`export-output ${exportFormatIds.includes(format.id) ? 'active' : ''}`}><input type="checkbox" checked={exportFormatIds.includes(format.id)} onChange={event => setExportFormatIds(current => event.target.checked ? [...current, format.id] : current.filter(id => id !== format.id))} /><span className="export-aspect-icon" style={{ aspectRatio: `${format.width}/${format.height}` }} /><span><strong>{format.name}</strong><small>{format.width} × {format.height} · {format.fps} fps</small></span></label>)}</div><details className="export-file-preview"><summary>{t('File names')} <span>{exportOutputs.length} file{exportOutputs.length === 1 ? '' : 's'}</span></summary>{exportOutputs.map(output => <div key={output.key}><Film size={15} /><strong>{exportFilename(output, exportOutputs.length > 1)}</strong><small>{output.label}{output.formats.length > 1 ? ` · ${output.formats.length} formats` : ''}</small></div>)}{!exportOutputs.length && <p>{t('Select an output above.')}</p>}</details><p className="export-codec-note">{EXPORT_CODEC_NOTE[exportCodec]}</p></aside>
+            <aside className="export-delivery"><div className="export-output-heading"><h3>{t('Outputs')}</h3><span>{t('{formats} selected · {files}', { formats: formatCount(exportFormatIds.length), files: fileCount(exportOutputs.length) })}</span></div>{exportFormatIds.length > exportOutputs.length && <p className="export-combine-note"><Layers size={13} /><span>{t('{formats} share {renders}, so PixCut writes {videos} with every platform in the file name.', { formats: formatCount(exportFormatIds.length), renders: renderCount(exportOutputs.length), videos: videoCount(exportOutputs.length) })}</span></p>}<div className="export-output-list">{exportFormats.map(format => <label key={format.id} className={`export-output ${exportFormatIds.includes(format.id) ? 'active' : ''}`}><input type="checkbox" checked={exportFormatIds.includes(format.id)} onChange={event => setExportFormatIds(current => event.target.checked ? [...current, format.id] : current.filter(id => id !== format.id))} /><span className="export-aspect-icon" style={{ aspectRatio: `${format.width}/${format.height}` }} /><span><strong>{format.name}</strong><small>{format.width} × {format.height} · {format.fps} fps</small></span></label>)}</div><details className="export-file-preview"><summary>{t('File names')} <span>{fileCount(exportOutputs.length)}</span></summary>{exportOutputs.map(output => <div key={output.key}><Film size={15} /><strong>{exportFilename(output, exportOutputs.length > 1)}</strong><small>{output.label}{output.formats.length > 1 ? ` · ${output.formats.length} formats` : ''}</small></div>)}{!exportOutputs.length && <p>{t('Select an output above.')}</p>}</details><p className="export-codec-note">{t(EXPORT_CODEC_NOTE[exportCodec])}</p></aside>
           </div>
-          <footer className="export-studio-footer"><div>{!bridge.native ? 'Video export is available in the desktop app.' : !exporter ? `FFmpeg unavailable. Install with ${FFMPEG_INSTALL[platform]}, then restart PixCut.` : !exportCodecs.includes(exportCodec) ? 'This codec is unavailable in your FFmpeg installation.' : <><span>{EXPORT_CONTAINER_SHORT[exportContainer]} · {EXPORT_CODEC_OPTIONS.find(option => option.id === exportCodec)?.label} · {exportQuality === 'high' ? t('High quality') : exportQuality === 'draft' ? t('Smaller file') : t('Balanced')}</span><small>{exportCodec === 'prores' ? 'ProRes uses the quality setting.' : 'You can continue editing during export.'}</small></>}</div><button type="button" className="button primary" disabled={!bridge.native || !exporter || exporting || busy || !exportFormatIds.length || !exportCodecs.includes(exportCodec)} onClick={() => void exportVideo()}><Download size={17} /> Export {exportOutputs.length > 1 ? `${exportOutputs.length} videos` : 'video'}</button></footer>
+          <footer className="export-studio-footer"><div>{!bridge.native ? t('Video export is available in the desktop app.') : !exporter ? t('FFmpeg unavailable. Install with {command}, then restart PixCut.', { command: FFMPEG_INSTALL[platform] }) : !exportCodecs.includes(exportCodec) ? t('This codec is unavailable in your FFmpeg installation.') : <><span>{EXPORT_CONTAINER_SHORT[exportContainer]} · {EXPORT_CODEC_OPTIONS.find(option => option.id === exportCodec)?.label} · {exportQuality === 'high' ? t('High quality') : exportQuality === 'draft' ? t('Smaller file') : t('Balanced')}</span><small>{exportCodec === 'prores' ? t('ProRes uses the quality setting.') : t('You can continue editing during export.')}</small></>}</div><button type="button" className="button primary" disabled={!bridge.native || !exporter || exporting || busy || !exportFormatIds.length || !exportCodecs.includes(exportCodec)} onClick={() => void exportVideo()}><Download size={17} /> {exportOutputs.length > 1 ? t('Export {videos}', { videos: videoCount(exportOutputs.length) }) : t('Export video')}</button></footer>
         </>}
       </section></div>}
     </div>

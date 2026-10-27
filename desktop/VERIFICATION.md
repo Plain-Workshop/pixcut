@@ -1136,7 +1136,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 
 ## Build state — 2026-10-27 (end of pass)
 
-- `npm run ci` passes: 309 TypeScript tests, 44 project-model tests, 37 native tests (13 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
+- `npm run ci` passes: 318 TypeScript tests, 48 project-model tests, 37 native tests (13 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
 - Ignored FFmpeg tests also pass locally for the new work: `real_video_transition_keeps_duration_and_sound`, `real_reverse_and_ramp_video_export`, and the existing exporter/hardware suites.
 - `npm run tauri -- build --debug --bundles app` produced a fresh `PixCut.app` after the PiP, menu and export-dialog work. The updater tarball could not be signed because `TAURI_SIGNING_PRIVATE_KEY` is not exported in this shell; the app bundle itself is complete and is running from `target/debug/bundle/macos/PixCut.app` (PID 89828). The SQLite catalog survived the rebuild with 10 rows.
 - No release, tag or version bump was made. Signing remains deferred by the user's decision.
@@ -1286,3 +1286,18 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Tests: `tests/font-subset.test.ts` (3) covers the alphabet/kana ranges, common CJK plus project text, and title punctuation. Browser check imported the 22 MB system `Arial Unicode.ttf` into a project whose title read “你好世界 PixCut”: the stored font shrank to 428,833 base64 characters (~321 KB), the picker showed “Arial Unicode · Custom”, the FontFace loaded, `document.fonts.check` for 你好世界 passed and the canvas rendered the CJK title and subtitle. No console errors. Reviewed `output/playwright/cjk-subset.png`.
 - CSP/WASM check: a static page served with the same `script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'` policy fetched and instantiated the emitted subsetter (39 exports, no CSP error).
 - Boundary: characters typed after import outside the subset use the fallback font; WOFF/WOFF2 large faces are not subsetted; a project supports eight fonts and the embedded subset stays under the 2 MB per-font budget.
+
+## Polish and Ukrainian for the template gallery — 2026-10-27
+
+- The gallery is translated end to end: title, intro, the "your current story is saved" note, search field, category chips (Wszystkie / Natura / Podróże / Ludzie / Rodzina / Urodziny / Social media / Jedzenie · Усі / Природа / Подорожі / Люди / Родина / День народження / Соцмережі / Їжа), card names and descriptions, "3 sceny · 12.0 s · Natura" style counts (via the existing `sceneCount`), "Użyj szablonu" / "Використати шаблон", the empty-search message, media credits and the whole confirmation dialog ("Zacząć od «Dzika ucieczka»?", "Twoja bieżąca historia jest już zapisana…", the start button).
+- All 14 bundled stories (13 photo stories plus Motion opener) have translated names and descriptions; the headline type baked into each preview stays as designed, because it is the template's artwork.
+- Template names/descriptions stay English in stored project names — only the gallery renders the translation, so project data is never rewritten by a language switch.
+- Tests: `tests/i18n.test.ts` gained a drift guard — every `TEMPLATES` name, description and category must exist in both dictionaries, plus the six gallery chrome strings. Full suite: 310 tests in 46 files; `npx tsc -b` and `npm run build` pass.
+- Browser check in both locales: Polish gallery shows "Zacznij od historii.", translated categories and card text ("Dzika ucieczka", "3 sceny · 12.0 s · Natura", "Użyj szablonu", "AUTORZY MEDIÓW"); Ukrainian shows "Почніть з історії.", "Природа", "Дика втеча", "3 сцени". No console errors. Reviewed `output/playwright/templates-pl.png` and `templates-uk.png`.
+
+## Font management and subset refresh — 2026-10-27
+
+- The Text panel lists every imported font with its embedded size, a **Refresh** action and a delete button. Refresh re-picks the original TTF/OTF and re-subsets it for the project text as it is now; delete removes the font and text using it falls back to Inter. Adding a font resets the refresh target, so cancelling a file dialog never turns the next import into an update.
+- `registerCustomFonts` now tracks the data behind each face and re-registers it when a refresh changes the bytes under the same font id; previously the cached `FontFace` kept rendering the old subset.
+- Browser check: imported the 22 MB Arial Unicode face (428,833 base64 chars), changed the title to the rare 龘 and refreshed from the same file — the subset grew to 429,877 chars, the list still showed one 315 KB font, the picker kept “Arial Unicode · Custom”, and the canvas rendered the new glyph. Removing it left zero fonts, zero list rows and the eight bundled picker entries. No console errors. Reviewed `output/playwright/font-refresh.png`.
+- Boundary: Refresh needs the original file again (the app intentionally keeps only the subset); removing a font does not rewrite text layers, they fall back to Inter until another font is chosen.

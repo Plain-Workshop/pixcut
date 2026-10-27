@@ -6,6 +6,7 @@ import { waveformBars } from '../elements/dynamic';
 import { drawModernElement } from '../elements/modern';
 import { framingTravel } from './framing';
 import { applyMaskAlpha } from './mask';
+import { applyChromaKey } from './chroma-key';
 import { elementTransform } from '../elements/transform';
 import { applyElementMotion, applyTextMotion, framingAt } from '../animation/keyframes';
 import { resolveMediaSource } from './media-url';
@@ -564,16 +565,17 @@ async function drawMediaOrShape(ctx: CanvasRenderingContext2D, raw: ElementLayer
   const drawWidth = Math.max(1, Math.round(element.width * w));
   const drawHeight = Math.max(1, Math.round(element.height * h));
   let painted: CanvasImageSource = source;
-  if (element.mask) {
-    // The mask is baked into the overlay's own alpha so preview, still frames
-    // and exported overlay PNGs all use exactly the same cutout.
+  if (element.mask || element.chroma) {
+    // Chroma keying and masks are baked into the overlay's own alpha so preview,
+    // still frames and exported overlay PNGs all use exactly the same cutout.
     const layer = document.createElement('canvas');
     layer.width = drawWidth;
     layer.height = drawHeight;
     const layerContext = layer.getContext('2d');
     if (layerContext) {
       layerContext.drawImage(source, 0, 0, drawWidth, drawHeight);
-      applyMaskAlpha(layer, element.mask);
+      if (element.chroma) applyChromaKey(layer, element.chroma);
+      if (element.mask) applyMaskAlpha(layer, element.mask);
       painted = layer;
     }
   }
@@ -631,16 +633,21 @@ export async function drawScene(canvas: HTMLCanvasElement, scene: Scene, aspect:
   const h = Math.max(1, Math.round(fullHeight * scale));
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   // A photo mask is applied to the photo layer only, leaving the framing
   // background visible outside it. Video scenes use overlay masks instead.
   const photoMask = scene.mediaKind === 'video' ? undefined : scene.mask;
+  // Only a colour grade reads pixels back. Asking for a readback-friendly
+  // canvas otherwise makes the browser back every frame with the CPU, which
+  // turns video previews into single-digit frame rates.
+  const graded = hasColorGrade(scene);
+  const readback: CanvasRenderingContext2DSettings | undefined = graded ? { willReadFrequently: true } : undefined;
+  const ctx = canvas.getContext('2d', readback)!;
   const photoCanvas = photoMask ? document.createElement('canvas') : null;
   if (photoCanvas) {
     photoCanvas.width = w;
     photoCanvas.height = h;
   }
-  const paint = photoCanvas ? photoCanvas.getContext('2d', { willReadFrequently: true })! : ctx;
+  const paint = photoCanvas ? photoCanvas.getContext('2d', readback)! : ctx;
   const usingVideo = Boolean(videoFrame && videoFrame.readyState >= 2 && videoFrame.videoWidth > 0);
   const img: CanvasImageSource = usingVideo
     ? videoFrame!

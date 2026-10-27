@@ -231,6 +231,15 @@ pub struct Mask {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct ChromaKey {
+    pub color: String,
+    pub similarity: f64,
+    pub softness: f64,
+    pub spill: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ElementLayer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset_id: Option<String>,
@@ -284,6 +293,8 @@ pub struct ElementLayer {
     pub keyframes: Vec<Keyframe>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mask: Option<Mask>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chroma: Option<ChromaKey>,
 }
 fn default_hundred() -> f64 {
     100.0
@@ -551,6 +562,9 @@ fn validate_elements(elements: &mut Vec<ElementLayer>, total: u64, limit: usize,
                             && element.mask.as_ref().is_none_or(|mask| {
                                 (element.kind == "image" || element.kind == "video") && valid_mask(mask)
                             })
+                            && element.chroma.as_ref().is_none_or(|chroma| {
+                                (element.kind == "image" || element.kind == "video") && valid_chroma(chroma)
+                            })
                             && ["", "none", "fade", "pop", "slide-up", "pulse", "float", "slide-down", "slide-left", "slide-right", "zoom-out", "bounce", "spin", "swing"].contains(&element.animation.as_str())
                     })
                 }
@@ -768,6 +782,12 @@ fn valid_mask(mask: &Mask) -> bool {
         && mask.height.is_finite() && (0.01..=1.0).contains(&mask.height)
         && mask.rotation.is_finite() && (-180.0..=180.0).contains(&mask.rotation)
         && mask.feather.is_finite() && (0.0..=100.0).contains(&mask.feather)
+}
+fn valid_chroma(chroma: &ChromaKey) -> bool {
+    is_hex_color(&chroma.color)
+        && chroma.similarity.is_finite() && (0.0..=100.0).contains(&chroma.similarity)
+        && chroma.softness.is_finite() && (0.0..=100.0).contains(&chroma.softness)
+        && chroma.spill.is_finite() && (0.0..=100.0).contains(&chroma.spill)
 }
 const FILTER_IDS: &[&str] = &["none", "vivid", "warm", "cool", "mono", "film", "noir", "dream"];
 fn is_audio_data(value: &str) -> bool {
@@ -2611,6 +2631,7 @@ mod tests {
         clip.elements.push(ElementLayer {
             preset_id: None,
             mask: None,
+            chroma: None,
             id: "element".into(),
             kind: "star".into(),
             behavior: None, exit: None, z: None, action: None, label: None, source: None, poster: None, source_in_seconds: None, source_duration_seconds: None, loop_animation: None, animation_duration: None,
@@ -2962,6 +2983,7 @@ mod tests {
             mask: Some(Mask {
                 shape: "star".into(), x: 0.4, y: 0.6, width: 0.7, height: 0.7, rotation: 22.0, feather: 18.0, invert: true,
             }),
+            chroma: None,
             keyframes: Vec::new(),
             id: "masked".into(),
             kind: "image".into(),
@@ -3011,12 +3033,37 @@ mod tests {
     }
 
     #[test]
+    fn chroma_keys_round_trip_and_reject_invalid_values() {
+        let mut p = Project::default();
+        let mut clip = scene();
+        clip.elements.push(ElementLayer {
+            preset_id: None, mask: None, chroma: Some(ChromaKey {
+                color: "#12ab34".into(), similarity: 42.0, softness: 12.0, spill: 75.0,
+            }),
+            keyframes: Vec::new(), id: "keyed".into(), kind: "image".into(),
+            behavior: None, exit: None, z: None, action: None, label: None,
+            source: Some("data:image/png;base64,AA==".into()), poster: None,
+            source_in_seconds: None, source_duration_seconds: None, loop_animation: None, animation_duration: None,
+            x: 0.5, y: 0.5, width: 0.4, height: 0.4, rotation: 0.0,
+            color: "#FFFFFF".into(), opacity: 100.0, start_ticks: 0, duration_ticks: 120, animation: "none".into(),
+        });
+        p.tracks[0].clips.push(clip);
+        p.validate().unwrap();
+        let chroma = p.tracks[0].clips[0].elements[0].chroma.as_ref().unwrap();
+        assert_eq!((chroma.similarity, chroma.softness, chroma.spill), (42.0, 12.0, 75.0));
+        let mut invalid = p.clone();
+        invalid.tracks[0].clips[0].elements[0].chroma.as_mut().unwrap().similarity = 101.0;
+        assert!(invalid.validate().is_err());
+    }
+
+    #[test]
     fn keeps_layer_stack_order_and_rejects_out_of_range_values() {
         let mut p = Project::default();
         let mut clip = scene();
         clip.elements.push(ElementLayer {
             preset_id: None,
             mask: None,
+            chroma: None,
             keyframes: Vec::new(),
             id: "element".into(),
             kind: "star".into(),
@@ -3064,6 +3111,7 @@ mod tests {
         clip.elements.push(ElementLayer {
             preset_id: None,
             mask: None,
+            chroma: None,
             keyframes: Vec::new(),
             id: "element".into(),
             kind: "star".into(),
@@ -3108,6 +3156,7 @@ mod tests {
         clip.elements.push(ElementLayer {
             preset_id: None,
             mask: None,
+            chroma: None,
             keyframes: Vec::new(),
             id: "element".into(),
             kind: "star".into(),
@@ -3121,6 +3170,7 @@ mod tests {
         project.overlays.push(ElementLayer {
             preset_id: None,
             mask: None,
+            chroma: None,
             keyframes: Vec::new(),
             id: "overlay".into(),
             kind: "rectangle".into(),

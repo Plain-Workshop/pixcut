@@ -288,6 +288,35 @@ const pl: Record<string, string> = {
   'Soft serif lines for couples, weddings and hand-in-hand walks.': 'Miękkie linie szeryfowe dla par, ślubów i spacerów za rękę.',
   'Wedding day': 'Dzień ślubu',
   'Quiet serif promises over the ceremony and the after-party.': 'Ciche szeryfowe obietnice nad ceremonią i przyjęciem.',
+  'VIDEO EXPORT': 'EKSPORT WIDEO',
+  'Broad compatibility': 'Szeroka zgodność',
+  'Efficient compression': 'Wydajna kompresja',
+  'WebM for the web': 'WebM do sieci',
+  'Editing master': 'Materiał do montażu',
+  'H.264 is the default for sharing and everyday playback.': 'H.264 to domyślny wybór do udostępniania i codziennego odtwarzania.',
+  'H.265 playback needs a player or device that supports HEVC.': 'Odtwarzanie H.265 wymaga odtwarzacza lub urządzenia obsługującego HEVC.',
+  'VP9 in WebM plays in browsers and most modern players.': 'VP9 w WebM działa w przeglądarkach i większości nowoczesnych odtwarzaczy.',
+  'ProRes 422 is a large editing master; quality picks LT, 422 or HQ.': 'ProRes 422 to duży materiał do montażu; jakość wybiera LT, 422 lub HQ.',
+  'Unavailable in this build': 'Niedostępne w tej wersji',
+  'H.264 and H.265 only': 'Tylko H.264 i H.265',
+  'Platform encoder · much faster': 'Koder platformy · znacznie szybciej',
+  'Quick drafts': 'Szybkie wersje robocze',
+  'Everyday sharing': 'Codzienne udostępnianie',
+  'Sharper details': 'Ostrzejsze szczegóły',
+  'Export frame rate': 'Liczba klatek eksportu',
+  'Export file name': 'Nazwa pliku eksportu',
+  'Export version': 'Wersja eksportu',
+  'Video source rendering': 'Renderowanie źródła wideo',
+  'Trims, speed, color grade, fades, overlays and picture-in-picture clips are baked into the video. Scene transitions keep their blend when either side is a video clip.': 'Przycięcia, prędkość, korekcja kolorów, przenikania, nakładki i klipy obraz-w-obrazie są wtopione w wideo. Przejścia scen zachowują mieszanie, gdy po którejś stronie jest klip wideo.',
+  '{formats} selected · {files}': 'Wybrano: {formats} · {files}',
+  '{formats} share {renders}, so PixCut writes {videos} with every platform in the file name.': '{formats} dzielą {renders}, więc PixCut zapisze {videos} z nazwami wszystkich platform w nazwie pliku.',
+  'Video export is available in the desktop app.': 'Eksport wideo jest dostępny w aplikacji desktopowej.',
+  'FFmpeg unavailable. Install with {command}, then restart PixCut.': 'FFmpeg jest niedostępny. Zainstaluj przez {command} i uruchom PixCut ponownie.',
+  'This codec is unavailable in your FFmpeg installation.': 'Ten koder jest niedostępny w Twojej instalacji FFmpeg.',
+  'ProRes uses the quality setting.': 'ProRes korzysta z ustawienia jakości.',
+  'You can continue editing during export.': 'Możesz kontynuować edycję podczas eksportu.',
+  'Export {videos}': 'Eksportuj: {videos}',
+  'Import photos': 'Importuj zdjęcia',
   'Custom': 'Własny',
   'Custom format': 'Własny format',
   'Add custom': 'Dodaj własny',
@@ -581,6 +610,35 @@ const uk: Record<string, string> = {
   'Soft serif lines for couples, weddings and hand-in-hand walks.': 'М’які рядки із засічками для пар, весіль і прогулянок за руку.',
   'Wedding day': 'День весілля',
   'Quiet serif promises over the ceremony and the after-party.': 'Тихі обіцянки із засічками над церемонією та вечіркою.',
+  'VIDEO EXPORT': 'ЕКСПОРТ ВІДЕО',
+  'Broad compatibility': 'Широка сумісність',
+  'Efficient compression': 'Ефективне стиснення',
+  'WebM for the web': 'WebM для мережі',
+  'Editing master': 'Майстер для монтажу',
+  'H.264 is the default for sharing and everyday playback.': 'H.264 — типовий вибір для поширення та щоденного перегляду.',
+  'H.265 playback needs a player or device that supports HEVC.': 'Для відтворення H.265 потрібен плеєр або пристрій із підтримкою HEVC.',
+  'VP9 in WebM plays in browsers and most modern players.': 'VP9 у WebM працює в браузерах і більшості сучасних плеєрів.',
+  'ProRes 422 is a large editing master; quality picks LT, 422 or HQ.': 'ProRes 422 — великий майстер для монтажу; якість обирає LT, 422 або HQ.',
+  'Unavailable in this build': 'Недоступно в цій збірці',
+  'H.264 and H.265 only': 'Лише H.264 і H.265',
+  'Platform encoder · much faster': 'Кодер платформи · значно швидше',
+  'Quick drafts': 'Швидкі чернетки',
+  'Everyday sharing': 'Щоденне поширення',
+  'Sharper details': 'Чіткіші деталі',
+  'Export frame rate': 'Частота кадрів експорту',
+  'Export file name': 'Ім’я файлу експорту',
+  'Export version': 'Версія експорту',
+  'Video source rendering': 'Рендеринг відеоджерела',
+  'Trims, speed, color grade, fades, overlays and picture-in-picture clips are baked into the video. Scene transitions keep their blend when either side is a video clip.': 'Обрізка, швидкість, кольорокорекція, затемнення, накладки й кліпи «картинка в картинці» вбудовуються у відео. Переходи сцен зберігають змішування, коли з будь-якого боку є відеокліп.',
+  '{formats} selected · {files}': 'Вибрано: {formats} · {files}',
+  '{formats} share {renders}, so PixCut writes {videos} with every platform in the file name.': '{formats} поділяють {renders}, тож PixCut запише {videos} з усіма платформами в імені файлу.',
+  'Video export is available in the desktop app.': 'Експорт відео доступний у настільному застосунку.',
+  'FFmpeg unavailable. Install with {command}, then restart PixCut.': 'FFmpeg недоступний. Встановіть через {command} і перезапустіть PixCut.',
+  'This codec is unavailable in your FFmpeg installation.': 'Цей кодек недоступний у вашій інсталяції FFmpeg.',
+  'ProRes uses the quality setting.': 'ProRes використовує налаштування якості.',
+  'You can continue editing during export.': 'Ви можете продовжити редагування під час експорту.',
+  'Export {videos}': 'Експортувати: {videos}',
+  'Import photos': 'Імпортувати світлини',
   'Custom': 'Власний',
   'Custom format': 'Власний формат',
   'Add custom': 'Додати власний',
@@ -652,4 +710,14 @@ export function formatCount(count: number): string {
 /** Locale-aware file count for the number of videos an export will write. */
 export function fileCount(count: number): string {
   return plural(count, ['file', 'files'], ['plik', 'pliki', 'plików'], ['файл', 'файли', 'файлів']);
+}
+
+/** Locale-aware render count for combined deliverables. */
+export function renderCount(count: number): string {
+  return plural(count, ['render', 'renders'], ['render', 'rendery', 'renderów'], ['рендер', 'рендери', 'рендерів']);
+}
+
+/** Locale-aware video count for the export button and notes. */
+export function videoCount(count: number): string {
+  return plural(count, ['video', 'videos'], ['film', 'filmy', 'filmów'], ['відео', 'відео', 'відео']);
 }

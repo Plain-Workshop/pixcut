@@ -90,6 +90,14 @@ export type LayerMask = {
 export const defaultLayerMask = (shape: MaskShape = 'rectangle'): LayerMask => ({
   shape, x: .5, y: .5, width: .82, height: .82, rotation: 0, feather: 0, invert: false,
 });
+/** Colour-distance keying for image and video overlays. Values are 0–100. */
+export type ChromaKey = {
+  color: string;
+  similarity: number;
+  softness: number;
+  spill: number;
+};
+export const defaultChromaKey = (): ChromaKey => ({ color: '#00ff00', similarity: 35, softness: 20, spill: 30 });
 export type ElementBehavior = {
   atSeconds?: number; intervalSeconds?: number; countFrom?: number; countTo?: number;
   repeat?: boolean; audioId?: string; variant?: 'click' | 'double-click' | 'drag' | 'phone' | 'browser';
@@ -123,6 +131,7 @@ export type ElementLayer = {
   animation: 'none' | 'fade' | 'pop' | 'slide-up' | 'pulse' | 'float' | 'slide-down' | 'slide-left' | 'slide-right' | 'zoom-out' | 'bounce' | 'spin' | 'swing';
   keyframes?: Keyframe[];
   mask?: LayerMask;
+  chroma?: ChromaKey;
 };
 export type MotionType = 'none' | 'zoom-in' | 'zoom-out' | 'pan-left' | 'pan-right' | 'pan-up' | 'pan-down' | 'ken-burns';
 export type Transition = { type: TransitionType; duration: number };
@@ -492,6 +501,18 @@ function readMask(value: unknown): LayerMask | undefined {
   return { shape: mask.shape as MaskShape, x: mask.x!, y: mask.y!, width: mask.width!, height: mask.height!, rotation: mask.rotation!, feather: mask.feather!, invert: mask.invert };
 }
 
+function readChroma(value: unknown): ChromaKey | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('An overlay has invalid chroma-key settings.');
+  const chroma = value as Partial<ChromaKey>;
+  if (typeof chroma.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(chroma.color)) throw new Error('A chroma key needs a valid colour.');
+  for (const key of ['similarity', 'softness', 'spill'] as const) {
+    const raw = chroma[key];
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0 || raw > 100) throw new Error('A chroma key has an invalid value.');
+  }
+  return { color: chroma.color, similarity: chroma.similarity!, softness: chroma.softness!, spill: chroma.spill! };
+}
+
 function readPip(value: unknown): PipStyle | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object') throw new Error('Invalid picture-in-picture placement.');
@@ -766,6 +787,8 @@ function readElements(value: unknown, durationTicks: number, limit = 12): Elemen
     const keyframes = readKeyframes(element.keyframes, elementTicks, 'An element');
     const mask = readMask(element.mask);
     if (mask && element.kind !== 'image' && element.kind !== 'video') throw new Error('Shape masks apply to image and video overlays.');
+    const chroma = readChroma(element.chroma);
+    if (chroma && element.kind !== 'image' && element.kind !== 'video') throw new Error('Chroma keying applies to image and video overlays.');
     return {
       ...(action ? { action } : {}),
       ...(behavior ? { behavior } : {}),
@@ -781,6 +804,7 @@ function readElements(value: unknown, durationTicks: number, limit = 12): Elemen
       ...(element.animationDuration !== undefined ? { animationDuration: element.animationDuration } : {}),
       ...(keyframes ? { keyframes } : {}),
       ...(mask ? { mask } : {}),
+      ...(chroma ? { chroma } : {}),
       id: element.id, kind: element.kind as ElementKind,
       x: element.x!, y: element.y!, width: element.width!, height: element.height!,
       rotation: element.rotation, color: element.color, opacity: element.opacity,
