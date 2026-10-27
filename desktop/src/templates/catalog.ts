@@ -39,7 +39,7 @@ export function buildStory(spec: StorySpec, images: string[]): Scene[] {
       fontWeight: weight, fontStyle: spec.italic ? 'italic' : 'normal',
       size, lineHeight: spec.lineHeight ?? 1.04, letterSpacing: spec.letterSpacing ?? 0,
       align: spec.align ?? 'left',
-      backdropEnabled: Boolean(spec.backdrop), backdropOpacity: spec.backdrop ?? 0,
+      backdropEnabled: spec.category !== 'Social' && Boolean(spec.backdrop), backdropOpacity: spec.backdrop ?? 0,
       backdropBlur: 26, backdropPadding: 26, backdropRadius: 18,
       shadowEnabled: true, shadowIntensity: 70, shadowBlur: 18, shadowOffsetY: 4,
       animation: 'slide-up', animationDuration: .7, ...patch,
@@ -47,7 +47,7 @@ export function buildStory(spec: StorySpec, images: string[]): Scene[] {
     const layers = [
       layer({ title }),
       layer({ title: spec.captions[index], y: .075, size: .019, font: 'space-grotesk', fontWeight: 500, letterSpacing: .006, backdropEnabled: false, shadowEnabled: false, animation: 'fade' }),
-      layer({ title: `0${index + 1} / 03`, y: .9, size: .02, font: 'dm-sans', fontWeight: 400, shadowEnabled: false, animation: 'fade' }),
+      layer({ title: `0${index + 1} / 03`, y: .9, size: .02, font: 'dm-sans', fontWeight: 400, backdropEnabled: false, shadowEnabled: false, animation: 'fade' }),
     ];
     const scene: Scene = {
       id: crypto.randomUUID(), startTicks: 0, sourceInTicks: 0, name: title.replaceAll('\n', ' '),
