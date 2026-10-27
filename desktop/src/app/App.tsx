@@ -888,6 +888,11 @@ export default function App() {
     const timeout = setTimeout(() => { void persistCurrent(); }, preferences.autosaveMs);
     return () => clearTimeout(timeout);
   }, [project, ready, persistCurrent, preferences.autosaveMs]);
+  useEffect(() => {
+    if (selectedPipId && !overlayScenes(project).some(clip => clip.id === selectedPipId)) {
+      setSelectedPipId(null); setPipDraft(null); pipDraftRef.current = null;
+    }
+  }, [project.tracks, selectedPipId]);
   useEffect(() => { audioDraftRef.current = null; setAudioDraft(null); setBeatTempo(null); }, [project.id, selectedAudioId]);
   useEffect(() => {
     if (!project.audio.length) { setSelectedAudioId(null); return; }
