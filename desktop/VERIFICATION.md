@@ -1180,3 +1180,9 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - A `set_app_menu(language)` command rebuilds and replaces the menu; the frontend calls it whenever the stored language changes and at startup, so switching in Settings updates the OS menu without a restart. Unknown languages and keys fall back to English.
 - Test: `menu_labels_follow_the_interface_language` covers Polish, Ukrainian, and both fallbacks. Native counts are listed in the build-state section.
 - Boundary: macOS also localizes some predefined items from the system language; PixCut now supplies explicit labels so the menu follows the in-app choice.
+
+## Export dialog translations — 2026-10-27
+
+- The export studio now translates its section headings and controls: Encoding, Container, Encoding speed, Quality, Picture, Resolution, Frame rate, Project dimensions, Match each output, Include audio, Hardware encoder, File name, Name, Version, File naming options, Add output name, Add quality, Outputs, File names and the empty-selection hint, plus fast/balanced/slower and quality summary labels.
+- The “Video source rendering” note was stale: it claimed video transitions become hard cuts and PiP is unsupported. It now says transitions keep their blend when either side is video and that PiP clips are baked into the encode.
+- The i18n key-parity test still passes, so both translations cover the same keys.
