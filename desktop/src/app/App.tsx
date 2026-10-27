@@ -4823,9 +4823,9 @@ export default function App() {
           </div>}
           <div className="source-preview-actions"><button className="button primary" disabled={!hasMedia(sourcePreview.image)} onClick={() => void appendMedia(sourcePreview)}><Plus size={15} /> Append to timeline</button><button className="button" disabled={!selectedScene || !hasMedia(sourcePreview.image)} onClick={() => void addMediaPip(sourcePreview).catch(error => setError(messageFor(error)))}><Layers size={15} /> Picture in picture</button><span className="source-keyboard-hint">{sourcePreview.mediaKind === 'video' ? '← → switch · Space play · ↑ ↓ volume' : '← → switch media'}</span></div>
         </> : modal === 'templates' ? <>
-          <h2 id="modal-title">Start from a story.</h2><p>Photo stories, one animated video opener, and local music — all bundled and ready offline. {projects.length ? 'Your current project is saved before a template opens.' : ''}</p>
-          <label className="shortcut-search template-search"><Search size={15} /><input aria-label="Search templates" placeholder="Search templates…" value={templateQuery} onChange={e => setTemplateQuery(e.target.value)} /></label>
-          <div className="template-categories" role="tablist" aria-label="Template categories">{['All', ...TEMPLATE_CATEGORIES].map(category => <button key={category} role="tab" aria-selected={templateCategory === category} className={templateCategory === category ? 'active' : ''} onClick={() => setTemplateCategory(category as typeof templateCategory)}>{category}</button>)}</div>
+          <h2 id="modal-title">{t('Start from a story.')}</h2><p>{t('Photo stories, one animated video opener, and local music — all bundled and ready offline.')} {projects.length ? t('Your current project is saved before a template opens.') : ''}</p>
+          <label className="shortcut-search template-search"><Search size={15} /><input aria-label={t('Search templates')} placeholder={t('Search templates…')} value={templateQuery} onChange={e => setTemplateQuery(e.target.value)} /></label>
+          <div className="template-categories" role="tablist" aria-label={t('Template categories')}>{['All', ...TEMPLATE_CATEGORIES].map(category => <button key={category} role="tab" aria-selected={templateCategory === category} className={templateCategory === category ? 'active' : ''} onClick={() => setTemplateCategory(category as typeof templateCategory)}>{t(category)}</button>)}</div>
           {templateMatches.length ? <div className="template-grid">{templateMatches.map(template => <button key={template.id} className="template-card" disabled={!canEdit} onClick={() => chooseTemplate(template)}>
             <div className="template-preview"><span className="template-frame">
               <img src={templateImage(template)} alt="" />
@@ -4837,28 +4837,28 @@ export default function App() {
               }}>{template.titles[0]}</span>
             </span><span className="template-aspect">{template.aspect}</span></div>
             <div className="template-body">
-              <strong>{template.name}</strong>
-              <span>{template.description}</span>
-              <small>{template.sceneCount} scenes · {template.duration.toFixed(1)} s · {template.category}</small>
+              <strong>{t(template.name)}</strong>
+              <span>{t(template.description)}</span>
+              <small>{sceneCount(template.sceneCount)} · {template.duration.toFixed(1)} s · {t(template.category)}</small>
               <span className="template-badges">{template.video && <span className="template-badge video">VIDEO</span>}{template.audio && <span className="template-badge music">MUSIC</span>}</span>
-              <span className="button primary">Use template <ArrowRight size={15} /></span>
+              <span className="button primary">{t('Use template')} <ArrowRight size={15} /></span>
             </div>
-          </button>)}</div> : <div className="shortcut-empty"><Search size={24} /><strong>No templates match “{templateQuery}”.</strong><span>Try Nature, Travel, People or Food.</span></div>}
+          </button>)}</div> : <div className="shortcut-empty"><Search size={24} /><strong>{t('No templates match “{query}”.', { query: templateQuery })}</strong><span>{t('Try Nature, Travel, People or Food.')}</span></div>}
           <details className="template-credits">
-            <summary>Media credits</summary>
-            <p>Every template photo ships with the app as a CC0 (public-domain) image, mostly Unsplash photographs archived on Wikimedia Commons. Template music and the motion background are generated for PixCut and released CC0. Nothing is downloaded while you edit.</p>
+            <summary>{t('Media credits')}</summary>
+            <p>{t('Every template photo ships with the app as a CC0 (public-domain) image, mostly Unsplash photographs archived on Wikimedia Commons. Template music and the motion background are generated for PixCut and released CC0. Nothing is downloaded while you edit.')}</p>
             <ul>{Object.values(TEMPLATE_PHOTOS).sort((a, b) => a.author.localeCompare(b.author)).map(photo => <li key={photo.file}><span>{photo.title}</span>{photo.author}</li>)}</ul>
           </details>
         </> : modal === 'new' ? <>
           {pendingTemplate ? <>
-            <h2 id="modal-title">Start with {pendingTemplate.name}?</h2>
-            <p>Your current story is already saved in the local library. This template opens as a new project with {pendingTemplate.sceneCount} editable scenes.</p>
+            <h2 id="modal-title">{t('Start with {name}?', { name: t(pendingTemplate.name) })}</h2>
+            <p>{t('Your current story is already saved in the local library. This template opens as a new project: {scenes} to edit.', { scenes: sceneCount(pendingTemplate.sceneCount) })}</p>
             <div className="template-confirm">
               <span className="template-confirm-art"><img src={templateImage(pendingTemplate)} alt="" /></span>
-              <div><strong>{pendingTemplate.name}</strong><small>{pendingTemplate.aspect} · {pendingTemplate.sceneCount} scenes · {pendingTemplate.duration.toFixed(1)} s</small><p>{pendingTemplate.description}</p><span className="template-badges">{pendingTemplate.video && <span className="template-badge video">VIDEO</span>}{pendingTemplate.audio && <span className="template-badge music">MUSIC</span>}</span></div>
+              <div><strong>{t(pendingTemplate.name)}</strong><small>{pendingTemplate.aspect} · {sceneCount(pendingTemplate.sceneCount)} · {pendingTemplate.duration.toFixed(1)} s</small><p>{t(pendingTemplate.description)}</p><span className="template-badges">{pendingTemplate.video && <span className="template-badge video">VIDEO</span>}{pendingTemplate.audio && <span className="template-badge music">MUSIC</span>}</span></div>
             </div>
             <div className="modal-actions">
-              <button className="button primary" disabled={!canEdit} onClick={() => void startTemplate(pendingTemplate)}>Start with {pendingTemplate.name} <ArrowRight size={15} /></button>
+              <button className="button primary" disabled={!canEdit} onClick={() => void startTemplate(pendingTemplate)}>{t('Start with {name}', { name: t(pendingTemplate.name) })} <ArrowRight size={15} /></button>
               <button className="button subtle" onClick={requestCloseModal}>{t('Cancel')}</button>
             </div>
           </> : <>

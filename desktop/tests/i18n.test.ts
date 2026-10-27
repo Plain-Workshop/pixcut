@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { DICTIONARIES, fileCount, formatCount, isLocale, projectCount, sceneCount, setLocale, t } from '../src/i18n';
+import { TEMPLATES } from '../src/templates/catalog';
 
 afterEach(() => setLocale('en'));
 
@@ -54,6 +55,23 @@ describe('interface language', () => {
     expect(fileCount(1)).toBe('1 файл');
     expect(fileCount(3)).toBe('3 файли');
     expect(fileCount(11)).toBe('11 файлів');
+  });
+
+  it('translates every template name, description and category', () => {
+    for (const locale of ['pl', 'uk'] as const) {
+      for (const template of TEMPLATES) {
+        for (const text of [template.name, template.description, template.category]) {
+          const translated = DICTIONARIES[locale][text];
+          expect(translated, `${locale}: ${text}`).toBeTruthy();
+          expect(translated.trim().length).toBeGreaterThan(0);
+        }
+      }
+    }
+    // Gallery chrome that the picker renders around the cards.
+    for (const text of ['Start from a story.', 'Use template', 'Media credits', 'Search templates…', 'Nature', 'Food']) {
+      expect(DICTIONARIES.pl[text], `pl: ${text}`).toBeTruthy();
+      expect(DICTIONARIES.uk[text], `uk: ${text}`).toBeTruthy();
+    }
   });
 
   it('keeps the two translations in sync', () => {
