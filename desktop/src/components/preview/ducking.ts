@@ -3,7 +3,8 @@ import { ticksToSeconds, type Scene, type Timebase } from '../../stores/model';
 /** Timeline windows where an audible video clip plays, in project seconds. */
 export type DuckWindow = { start: number; end: number };
 
-export function audibleVideoWindows(scenes: Scene[], timebase: Timebase): DuckWindow[] {
+export function audibleVideoWindows(scenes: Scene[], timebase: Timebase, busGain = 1): DuckWindow[] {
+  if (!(busGain > 0)) return [];
   return scenes
     .filter(scene => scene.mediaKind === 'video' && (scene.videoVolume ?? 100) > 0)
     .map(scene => ({ start: ticksToSeconds(scene.startTicks, timebase), end: ticksToSeconds(scene.startTicks + scene.durationTicks, timebase) }))

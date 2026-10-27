@@ -17,7 +17,7 @@ describe('designer presets',()=>{
  });
  it('preserves all designs, Unicode labels and behavior through schema-13 migration and reopening',()=>{
   const project=edit(emptyProject(),{type:'add',scenes:[scene]});
-  for(const p of ELEMENT_CATALOG){const element={...base,kind:p.kind,presetId:p.id,label:'Twoja historia · 東京',behavior:p.behavior};const saved=validateProject({...project,schema_version:13,overlays:[element]});expect(saved.schema_version).toBe(14);expect(saved.overlays[0].presetId).toBe(p.id);expect(saved.overlays[0].label).toBe(element.label);expect(elementDisplayName(saved.overlays[0])).toBe(p.label);expect(validateProject(JSON.parse(JSON.stringify(saved)))).toEqual(saved);}
+  for(const p of ELEMENT_CATALOG){const element={...base,kind:p.kind,presetId:p.id,label:'Twoja historia · 東京',behavior:p.behavior};const saved=validateProject({...project,schema_version:13,overlays:[element]});expect(saved.schema_version).toBe(15);expect(saved.overlays[0].presetId).toBe(p.id);expect(saved.overlays[0].label).toBe(element.label);expect(elementDisplayName(saved.overlays[0])).toBe(p.label);expect(validateProject(JSON.parse(JSON.stringify(saved)))).toEqual(saved);}
  });
  it('validates preset identifiers and tolerates a future unknown design without breaking artwork fallback',()=>{
   const p=edit(emptyProject(),{type:'add',scenes:[scene]});

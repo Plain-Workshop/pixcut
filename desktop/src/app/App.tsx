@@ -1,3 +1,4 @@
+import { Spectrogram } from '../components/timeline/Spectrogram';
 import { HoverVideo } from '../components/preview/HoverVideo';
 import { MUSIC_TRACKS, MUSIC_LICENSE, musicTrackUrl, musicTrackData, type MusicTrack } from '../stores/music-library';
 import { SOUND_EFFECTS, createSoundEffectClip, soundEffectData, type SoundEffectId } from '../components/elements/sound-effects';
@@ -29,7 +30,7 @@ import { beatMarkerTicks, detectBeats, snapScenesToBeats } from '../components/t
 import { MaskControls } from '../components/inspector/MaskControls';
 import { videoGain } from '../components/preview/video-audio';
 import { timelineOverlays, replaceOverlay, constrainOverlay, type TimelineOverlay } from '../components/elements/overlays';
-import { sceneStack, stackIndex, stackZ, newOverlayZ, overlaysForScene, type StackMove } from '../components/elements/stack';
+import { sceneStack, stackIndex, stackZ, layerZ, newOverlayZ, overlaysForScene, type StackMove } from '../components/elements/stack';
 import { StackOrder } from '../components/inspector/StackOrder';
 import { actionAudio } from '../components/elements/sound';
 import { playbackPosition } from '../components/preview/playback-clock';
@@ -37,7 +38,7 @@ import { LatestRenderQueue } from '../components/preview/render-queue';
 import { loadMediaBin, saveMediaBin, uniqueMediaSources } from '../stores/media-bin';
 import { missingAssets, projectAssetRefs, replaceAssetRef, type MissingAsset } from '../stores/missing-assets';
 import { syncAudioElement } from '../components/preview/audio';
-import { formatCount, isLocale, projectCount, sceneCount, setLocale, t, type Locale } from '../i18n';
+import { fileCount, formatCount, isLocale, projectCount, sceneCount, setLocale, t, type Locale } from '../i18n';
 import { applyClipEq } from '../components/preview/eq';
 import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
@@ -128,7 +129,7 @@ import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import { ShortcutSettings } from '../components/shortcuts/ShortcutSettings';
 import * as bridge from './bridge';
-import { MAX_AUDIO_FILE_BYTES, MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, MAX_PROJECT_FORMATS, edit, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
+import { MAX_AUDIO_FILE_BYTES, MAX_AUDIO_LANES, MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, MAX_PROJECT_FORMATS, audioMixOf, audioLaneMix, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, minTicks, projectScenes, replaceSceneImage, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type AudioMix, type AudioLaneMix, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawOverlayStack, drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
 import { gradeLutCube } from '../components/preview/filters';
 import { Waveform } from '../components/timeline/Waveform';
@@ -315,13 +316,6 @@ function audioMime(file: File) {
   return '';
 }
 
-function fileFromPicked(item: bridge.PickedMedia): File {
-  const payload = item.data.slice(item.data.indexOf(',') + 1);
-  const binary = atob(payload);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-  return new File([bytes], item.name, { type: item.mime });
-}
 
 async function audioFileData(file: File) {
   const mime = audioMime(file);
@@ -444,6 +438,8 @@ export default function App() {
   const [replacingSceneId, setReplacingSceneId] = useState<string | null>(null);
   const [fileDragActive, setFileDragActive] = useState(false);
   const [audioDraft, setAudioDraft] = useState<AudioClip | null>(null);
+  const [mixDraft, setMixDraft] = useState<AudioMix | null>(null);
+  const [videoVolumeDraft, setVideoVolumeDraft] = useState<{ id: string; value: number } | null>(null);
   const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -543,7 +539,7 @@ export default function App() {
 
   const pending = useRef<Promise<boolean>>(Promise.resolve(true)), latestProject = useRef(INITIAL.project);
   const mediaInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null), replaceInput = useRef<HTMLInputElement>(null), audioInput = useRef<HTMLInputElement>(null), captionInput = useRef<HTMLInputElement>(null), fontInput = useRef<HTMLInputElement>(null), videoInput = useRef<HTMLInputElement>(null), sceneVideo = useRef<HTMLVideoElement>(null), preview = useRef<HTMLCanvasElement>(null), audioElements = useRef<Map<string, HTMLAudioElement>>(new Map()), previewArea = useRef<HTMLDivElement>(null), previewStage = useRef<HTMLDivElement>(null), operation = useRef(false);
-  const replaceTargetId = useRef<string | null>(null), inspectorFlush = useRef<() => void>(() => {}), audioDraftRef = useRef<AudioClip | null>(null), audioLaneRef = useRef(0);
+  const replaceTargetId = useRef<string | null>(null), inspectorFlush = useRef<() => void>(() => {}), audioDraftRef = useRef<AudioClip | null>(null), mixDraftRef = useRef<AudioMix | null>(null), videoVolumeDraftRef = useRef<{ id: string; value: number } | null>(null), audioLaneRef = useRef(0);
   const sceneQueue = useRef<Command[]>([]), previewQueue = useRef<LatestRenderQueue | null>(null), timelineScroll = useRef<HTMLDivElement>(null);
   const positionRef = useRef(0), closeModalRef = useRef<() => void>(() => {}), commandRef = useRef<(id: string) => void>(() => {}), fullscreenRef = useRef<() => void>(() => {});
   const selectionAnchor = useRef<string | null>(null), reorderRef = useRef<string | null>(null);
@@ -554,6 +550,8 @@ export default function App() {
   const [audioLibraryTab,setAudioLibraryTab]=useState<'project'|'music'|'sounds'>('project');
   const [musicMood,setMusicMood]=useState('All');
   const [hoveredElement,setHoveredElement]=useState<string|null>(null);
+  const [hoverEntrance,setHoverEntrance]=useState<string|null>(null);
+  const [audioDisplay,setAudioDisplay]=useState<'spectrogram'|'waveform'>('spectrogram');
   const [hoveredMedia,setHoveredMedia]=useState<string|null>(null);
   const [previewingAudio,setPreviewingAudio]=useState<string|null>(null);
   const libraryAudio=useRef<HTMLAudioElement|null>(null),libraryAudioToken=useRef(0),libraryAudioTimer=useRef<number|undefined>(undefined);
@@ -658,11 +656,13 @@ export default function App() {
   const useHardware = exportHardware && hardwareAvailable && (exportCodec === 'h264' || exportCodec === 'hevc');
   const displayAspect = project.aspect;
   const cueAudio = useMemo(() => actionAudio(project), [project]);
-  const videoDuckWindows = useMemo(() => audibleVideoWindows(projectScenes(project), project.timebase), [project.tracks, project.timebase]);
+  const videoDuckWindows = useMemo(() => audibleVideoWindows(projectScenes(project), project.timebase, videoAudioGain(project)), [project.tracks, project.timebase, project.audioMix]);
   const audioClips = previewAudio ?? project.audio;
   const audio = audioClips.map(clip => audioDraft?.id === clip.id ? audioDraft : clip);
   const selectedAudio = audioDraft ?? audio.find(clip => clip.id === selectedAudioId) ?? audio[0] ?? null;
+  const audioMix = mixDraft ?? audioMixOf(project);
   const audioLanes = Array.from({ length: Math.max(0, ...audio.map(clip => clip.lane ?? 0)) + 1 }, (_, lane) => lane);
+  const videoScenes = scenes.filter(scene => scene.mediaKind === 'video');
   const projectTicks = totalTicks(project);
   setLocale(language);
   const timelineRatio = duration > 0 ? Math.min(1, Math.max(0, position / duration)) : 0;
@@ -693,6 +693,18 @@ export default function App() {
   const selectedTextLayers = selectedGlobalText ? [selectedGlobalText] : (selectedTextScene ? sceneTextLayers(selectedTextScene) : []);
   const selectedTextLayer = selectedGlobalText ?? selectedTextLayers.find(layer => layer.id === selectedTextLayerId) ?? selectedTextLayers[0] ?? null;
   const allOverlays = useMemo(() => timelineOverlays(project), [project]);
+  const layerWeight = (element: TimelineOverlay) => {
+    if (typeof element.z === 'number') return element.z;
+    if (element.legacySceneId) {
+      const owner = projectScenes(project).find(scene => scene.id === element.legacySceneId);
+      const index = owner?.elements?.findIndex(item => item.id === element.legacyId) ?? 0;
+      return layerZ(element, 'element', Math.max(0, index));
+    }
+    const index = (project.overlays ?? []).findIndex(item => item.id === element.id);
+    return layerZ(element, 'overlay', Math.max(0, index));
+  };
+  const orderedLayers = useMemo(() => [...allOverlays].sort((a, b) => layerWeight(b) - layerWeight(a) || a.startTicks - b.startTicks || a.id.localeCompare(b.id)), [allOverlays]);
+  const layerNumbers = useMemo(() => new Map([...orderedLayers].reverse().map((element, index) => [element.id, index + 1])), [orderedLayers]);
   const hasMediaOverlays = allOverlays.some(element => element.kind === 'image' || element.kind === 'video');
   const selectedElement = overlayDraft?.id === selectedElementId ? overlayDraft : allOverlays.find(element => element.id === selectedElementId) ?? null;
   const renderOverlays = useMemo(() => (project.overlays ?? []).filter(e => e.id !== overlayDraft?.id).concat(overlayDraft ? [overlayDraft] : []), [project.overlays, overlayDraft]);
@@ -942,6 +954,7 @@ export default function App() {
     }
   }, [project.tracks, selectedPipId]);
   useEffect(() => { audioDraftRef.current = null; setAudioDraft(null); setBeatTempo(null); }, [project.id, selectedAudioId]);
+  useEffect(() => { mixDraftRef.current = null; setMixDraft(null); }, [project.id]);
   useEffect(() => {
     if (!project.audio.length) { setSelectedAudioId(null); return; }
     setSelectedAudioId(id => id && project.audio.some(clip => clip.id === id) ? id : project.audio[0].id);
@@ -951,7 +964,7 @@ export default function App() {
     for (const clip of audio) {
       const element = audioElements.current.get(clip.id);
       if (!element) continue;
-      syncAudioElement(element, clip, position, playing && playDirection > 0, project.timebase, undefined, duck);
+      syncAudioElement(element, clip, position, playing && playDirection > 0, project.timebase, undefined, duck * audioLaneGain(project, clip.lane ?? 0));
       applyClipEq(element, clip);
     }
     for (const clip of cueAudio) {
@@ -959,7 +972,7 @@ export default function App() {
       if (!element) continue;
       syncAudioElement(element, clip, position, playing && playDirection > 0, project.timebase);
     }
-  }, [position, playing, playDirection, audio, cueAudio, project.timebase, videoDuckWindows, project.ducking]);
+  }, [position, playing, playDirection, audio, cueAudio, project.timebase, videoDuckWindows, project.ducking, project.audioMix]);
   useEffect(() => () => { for (const element of audioElements.current.values()) element.pause(); recorderRef.current?.state !== 'inactive' && recorderRef.current?.stop(); if (recordTimer.current) clearInterval(recordTimer.current); }, []);
   useEffect(() => {
     if (!projectMenu) return;
@@ -1139,9 +1152,9 @@ export default function App() {
       const speed = speedAt(videoScene, previewLocalSeconds, clipSeconds);
       if (element.playbackRate !== speed) element.playbackRate = speed;
     }
-    element.volume = videoGain(previewLocalSeconds, clipSeconds, videoScene.fadeIn ?? 0, videoScene.fadeOut ?? 0, videoScene.videoVolume ?? 100);
+    element.volume = videoGain(previewLocalSeconds, clipSeconds, videoScene.fadeIn ?? 0, videoScene.fadeOut ?? 0, videoScene.videoVolume ?? 100) * videoAudioGain(project);
     if (element.readyState >= 2 && Math.abs(element.currentTime - target) > 0.12) element.currentTime = target;
-  }, [previewLocalSeconds, videoScene?.id, videoScene?.speed, videoScene?.speedEnd, videoScene?.reverse, videoScene?.fadeIn, videoScene?.fadeOut, project.timebase]);
+  }, [previewLocalSeconds, videoScene?.id, videoScene?.speed, videoScene?.speedEnd, videoScene?.reverse, videoScene?.fadeIn, videoScene?.fadeOut, videoScene?.videoVolume, project.timebase, project.audioMix]);
 
   useEffect(() => {
     const element = sceneVideo.current;
@@ -2014,7 +2027,7 @@ export default function App() {
     if (!canEdit || event.button !== 0 || !projectTicks) return;
     event.preventDefault();
     event.stopPropagation();
-    const clip = event.currentTarget.closest<HTMLElement>('.timeline-clip');
+    const clip = event.currentTarget.closest<HTMLElement>('.timeline-clip, .video-audio-clip');
     const width = clip?.getBoundingClientRect().width ?? 0;
     if (width <= 0) return;
     setSelectedIds(ids => (ids.includes(scene.id) ? ids : [scene.id]));
@@ -2026,21 +2039,30 @@ export default function App() {
     const initialDuration = scene.durationTicks;
     const initialSourceIn = scene.sourceInTicks ?? 0;
     let next = scene;
+    let frame = 0;
     setPreviewScene(scene);
     const move = (moveEvent: PointerEvent) => {
       const delta = Math.round(((moveEvent.clientX - startX) / width) * initialDuration);
-      next = trimSceneWindow(scene, delta, side, timebase);
-      setPreviewScene(next);
+      const candidate = trimSceneWindow(scene, delta, side, timebase);
+      if (candidate.durationTicks === next.durationTicks && candidate.sourceInTicks === next.sourceInTicks) return;
+      next = candidate;
+      // Coalesce pointer moves into one paint. The timeline reads this draft
+      // immediately, while the expensive preview/render tree only updates once
+      // per animation frame.
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; setPreviewScene(next); });
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      if (frame) { cancelAnimationFrame(frame); frame = 0; }
       setPreviewScene(null);
       if (next.durationTicks === initialDuration && next.sourceInTicks === initialSourceIn) return;
-      void pending.current.then(() => {
-        const current = projectScenes(latestProject.current).find(item => item.id === scene.id);
-        if (!current) return;
-        void run({ type: 'update', scene: { ...current, durationTicks: next.durationTicks, sourceInTicks: next.sourceInTicks, fadeIn: Math.min(current.fadeIn ?? 0, ticksToSeconds(next.durationTicks, timebase)), fadeOut: Math.min(current.fadeOut ?? 0, ticksToSeconds(next.durationTicks, timebase)) } });
+      const current = projectScenes(latestProject.current).find(item => item.id === scene.id);
+      if (!current) return;
+      const updated = { ...current, durationTicks: next.durationTicks, sourceInTicks: next.sourceInTicks, fadeIn: Math.min(current.fadeIn ?? 0, ticksToSeconds(next.durationTicks, timebase)), fadeOut: Math.min(current.fadeOut ?? 0, ticksToSeconds(next.durationTicks, timebase)) };
+      const before = optimisticScene(updated);
+      void run({ type: 'update', scene: updated }).then(ok => {
+        if (!ok) { latestProject.current = before; setSession(session => ({ ...session, project: before })); }
       });
     };
     window.addEventListener('pointermove', move);
@@ -2710,8 +2732,29 @@ export default function App() {
   async function chooseCustomElement(kind: 'image' | 'video') {
     customElementKind.current = kind;
     if (bridge.native) {
-      try { const picked = await bridge.pickMedia(kind === 'video' ? 'video' : 'image'); if (picked?.length) await importCustomElement(picked.map(fileFromPicked)); }
-      catch (error) { setError(messageFor(error)); }
+      // Native builds stream the picked file straight into the asset store and
+      // keep only its reference, instead of round-tripping base64 through the
+      // webview and then duplicating it in IndexedDB.
+      try {
+        const asset = await bridge.importMediaAsset();
+        if (!asset) return;
+        if (kind === 'video' ? !asset.mime.startsWith('video/') : !asset.mime.startsWith('image/')) {
+          throw new Error(kind === 'video' ? 'Choose a video file for this overlay.' : 'Choose an image file for this overlay.');
+        }
+        if (asset.bytes > 50 * 1024 * 1024) throw new Error('Choose a custom element smaller than 50 MB.');
+        setBusy(true);
+        const probe = asset.mime.startsWith('video/')
+          ? await probeVideo((await resolveMediaSource(asset.reference)) ?? asset.reference)
+          : null;
+        await addMediaOverlay({
+          id: crypto.randomUUID(), name: asset.name, image: asset.reference,
+          ...(probe ? { mediaKind: 'video', videoPoster: probe.poster } : {}),
+          sourceInTicks: 0, startTicks: 0,
+          durationTicks: probe ? secondsToTicks(Math.min(30, probe.duration), project.timebase) : selectedScene?.durationTicks ?? secondsToTicks(4, project.timebase),
+          title: '', subtitle: '', color: '#FFFFFF', fit: 'contain',
+        });
+      } catch (error) { setError(messageFor(error)); }
+      finally { setBusy(false); }
     } else if (customElementInput.current) { customElementInput.current.accept = kind === 'video' ? 'video/mp4,video/webm,video/quicktime,.mp4,.mov,.webm' : 'image/png,image/jpeg,image/webp'; customElementInput.current.click(); }
   }
 
@@ -3116,6 +3159,62 @@ export default function App() {
     setAudioDraft(null);
     setPreviewAudio(null);
     void run({ type: 'audio', audio: project.audio.map(clip => clip.id === constrained.id ? constrained : clip) });
+  }
+
+  function stageMix(update: (mix: AudioMix) => AudioMix) {
+    const base = mixDraftRef.current ?? project.audioMix ?? { video: 1, lanes: [] };
+    const next = update({ video: base.video, lanes: base.lanes.map(lane => ({ ...lane })) });
+    mixDraftRef.current = next;
+    setMixDraft(next);
+  }
+
+  function commitMix() {
+    const next = mixDraftRef.current;
+    if (!next) return;
+    mixDraftRef.current = null;
+    setMixDraft(null);
+    void run({ type: 'audioMix', mix: next });
+  }
+
+  function setLaneMix(lane: number, patch: Partial<Omit<AudioLaneMix, 'lane'>>) {
+    stageMix(mix => {
+      const existing = mix.lanes.find(item => item.lane === lane) ?? { lane, volume: 1, muted: false };
+      const next = { ...existing, ...patch };
+      const lanes = mix.lanes.filter(item => item.lane !== lane);
+      if (next.volume !== 1 || next.muted) lanes.push(next);
+      lanes.sort((a, b) => a.lane - b.lane);
+      return { ...mix, lanes };
+    });
+  }
+
+  function toggleLaneMute(lane: number) {
+    const current = mixDraftRef.current ?? project.audioMix ?? { video: 1, lanes: [] };
+    const muted = current.lanes.find(item => item.lane === lane)?.muted ?? false;
+    setLaneMix(lane, { muted: !muted });
+    commitMix();
+  }
+
+  function setVideoAudioLevel(volume: number) {
+    stageMix(mix => ({ ...mix, video: Math.min(1, Math.max(0, volume)) }));
+  }
+
+  function stageVideoVolume(scene: Scene, value: number) {
+    const draft = { id: scene.id, value: Math.min(100, Math.max(0, Math.round(value))) };
+    videoVolumeDraftRef.current = draft;
+    setVideoVolumeDraft(draft);
+  }
+
+  function commitVideoVolume(scene: Scene, value: number) {
+    const draft = videoVolumeDraftRef.current;
+    if (!draft || draft.id !== scene.id) return;
+    videoVolumeDraftRef.current = null;
+    setVideoVolumeDraft(null);
+    if (!canEdit) return;
+    const current = projectScenes(latestProject.current).find(item => item.id === scene.id);
+    if (!current) return;
+    const level = Math.min(100, Math.max(0, Math.round(value)));
+    if ((current.videoVolume ?? 100) === level) return;
+    void run({ type: 'update', scene: { ...current, videoVolume: level } });
   }
 
   function focusAudio(clip: AudioClip) {
@@ -3548,12 +3647,23 @@ export default function App() {
     if (!bridge.native) { setError('Relinking is available in the desktop app.'); return; }
     setRelinking(asset.ref);
     try {
-      const picked = await bridge.pickMedia(asset.kind);
-      const file = picked?.[0];
-      if (!file) return;
-      const next = replaceAssetRef(latestProject.current, asset.ref, file.data);
+      // Stream the replacement into the same local store as the rest of the
+      // footage; a relink never creates an IndexedDB copy on native.
+      let imported: { reference: string; name: string } | null;
+      if (asset.kind === 'audio') {
+        imported = await bridge.importAudioAsset();
+      } else {
+        const picked = await bridge.importMediaAsset();
+        if (!picked) return;
+        if (asset.kind === 'video' ? !picked.mime.startsWith('video/') : !picked.mime.startsWith('image/')) {
+          throw new Error(asset.kind === 'video' ? 'Choose a video file to relink this clip.' : 'Choose an image file to relink this photo.');
+        }
+        imported = picked;
+      }
+      if (!imported) return;
+      const next = replaceAssetRef(latestProject.current, asset.ref, imported.reference);
       if (await run({ type: 'replace', project: next })) {
-        setNotice(`Relinked ${asset.label} with ${file.name}.`);
+        setNotice(`Relinked ${asset.label} with ${imported.name}.`);
         setError('');
       }
     } catch (error) { setError(messageFor(error)); }
@@ -4020,7 +4130,7 @@ export default function App() {
 <details className="inspector-section motion-properties" open><summary>Motion</summary>
                 <BehaviorControls canvas={activeSize} element={selectedElement} audio={project.audio} update={updateElement} stage={stageElement} commit={commitElement} preview={seconds => { commitElement(); setPosition(Math.min(ticksToSeconds(projectTicks - 1, project.timebase), ticksToSeconds(selectedElement.startTicks, project.timebase) + seconds)); setPlaying(true); }} />
                 <section className="element-motion"><h3>Entrance</h3>                <div className="library-label">ENTRANCE <span>{ELEMENT_ANIMATIONS.length - 1} motions</span></div>
-                <div className="animation-choices">{ELEMENT_ANIMATIONS.map(([id, label]) => <button key={id} aria-pressed={selectedElement.animation === id} className={selectedElement.animation === id ? 'active' : ''} onClick={() => updateElement(animationSelection(id))}><span className="motion-preview"><ElementPreview motionSample kind="name-tag" color={selectedElement.color} animation={id} label={'Aa\nMotion'} reduceMotion={preferences.reduceMotion} /></span><span>{label}</span></button>)}</div>
+                <div className="animation-choices">{ELEMENT_ANIMATIONS.map(([id, label]) => <button key={id} onPointerEnter={()=>setHoverEntrance(id)} onPointerLeave={()=>setHoverEntrance(null)} onFocus={()=>setHoverEntrance(id)} onBlur={()=>setHoverEntrance(null)} aria-pressed={selectedElement.animation === id} className={selectedElement.animation === id ? 'active' : ''} onClick={() => updateElement(animationSelection(id))}><span className="motion-preview"><ElementPreview motionSample kind="name-tag" color={selectedElement.color} animation={id} active={hoverEntrance===id} label={'Aa\nMotion'} reduceMotion={preferences.reduceMotion} /></span><span>{label}</span></button>)}</div>
                 <label className="checkbox-field element-repeat"><input type="checkbox" checked={selectedElement.loop ?? false} disabled={selectedElement.animation === 'none'} onChange={event => updateElement({ loop: event.target.checked })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /> {isContinuousMotion(selectedElement.animation) ? 'Repeat motion' : 'Repeat entrance'}</label>
                 {selectedElement.animation !== 'none' && <label className="field">Entrance duration<input aria-label="Element animation duration" type="number" min="0.1" max="5" step="0.1" value={selectedElement.animationDuration ?? .6} onChange={event => stageElement({ animationDuration: Math.max(.1, Math.min(5, Number(event.target.value) || .6)) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>}
                 </section>
@@ -4411,7 +4521,7 @@ export default function App() {
           <p className="sr-only" id="timeline-help">J and L play backwards and forwards, K stops, the arrow keys step one frame, and Space plays or pauses. Scene, text and audio clips are buttons: Enter selects one, and the commands in the Help dialog act on the selection.</p>
           <div className="timeline-toolbar">
             <div><span className="timeline-heading">{t('Your story')}</span><span className="tiny-label">{scenes.length} scenes</span></div>
-            <div className="timeline-tools"><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene earlier'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes[0]?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: -1 })}><ArrowLeft size={16} /></IconButton><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene later'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes.at(-1)?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: 1 })}><ArrowRight size={16} /></IconButton><IconButton className={snapping ? 'active' : ''} label={tip('timeline.snapping', `Snapping ${snapping ? 'on' : 'off'}`)} onClick={() => runCommandId('timeline.snapping')}><Magnet size={16} /></IconButton><IconButton label="Add beat at playhead" onClick={addBeatAtPlayhead}><AudioLines size={16} /></IconButton><span className="header-divider" /><div className="timeline-zoom" role="group" aria-label="Timeline zoom"><IconButton label="Zoom out timeline" disabled={timelineZoom <= .5} onClick={() => changeTimelineZoom(timelineZoom - .5)}><ZoomOut size={15} /></IconButton><input aria-label="Timeline zoom" type="range" min=".5" max="6" step=".25" value={timelineZoom} onChange={event => changeTimelineZoom(Number(event.target.value))} /><button className="timeline-zoom-label" title="Fit timeline" onClick={() => changeTimelineZoom(1)}>{Math.round(timelineZoom * 100)}%</button><IconButton label="Zoom in timeline" disabled={timelineZoom >= 6} onClick={() => changeTimelineZoom(timelineZoom + .5)}><ZoomIn size={15} /></IconButton></div><span className="header-divider" /><span className="timeline-total"><Clock3 size={14} />{duration.toFixed(1)}s</span></div>
+            <div className="timeline-tools"><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene earlier'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes[0]?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: -1 })}><ArrowLeft size={16} /></IconButton><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene later'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes.at(-1)?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: 1 })}><ArrowRight size={16} /></IconButton><IconButton className={snapping ? 'active' : ''} label={tip('timeline.snapping', `Snapping ${snapping ? 'on' : 'off'}`)} onClick={() => runCommandId('timeline.snapping')}><Magnet size={16} /></IconButton><IconButton label="Add beat at playhead" onClick={addBeatAtPlayhead}><AudioLines size={16} /></IconButton><span className="header-divider" /><div className="timeline-zoom" role="group" aria-label="Timeline zoom"><IconButton label="Zoom out timeline" disabled={timelineZoom <= .5} onClick={() => changeTimelineZoom(timelineZoom - .5)}><ZoomOut size={15} /></IconButton><input aria-label="Timeline zoom" type="range" min=".5" max="6" step=".25" value={timelineZoom} onChange={event => changeTimelineZoom(Number(event.target.value))} /><button className="timeline-zoom-label" title="Fit timeline" onClick={() => changeTimelineZoom(1)}>{Math.round(timelineZoom * 100)}%</button><IconButton label="Zoom in timeline" disabled={timelineZoom >= 6} onClick={() => changeTimelineZoom(timelineZoom + .5)}><ZoomIn size={15} /></IconButton></div><span className="header-divider" /><select className="audio-display-select" aria-label="Timeline audio display" value={audioDisplay} onChange={event=>setAudioDisplay(event.target.value as 'spectrogram'|'waveform')}><option value="spectrogram">Spectrogram</option><option value="waveform">Waveform</option></select><span className="timeline-total"><Clock3 size={14} />{duration.toFixed(1)}s</span></div>
           </div>
           {fileDragActive && <div className="file-drop-hint" role="status">Drop an image or video on a scene to replace it · or drop it in the media panel</div>}
           <div className="timeline-content" ref={timelineScroll} onDragOver={event => { if (mediaDragRef.current) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } }} onDrop={event => { dropLibraryMedia(event); }}>
@@ -4446,13 +4556,17 @@ export default function App() {
               })}</div></div>
               <div className="timeline-add-slot"><button className="add-clip text-add" aria-label="Add text layer at playhead" disabled={!canEdit || !selectedScene} onClick={() => addTextLayerAtPlayhead()}><Plus size={16} /></button></div>
             </div>
-            {[{ label: 'Overlays', media: true, items: allOverlays.filter(e => e.kind === 'image' || e.kind === 'video') }, { label: 'Elements', media: false, items: allOverlays.filter(e => e.kind !== 'image' && e.kind !== 'video') }].filter(group => !group.media || group.items.length > 0).map(group => <div key={group.label} className={`timeline-row ${group.media ? 'media-overlay-row' : 'element-row'}`} role="group" aria-label={`${group.label} track`}>
+            {[{ label: 'Overlays', media: true, items: orderedLayers.filter(e => e.kind === 'image' || e.kind === 'video') }, { label: 'Elements', media: false, items: orderedLayers.filter(e => e.kind !== 'image' && e.kind !== 'video') }].filter(group => !group.media || group.items.length > 0).map(group => <div key={group.label} className={`timeline-row ${group.media ? 'media-overlay-row' : 'element-row'}`} role="group" aria-label={`${group.label} track`}>
               <div className="track-label">{group.media ? <Layers size={14} /> : <Shapes size={14} />}<span>{t(group.label)}</span><span className="track-number">{String(group.media ? 2 : hasMediaOverlays ? 3 : 2).padStart(2, '0')}</span></div>
               <div className="tracks"><div className="element-track overlay-track" style={{ height: Math.max(34, group.items.length * 29 + 8), position: 'relative' }}>{group.items.map((saved, index) => {
                 const element = overlayDraft?.id === saved.id ? overlayDraft : saved;
+                const start = element.startTicks, end = start + element.durationTicks;
+                const span = scenes.map((scene, sceneIndex) => ({ scene, sceneIndex })).filter(({ scene }) => scene.startTicks < end && scene.startTicks + scene.durationTicks > start);
+                const spanLabel = span.length > 1 ? `S${span[0].sceneIndex + 1}–${span[span.length - 1].sceneIndex + 1}` : '';
                 return <button key={element.id} className={`element-clip ${selectedElementId === element.id ? 'selected' : ''}`} style={{ left: `${element.startTicks / Math.max(1, projectTicks) * 100}%`, width: `${element.durationTicks / Math.max(1, projectTicks) * 100}%`, top: index * 29 + 4 }} aria-label={`Select ${group.media ? 'overlay' : 'element'} ${elementName(element)}`} aria-pressed={selectedElementId === element.id} onClick={event => { if (event.detail === 0) selectOverlay(element); }} onPointerDown={event => beginOverlayTiming(event, element, 'move')} title={`${elementName(element)} · ${ticksToSeconds(element.startTicks, project.timebase).toFixed(1)}–${ticksToSeconds(element.startTicks + element.durationTicks, project.timebase).toFixed(1)} s`}>
                   <span className="overlay-trim start" onPointerDown={event => beginOverlayTiming(event, element, 'start')} aria-label="Trim overlay start" />
                   {element.poster || element.kind === 'image' ? <AssetImage className="overlay-thumb" source={element.poster ?? element.source} alt="" fallback={<span className="overlay-thumb missing" />} /> : <ElementGlyph presetId={element.presetId} kind={element.kind} size={12} />}<span>{elementName(element)}</span>{element.action && <span className="overlay-action-region" style={{ left: `${element.action.startTicks / element.durationTicks * 100}%`, width: `${element.action.durationTicks / element.durationTicks * 100}%` }} title={`${element.action.kind}${element.action.sound ? ' + sound' : ''}`} />}
+                  <span className="layer-badge" title={`Layer ${layerNumbers.get(saved.id) ?? '?'} of ${orderedLayers.length}${spanLabel ? ` · covers scenes ${span[0].sceneIndex + 1}–${span[span.length - 1].sceneIndex + 1}` : ''}`}>L{layerNumbers.get(saved.id) ?? '?'}{spanLabel && <small>{spanLabel}</small>}</span>
                   <span className="overlay-trim end" onPointerDown={event => beginOverlayTiming(event, element, 'end')} aria-label="Trim overlay end" />
                 </button>;
               })}</div></div>
@@ -4465,17 +4579,18 @@ export default function App() {
                 const displayDuration = sceneSeconds(display, project.timebase);
                 const fadeIn = Math.min(displayDuration, Math.max(0, display.fadeIn ?? 0));
                 const fadeOut = Math.min(displayDuration, Math.max(0, display.fadeOut ?? 0));
-                return <button key={scene.id} data-scene-id={scene.id} draggable={canEdit} aria-label={`Scene ${i + 1}: ${scene.name}, ${ticksToSeconds(scene.startTicks, project.timebase).toFixed(2)} to ${ticksToSeconds(scene.startTicks + scene.durationTicks, project.timebase).toFixed(2)} seconds${scene.mediaKind === 'video' ? ', video' : ''}`} aria-pressed={isSelected(scene.id)} aria-current={active?.id === scene.id ? 'true' : undefined} className={`timeline-clip ${isSelected(scene.id) ? 'selected' : ''} ${selectedScene?.id === scene.id ? 'primary' : ''} ${active?.id === scene.id ? 'current' : ''} ${dropTarget === scene.id ? 'drop-target' : ''} ${reorderId === scene.id ? 'dragging' : ''} ${replacingSceneId === scene.id ? 'replacing' : ''}`} aria-busy={replacingSceneId === scene.id} style={{ flexGrow: scene.durationTicks }} onClick={event => selectScene(scene, event)} onDragStart={event => beginReorder(event, scene)} onDragEnd={endReorder} onDragOver={event => dragOverScene(event, scene.id)} onDragLeave={() => setDropTarget(current => current === scene.id ? null : current)} onDrop={event => dropScene(event, scene)} onContextMenu={event => { event.preventDefault(); if (!selectedIds.includes(scene.id)) { setSelectedIds([scene.id]); setPrimarySelected(scene.id); selectionAnchor.current = scene.id; } setPlaying(false); setContextMenu({ x: event.clientX, y: event.clientY }); }}>
+                return <button key={scene.id} data-scene-id={scene.id} draggable={canEdit} aria-label={`Scene ${i + 1}: ${scene.name}, ${ticksToSeconds(scene.startTicks, project.timebase).toFixed(2)} to ${ticksToSeconds(scene.startTicks + scene.durationTicks, project.timebase).toFixed(2)} seconds${scene.mediaKind === 'video' ? ', video' : ''}`} aria-pressed={isSelected(scene.id)} aria-current={active?.id === scene.id ? 'true' : undefined} className={`timeline-clip ${isSelected(scene.id) ? 'selected' : ''} ${selectedScene?.id === scene.id ? 'primary' : ''} ${active?.id === scene.id ? 'current' : ''} ${dropTarget === scene.id ? 'drop-target' : ''} ${reorderId === scene.id ? 'dragging' : ''} ${replacingSceneId === scene.id ? 'replacing' : ''} ${previewScene?.id === scene.id ? 'trimming' : ''}`} aria-busy={replacingSceneId === scene.id} style={{ flexGrow: display.durationTicks }} onClick={event => selectScene(scene, event)} onDragStart={event => beginReorder(event, scene)} onDragEnd={endReorder} onDragOver={event => dragOverScene(event, scene.id)} onDragLeave={() => setDropTarget(current => current === scene.id ? null : current)} onDrop={event => dropScene(event, scene)} onContextMenu={event => { event.preventDefault(); if (!selectedIds.includes(scene.id)) { setSelectedIds([scene.id]); setPrimarySelected(scene.id); selectionAnchor.current = scene.id; } setPlaying(false); setContextMenu({ x: event.clientX, y: event.clientY }); }}>
                   <ClipFilmstrip className="timeline-filmstrip" source={scene.mediaKind === 'video' ? (scene.videoPoster ?? scene.image) : scene.image} />
-                  <div><span>{String(i + 1).padStart(2, '0')} <b>{scene.name}</b></span><small>{sceneSeconds(scene, project.timebase).toFixed(1)}s</small></div>
+                  <div><span>{String(i + 1).padStart(2, '0')} <b>{scene.name}</b></span><small>{displayDuration.toFixed(1)}s</small></div>
                   {scene.mediaKind === 'video' && <span className="clip-media-badge"><Film size={9} /> VIDEO</span>}
+                  <span className="layer-badge base" title="Base visual layer">L0</span>
                   {scene.transition && <span className="clip-transition" title={`${TRANSITION_OPTIONS.find(option => option.id === scene.transition?.type)?.label ?? 'Transition'} · ${scene.transition.duration.toFixed(1)} s`}><Sparkles size={9} />{scene.transition.duration.toFixed(1)}s</span>}
                   <span className="fade-shade in" style={{ width: `${(fadeIn / displayDuration) * 100}%` }} aria-hidden="true" />
                   <span className="fade-shade out" style={{ width: `${(fadeOut / displayDuration) * 100}%` }} aria-hidden="true" />
                   <span className="fade-handle in" style={{ left: `calc(${Math.min((fadeIn / displayDuration) * 100, 96)}% + 3px)` }} title={`Fade in ${fadeIn.toFixed(1)} s — drag to adjust`} aria-hidden="true" onPointerDown={event => beginFadeDrag(event, scene, 'in')} onClick={event => event.stopPropagation()} />
                   <span className="fade-handle out" style={{ right: `calc(${Math.min((fadeOut / displayDuration) * 100, 96)}% + 3px)` }} title={`Fade out ${fadeOut.toFixed(1)} s — drag to adjust`} aria-hidden="true" onPointerDown={event => beginFadeDrag(event, scene, 'out')} onClick={event => event.stopPropagation()} />
                   <span className="clip-trim left" title={`Trim the start · ${ticksToSeconds(scene.sourceInTicks ?? 0, project.timebase).toFixed(1)} s in`} aria-hidden="true" onPointerDown={event => beginSceneTrim(event, scene, 'left')} onClick={event => event.stopPropagation()} />
-                  <span className="clip-trim right" title={`Trim the end · ${sceneSeconds(scene, project.timebase).toFixed(1)} s`} aria-hidden="true" onPointerDown={event => beginSceneTrim(event, scene, 'right')} onClick={event => event.stopPropagation()} />
+                  <span className="clip-trim right" title={`Trim the end · ${displayDuration.toFixed(1)} s`} aria-hidden="true" onPointerDown={event => beginSceneTrim(event, scene, 'right')} onClick={event => event.stopPropagation()} />
                   {fadeDrag?.sceneId === scene.id && <span className="fade-drag-label" aria-hidden="true">{fadeDrag.side === 'in' ? 'Fade in' : 'Fade out'} {fadeDrag.value.toFixed(1)} s</span>}
                 </button>;
               })}</div></div><div className="timeline-add-slot"><button className="add-clip" aria-label="Add images to timeline" disabled={!canEdit} onClick={() => void chooseImages()}><Plus size={20} /></button></div>
@@ -4493,23 +4608,85 @@ export default function App() {
               </div></div>
               <div className="timeline-add-slot"><button className="add-clip" aria-label="Add picture in picture" disabled={!canEdit} onClick={() => setTab('media')}><Plus size={16} /></button></div>
             </div>
-            {audioLanes.map((lane, laneIndex) => <div className="timeline-row audio-row" role="group" aria-label={`Audio track ${laneIndex + 1}`} key={lane}>
-              <div className="track-label"><Music size={14} /><span>{t('Audio')} {laneIndex + 1}</span><span className="track-number">{String((hasMediaOverlays ? 5 : 4) + laneIndex).padStart(2, '0')}</span></div>
+            {videoScenes.length > 0 && <div className="timeline-row video-audio-row" role="group" aria-label="Video audio track">
+              <div className="track-label audio-mixer">
+                <div className="track-label-head"><Film size={14} /><span>{t('Video audio')}</span><span className="track-number">{String(hasMediaOverlays ? 5 : 4).padStart(2, '0')}</span></div>
+                <div className="track-volume">
+                  <button className={`track-mute ${audioMix.video > 0 ? '' : 'muted'}`} aria-label={audioMix.video > 0 ? 'Mute video audio' : 'Unmute video audio'} aria-pressed={audioMix.video === 0} disabled={!canEdit} onClick={() => { setVideoAudioLevel(audioMix.video > 0 ? 0 : 1); commitMix(); }}>{audioMix.video > 0 ? <Volume2 size={11} /> : <VolumeX size={11} />}</button>
+                  <input aria-label="Video audio volume" type="range" min="0" max="100" step="1" value={Math.round(audioMix.video * 100)} disabled={!canEdit} onChange={event => setVideoAudioLevel(Number(event.target.value) / 100)} onPointerUp={commitMix} onKeyUp={commitMix} onBlur={commitMix} />
+                  <span className="track-volume-value">{Math.round(audioMix.video * 100)}%</span>
+                </div>
+              </div>
+              <div className="tracks"><div className="audio-track video-audio-track">
+                {videoScenes.map(scene => {
+                  const display = previewScene?.id === scene.id ? previewScene : scene;
+                  const left = projectTicks ? (display.startTicks / projectTicks) * 100 : 0;
+                  const width = projectTicks ? (display.durationTicks / projectTicks) * 100 : 0;
+                  const level = Math.round(display.videoVolume ?? 100);
+                  const active = selectedScene?.id === scene.id;
+                  return <div
+                    key={scene.id}
+                    className={`video-audio-clip ${active ? 'selected' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Video audio in ${scene.name}, ${ticksToSeconds(scene.startTicks, project.timebase).toFixed(2)} to ${ticksToSeconds(scene.startTicks + scene.durationTicks, project.timebase).toFixed(2)} seconds`}
+                    aria-pressed={active}
+                    style={{ left: `${left}%`, width: `${width}%` }}
+                    title={`${scene.name} · drag the edges to trim picture and sound together`}
+                    onClick={() => selectScene(scene)}
+                    onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectScene(scene); } }}
+                  >
+                    <span className="audio-trim left" title="Drag to trim the start" onPointerDown={event => beginSceneTrim(event, scene, 'left')} />
+                    <span className="video-audio-wave" aria-hidden="true" />
+                    <Film size={10} /><span className="audio-name">{scene.name}</span><small>{level}%</small>
+                    {active && <span className="clip-volume" onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
+                      <Volume2 size={9} />
+                      <input aria-label={`${scene.name} sound level`} type="range" min="0" max="100" step="1" value={videoVolumeDraft?.id === scene.id ? videoVolumeDraft.value : level} onChange={event => stageVideoVolume(scene, Number(event.target.value))} onPointerUp={event => { commitVideoVolume(scene, Number(event.currentTarget.value)); }} onKeyUp={event => commitVideoVolume(scene, Number(event.currentTarget.value))} onBlur={event => commitVideoVolume(scene, Number(event.currentTarget.value))} />
+                    </span>}
+                    <span className="audio-trim right" title="Drag to trim the end" onPointerDown={event => beginSceneTrim(event, scene, 'right')} />
+                  </div>;
+                })}
+              </div></div>
+              <div className="timeline-add-slot"><button className="add-clip" aria-label="Add video to the timeline" disabled={!canEdit} onClick={() => setTab('media')}><Plus size={16} /></button></div>
+            </div>}
+            {audioLanes.map((lane, laneIndex) => {
+              const laneMix = audioLaneMix({ audioMix }, lane);
+              return <div className={`timeline-row audio-row ${audioDisplay}`} role="group" aria-label={`Audio track ${laneIndex + 1}`} key={lane}>
+              <div className="track-label audio-mixer">
+                <div className="track-label-head"><Music size={14} /><span>{t('Audio')} {laneIndex + 1}</span><span className="track-number">{String((hasMediaOverlays ? 6 : 5) + laneIndex).padStart(2, '0')}</span></div>
+                <div className="track-volume">
+                  <button className={`track-mute ${laneMix.muted ? 'muted' : ''}`} aria-label={`${laneMix.muted ? 'Unmute' : 'Mute'} audio track ${laneIndex + 1}`} aria-pressed={laneMix.muted} disabled={!canEdit} onClick={() => toggleLaneMute(lane)}>{laneMix.muted ? <VolumeX size={11} /> : <Volume2 size={11} />}</button>
+                  <input aria-label={`Audio track ${laneIndex + 1} volume`} type="range" min="0" max="100" step="1" value={Math.round(laneMix.volume * 100)} disabled={!canEdit || laneMix.muted} onChange={event => setLaneMix(lane, { volume: Number(event.target.value) / 100 })} onPointerUp={commitMix} onKeyUp={commitMix} onBlur={commitMix} />
+                  <span className="track-volume-value">{laneMix.muted ? 'Muted' : `${Math.round(laneMix.volume * 100)}%`}</span>
+                </div>
+              </div>
               <div className="tracks"><div className="audio-track">
                 {audio.filter(clip => (clip.lane ?? 0) === lane).map(clip => {
                   const left = projectTicks ? (clip.startTicks / projectTicks) * 100 : 0;
                   const width = projectTicks ? (clip.durationTicks / projectTicks) * 100 : 0;
-                  return <button
+                  const selected = selectedAudio?.id === clip.id;
+                  return <div
                     key={clip.id}
-                    className={`audio-clip ${selectedAudio?.id === clip.id ? 'selected' : ''}`}
+                    className={`audio-clip ${selected ? 'selected' : ''}`}
+                    role="button"
+                    tabIndex={0}
                     aria-label={`Audio clip ${clip.name}, ${ticksToSeconds(clip.startTicks, project.timebase).toFixed(2)} to ${ticksToSeconds(clip.startTicks + clip.durationTicks, project.timebase).toFixed(2)} seconds`}
-                    aria-pressed={selectedAudio?.id === clip.id}
+                    aria-pressed={selected}
                     style={{ left: `${left}%`, width: `${width}%` }}
                     title={`${clip.name} · drag to move · drag edges to trim`}
                     onClick={() => focusAudio(clip)}
+                    onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); focusAudio(clip); } }}
                     onPointerDown={event => beginAudioMove(event, clip)}
                   >
                     <span className="audio-trim left" title="Drag to trim the start" onPointerDown={event => beginAudioTrim(event, clip, 'left')} />
+                    {audioDisplay === 'spectrogram' ? <>
+                    <Spectrogram
+                      data={clip.data}
+                      sourceInSeconds={clip.sourceInSeconds}
+                      durationSeconds={ticksToSeconds(clip.durationTicks, project.timebase)}
+                      sourceDurationSeconds={clip.sourceDurationSeconds}
+                    />
+                    </> : <>
                     <Waveform
                       clipId={clip.id}
                       data={clip.data}
@@ -4517,17 +4694,23 @@ export default function App() {
                       durationSeconds={ticksToSeconds(clip.durationTicks, project.timebase)}
                       sourceDurationSeconds={clip.sourceDurationSeconds}
                     />
+                    </>}
                     <Music size={10} /><span className="audio-name">{clip.name}</span><small>{Math.round(clip.volume * 100)}%</small>
+                    {selected && <span className="clip-volume" onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
+                      <Volume2 size={9} />
+                      <input aria-label={`${clip.name} volume`} type="range" min="0" max="100" step="1" value={Math.round(clip.volume * 100)} onChange={event => stageAudio({ volume: Number(event.target.value) / 100 })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} />
+                    </span>}
                     <span className="audio-trim right" title="Drag to trim the end" onPointerDown={event => beginAudioTrim(event, clip, 'right')} />
-                  </button>;
+                  </div>;
                 })}
                 {!audio.some(clip => (clip.lane ?? 0) === lane) && <span className="audio-empty">{t('Empty audio track')}</span>}
               </div></div>
               <div className="timeline-add-slot"><button className="add-clip audio-add" aria-label={`Add audio to track ${laneIndex + 1}`} disabled={!canEdit || !projectTicks} onClick={() => { audioLaneRef.current = lane; void chooseAudio(); }}><Plus size={16} /></button></div>
-            </div>)}
+            </div>;
+            })}
             {audio.length > 0 && <div className="timeline-row audio-add-track-row">
               <div className="track-label"><Music size={14} /><span>More audio</span></div>
-              <div className="tracks"><button className="add-audio-track" disabled={!canEdit || !projectTicks || audioLanes.length >= 8} onClick={() => { audioLaneRef.current = Math.max(0, ...audio.map(clip => clip.lane ?? 0)) + 1; void chooseAudio(); }}><Plus size={13} /> Add another audio track</button></div>
+              <div className="tracks"><button className="add-audio-track" disabled={!canEdit || !projectTicks || audioLanes.length >= MAX_AUDIO_LANES} onClick={() => { audioLaneRef.current = Math.max(0, ...audio.map(clip => clip.lane ?? 0)) + 1; void chooseAudio(); }}><Plus size={13} /> Add another audio track</button></div>
               <div className="timeline-add-slot" />
             </div>}
             </div>
@@ -4652,7 +4835,7 @@ export default function App() {
             <label className="field new-project-fps">{t('Project frame rate')}<select value={newProjectFps} onChange={event => setNewProjectFps(Number(event.target.value))}><option value={24}>{t('24 fps · Film')}</option><option value={25}>{t('25 fps · PAL')}</option><option value={30}>{t('30 fps · Standard')}</option><option value={60}>{t('60 fps · Smooth')}</option></select></label>
             {formatFilterChips()}
             <div className="format-groups">{filterFormatGroups(formatFilter).map(group => <section className="format-group" key={group.platform}>
-              <div className="format-group-head"><strong>{t(group.label)}</strong><span>{group.presets.length} {group.presets.length === 1 ? 'format' : 'formats'}</span></div>
+              <div className="format-group-head"><strong>{t(group.label)}</strong><span>{formatCount(group.presets.length)}</span></div>
               <div className="format-group-grid">{group.presets.map(preset => <label key={preset.id} className={`format-card ${newFormatIds.includes(preset.id) ? 'active' : ''}`}><input type="checkbox" checked={newFormatIds.includes(preset.id)} onChange={event => setNewFormatIds(current => event.target.checked ? [...current, preset.id] : current.filter(id => id !== preset.id))} /><span className="format-check" aria-hidden="true">{newFormatIds.includes(preset.id) ? <Check size={11} /> : null}</span><span className="format-ratio">{preset.aspect}</span><strong>{preset.name}</strong><small>{preset.description}</small></label>)}</div>
             </section>)}</div>
             <div className="settings-section-title">{t('Custom size')}</div>
@@ -4668,7 +4851,7 @@ export default function App() {
             <p className="note"><Layers size={14} /><span>{t('Photos, text, timing, transitions, audio, and looks are common to every format. Size, FPS, quality, and framing (zoom, pan, fit, letterbox) are saved per format.')}</span></p>
             </div>
             <div className="project-setup-foot">
-              <div className="format-pick-summary" role="status" aria-live="polite"><Layers size={13} /><span>{newFormatSelection.length ? <><strong>{newFormatSelection.length} format{newFormatSelection.length === 1 ? '' : 's'}</strong> selected · {newFormatOutputs.length} file{newFormatOutputs.length === 1 ? '' : 's'} will be written{newFormatOutputs.length < newFormatSelection.length ? ' · identical sizes are combined' : ''}</> : t('Pick at least one format, or start with the default 16:9.')}</span></div>
+              <div className="format-pick-summary" role="status" aria-live="polite"><Layers size={13} /><span>{newFormatSelection.length ? <>{t('{formats} selected · {files} will be written', { formats: formatCount(newFormatSelection.length), files: fileCount(newFormatOutputs.length) })}{newFormatOutputs.length < newFormatSelection.length ? t(' · identical sizes are combined') : ''}</> : t('Pick at least one format, or start with the default 16:9.')}</span></div>
               <div className="modal-actions">
                 <button className="button primary" disabled={!canEdit} onClick={() => void startWithFormats()}><Plus size={16} /> {t('Start blank')}</button>
                 <button className="button" disabled={!canEdit} onClick={() => void startTemplate(SAMPLE_TEMPLATE)}><LayoutTemplate size={16} /> {t('Use Travel sample')}</button>
@@ -4724,7 +4907,7 @@ export default function App() {
                 </div>
                 <div className="format-preset-scroll">
           <div className="format-groups">{formatBrowserGroups.map(group => <section className="format-group" key={group.platform}>
-            <div className="format-group-head"><strong>{t(group.label)}</strong><span>{group.presets.length} {group.presets.length === 1 ? 'format' : 'formats'}</span></div>
+            <div className="format-group-head"><strong>{t(group.label)}</strong><span>{formatCount(group.presets.length)}</span></div>
             <div className="format-group-grid">{group.presets.map(preset => { const active = project.formats.some(format => format.presetId === preset.id); return <label key={preset.id} className={`format-card ${active ? 'active' : ''}`}><input type="checkbox" aria-label={preset.name} checked={active} disabled={!canEdit || (!active && project.formats.length >= MAX_PROJECT_FORMATS)} onChange={() => void toggleFormatPreset(preset.id)} /><span className="format-check" aria-hidden="true">{active ? <Check size={11} /> : null}</span><span className="format-ratio">{preset.aspect}</span><strong>{preset.name}</strong><small>{preset.description}</small></label>; })}</div>
           </section>)}</div>
 
@@ -4750,7 +4933,7 @@ export default function App() {
             </aside>
           </div>
           <div className="format-studio-footer">
-          <div className="format-pick-summary" role="status" aria-live="polite"><Layers size={13} /><span><strong>{project.formats.length} format{project.formats.length === 1 ? '' : 's'}</strong> · {projectFormatOutputs.length} file{projectFormatOutputs.length === 1 ? '' : 's'} when you export{projectFormatOutputs.length < project.formats.length ? '. Formats with the same size, frame rate and framing share one video.' : ''}</span></div>
+          <div className="format-pick-summary" role="status" aria-live="polite"><Layers size={13} /><span>{t('{formats} · {files} when you export', { formats: formatCount(project.formats.length), files: fileCount(projectFormatOutputs.length) })}{projectFormatOutputs.length < project.formats.length ? t('. Formats with the same size, frame rate and framing share one video.') : ''}</span></div>
 
             <button className="button primary" onClick={requestCloseModal}>Done</button>
           </div>

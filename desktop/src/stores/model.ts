@@ -312,6 +312,30 @@ export type AudioClip = {
   mid?: number;
   high?: number;
 };
+/** Audio lanes in one project. Imported video sound has its own bus. */
+export const MAX_AUDIO_LANES = 8;
+export type AudioLaneMix = {
+  lane: number;
+  /** 0–1, multiplied with every clip's own level. Missing means full. */
+  volume: number;
+  muted: boolean;
+};
+export type AudioMix = {
+  /** 0–1 level for the sound inside imported video clips. */
+  video: number;
+  lanes: AudioLaneMix[];
+};
+export const EMPTY_AUDIO_MIX: AudioMix = { video: 1, lanes: [] };
+export const audioMixOf = (project: Pick<Project, 'audioMix'>): AudioMix => project.audioMix ?? EMPTY_AUDIO_MIX;
+export const audioLaneMix = (project: Pick<Project, 'audioMix'>, lane: number): AudioLaneMix =>
+  audioMixOf(project).lanes.find(item => item.lane === lane) ?? { lane, volume: 1, muted: false };
+/** Effective gain for one audio lane, including its mute switch. */
+export const audioLaneGain = (project: Pick<Project, 'audioMix'>, lane: number): number => {
+  const mix = audioLaneMix(project, lane);
+  return mix.muted ? 0 : mix.volume;
+};
+/** Effective gain for sound inside imported video clips. */
+export const videoAudioGain = (project: Pick<Project, 'audioMix'>): number => audioMixOf(project).video;
 type LegacyMusic = {
   id: string;
   name: string;
@@ -321,12 +345,13 @@ type LegacyMusic = {
   fadeOut: number;
   durationSeconds: number;
 };
-export type Project = { schema_version: 14; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; overlays: ElementLayer[]; formats: FormatVariant[]; fonts?: ProjectFont[]; globalText?: TextLayer[]; beatTicks?: number[]; ducking?: number; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
+export type Project = { schema_version: 15; id: string; name: string; aspect: '16:9' | '9:16' | '1:1' | '4:5'; timebase: Timebase; tracks: Track[]; audio: AudioClip[]; audioMix?: AudioMix; overlays: ElementLayer[]; formats: FormatVariant[]; fonts?: ProjectFont[]; globalText?: TextLayer[]; beatTicks?: number[]; ducking?: number; policy: { watermark: false; pixcut_outro: false; privacy: 'local' } };
 export type Command =
   | { type: 'replace'; project: Project }
   | { type: 'rename'; name: string }
   | { type: 'aspect'; aspect: Project['aspect'] }
   | { type: 'audio'; audio: AudioClip[] }
+  | { type: 'audioMix'; mix: AudioMix }
   | { type: 'overlays'; overlays: ElementLayer[] }
   | { type: 'formats'; formats: FormatVariant[] }
   | { type: 'beats'; beatTicks: number[] }
@@ -381,7 +406,7 @@ export function normalizeStarts(clips: Scene[]) {
   }
 }
 export const defaultFormat = (aspect: Project['aspect'] = '16:9'): FormatVariant => { const [width, height] = aspect === '9:16' ? [1080, 1920] : aspect === '4:5' ? [1080, 1350] : aspect === '1:1' ? [1080, 1080] : [1920, 1080]; return { id: crypto.randomUUID(), name: 'Original', platform: 'Original', aspect, width, height, fps: 30, quality: 'standard', overrides: {} }; };
-export const emptyProject = (name = 'Untitled story', aspect: Project['aspect'] = '16:9', fps = 30): Project => ({ schema_version: 14, id: crypto.randomUUID(), name, aspect, timebase: timebaseFor(fps), tracks: [emptyTrack()], audio: [], overlays: [], formats: [defaultFormat(aspect)], policy: { ...policy } });
+export const emptyProject = (name = 'Untitled story', aspect: Project['aspect'] = '16:9', fps = 30): Project => ({ schema_version: 15, id: crypto.randomUUID(), name, aspect, timebase: timebaseFor(fps), tracks: [emptyTrack()], audio: [], overlays: [], formats: [defaultFormat(aspect)], policy: { ...policy } });
 export const totalTicks = (project: Project) => projectScenes(project).reduce((end, scene) => Math.max(end, scene.startTicks + scene.durationTicks), 0);
 export const totalDuration = (project: Project) => ticksToSeconds(totalTicks(project), project.timebase);
 const optionalNumber = (value: unknown, min: number, max: number) => value === undefined || (typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max);
@@ -804,10 +829,33 @@ function readBeats(value: unknown, totalTicks: number): number[] {
   return unique;
 }
 
+function readAudioMix(value: unknown): AudioMix | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid audio mix.');
+  const mix = value as Partial<AudioMix>;
+  const video = readNumber(mix.video, 0, 1, 1, 'video audio level');
+  const lanes: AudioLaneMix[] = [];
+  if (mix.lanes !== undefined) {
+    if (!Array.isArray(mix.lanes) || mix.lanes.length > MAX_AUDIO_LANES) throw new Error(`A project supports up to ${MAX_AUDIO_LANES} audio tracks.`);
+    const used = new Set<number>();
+    for (const entry of mix.lanes) {
+      if (!entry || typeof entry !== 'object') throw new Error('Invalid audio track level.');
+      if (!Number.isInteger(entry.lane) || entry.lane < 0 || entry.lane >= MAX_AUDIO_LANES || used.has(entry.lane)) throw new Error('Invalid audio track level.');
+      used.add(entry.lane);
+      lanes.push({
+        lane: entry.lane,
+        volume: readNumber(entry.volume, 0, 1, 1, 'audio track level'),
+        muted: readBoolean(entry.muted, false, 'audio track mute'),
+      });
+    }
+  }
+  return lanes.length || video !== 1 ? { video, lanes } : undefined;
+}
+
 export function validateProject(value: unknown): Project {
   if (!value || typeof value !== 'object') throw new Error('This is not a PixCut project.');
   const p = value as ProjectInput;
-  if (p.schema_version !== 1 && p.schema_version !== 2 && p.schema_version !== 3 && p.schema_version !== 4 && p.schema_version !== 5 && p.schema_version !== 6 && p.schema_version !== 7 && p.schema_version !== 8 && p.schema_version !== 9 && p.schema_version !== 10 && p.schema_version !== 11 && p.schema_version !== 12 && p.schema_version !== 13 && p.schema_version !== 14) throw new Error('Unsupported project version. Your original file has not been changed.');
+  if (p.schema_version !== 1 && p.schema_version !== 2 && p.schema_version !== 3 && p.schema_version !== 4 && p.schema_version !== 5 && p.schema_version !== 6 && p.schema_version !== 7 && p.schema_version !== 8 && p.schema_version !== 9 && p.schema_version !== 10 && p.schema_version !== 11 && p.schema_version !== 12 && p.schema_version !== 13 && p.schema_version !== 14 && p.schema_version !== 15) throw new Error('Unsupported project version. Your original file has not been changed.');
   if (typeof p.id !== 'string' || typeof p.name !== 'string' || p.name.length > 120 || !['16:9', '9:16', '1:1', '4:5'].includes(p.aspect)) throw new Error('Invalid project format.');
   const timebase = p.schema_version === 1 ? { ...DEFAULT_TIMEBASE } : readTimebase(p.timebase);
   const minimum = minTicks(timebase), photoMaximum = maxTicks(timebase);
@@ -904,9 +952,10 @@ export function validateProject(value: unknown): Project {
   const formats = readFormats(p.formats, p.aspect, clipIds);
   const beatTicks = readBeats(p.beatTicks, total);
   const ducking = p.ducking === undefined ? undefined : readNumber(p.ducking, 0, 100, 0, 'music ducking');
+  const audioMix = readAudioMix(p.audioMix);
   const fonts = readFonts(p.fonts);
   const globalText = readGlobalText(p.globalText, total);
-  return { schema_version: 14, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, overlays, formats, ...(fonts ? { fonts } : {}), ...(globalText ? { globalText } : {}), ...(beatTicks.length ? { beatTicks } : {}), ...(ducking ? { ducking } : {}), policy: { ...policy } };
+  return { schema_version: 15, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, ...(audioMix ? { audioMix } : {}), overlays, formats, ...(fonts ? { fonts } : {}), ...(globalText ? { globalText } : {}), ...(beatTicks.length ? { beatTicks } : {}), ...(ducking ? { ducking } : {}), policy: { ...policy } };
 }
 const SCENE_PATCH_FIELDS = [
   { key: 'durationTicks', value: (scene: Scene) => scene.durationTicks },
@@ -1028,6 +1077,7 @@ export function edit(project: Project, command: Exclude<Command, { type: 'undo' 
     case 'rename': p.name = command.name; break;
     case 'aspect': p.aspect = command.aspect; break;
     case 'audio': p.audio = command.audio; break;
+    case 'audioMix': p.audioMix = command.mix; break;
     case 'overlays': p.overlays = command.overlays; break;
     case 'formats': p.formats = command.formats; break;
     case 'beats': p.beatTicks = command.beatTicks; break;

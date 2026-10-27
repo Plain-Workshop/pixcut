@@ -557,7 +557,9 @@ async function drawMediaOrShape(ctx: CanvasRenderingContext2D, raw: ElementLayer
     return;
   }
   if (!element.source) throw new Error('This overlay is missing its local media. Import the file again.');
-  if (element.source.startsWith('pixcut-asset:')) return;
+  // Both paths resolve `pixcut-asset:` references: images through loadImage
+  // and videos through overlayVideoFrame, so a saved overlay keeps rendering
+  // after its data URL has been moved into the local store.
   const source = element.kind === 'video' ? await overlayVideoFrame(element.source, (element.sourceInSeconds ?? 0) + local, precise) : await loadImage(element.source);
   const drawWidth = Math.max(1, Math.round(element.width * w));
   const drawHeight = Math.max(1, Math.round(element.height * h));

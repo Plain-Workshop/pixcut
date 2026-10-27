@@ -1135,7 +1135,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 
 ## Build state — 2026-10-27 (end of pass)
 
-- `npm run ci` passes: 298 TypeScript tests, 44 project-model tests, 37 native tests (13 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
+- `npm run ci` passes: 302 TypeScript tests, 44 project-model tests, 37 native tests (13 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
 - Ignored FFmpeg tests also pass locally for the new work: `real_video_transition_keeps_duration_and_sound`, `real_reverse_and_ramp_video_export`, and the existing exporter/hardware suites.
 - `npm run tauri -- build --debug --bundles app` produced a fresh `PixCut.app` after the PiP, menu and export-dialog work. The updater tarball could not be signed because `TAURI_SIGNING_PRIVATE_KEY` is not exported in this shell; the app bundle itself is complete and is running from `target/debug/bundle/macos/PixCut.app` (PID 66891). The SQLite catalog survived the rebuild with 10 rows.
 - No release, tag or version bump was made. Signing remains deferred by the user's decision.
@@ -1249,3 +1249,30 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Tests: Rust `roundtrips_the_library_index` and `rejects_oversized_entries_without_partial_writes`; `tests/library-index.test.ts` (3) covers row parsing, ordering, corrupt/incomplete rows and optional fields. Counts are listed in the build-state section.
 - Native verification: after launching the rebuilt app, `~/Library/Application Support/studio.pixcut.desktop/library-index.sqlite3` contained the `projects` table and **10 rows** migrated from the existing IndexedDB library, with names and summaries (thousands to ~90 KB each) and no lost projects. The app remained running.
 - Boundary: project bodies remain in IndexedDB, and custom element graphics still use the webview asset store; only the summary index and primary media are native.
+
+## Polish and Ukrainian for the deliverables picker — 2026-10-27
+
+- The format surfaces are translated end to end. New-project setup: title, intro, project frame rate and all four frame-rate options, filter chips (All / Social / Sizes), group headings (Sizes & drafts, 4K masters), the per-group count ("1 format", "2 formaty", "4 формати"), the custom-size form (Name, Width, Height, Quality, Draft/Standard/High, Add), the shared/per-format note, the selected-format summary and Start blank / Use Travel sample / Cancel.
+- Deliverables dialog: title, intro, the Social / Standard sizes / Custom tabs, search placeholder, "All platforms", platform names in the dropdown, group headings and counts, the empty-search note, "Selected formats", "Settings for {name}", Name/Width/Height/Quality and the quality options, "Custom format", "Add custom", and the export summary.
+- New locale-aware helpers `fileCount()` (built on the existing `plural`) and the summary sentences as placeholder templates: `{formats} selected · {files} will be written`, `{formats} · {files} when you export`, plus the "identical sizes are combined" and "same size, frame rate and framing share one video" notes.
+- Format card titles stay in their product form (YouTube Video, Instagram Square, Tiny 320) because they are stored on the project as the deliverable's name; translating stored data was deliberately avoided.
+- Tests: `tests/i18n.test.ts` covers the new counts — `fileCount` 1/3/11 in Ukrainian and 5 in Polish, `formatCount` 12 in Polish, and the existing pl/uk key-parity test keeps both dictionaries aligned. Full suite: 302 tests in 45 files; `npx tsc -b` and `npm run build` pass.
+- Browser check in both locales: the new-project dialog renders "Nowy początek." / "Новий початок.", translated frame rates and chips, "2 FORMATY" / "2 ФОРМАТИ" counts, "Wybrano 1 format · zostanie zapisanych 1 plik" / the Ukrainian equivalent, and translated footer buttons; the deliverables dialog shows translated tabs (Wszystkie / Social media / Rozmiary, Усі / Соцмережі / Розміри), headings, field labels and quality options. No console errors. Reviewed `output/playwright/formats-pl-setup.png` and `formats-uk-setup.png`.
+
+## Live timeline trimming and layer badges — 2026-10-27
+
+- Scene trim now uses the draft scene for the timeline clip width and duration label, so the clip visibly grows or shrinks under the pointer. Pointer moves are coalesced to one `requestAnimationFrame`, and the final trim is applied optimistically before the command persists; the clip no longer snaps back while the native/browser store catches up.
+- Element and overlay rows are sorted by effective stack order (higher `z` first), so trimming an element no longer moves it to the end of the row and top layers stay above lower ones.
+- Every visual clip shows **L0** for the base photo/video layer. Overlay/element clips show their layer number (`L1`, `L2`, …) based on the same stack order; ordering is top-to-bottom in the row.
+- Overlay/element clips that overlap more than one scene show a scene span badge such as **S1–2**, with the full scene range in the tooltip. This makes it visible when an element or video overlay runs across cuts.
+- Browser check: two scenes with two overlays spanning both; dragging scene 1's trim handle changed the live width from 603 to 647 px and the label to `4.6s` before pointer-up, then kept it after release. The element order was Star L2 above Rectangle L1, both showed S1–2, visual clips showed L0, and dragging the top element's end handle kept both elements present and in order after saving. No console errors.
+- Reviewed `output/playwright/timeline-trim-and-layers.png`.
+- Verification: 302 TypeScript tests in 45 files, 44 project-model tests, and 37 non-ignored native tests at the time of this pass; all 13 ignored FFmpeg tests pass.
+
+## One native media store — 2026-10-27
+
+- Custom element imports in native no longer round-trip a file through base64 into the webview and then duplicate it in IndexedDB. The native picker streams the chosen image or video into the Rust asset store, validates the MIME against the requested kind and the 50 MB custom-element cap, and the overlay stores only its `pixcut-asset:` reference.
+- Relinking a missing photo, video or audio file in native now uses the same streamed import commands (`import_media` / `import_audio`) and swaps the reference, so a relink never creates an IndexedDB copy.
+- Fixed a saved-overlay bug: `drawMediaOrShape` returned early for every `pixcut-asset:` source, so image and video overlays vanished after their data URL was moved into the local store. Both image and video paths already resolve references, so the guard was removed.
+- Browser check: a red image overlay saved with an inline data URL was persisted as `pixcut-asset:b87a…`, reloaded from the library and rendered as a red rounded card over the blue scene with no console errors (`output/playwright/ref-overlay.png`).
+- Native verification remains the SQLite run: the app keeps its media in `assets/` and project bodies carry refs. Boundary: legacy `.pixcut` files or old inline-data projects can still migrate their inline bytes into IndexedDB through `persistProjectAssets`; new imports are native-only.

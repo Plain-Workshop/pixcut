@@ -19,7 +19,7 @@ describe('independent overlays',()=>{
    const p=edit(project(),{type:'overlays',overlays:[{...element,startTicks:60,durationTicks:180}]});
    const restored=validateProject(JSON.parse(JSON.stringify({...p,schema_version:10})));
    expect(edit(restored,{type:'removeMany',ids:['s','s2']}).overlays).toEqual([]);
-   expect(restored.schema_version).toBe(14);expect(restored.overlays[0]).toMatchObject({startTicks:60,durationTicks:180});
+   expect(restored.schema_version).toBe(15);expect(restored.overlays[0]).toMatchObject({startTicks:60,durationTicks:180});
    expect(exportBoundaries(restored.tracks[0].clips[1],p.timebase,false,p.overlays)).toHaveLength(121);
  });
  it('promotes legacy scene layers without changing their project start or duplicating them',()=>{

@@ -17,6 +17,12 @@ describe('audibleVideoWindows', () => {
     ], DEFAULT_TIMEBASE);
     expect(windows).toEqual([{ start: 0, end: 2 }]);
   });
+
+  it('does not duck music when the video sound bus is silent', () => {
+    const scenes = [scene('video', 2, 0, { mediaKind: 'video', image: 'data:video/mp4;base64,AAAA' })];
+    expect(audibleVideoWindows(scenes, DEFAULT_TIMEBASE, 0)).toEqual([]);
+    expect(audibleVideoWindows(scenes, DEFAULT_TIMEBASE, .5)).toEqual([{ start: 0, end: 2 }]);
+  });
 });
 
 describe('duckGain', () => {

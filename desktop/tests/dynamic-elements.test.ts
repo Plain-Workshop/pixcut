@@ -41,7 +41,7 @@ describe('timeline-driven elements',()=>{
   for(const kind of ['caption','chapter','callout','keycaps','mouse','device','comparison','checklist','rating','countdown','waveform','message','qr','end-screen'] as const){
    const p=edit(emptyProject(),{type:'add',scenes:[scene]});p.overlays=[{...base,kind,label:'Za kulisami · 東京',exit:'fade'}];
    const saved=JSON.parse(JSON.stringify({...p,schema_version:12}));const restored=validateProject(saved);
-   expect(restored.schema_version).toBe(14);expect(restored.overlays[0]).toMatchObject(p.overlays[0]);expect(validateProject(JSON.parse(JSON.stringify(restored)))).toEqual(restored);
+   expect(restored.schema_version).toBe(15);expect(restored.overlays[0]).toMatchObject(p.overlays[0]);expect(validateProject(JSON.parse(JSON.stringify(restored)))).toEqual(restored);
   }
  });
  it('renders dynamic content and exits at every frame in both photo export planners',()=>{

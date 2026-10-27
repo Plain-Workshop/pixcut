@@ -11,7 +11,7 @@ describe('element animation and export timing', () => {
     for (const [animation] of ELEMENT_ANIMATIONS) {
       const project = edit(emptyProject(), { type: 'add', scenes: [{ ...scene, elements: [{ ...element, animation }] }] });
       const migrated = validateProject({ ...project, schema_version: 7 });
-      expect(migrated.schema_version).toBe(14);
+      expect(migrated.schema_version).toBe(15);
       expect(projectScenes(migrated)[0].elements?.[0]).toMatchObject({ animation, durationTicks: 30 });
       expect(validateProject(JSON.parse(JSON.stringify(migrated)))).toEqual(migrated);
     }
@@ -20,7 +20,7 @@ describe('element animation and export timing', () => {
     for (const label of ['Subskrybuj', '登録する', 'اشترك', '', '❤️']) {
       const project = edit(emptyProject(), { type: 'add', scenes: [{ ...scene, elements: [{ ...element, kind: 'subscribe', label }] }] });
       const migrated = validateProject({ ...project, schema_version: 8 });
-      expect(migrated.schema_version).toBe(14);
+      expect(migrated.schema_version).toBe(15);
       expect(projectScenes(migrated)[0].elements?.[0].label).toBe(label);
       expect(validateProject(JSON.parse(JSON.stringify(migrated)))).toEqual(migrated);
     }

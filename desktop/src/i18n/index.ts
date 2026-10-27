@@ -209,6 +209,7 @@ const pl: Record<string, string> = {
   'Picture in picture': 'Obraz w obrazie',
   'Overlays': 'Nakładki',
   'Empty audio track': 'Pusta ścieżka dźwiękowa',
+  'Video audio': 'Dźwięk wideo',
   'Add text': 'Dodaj tekst',
   'PREVIEW': 'PODGLĄD',
   'Local only': 'Tylko lokalnie',
@@ -235,6 +236,10 @@ const pl: Record<string, string> = {
   'Use Travel sample': 'Użyj szablonu Podróże',
   'Photos, text, timing, transitions, audio, and looks are common to every format. Size, FPS, quality, and framing (zoom, pan, fit, letterbox) are saved per format.': 'Zdjęcia, tekst, czas, przejścia, dźwięk i wygląd są wspólne dla wszystkich formatów. Rozmiar, liczba klatek, jakość i kadrowanie (zoom, przesunięcie, dopasowanie, pasy) zapisują się osobno dla każdego formatu.',
   'Pick at least one format, or start with the default 16:9.': 'Wybierz co najmniej jeden format albo zacznij od domyślnego 16:9.',
+  '{formats} selected · {files} will be written': 'Wybrano {formats} · zostanie zapisanych {files}',
+  ' · identical sizes are combined': ' · identyczne rozmiary są łączone',
+  '{formats} · {files} when you export': '{formats} · {files} podczas eksportu',
+  '. Formats with the same size, frame rate and framing share one video.': '. Formaty o tym samym rozmiarze, liczbie klatek i kadrowaniu dzielą jeden film.',
   'Custom': 'Własny',
   'Custom format': 'Własny format',
   'Add custom': 'Dodaj własny',
@@ -449,6 +454,7 @@ const uk: Record<string, string> = {
   'Picture in picture': 'Картинка в картинці',
   'Overlays': 'Накладки',
   'Empty audio track': 'Порожня аудіодоріжка',
+  'Video audio': 'Звук відео',
   'Add text': 'Додати текст',
   'PREVIEW': 'ПЕРЕГЛЯД',
   'Local only': 'Лише локально',
@@ -475,6 +481,10 @@ const uk: Record<string, string> = {
   'Use Travel sample': 'Використати шаблон «Подорожі»',
   'Photos, text, timing, transitions, audio, and looks are common to every format. Size, FPS, quality, and framing (zoom, pan, fit, letterbox) are saved per format.': 'Світлини, текст, час, переходи, звук і вигляд є спільними для всіх форматів. Розмір, частота кадрів, якість і кадрування (зум, зсув, вписування, поля) зберігаються окремо для кожного формату.',
   'Pick at least one format, or start with the default 16:9.': 'Виберіть принаймні один формат або почніть із типового 16:9.',
+  '{formats} selected · {files} will be written': 'Вибрано {formats} · буде записано {files}',
+  ' · identical sizes are combined': ' · однакові розміри об’єднуються',
+  '{formats} · {files} when you export': '{formats} · {files} під час експорту',
+  '. Formats with the same size, frame rate and framing share one video.': '. Формати однакового розміру, частоти кадрів і кадрування поділяють одне відео.',
   'Custom': 'Власний',
   'Custom format': 'Власний формат',
   'Add custom': 'Додати власний',
@@ -541,4 +551,9 @@ export function sceneCount(count: number): string {
 /** Locale-aware format count for project cards. */
 export function formatCount(count: number): string {
   return plural(count, ['format', 'formats'], ['format', 'formaty', 'formatów'], ['формат', 'формати', 'форматів']);
+}
+
+/** Locale-aware file count for the number of videos an export will write. */
+export function fileCount(count: number): string {
+  return plural(count, ['file', 'files'], ['plik', 'pliki', 'plików'], ['файл', 'файли', 'файлів']);
 }

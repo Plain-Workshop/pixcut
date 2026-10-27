@@ -862,6 +862,31 @@ pub struct AudioClip {
     #[serde(default)]
     pub high: f64,
 }
+/// Mixer level for one audio lane. Missing lanes play at full volume.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AudioLaneMix {
+    pub lane: u32,
+    pub volume: f64,
+    pub muted: bool,
+}
+impl Default for AudioLaneMix {
+    fn default() -> Self {
+        Self { lane: 0, volume: 1.0, muted: false }
+    }
+}
+/// Audio lanes plus the bus for sound inside imported video clips.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AudioMix {
+    pub video: f64,
+    pub lanes: Vec<AudioLaneMix>,
+}
+impl Default for AudioMix {
+    fn default() -> Self {
+        Self { video: 1.0, lanes: vec![] }
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SceneFormatOverride {
@@ -929,6 +954,9 @@ pub struct Project {
     pub tracks: Vec<Track>,
     #[serde(default)]
     pub audio: Vec<AudioClip>,
+    /// Lane and video-audio levels. Missing means everything plays fully.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_mix: Option<AudioMix>,
     #[serde(default)]
     pub overlays: Vec<ElementLayer>,
     #[serde(default)]
@@ -953,13 +981,14 @@ pub struct Project {
 impl Default for Project {
     fn default() -> Self {
         Self {
-            schema_version: 14,
+            schema_version: 15,
             id: "new-project".into(),
             name: "Untitled story".into(),
             aspect: "16:9".into(),
             timebase: Timebase::default(),
             tracks: vec![Track::visual()],
             audio: vec![],
+            audio_mix: None,
             overlays: vec![],
             formats: vec![],
             fonts: vec![],
@@ -986,6 +1015,18 @@ impl Project {
             .find(|track| track.kind == "visual" && track.role.as_deref() == Some("overlay"))
             .map(|track| track.clips.as_slice())
             .unwrap_or(&[])
+    }
+    /// Effective gain for one audio lane, including its mute switch.
+    pub fn lane_gain(&self, lane: u32) -> f64 {
+        self.audio_mix
+            .as_ref()
+            .and_then(|mix| mix.lanes.iter().find(|item| item.lane == lane))
+            .map(|item| if item.muted { 0.0 } else { item.volume })
+            .unwrap_or(1.0)
+    }
+    /// Effective gain for the sound inside imported video clips.
+    pub fn video_audio_gain(&self) -> f64 {
+        self.audio_mix.as_ref().map(|mix| mix.video).unwrap_or(1.0)
     }
     fn normalize_global_text(&mut self, total_ticks: u64, timebase: &Timebase) -> Result<(), String> {
         if self.global_text.len() > 40 {
@@ -1097,7 +1138,7 @@ impl Project {
         Ok(())
     }
     pub fn validate(&mut self) -> Result<(), String> {
-        if self.schema_version != 1 && self.schema_version != 2 && self.schema_version != 3 && self.schema_version != 4 && self.schema_version != 5 && self.schema_version != 6 && self.schema_version != 7 && self.schema_version != 8 && self.schema_version != 9 && self.schema_version != 10 && self.schema_version != 11 && self.schema_version != 12 && self.schema_version != 13 && self.schema_version != 14 {
+        if self.schema_version != 1 && self.schema_version != 2 && self.schema_version != 3 && self.schema_version != 4 && self.schema_version != 5 && self.schema_version != 6 && self.schema_version != 7 && self.schema_version != 8 && self.schema_version != 9 && self.schema_version != 10 && self.schema_version != 11 && self.schema_version != 12 && self.schema_version != 13 && self.schema_version != 14 && self.schema_version != 15 {
             return Err(
                 "Unsupported project version. The original file has not been changed.".into(),
             );
@@ -1144,7 +1185,7 @@ impl Project {
         };
         self.legacy_scenes.clear();
         let migrating_music = self.schema_version < 5;
-        self.schema_version = 14;
+        self.schema_version = 15;
         if tracks.is_empty() {
             tracks.push(Track::visual());
         }
@@ -1555,6 +1596,21 @@ impl Project {
         if self.ducking.is_some_and(|amount| !amount.is_finite() || !(0.0..=100.0).contains(&amount)) {
             return Err("Invalid music ducking amount.".into());
         }
+        if let Some(mix) = &self.audio_mix {
+            if !mix.video.is_finite() || !(0.0..=1.0).contains(&mix.video) || mix.lanes.len() > 8 {
+                return Err("Invalid audio mix.".into());
+            }
+            let mut lanes = std::collections::HashSet::new();
+            for lane in &mix.lanes {
+                if lane.lane > 7
+                    || !lanes.insert(lane.lane)
+                    || !lane.volume.is_finite()
+                    || !(0.0..=1.0).contains(&lane.volume)
+                {
+                    return Err("Invalid audio track level.".into());
+                }
+            }
+        }
         let total_beats = self.total_ticks();
         self.beat_ticks.sort_unstable();
         self.beat_ticks.dedup();
@@ -1631,6 +1687,7 @@ pub enum Command {
     Rename { name: String },
     Aspect { aspect: String },
     Audio { audio: Vec<AudioClip> },
+    AudioMix { mix: AudioMix },
     Formats { formats: Vec<FormatVariant> },
     Fonts { fonts: Vec<ProjectFont> },
     #[serde(rename = "globalText")]
@@ -1767,6 +1824,10 @@ impl Session {
         if let Command::Audio { audio } = &command {
             p.audio = audio.clone();
         }
+        if let Command::AudioMix { mix } = &command {
+            let clean = mix.video == 1.0 && mix.lanes.iter().all(|lane| lane.volume == 1.0 && !lane.muted);
+            p.audio_mix = (!clean).then(|| mix.clone());
+        }
         if let Command::Overlays { overlays } = &command { p.overlays = overlays.clone(); }
         if let Command::Formats { formats } = &command {
             p.formats = formats.clone();
@@ -1811,7 +1872,7 @@ impl Session {
         {
             let clips = &mut p.tracks[track_index].clips;
             match command {
-                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::Formats { .. } | Command::Fonts { .. } | Command::GlobalText { .. } | Command::Pip { .. } | Command::Beats { .. } | Command::Ducking { .. } | Command::Overlays { .. } | Command::Order { .. } => {}
+                Command::Replace { .. } | Command::Rename { .. } | Command::Aspect { .. } | Command::Audio { .. } | Command::AudioMix { .. } | Command::Formats { .. } | Command::Fonts { .. } | Command::GlobalText { .. } | Command::Pip { .. } | Command::Beats { .. } | Command::Ducking { .. } | Command::Overlays { .. } | Command::Order { .. } => {}
                 Command::Add { scenes } => clips.extend(scenes),
                 Command::Update { scene } => {
                     if let Some(s) = clips.iter_mut().find(|s| s.id == scene.id) {
@@ -2475,7 +2536,7 @@ mod tests {
             duration_seconds: 2.0,
         });
         p.validate().unwrap();
-        assert_eq!(p.schema_version, 14);
+        assert_eq!(p.schema_version, 15);
         assert_eq!(p.audio.len(), 1);
         assert_eq!(p.audio[0].start_ticks, 0);
         assert_eq!(p.audio[0].duration_ticks, 60);
@@ -2491,7 +2552,7 @@ mod tests {
         p.tracks[0].clips = vec![scene(), second];
         let overlay: ElementLayer = serde_json::from_value(serde_json::json!({"id":"global-bell","kind":"bell","x":0.5,"y":0.5,"width":0.2,"height":0.2,"rotation":0,"color":"#FFCC66","opacity":100,"startTicks":15,"durationTicks":90,"animation":"fade","loop":false,"action":{"kind":"ring","startTicks":30,"durationTicks":30,"repeat":false,"sound":true}})).unwrap();
         p.schema_version = 10; p.overlays = vec![overlay]; p.validate().unwrap();
-        assert_eq!(p.schema_version, 14); assert_eq!(p.overlays[0].duration_ticks, 90);
+        assert_eq!(p.schema_version, 15); assert_eq!(p.overlays[0].duration_ticks, 90);
         let original = p.clone();
         let mut restored: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap(); restored.validate().unwrap(); assert_eq!(original, restored);
         let mut session = Session { project: p, ..Default::default() };
@@ -2509,7 +2570,7 @@ mod tests {
         for kind in ["label", "name-tag", "link", "quote", "counter", "status"] {
             let mut project = Project::default(); project.schema_version = 11; project.tracks[0].clips = vec![scene()];
             project.overlays = vec![serde_json::from_value(serde_json::json!({"id":"modern","kind":kind,"x":0.5,"y":0.5,"width":0.4,"height":0.2,"rotation":0,"color":"#C5B4FF","opacity":100,"startTicks":0,"durationTicks":30,"label":"Za kulisami · 東京","animation":"fade"})).unwrap()];
-            project.validate().unwrap(); assert_eq!(project.schema_version, 14);
+            project.validate().unwrap(); assert_eq!(project.schema_version, 15);
             let mut restored: Project = serde_json::from_str(&serde_json::to_string(&project).unwrap()).unwrap(); restored.validate().unwrap(); assert_eq!(restored, project);
         }
     }
@@ -2518,7 +2579,7 @@ mod tests {
         for kind in ["caption", "chapter", "callout", "keycaps", "mouse", "device", "comparison", "checklist", "rating", "countdown", "waveform", "message", "qr", "end-screen"] {
             let mut p = Project::default(); p.schema_version = 12; p.tracks[0].clips = vec![scene()];
             p.overlays = vec![serde_json::from_value(serde_json::json!({"id":"dynamic","kind":kind,"x":0.5,"y":0.5,"width":0.4,"height":0.2,"rotation":0,"color":"#C5B4FF","opacity":100,"startTicks":0,"durationTicks":30,"label":"東京", "animation":"none", "exit":"fade", "behavior":{"atSeconds":1,"intervalSeconds":0.5,"countFrom":5,"countTo":0,"repeat":true,"variant":"click","audioId":"track"}})).unwrap()];
-            p.validate().unwrap(); assert_eq!(p.schema_version, 14);
+            p.validate().unwrap(); assert_eq!(p.schema_version, 15);
             let mut restored: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap(); restored.validate().unwrap(); assert_eq!(p, restored);
             restored.overlays[0].behavior.as_mut().unwrap().interval_seconds = Some(0.0); assert!(restored.validate().is_err());
             restored = p.clone(); restored.overlays[0].behavior.as_mut().unwrap().variant = Some("unknown".into()); assert!(restored.validate().is_err());
@@ -2532,7 +2593,7 @@ mod tests {
                 let id = format!("{collection}-{variant:02}");
                 let mut p = Project::default(); p.schema_version = 13; p.tracks[0].clips = vec![scene()];
                 p.overlays = vec![serde_json::from_value(serde_json::json!({"id":"preset","kind":"label","presetId":id,"x":0.5,"y":0.5,"width":0.4,"height":0.2,"rotation":0,"color":"#C5B4FF","opacity":100,"startTicks":0,"durationTicks":30,"label":"Twoja historia · 東京","animation":"none"})).unwrap()];
-                p.validate().unwrap(); assert_eq!(p.schema_version, 14);
+                p.validate().unwrap(); assert_eq!(p.schema_version, 15);
                 let mut restored: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap(); restored.validate().unwrap(); assert_eq!(restored, p);
                 assert_eq!(restored.overlays[0].preset_id.as_deref(), Some(id.as_str()));
             }
@@ -2571,7 +2632,7 @@ mod tests {
             p.schema_version = 7;
             p.tracks[0].clips[0].elements[0].animation = animation.into();
             p.validate().unwrap();
-            assert_eq!(p.schema_version, 14);
+            assert_eq!(p.schema_version, 15);
             assert_eq!(p.tracks[0].clips[0].elements[0].animation, animation);
         }
         for kind in ["burst", "frame", "dots", "tape", "chevron"] {
@@ -2592,7 +2653,7 @@ mod tests {
         p.schema_version = 8;
         p.tracks[0].clips[0].elements[0].label = Some("登録する · اشترك · Subskrybuj".into());
         p.validate().unwrap();
-        assert_eq!(p.schema_version, 14);
+        assert_eq!(p.schema_version, 15);
         let mut roundtrip: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
         roundtrip.validate().unwrap();
         assert_eq!(roundtrip.tracks[0].clips[0].elements[0].label, p.tracks[0].clips[0].elements[0].label);
@@ -2645,7 +2706,7 @@ mod tests {
     #[test]
     fn future_schema_is_rejected() {
         let mut p = Project::default();
-        p.schema_version = 15;
+        p.schema_version = 16;
         assert!(p.validate().is_err());
     }
     #[test]
@@ -2669,7 +2730,7 @@ mod tests {
         }))
         .unwrap();
         p.validate().unwrap();
-        assert_eq!(p.schema_version, 14);
+        assert_eq!(p.schema_version, 15);
         assert_eq!(p.timebase, Timebase::default());
         assert_eq!(p.tracks.len(), 1);
         assert_eq!(p.tracks[0].kind, "visual");
@@ -2696,7 +2757,7 @@ mod tests {
         }))
         .unwrap();
         p.validate().unwrap();
-        assert_eq!(p.schema_version, 14);
+        assert_eq!(p.schema_version, 15);
         assert_eq!(p.tracks.len(), 1);
         assert_eq!(p.tracks[0].kind, "visual");
         assert_eq!(p.visual_clips()[0].start_ticks, 0);
@@ -3247,5 +3308,47 @@ mod tests {
         assert_eq!(s.project.visual_clips()[1].duration_ticks, 60);
         assert_eq!(s.project.visual_clips()[1].fade_in, 0.0);
         assert_eq!(s.project.visual_clips()[1].fade_out, 2.0);
+    }
+    #[test]
+    fn audio_mix_levels_apply_and_clear() {
+        let mut s = Session::default();
+        s.apply(Command::AudioMix {
+            mix: AudioMix {
+                video: 0.5,
+                lanes: vec![
+                    AudioLaneMix { lane: 1, volume: 0.4, muted: false },
+                    AudioLaneMix { lane: 3, volume: 1.0, muted: true },
+                ],
+            },
+        })
+        .unwrap();
+        assert_eq!(s.project.video_audio_gain(), 0.5);
+        assert_eq!(s.project.lane_gain(1), 0.4);
+        assert_eq!(s.project.lane_gain(3), 0.0);
+        assert_eq!(s.project.lane_gain(0), 1.0);
+        s.apply(Command::AudioMix { mix: AudioMix::default() }).unwrap();
+        assert!(s.project.audio_mix.is_none());
+        assert_eq!(s.project.video_audio_gain(), 1.0);
+    }
+    #[test]
+    fn rejects_invalid_audio_mix_levels() {
+        for mix in [
+            AudioMix { video: 1.5, lanes: vec![] },
+            AudioMix { video: 1.0, lanes: vec![AudioLaneMix { lane: 8, volume: 1.0, muted: false }] },
+            AudioMix { video: 1.0, lanes: vec![AudioLaneMix { lane: 0, volume: 1.0, muted: false }, AudioLaneMix { lane: 0, volume: 0.5, muted: false }] },
+            AudioMix { video: 1.0, lanes: vec![AudioLaneMix { lane: 0, volume: 1.5, muted: false }] },
+        ] {
+            let mut p = Project::default();
+            p.audio_mix = Some(mix);
+            assert!(p.validate().is_err());
+        }
+    }
+    #[test]
+    fn audio_mix_defaults_on_v14_migration() {
+        let mut p = Project::default();
+        p.schema_version = 14;
+        p.validate().unwrap();
+        assert_eq!(p.schema_version, 15);
+        assert!(p.audio_mix.is_none());
     }
 }

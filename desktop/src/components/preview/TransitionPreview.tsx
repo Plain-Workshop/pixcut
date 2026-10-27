@@ -19,7 +19,7 @@ function sampleFrame(second: boolean) {
   return canvas;
 }
 
-export function TransitionPreview({ type, reduceMotion = false }: { type: TransitionType; reduceMotion?: boolean }) {
+export function TransitionPreview({ type, reduceMotion = false, active = false }: { type: TransitionType; reduceMotion?: boolean; active?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
@@ -34,7 +34,7 @@ export function TransitionPreview({ type, reduceMotion = false }: { type: Transi
       } else drawTransitionFrames(canvas, from, to, type, p);
     };
     const animate = (now: number) => {
-      if (!visible || document.hidden || reduceMotion || media.matches) return;
+      if (!active || !visible || document.hidden || reduceMotion || media.matches) return;
       if (!start) start = now;
       if (now - last >= 40) {
         // A brief view of each scene makes the direction of the transition clear.
@@ -47,13 +47,13 @@ export function TransitionPreview({ type, reduceMotion = false }: { type: Transi
     const restart = () => {
       cancelAnimationFrame(raf); start = 0; last = 0;
       draw(reduceMotion || media.matches ? .5 : 0);
-      if (visible && !document.hidden && !reduceMotion && !media.matches) raf = requestAnimationFrame(animate);
+      if (active && visible && !document.hidden && !reduceMotion && !media.matches) raf = requestAnimationFrame(animate);
     };
     const observer = new IntersectionObserver(entries => { visible = entries[0].isIntersecting; restart(); });
     observer.observe(canvas); restart();
     media.addEventListener('change', restart);
     document.addEventListener('visibilitychange', restart);
     return () => { observer.disconnect(); cancelAnimationFrame(raf); media.removeEventListener('change', restart); document.removeEventListener('visibilitychange', restart); };
-  }, [type, reduceMotion]);
+  }, [type, reduceMotion, active]);
   return <canvas className="transition-example" ref={ref} data-transition={type} aria-hidden="true" />;
 }

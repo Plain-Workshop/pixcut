@@ -2324,6 +2324,7 @@ fn encode_plan(
         volume: Option<f64>,
     }
     let mut video_audio: Vec<VideoAudio> = Vec::new();
+    let video_audio_gain = project.video_audio_gain();
     let mut duck_windows: Vec<(f64, f64)> = Vec::new();
     let mut input_index = 0usize;
     let mut timeline_offset = 0.0f64;
@@ -2379,7 +2380,7 @@ fn encode_plan(
                 // Reverse is picture-only: a reversed soundtrack is rarely
                 // wanted, and the preview stays silent for the same reason.
                 if segment.include_audio && !segment.reverse && has_audio_stream(&binary, &path) {
-                    if segment.video_volume.unwrap_or(100.0) > 0.0 {
+                    if segment.video_volume.unwrap_or(100.0) > 0.0 && video_audio_gain > 0.0 {
                         duck_windows.push((segment_start, segment_start + audio_duration));
                     }
                     video_audio.push(VideoAudio {
@@ -2522,7 +2523,8 @@ fn encode_plan(
     for (index, (_, clip)) in audio_files.iter().enumerate() {
         let input = audio_start + index;
         let duration = project.timebase.ticks_to_seconds(clip.duration_ticks);
-        let mut node = format!("[{input}:a]asetpts=PTS-STARTPTS,aresample=48000,volume={:.3}", clip.volume);
+        let level = (clip.volume * project.lane_gain(clip.lane)).clamp(0.0, 1.0);
+        let mut node = format!("[{input}:a]asetpts=PTS-STARTPTS,aresample=48000,volume={level:.3}");
         node.push_str(&eq_filters(clip.low, clip.mid, clip.high));
         if ducking > 0.0 && !duck_windows.is_empty() {
             let clip_start = project.timebase.ticks_to_seconds(clip.start_ticks);
@@ -2559,10 +2561,9 @@ fn encode_plan(
                 node.push_str(&format!(",{}", atempo_chain(clip.speed)));
             }
         }
-        if let Some(volume) = clip.volume {
-            if volume < 99.999 {
-                node.push_str(&format!(",volume={:.3}", volume / 100.0));
-            }
+        let level = (clip.volume.unwrap_or(100.0) / 100.0 * video_audio_gain).clamp(0.0, 1.0);
+        if level < 0.999_999 {
+            node.push_str(&format!(",volume={level:.3}"));
         }
         node.push_str(&format!(",atrim=duration={:.6},asetpts=PTS-STARTPTS", clip.duration));
         if clip.fade_in > 0.0 {
@@ -4001,7 +4002,7 @@ mod integration_tests {
         let before = fs::read_to_string(&path).unwrap();
         let (project, migrated) = read_project_with_migration(&path).unwrap();
         assert!(migrated);
-        assert_eq!(project.schema_version, 14);
+        assert_eq!(project.schema_version, 15);
         assert_eq!(project.visual_clips()[0].duration_ticks, 120);
         assert_eq!(fs::read_to_string(&path).unwrap(), before);
     }

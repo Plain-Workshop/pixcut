@@ -16,7 +16,7 @@ describe('curated element library',()=>{
   for(const kind of ['label','name-tag','link','quote','counter','status'] as const){
    const project=edit(emptyProject(),{type:'add',scenes:[scene]});project.overlays=[{...base,kind,label:'Za kulisami · 東京'}];
    const restored=validateProject(JSON.parse(JSON.stringify({...project,schema_version:11})));
-   expect(restored.schema_version).toBe(14);expect(restored.overlays[0].label).toBe('Za kulisami · 東京');expect(ELEMENT_LABEL_DEFAULTS[kind]).toBeTruthy();
+   expect(restored.schema_version).toBe(15);expect(restored.overlays[0].label).toBe('Za kulisami · 東京');expect(ELEMENT_LABEL_DEFAULTS[kind]).toBeTruthy();
   }
  });
  it('retains old artwork and names without reintroducing it into the picker',()=>{

@@ -1,3 +1,4 @@
+import { LookPreview } from '../preview/LookPreview';
 import { TransitionPreview } from '../preview/TransitionPreview';
 import { ElementPreview } from '../elements/ElementPreview';
 import { t } from '../../i18n';
@@ -11,7 +12,7 @@ import { FramingKeyframeControls } from '../animation/FramingKeyframeControls';
 import { MaskControls } from './MaskControls';
 import { sceneStack, stackIndex, stackZ, overlaysForScene, type StackMove } from '../elements/stack';
 import { StackOrder } from './StackOrder';
-import { FILTERS, clamp, thumbnailFilterCss } from '../preview/filters';
+import { FILTERS, clamp } from '../preview/filters';
 
 type Tab = 'elements' | 'video' | 'text' | 'transition' | 'color' | 'speed' | 'fade' | 'filters';
 type ColorKey = 'brightness' | 'contrast' | 'saturation' | 'exposure' | 'highlights' | 'shadows' | 'temperature' | 'tint' | 'hue' | 'vibrance';
@@ -358,6 +359,8 @@ export function SceneForm({
   const [draft, setDraft] = useState(scene);
   const [dirty, setDirty] = useState(false);
   const [filterQuery, setFilterQuery] = useState('');
+  const [hoverTransition,setHoverTransition]=useState<string|null>(null);
+  const [hoverEntrance,setHoverEntrance]=useState<string|null>(null);
   const draftRef = useRef(draft), dirtyRef = useRef(dirty);
   const updateRef = useRef(update), previewRef = useRef(onPreview), sceneIdRef = useRef(scene.id);
   const committedRef = useRef(comparable(scene));
@@ -691,7 +694,7 @@ export function SceneForm({
 
         <details className="advanced-disclosure text-layout-panel">
           <summary>{t('Animation')}</summary>
-          <div className="animation-choices" role="group" aria-label="Text animation">{TEXT_ANIMATIONS.map(option => <button key={option.id} aria-label={`Text motion ${option.label}`} aria-pressed={selectedLayer.animation === option.id} className={selectedLayer.animation === option.id ? 'active' : ''} onClick={() => applyLayer({ animation: option.id })}><span className="motion-preview"><ElementPreview motionSample kind="name-tag" label={'Aa\nMotion'} color={selectedLayer.color} animation={option.id} /></span><span>{option.label}</span></button>)}</div>
+          <div className="animation-choices" role="group" aria-label="Text animation">{TEXT_ANIMATIONS.map(option => <button key={option.id} aria-label={`Text motion ${option.label}`} onPointerEnter={()=>setHoverEntrance(option.id)} onPointerLeave={()=>setHoverEntrance(null)} onFocus={()=>setHoverEntrance(option.id)} onBlur={()=>setHoverEntrance(null)} aria-pressed={selectedLayer.animation === option.id} className={selectedLayer.animation === option.id ? 'active' : ''} onClick={() => applyLayer({ animation: option.id })}><span className="motion-preview"><ElementPreview motionSample kind="name-tag" label={'Aa\nMotion'} color={selectedLayer.color} animation={option.id} active={hoverEntrance===option.id} reduceMotion={reduceMotion} /></span><span>{option.label}</span></button>)}</div>
           <RangeField label="Animation duration" value={selectedLayer.animationDuration} min={0.1} max={2} step={0.1} unit="sec" disabled={selectedLayer.animation === 'none'} onChange={value => stageLayer({ animationDuration: value })} onCommit={() => commit()} />
         </details>
 
@@ -778,7 +781,7 @@ export function SceneForm({
 
     {displayTab === 'transition' && !hasNextScene && <p className="note">Add a scene after this clip to use a transition.</p>}
     {displayTab === 'transition' && hasNextScene && <>
-      <div className="transition-grid">{TRANSITION_OPTIONS.map(option => <button key={option.id} className={`transition-card ${(draft.transition?.type ?? 'none') === option.id ? 'active' : ''}`} onClick={() => apply({ transition: option.id === 'none' ? null : { type: option.id, duration: draft.transition?.duration ?? .6 } }, ['transition'])}><TransitionPreview type={option.id} reduceMotion={reduceMotion} /><strong>{t(option.label)}</strong><small>{option.description}</small></button>)}</div>
+      <div className="transition-grid">{TRANSITION_OPTIONS.map(option => <button key={option.id} onPointerEnter={()=>setHoverTransition(option.id)} onPointerLeave={()=>setHoverTransition(null)} onFocus={()=>setHoverTransition(option.id)} onBlur={()=>setHoverTransition(null)} className={`transition-card ${(draft.transition?.type ?? 'none') === option.id ? 'active' : ''}`} onClick={() => apply({ transition: option.id === 'none' ? null : { type: option.id, duration: draft.transition?.duration ?? .6 } }, ['transition'])}><TransitionPreview type={option.id} reduceMotion={reduceMotion} active={hoverTransition===option.id} /><strong>{t(option.label)}</strong><small>{option.description}</small></button>)}</div>
       <RangeField label="Transition duration" value={draft.transition?.duration ?? .6} min={0.1} max={Math.min(2, duration / 2)} step={0.1} unit="sec" disabled={!draft.transition} onChange={value => preview(stage({ transition: { type: draft.transition?.type ?? 'fade', duration: value } }))} onCommit={() => commit()} />
     </>}
 
@@ -845,7 +848,7 @@ export function SceneForm({
           onFocus={() => preview({ ...draftRef.current, filter: filter.id, filterIntensity: filter.id === 'none' ? 100 : filterIntensity })}
           onBlur={() => previewRef.current(null)}
         >
-          <span className="filter-thumb"><img src={draft.image} alt="" style={{ filter: thumbnailFilterCss(filter.id, filter.id === 'none' ? 0 : 100) }} />{activeFilter === filter.id && <span className="filter-check"><Check size={11} /></span>}</span>
+          <span className="filter-thumb"><LookPreview scene={draft} filter={filter.id} intensity={filter.id === 'none' ? 0 : 100} />{activeFilter === filter.id && <span className="filter-check"><Check size={11} /></span>}</span>
           <span className="filter-name">{filter.label}</span>
           <small>{filter.description}</small>
         </button>)}

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { DICTIONARIES, formatCount, isLocale, projectCount, sceneCount, setLocale, t } from '../src/i18n';
+import { DICTIONARIES, fileCount, formatCount, isLocale, projectCount, sceneCount, setLocale, t } from '../src/i18n';
 
 afterEach(() => setLocale('en'));
 
@@ -46,9 +46,14 @@ describe('interface language', () => {
     expect(sceneCount(3)).toBe('3 sceny');
     expect(sceneCount(5)).toBe('5 scen');
     expect(formatCount(2)).toBe('2 formaty');
+    expect(formatCount(12)).toBe('12 formatów');
+    expect(fileCount(5)).toBe('5 plików');
     setLocale('uk');
     expect(sceneCount(2)).toBe('2 сцени');
     expect(formatCount(2)).toBe('2 формати');
+    expect(fileCount(1)).toBe('1 файл');
+    expect(fileCount(3)).toBe('3 файли');
+    expect(fileCount(11)).toBe('11 файлів');
   });
 
   it('keeps the two translations in sync', () => {

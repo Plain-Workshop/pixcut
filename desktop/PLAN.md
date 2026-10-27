@@ -211,7 +211,7 @@ that no extracted key is missing from the shipped locales.
 
 ## 8. One asset store and a SQLite index
 
-**Status.** The SQLite catalog ships in native builds: `rusqlite` (bundled) stores one row per project with its summary JSON, name and timestamp, and listings read it instead of every IndexedDB record; the catalog is rebuilt automatically if it is missing or its row count no longer matches the project store. IndexedDB remains the source of truth for project bodies and old installs migrate on first list without deleting anything. Primary media is already in the Rust content-addressed store; custom element graphics still use the webview store, so the physical stores are not fully merged.
+**Status.** The SQLite catalog ships in native builds: `rusqlite` (bundled) stores one row per project with its summary JSON, name and timestamp, and listings read it instead of every IndexedDB record; the catalog is rebuilt automatically if it is missing or its row count no longer matches the project store. IndexedDB remains the source of truth for project bodies and old installs migrate on first list without deleting anything. Every native media path now streams into the Rust content-addressed store: photos, clips, audio, custom element graphics and relinked files. Saved bodies keep `pixcut-asset:` references, so native projects no longer copy their media into IndexedDB; that store remains the browser implementation and a fallback for legacy inline data.
 
 **Why it is missing.** IndexedDB serves the browser build and the native app;
 Rust keeps a second content-addressed store for streaming and export, and the
