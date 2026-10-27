@@ -128,6 +128,17 @@ export async function importAudioAsset(): Promise<ImportedMedia | null> { return
 export type ImportedImage = { reference: string; name: string; bytes: number };
 export type ImportedAsset = { reference: string; name: string; bytes: number; mime: string };
 export async function importMediaAsset(): Promise<ImportedAsset | null> { return native ? invoke('import_media') : null; }
+export async function importMediaPath(path: string): Promise<ImportedAsset> { return invoke('import_media_path', { path }); }
+export type NativeDragDrop =
+  | { type: 'enter' | 'over'; position: { x: number; y: number }; paths?: string[] }
+  | { type: 'drop'; position: { x: number; y: number }; paths: string[] }
+  | { type: 'leave' };
+export function onDragDrop(handler: (event: NativeDragDrop) => void): Promise<UnlistenFn> | null {
+  if (!native) return null;
+  return import('@tauri-apps/api/webviewWindow').then(({ getCurrentWebviewWindow }) =>
+    getCurrentWebviewWindow().onDragDropEvent(event => handler(event.payload as NativeDragDrop)),
+  );
+}
 export async function importImagesAsset(): Promise<ImportedImage[]> { return native ? invoke('import_images') : []; }
 
 export async function missingAssetRefs(references: string[]): Promise<string[]> { return native ? invoke('missing_asset_refs', { references }) : references; }

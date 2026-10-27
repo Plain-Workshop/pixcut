@@ -784,6 +784,44 @@ async fn import_media(app: tauri::AppHandle) -> Result<Option<ImportedAsset>, St
 }
 
 #[tauri::command]
+async fn import_media_path(app: tauri::AppHandle, path: String) -> Result<ImportedAsset, String> {
+    let source = PathBuf::from(&path);
+    if !source.is_file() {
+        return Err("That drop is not a readable file.".into());
+    }
+    let name = source
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("Media")
+        .to_string();
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let mime = match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "mp4" => "video/mp4",
+        "m4v" => "video/x-m4v",
+        "mov" => "video/quicktime",
+        "webm" => "video/webm",
+        _ => return Err(format!("“{name}” is not a supported image or video.")),
+    };
+    let size = fs::metadata(&source).map_err(|e| e.to_string())?.len();
+    let image = mime.starts_with("image/");
+    if size == 0 {
+        return Err(format!("“{name}” is empty."));
+    }
+    if size > if image { 500 * 1024 * 1024 } else { 4 * 1024 * 1024 * 1024 } {
+        return Err(format!("“{name}” is too large."));
+    }
+    let (id, bytes) = stream_file_into_store(&app, &source, &extension)?;
+    Ok(ImportedAsset { reference: format!("pixcut-asset:{id}"), name, bytes, mime: mime.into() })
+}
+
+#[tauri::command]
 async fn import_audio(app: tauri::AppHandle) -> Result<Option<ImportedMedia>, String> {
     let Some(file) = rfd::AsyncFileDialog::new()
         .add_filter("Audio", &["mp3", "wav", "m4a", "aac", "ogg", "oga", "webm"])
@@ -2782,6 +2820,7 @@ pub fn run() {
             import_audio,
             import_images,
             import_media,
+            import_media_path,
             asset_path,
             missing_asset_refs,
             referenced_refs,

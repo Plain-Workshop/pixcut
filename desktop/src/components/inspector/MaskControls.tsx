@@ -1,4 +1,5 @@
 import { defaultLayerMask, type LayerMask, type MaskShape } from '../../stores/model';
+import { t } from '../../i18n';
 
 const SHAPES: { id: MaskShape; label: string }[] = [
   { id: 'rectangle', label: 'Rectangle' },
@@ -38,7 +39,7 @@ export function MaskControls({ mask, disabled, context = 'overlay', onStage, onC
 }) {
   const current = mask ?? defaultLayerMask('rectangle');
   return <details className="advanced-disclosure mask-controls">
-    <summary>Shape mask{mask ? ` · ${SHAPES.find(shape => shape.id === mask.shape)?.label ?? mask.shape}` : ''}</summary>
+    <summary>{t('Shape mask')}{mask ? ` · ${SHAPES.find(shape => shape.id === mask.shape)?.label ?? mask.shape}` : ''}</summary>
     <div className="mask-row">
       <label className="field">Shape<select aria-label="Overlay mask shape" value={mask?.shape ?? 'none'} disabled={disabled} onChange={event => {
         const shape = event.target.value;

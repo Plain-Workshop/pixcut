@@ -1,6 +1,7 @@
 import { Plus, Trash2 } from 'lucide-react';
 import { MAX_KEYFRAMES, type FramingKeyframe, type Scene } from '../../stores/model';
 import { framingKeyframeAt, removeFramingKeyframe, upsertFramingKeyframe } from './keyframes';
+import { t } from '../../i18n';
 
 function describe(frame: FramingKeyframe): string {
   const parts = [`${Math.round((frame.x ?? 0) * 100)}% · ${Math.round((frame.y ?? 0) * 100)}%`];
@@ -28,7 +29,7 @@ export function FramingKeyframeControls({
     onChange(upsertFramingKeyframe(keys, at, values));
   };
   return <details className="advanced-disclosure keyframe-controls">
-    <summary>Framing keyframes{keys.length ? ` · ${keys.length}` : ''}</summary>
+    <summary>{t('Framing keyframes')}{keys.length ? ` · ${keys.length}` : ''}</summary>
     <p className="inspector-inline-status">Pan or zoom the photo, then add a key at the playhead. PixCut interpolates between keys and bakes them into preview, stills and export.</p>
     <button type="button" className="button" disabled={disabled || atCap} onClick={add}><Plus size={13} /> Add keyframe at {Math.max(0, Math.min(playheadSeconds, durationSeconds)).toFixed(2)} s</button>
     {atCap && <p className="inspector-inline-status">{MAX_KEYFRAMES} keyframes is the limit for one photo.</p>}

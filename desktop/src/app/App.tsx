@@ -604,6 +604,26 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!bridge.native) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void bridge.onDragDrop(event => {
+      if (disposed) return;
+      if (event.type === 'leave') { setFileDragActive(false); setDropTarget(null); return; }
+      setFileDragActive(true);
+      const sceneId = nativeSceneAt(event.position);
+      setDropTarget(sceneId);
+      if (event.type !== 'drop') return;
+      setFileDragActive(false); setDropTarget(null);
+      const paths = (event.paths ?? []).filter(path => /\.(png|jpe?g|webp|mp4|m4v|mov|webm)$/i.test(path));
+      if (!paths.length) { setError('Drop a PNG, JPEG, WebP, MP4, MOV, M4V, or WebM file.'); return; }
+      if (sceneId) void dropNativeOnScene(sceneId, paths);
+      else void importNativePaths(paths);
+    })?.then(fn => { if (disposed) fn(); else unlisten = fn; }).catch(() => {});
+    return () => { disposed = true; unlisten?.(); };
+  }, [project, preferences]);
+
   const hasVideoScenes = scenes.some(scene => scene.mediaKind === 'video');
   const activeFormat = project.formats.find(format => format.id === activeFormatId) ?? project.formats[0];
   const activeSize = formatSize(activeFormat);
@@ -3323,6 +3343,55 @@ export default function App() {
     if (event.dataTransfer.files.length) void importFiles(event.dataTransfer.files);
   }
 
+  function nativeSceneAt(position: { x: number; y: number }) {
+    const ratio = window.devicePixelRatio || 1;
+    const points: [number, number][] = [[position.x / ratio, position.y / ratio], [position.x / ratio, position.y / ratio - 28], [position.x, position.y]];
+    for (const [x, y] of points) {
+      const element = document.elementFromPoint(x, y);
+      const clip = element?.closest<HTMLElement>('.timeline-clip');
+      if (clip?.dataset.sceneId) return clip.dataset.sceneId;
+      if (element?.closest('.media-grid')) return null;
+    }
+    return null;
+  }
+
+  async function importNativePaths(paths: string[]) {
+    if (operation.current) return;
+    setPlaying(false); setBusy(true); operation.current = true;
+    try {
+      const added: Scene[] = [];
+      for (const path of paths) {
+        const asset = await bridge.importMediaPath(path);
+        if (asset.mime.startsWith('video/')) {
+          const probe = await probeVideo(asset.reference);
+          added.push({
+            id: crypto.randomUUID(), startTicks: 0, sourceInTicks: 0, name: asset.name, image: asset.reference,
+            mediaKind: 'video', videoPoster: probe.poster, sourceDurationSeconds: Math.min(3600, Math.max(.01, probe.duration)),
+            durationTicks: secondsToTicks(Math.min(600, Math.max(.5, probe.duration)), project.timebase),
+            title: '', subtitle: '', color: '#ffffff', fit: preferences.defaultFit, transition: null,
+          });
+        } else {
+          await loadImage(asset.reference);
+          added.push({
+            id: crypto.randomUUID(), startTicks: 0, sourceInTicks: 0, name: asset.name, image: asset.reference,
+            durationTicks: secondsToTicks(preferences.defaultSceneSeconds, project.timebase),
+            title: '', subtitle: '', color: '#ffffff', fit: preferences.defaultFit,
+          });
+        }
+      }
+      if (added.length + scenes.length > 100) throw new Error('Add up to 100 scenes per project.');
+      if (added.length) await stageImportedMedia(added);
+    } catch (error) { setError(messageFor(error)); }
+    finally { setBusy(false); operation.current = false; }
+  }
+
+  async function dropNativeOnScene(sceneId: string, paths: string[]) {
+    try {
+      const asset = await bridge.importMediaPath(paths[0]);
+      await replaceSceneWithAsset(sceneId, asset);
+    } catch (error) { setError(messageFor(error)); }
+  }
+
   async function renameProject() {
     const target = renameTarget;
     if (!target) return;
@@ -4038,15 +4107,15 @@ export default function App() {
           </nav>
 
 
-            <div className="panel-title"><h2>{t(tabTitles[tab])}</h2><span className="count">{tab === 'audio' ? audio.length : scenes.length}</span></div>
+            <div className="panel-title"><h2>{t(tabTitles[tab])}</h2><div className="library-header-actions">
+              {tab === 'media' && <><IconButton label="Import images" disabled={!canEdit} onClick={() => void chooseImages()}><ImagePlus size={17} /></IconButton><IconButton label="Import video" disabled={!canEdit} onClick={() => void chooseVideo()}><Film size={17} /></IconButton></>}
+              {tab === 'elements' && <><IconButton label="Import graphic" disabled={!selectedScene || !canEdit} onClick={() => void chooseCustomElement('image')}><ImagePlus size={17} /></IconButton><IconButton label="Video overlay" disabled={!selectedScene || !canEdit} onClick={() => void chooseCustomElement('video')}><Layers size={17} /></IconButton></>}
+              {tab === 'audio' && <button className="button library-add" disabled={!canEdit || !projectTicks} onClick={() => { audioLaneRef.current = selectedAudio?.lane ?? 0; void chooseAudio(); }} title="Add audio at playhead"><Plus size={15} /> Add audio</button>}
+              {tab === 'templates' && <IconButton label="Browse the full gallery" onClick={() => setModal('templates')}><LayoutTemplate size={17} /></IconButton>}
+            </div></div>
 
             {tab === 'media' ? <>
               <label className="search-field"><Search size={14} /><input aria-label="Search project media" placeholder="Search media…" value={mediaQuery} onChange={e => setMediaQuery(e.target.value)} /></label>
-              <button className="import-button" title={tip('project.import', 'Import media')} disabled={!canEdit} onClick={() => void chooseImages()}><Upload size={16} /> Import images <span>+</span></button>
-
-
-              <button className="button import-video" disabled={!canEdit} onClick={() => void chooseVideo()}><Film size={14} /> Import video</button>
-              <div className="library-label">PROJECT MEDIA <span>JPEG · PNG · WEBP</span></div>
               <div className="media-grid" onDragOver={event => dragOverTarget(event, 'media-grid')} onDrop={dropIntoMedia}>{filteredScenes.map(source => <div key={source.id} className="media-tile source-tile">
                 <button className="media-source" aria-label={`Preview ${source.name}`} onClick={() => previewMedia(source)}><div><AssetImage source={source.videoPoster ?? source.image} alt="" fallback={<span className="media-missing"><ImagePlus size={18} /> Missing</span>} /><span>{source.mediaKind === 'video' ? 'VIDEO · ' : ''}{sceneSeconds(source, project.timebase).toFixed(1)}s</span><Play className="source-play" size={20} /></div><span className="media-name">{source.name}</span></button>
                 <div className="media-placement"><button title={hasMedia(source.image) ? 'Append to timeline' : 'Relink this file first'} aria-label={`Append ${source.name}`} disabled={!canEdit || !hasMedia(source.image)} onClick={() => void appendMedia(source)}><Plus size={14} /><span>Add</span></button><button title={hasMedia(source.image) ? 'Picture in picture' : 'Relink this file first'} aria-label={`Picture in picture: ${source.name}`} disabled={!canEdit || !selectedScene || !hasMedia(source.image)} onClick={() => void addMediaPip(source).catch(error => setError(messageFor(error)))}><Layers size={14} /></button></div>
@@ -4054,8 +4123,9 @@ export default function App() {
               {!sourceMedia.length && <div className="library-empty"><ImagePlus size={34} /><strong>A story starts with a photo.</strong><p>Import images from your device.<br />Nothing gets uploaded.</p></div>}
               {sourceMedia.length > 0 && !filteredScenes.length && <div className="library-empty"><Search size={30} /><strong>No matching media.</strong><p>Try a different name, or clear the search.</p></div>}
             </> : tab === 'text' ? <div className="title-library">
+              <details className="library-disclosure title-tools"><summary>Layers &amp; text tools <ChevronDown size={14} /></summary><div className="library-disclosure-body">
               <div className="library-item-list" aria-label="Project text layers">
-                <div className="library-label">PROJECT TEXT <span>ALL SCENES</span></div>
+                {Boolean(project.globalText?.length) && <div className="library-label">PROJECT TEXT <span>ALL SCENES</span></div>}
                 {(project.globalText ?? []).map((layer, index) => <div className={`project-text-row ${editTarget === 'text' && selectedGlobalTextId === layer.id ? 'active' : ''}`} key={layer.id}>
                   <button className="project-text-select" aria-pressed={editTarget === 'text' && selectedGlobalTextId === layer.id} onClick={() => selectGlobalText(layer.id)}><Type size={14} /><span>{layer.title || `Project text ${index + 1}`}</span><small>{ticksToSeconds(layer.startTicks, project.timebase).toFixed(1)} s</small></button>
                   <button className="text-button danger" aria-label={`Delete ${layer.title || `Project text ${index + 1}`}`} disabled={!canEdit} onClick={() => void run({ type: 'globalText', layers: (project.globalText ?? []).filter(item => item.id !== layer.id) }).then(ok => { if (ok && selectedGlobalTextId === layer.id) setSelectedGlobalTextId(null); })}><Trash2 size={12} /></button>
@@ -4075,11 +4145,11 @@ export default function App() {
                 <button className="button" disabled={!canEdit || (project.fonts?.length ?? 0) >= MAX_PROJECT_FONTS} onClick={() => fontInput.current?.click()}><Type size={14} /> Import font</button>
                 <small>{project.fonts?.length ? `${project.fonts.length} custom font${project.fonts.length === 1 ? '' : 's'} in the picker` : 'TTF, OTF, or WOFF · appears in the font picker'}</small>
               </div>
+              </div></details>
               {TITLE_PRESETS.map(preset => <button key={preset.name} className={`title-preset ${preset.id}`} disabled={!selectedScene || !canEdit || sceneTextLayers(selectedScene).length >= 8} onClick={() => addTextLayerAtPlayhead(preset.layer)} aria-label={`Add ${preset.name} title`}>
                 <span className="title-preset-art" style={{ fontFamily: fontOption(preset.layer.font ?? 'inter').family }}><span>{preset.sample}</span></span><strong>{preset.name}</strong><Plus size={13} />
               </button>)}
             </div> : tab === 'audio' ? <div className="music-panel">
-              <button className="import-button" disabled={!canEdit || !projectTicks} onClick={() => { audioLaneRef.current = selectedAudio?.lane ?? 0; void chooseAudio(); }}><Plus size={16} /> Add audio at playhead <span>{audio.length}</span></button>
               {audio.length ? <div className="audio-list">{audio.map(clip => {
                 const start = ticksToSeconds(clip.startTicks, project.timebase);
                 const length = ticksToSeconds(clip.durationTicks, project.timebase);
@@ -4092,26 +4162,22 @@ export default function App() {
                 <p>Add as many audio clips as you need.<br />Stays on this device.</p>
               </div>}
             </div> : tab === 'templates' ? <div className="template-tab">
-              <button className="import-button" onClick={() => setModal('templates')}><LayoutTemplate size={16} /> Browse the full gallery <span>{TEMPLATES.length}</span></button>
-              <div className="library-label">BUNDLED STORIES <span>OFFLINE</span></div>
               <div className="template-tab-list">{TEMPLATES.map(template => <button key={template.id} className="template-tab-card" disabled={!canEdit} onClick={() => chooseTemplate(template)}>
                 <span className="template-tab-art"><img src={templateImage(template)} alt="" /></span>
                 <span className="template-tab-copy"><strong>{template.name}</strong><small>{template.aspect} · {template.sceneCount} scenes · {template.duration.toFixed(1)} s</small><span className="template-badges">{template.video && <span className="template-badge video">VIDEO</span>}{template.audio && <span className="template-badge music">MUSIC</span>}</span></span>
                 <Plus size={15} />
               </button>)}</div>
-              <p className="template-tab-note">Templates include real scenes, timing, looks, text effects, a local music bed, and one animated video opener. Your current story is saved before a template replaces it.</p>
+
             </div> : <div className="elements-panel">
-              <div className="custom-import-actions"><button className="button" disabled={!selectedScene || !canEdit} onClick={() => void chooseCustomElement('image')}><ImagePlus size={15} /> Import graphic</button><button className="button" disabled={!selectedScene || !canEdit} onClick={() => void chooseCustomElement('video')}><Layers size={15} /> Video overlay</button></div>
-              {allOverlays.length > 0 && <details className="element-list element-project-overlays">
-                <summary>Project overlays <span>{allOverlays.length}</span></summary>
-                {allOverlays.map(element => <button key={element.id} className={`element-list-row ${selectedElementId === element.id ? 'active' : ''}`} onClick={() => selectOverlay(element)}><span className="element-list-row-icon" style={{ color: element.color }}><ElementGlyph presetId={element.presetId} kind={element.kind} size={12} /></span><span>{elementName(element)}</span><small>{ticksToSeconds(element.startTicks, project.timebase).toFixed(1)}s</small></button>)}
-              </details>}
               <div className="element-library-tools">
                 <label className="element-search"><Search size={15} /><input aria-label="Search elements" placeholder={`Search ${ELEMENT_CATALOG.length} elements…`} value={elementSearch} onChange={e => { setElementSearch(e.target.value); setElementLimit(40); }} /></label>
                 <select aria-label="Element collection" value={elementCollection} onChange={e => { setElementCollection(e.target.value); setElementCategory('All'); setElementLimit(40); }}><option value="All">All {ELEMENT_COLLECTIONS.length} collections</option>{ELEMENT_COLLECTIONS.map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select>
-                <div className="element-library-count"><strong>{filteredElements.length} elements</strong><span>{ELEMENT_CATALOG.length} in your library</span></div>
+                <select aria-label="Element category" value={elementCategory} onChange={e => { setElementCategory(e.target.value); setElementCollection('All'); setElementLimit(40); }}>{ELEMENT_CATEGORIES.map(category => <option key={category} value={category}>{category === 'All' ? 'All categories' : category}</option>)}</select>
               </div>
-              <div className="element-categories" role="group" aria-label="Element categories">{ELEMENT_CATEGORIES.map(category => <button key={category} aria-pressed={elementCategory === category} className={elementCategory === category ? 'active' : ''} onClick={() => { setElementCategory(category); setElementCollection('All'); setElementLimit(40); }}>{category}</button>)}</div>
+              {allOverlays.length > 0 && <details className="element-list element-project-overlays library-disclosure">
+                <summary>In project <span>{allOverlays.length}</span></summary>
+                {allOverlays.map(element => <button key={element.id} className={`element-list-row ${selectedElementId === element.id ? 'active' : ''}`} onClick={() => selectOverlay(element)}><span className="element-list-row-icon" style={{ color: element.color }}><ElementGlyph presetId={element.presetId} kind={element.kind} size={12} /></span><span>{elementName(element)}</span><small>{ticksToSeconds(element.startTicks, project.timebase).toFixed(1)}s</small></button>)}
+              </details>}
               <div className="element-grid">{filteredElements.slice(0, elementLimit).map(item => <button key={item.id} className="element-card" aria-label={`Add ${item.label}`} disabled={!selectedScene || !canEdit || allOverlays.length >= 64} onClick={() => addElement(item.id)}><span className="element-card-icon"><ElementPreview presetId={item.id} kind={item.kind} color={item.color} animation={item.animation} reduceMotion={preferences.reduceMotion} /></span><strong>{item.label}</strong><Plus size={12} /></button>)}</div>
               {filteredElements.length === 0 && <p className="note">No matching elements. Try another collection or search.</p>}
               {filteredElements.length > elementLimit && <button className="button element-show-more" onClick={() => setElementLimit(n => n + 40)}>Show 40 more · {Math.min(elementLimit, filteredElements.length)} of {filteredElements.length}</button>}
@@ -4125,12 +4191,12 @@ export default function App() {
 
           <main className="preview-panel">
             <div className="preview-heading">
-              <span>PREVIEW</span>
+              <span>{t('PREVIEW')}</span>
               <div>
-                <span className="offline"><span />Local only</span>
-                <button className="text-button" title={tip('view.safe_area', `Safe area ${safeArea ? 'on' : 'off'}`)} onClick={() => runCommandId('view.safe_area')}>Safe area {safeArea ? 'on' : 'off'}</button>
+                <span className="offline"><span />{t('Local only')}</span>
+                <button className="text-button" title={tip('view.safe_area', `Safe area ${safeArea ? 'on' : 'off'}`)} onClick={() => runCommandId('view.safe_area')}>{t('Safe area')} {t(safeArea ? 'on' : 'off')}</button>
                 <select aria-label="Output format" value={activeFormat?.id ?? ''} disabled={!canEdit} onChange={event => setActiveFormatId(event.target.value)}>{project.formats.map(format => <option key={format.id} value={format.id}>{format.name} · {format.aspect}</option>)}</select>
-                <button className="format-manage-button" onClick={() => setModal('formats')}><Layers size={13} /> Formats <span>{project.formats.length}</span></button>
+                <button className="format-manage-button" onClick={() => setModal('formats')}><Layers size={13} /> {t('Formats')} <span>{project.formats.length}</span></button>
                 {previewTarget && <IconButton label={`Save still frame · ${activeSize.width} × ${activeSize.height} PNG`} onClick={() => void saveStillFrame()}><Camera size={15} /></IconButton>}
                 <IconButton label="Fullscreen preview" onClick={togglePreviewFullscreen}><Maximize2 size={15} /></IconButton>
               </div>
@@ -4195,7 +4261,7 @@ export default function App() {
           <div className="splitter vertical" onPointerDown={e => beginResize('inspector', inspectorWidth, e.clientX)} />
 
           <aside className="inspector" aria-label="Selected item properties" style={{ width: inspectorWidth }}>
-            <div className="inspector-heading"><Settings2 size={16} /><h2>{selectedPip ? 'Picture in picture' : ({scene: selectedScene?.mediaKind === 'video' ? 'Video properties' : 'Scene properties', text:'Text properties', element:'Element properties', audio:'Audio properties', none:'Properties'})[propertyKind]}</h2></div>
+            <div className="inspector-heading"><Settings2 size={16} /><h2>{selectedPip ? t('Picture in picture') : t(({scene: selectedScene?.mediaKind === 'video' ? 'Video properties' : 'Scene properties', text:'Text properties', element:'Element properties', audio:'Audio properties', none:'Properties'})[propertyKind])}</h2></div>
             {propertyKind === 'scene' && selectedCount > 1 && <div className="multi-select-banner"><span><Layers size={13} /> Editing {selectedCount} clips</span><button className="text-button" onClick={() => { if(selectedScene){setSelectedIds([selectedScene.id]);setPrimarySelected(selectedScene.id);selectionAnchor.current=selectedScene.id;} }}>Edit only this clip</button></div>}
             {selectedPip && activePip && activePip.pip ? <fieldset disabled={!canEdit} className="inspector-fields">
               <div className="inspector-item-actions"><strong>{activePip.name}</strong><button className="icon-button danger" aria-label="Delete picture in picture" onClick={() => removePip(activePip.id)}><Trash2 size={15} /></button></div>
@@ -4223,7 +4289,7 @@ export default function App() {
         <section className="timeline" aria-label="Timeline" aria-describedby="timeline-help" style={{ height: timelineHeight }}>
           <p className="sr-only" id="timeline-help">J and L play backwards and forwards, K stops, the arrow keys step one frame, and Space plays or pauses. Scene, text and audio clips are buttons: Enter selects one, and the commands in the Help dialog act on the selection.</p>
           <div className="timeline-toolbar">
-            <div><span className="timeline-heading">Your story</span><span className="tiny-label">{scenes.length} scenes</span></div>
+            <div><span className="timeline-heading">{t('Your story')}</span><span className="tiny-label">{scenes.length} scenes</span></div>
             <div className="timeline-tools"><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene earlier'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes[0]?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: -1 })}><ArrowLeft size={16} /></IconButton><IconButton label={selectedCount > 1 ? 'Select one clip to reorder' : 'Move selected scene later'} disabled={!selectedScene || selectedCount !== 1 || !canEdit || scenes.at(-1)?.id === selectedScene.id} onClick={() => selectedCount === 1 && selectedScene && void run({ type: 'move', id: selectedScene.id, offset: 1 })}><ArrowRight size={16} /></IconButton><IconButton className={snapping ? 'active' : ''} label={tip('timeline.snapping', `Snapping ${snapping ? 'on' : 'off'}`)} onClick={() => runCommandId('timeline.snapping')}><Magnet size={16} /></IconButton><IconButton label="Add beat at playhead" onClick={addBeatAtPlayhead}><AudioLines size={16} /></IconButton><span className="header-divider" /><div className="timeline-zoom" role="group" aria-label="Timeline zoom"><IconButton label="Zoom out timeline" disabled={timelineZoom <= .5} onClick={() => changeTimelineZoom(timelineZoom - .5)}><ZoomOut size={15} /></IconButton><input aria-label="Timeline zoom" type="range" min=".5" max="6" step=".25" value={timelineZoom} onChange={event => changeTimelineZoom(Number(event.target.value))} /><button className="timeline-zoom-label" title="Fit timeline" onClick={() => changeTimelineZoom(1)}>{Math.round(timelineZoom * 100)}%</button><IconButton label="Zoom in timeline" disabled={timelineZoom >= 6} onClick={() => changeTimelineZoom(timelineZoom + .5)}><ZoomIn size={15} /></IconButton></div><span className="header-divider" /><span className="timeline-total"><Clock3 size={14} />{duration.toFixed(1)}s</span></div>
           </div>
           {fileDragActive && <div className="file-drop-hint" role="status">Drop an image or video on a scene to replace it · or drop it in the media panel</div>}
@@ -4232,11 +4298,11 @@ export default function App() {
             {duration > 0 && <div className="timeline-playhead" style={{ left: `calc(${timelineRatio * 100}% + ${148 - timelineRatio * 198}px)` }} title="Drag playhead" onPointerDown={beginPlayheadDrag}><span className="timeline-playhead-handle" /></div>}
             {(project.beatTicks ?? []).map(tick => { const ratio = tick / Math.max(1, projectTicks); const seconds = ticksToSeconds(tick, project.timebase); return <button key={tick} className="beat-marker" style={{ left: `calc(${ratio * 100}% + ${148 - ratio * 198}px)` }} title={`Remove beat at ${seconds.toFixed(2)} s`} aria-label={`Remove beat at ${seconds.toFixed(2)} seconds`} disabled={!canEdit} onClick={() => removeBeat(tick)} />; })}
             <div className="timeline-sticky">
-              <div className="timeline-ruler-row"><span>00:00</span><span>YOUR TIMELINE · {activeSize.width} × {activeSize.height}</span><span>{timecode(duration, project.timebase)}</span></div>
+              <div className="timeline-ruler-row"><span>00:00</span><span>{t('YOUR TIMELINE')} · {activeSize.width} × {activeSize.height}</span><span>{timecode(duration, project.timebase)}</span></div>
               <div className="timeline-scrub-row"><input className="scrubber" aria-label="Timeline playhead" type="range" min="0" max={Math.max(duration - frameSeconds, 0)} step={frameSeconds} value={position} disabled={!duration} onChange={e => scrubTo(Number(e.target.value))} /></div>
             </div>
             <div className="timeline-row text-row" role="group" aria-label="Text track">
-              <div className="track-label"><Type size={14} /><span>Text</span><span className="track-number">{String(hasMediaOverlays ? 4 : 3).padStart(2, '0')}</span></div>
+              <div className="track-label"><Type size={14} /><span>{t('Text')}</span><span className="track-number">{String(hasMediaOverlays ? 4 : 3).padStart(2, '0')}</span></div>
               <div className="tracks"><div className="text-track">{scenes.map(scene => {
                 const layers = sceneTextLayers(scene);
                 const laneEnds: number[] = [];
@@ -4248,7 +4314,7 @@ export default function App() {
                 });
                 const lanes = Math.max(1, laneEnds.length);
                 return <div key={scene.id} className="text-scene" style={{ flexGrow: scene.durationTicks, height: `${Math.max(26, lanes * 17 + 5)}px` }}>
-                  {!layers.length && <button className={`text-clip empty ${isSelected(scene.id) ? 'selected' : ''}`} aria-label={`Add text to ${scene.name}`} onClick={event => { selectScene(scene, event); setTab('text'); setTextFocus(value => value + 1); }} title="Add text to this scene"><span className="text-clip-inner"><Type size={10} /><span>Add text</span></span></button>}
+                  {!layers.length && <button className={`text-clip empty ${isSelected(scene.id) ? 'selected' : ''}`} aria-label={`Add text to ${scene.name}`} onClick={event => { selectScene(scene, event); setTab('text'); setTextFocus(value => value + 1); }} title="Add text to this scene"><span className="text-clip-inner"><Type size={10} /><span>{t('Add text')}</span></span></button>}
                   {layers.map((layer, index) => {
                     const left = Math.max(0, Math.min(100, layer.startTicks / Math.max(1, scene.durationTicks) * 100));
                     const width = Math.max(3, Math.min(100 - left, layer.durationTicks / Math.max(1, scene.durationTicks) * 100));
@@ -4260,7 +4326,7 @@ export default function App() {
               <div className="timeline-add-slot"><button className="add-clip text-add" aria-label="Add text layer at playhead" disabled={!canEdit || !selectedScene} onClick={() => addTextLayerAtPlayhead()}><Plus size={16} /></button></div>
             </div>
             {[{ label: 'Overlays', media: true, items: allOverlays.filter(e => e.kind === 'image' || e.kind === 'video') }, { label: 'Elements', media: false, items: allOverlays.filter(e => e.kind !== 'image' && e.kind !== 'video') }].filter(group => !group.media || group.items.length > 0).map(group => <div key={group.label} className={`timeline-row ${group.media ? 'media-overlay-row' : 'element-row'}`} role="group" aria-label={`${group.label} track`}>
-              <div className="track-label">{group.media ? <Layers size={14} /> : <Shapes size={14} />}<span>{group.label}</span><span className="track-number">{String(group.media ? 2 : hasMediaOverlays ? 3 : 2).padStart(2, '0')}</span></div>
+              <div className="track-label">{group.media ? <Layers size={14} /> : <Shapes size={14} />}<span>{t(group.label)}</span><span className="track-number">{String(group.media ? 2 : hasMediaOverlays ? 3 : 2).padStart(2, '0')}</span></div>
               <div className="tracks"><div className="element-track overlay-track" style={{ height: Math.max(34, group.items.length * 29 + 8), position: 'relative' }}>{group.items.map((saved, index) => {
                 const element = overlayDraft?.id === saved.id ? overlayDraft : saved;
                 return <button key={element.id} className={`element-clip ${selectedElementId === element.id ? 'selected' : ''}`} style={{ left: `${element.startTicks / Math.max(1, projectTicks) * 100}%`, width: `${element.durationTicks / Math.max(1, projectTicks) * 100}%`, top: index * 29 + 4 }} aria-label={`Select ${group.media ? 'overlay' : 'element'} ${elementName(element)}`} aria-pressed={selectedElementId === element.id} onClick={event => { if (event.detail === 0) selectOverlay(element); }} onPointerDown={event => beginOverlayTiming(event, element, 'move')} title={`${elementName(element)} · ${ticksToSeconds(element.startTicks, project.timebase).toFixed(1)}–${ticksToSeconds(element.startTicks + element.durationTicks, project.timebase).toFixed(1)} s`}>
@@ -4272,13 +4338,13 @@ export default function App() {
               <div className="timeline-add-slot"><button className="add-clip" aria-label="Add element" disabled={!canEdit || !selectedScene} onClick={() => setTab('elements')}><Plus size={16} /></button></div>
             </div>)}
             <div className="timeline-row video-row" role="group" aria-label="Visuals track">
-              <div className="track-label"><Film size={14} /><span>Visuals</span><span className="track-number">01</span></div>
+              <div className="track-label"><Film size={14} /><span>{t('Visuals')}</span><span className="track-number">01</span></div>
               <div className="tracks"><div className="scene-track">{scenes.map((scene, i) => {
                 const display = previewScene?.id === scene.id ? previewScene : scene;
                 const displayDuration = sceneSeconds(display, project.timebase);
                 const fadeIn = Math.min(displayDuration, Math.max(0, display.fadeIn ?? 0));
                 const fadeOut = Math.min(displayDuration, Math.max(0, display.fadeOut ?? 0));
-                return <button key={scene.id} draggable={canEdit} aria-label={`Scene ${i + 1}: ${scene.name}, ${ticksToSeconds(scene.startTicks, project.timebase).toFixed(2)} to ${ticksToSeconds(scene.startTicks + scene.durationTicks, project.timebase).toFixed(2)} seconds${scene.mediaKind === 'video' ? ', video' : ''}`} aria-pressed={isSelected(scene.id)} aria-current={active?.id === scene.id ? 'true' : undefined} className={`timeline-clip ${isSelected(scene.id) ? 'selected' : ''} ${selectedScene?.id === scene.id ? 'primary' : ''} ${active?.id === scene.id ? 'current' : ''} ${dropTarget === scene.id ? 'drop-target' : ''} ${reorderId === scene.id ? 'dragging' : ''} ${replacingSceneId === scene.id ? 'replacing' : ''}`} aria-busy={replacingSceneId === scene.id} style={{ flexGrow: scene.durationTicks }} onClick={event => selectScene(scene, event)} onDragStart={event => beginReorder(event, scene)} onDragEnd={endReorder} onDragOver={event => dragOverScene(event, scene.id)} onDragLeave={() => setDropTarget(current => current === scene.id ? null : current)} onDrop={event => dropScene(event, scene)} onContextMenu={event => { event.preventDefault(); if (!selectedIds.includes(scene.id)) { setSelectedIds([scene.id]); setPrimarySelected(scene.id); selectionAnchor.current = scene.id; } setPlaying(false); setContextMenu({ x: event.clientX, y: event.clientY }); }}>
+                return <button key={scene.id} data-scene-id={scene.id} draggable={canEdit} aria-label={`Scene ${i + 1}: ${scene.name}, ${ticksToSeconds(scene.startTicks, project.timebase).toFixed(2)} to ${ticksToSeconds(scene.startTicks + scene.durationTicks, project.timebase).toFixed(2)} seconds${scene.mediaKind === 'video' ? ', video' : ''}`} aria-pressed={isSelected(scene.id)} aria-current={active?.id === scene.id ? 'true' : undefined} className={`timeline-clip ${isSelected(scene.id) ? 'selected' : ''} ${selectedScene?.id === scene.id ? 'primary' : ''} ${active?.id === scene.id ? 'current' : ''} ${dropTarget === scene.id ? 'drop-target' : ''} ${reorderId === scene.id ? 'dragging' : ''} ${replacingSceneId === scene.id ? 'replacing' : ''}`} aria-busy={replacingSceneId === scene.id} style={{ flexGrow: scene.durationTicks }} onClick={event => selectScene(scene, event)} onDragStart={event => beginReorder(event, scene)} onDragEnd={endReorder} onDragOver={event => dragOverScene(event, scene.id)} onDragLeave={() => setDropTarget(current => current === scene.id ? null : current)} onDrop={event => dropScene(event, scene)} onContextMenu={event => { event.preventDefault(); if (!selectedIds.includes(scene.id)) { setSelectedIds([scene.id]); setPrimarySelected(scene.id); selectionAnchor.current = scene.id; } setPlaying(false); setContextMenu({ x: event.clientX, y: event.clientY }); }}>
                   <ClipFilmstrip className="timeline-filmstrip" source={scene.mediaKind === 'video' ? (scene.videoPoster ?? scene.image) : scene.image} />
                   <div><span>{String(i + 1).padStart(2, '0')} <b>{scene.name}</b></span><small>{sceneSeconds(scene, project.timebase).toFixed(1)}s</small></div>
                   {scene.mediaKind === 'video' && <span className="clip-media-badge"><Film size={9} /> VIDEO</span>}
@@ -4294,7 +4360,7 @@ export default function App() {
               })}</div></div><div className="timeline-add-slot"><button className="add-clip" aria-label="Add images to timeline" disabled={!canEdit} onClick={() => void chooseImages()}><Plus size={20} /></button></div>
             </div>
             <div className="timeline-row pip-row" role="group" aria-label="Picture in picture track">
-              <div className="track-label"><Layers size={14} /><span>Picture in picture</span><span className="track-number">02</span></div>
+              <div className="track-label"><Layers size={14} /><span>{t('Picture in picture')}</span><span className="track-number">02</span></div>
               <div className="tracks"><div className="pip-track element-track overlay-track" style={{ height: 38, position: 'relative' }}>
                 {renderPipScenes.map(clip => <button key={clip.id} className={`element-clip ${selectedPipId === clip.id ? 'selected' : ''}`} style={{ left: `${clip.startTicks / Math.max(1, projectTicks) * 100}%`, width: `${clip.durationTicks / Math.max(1, projectTicks) * 100}%`, top: 4 }} aria-label={`Picture in picture ${clip.name}, ${ticksToSeconds(clip.startTicks, project.timebase).toFixed(2)} to ${ticksToSeconds(clip.startTicks + clip.durationTicks, project.timebase).toFixed(2)} seconds`} aria-pressed={selectedPipId === clip.id} onClick={() => selectPip(clip)} onPointerDown={event => beginPipTiming(event, clip, 'move')} title={`${clip.name} · drag to move, drag the edges to trim`}>
                   <span className="overlay-trim start" onPointerDown={event => beginPipTiming(event, clip, 'start')} aria-label="Trim picture-in-picture start" />
@@ -4302,12 +4368,12 @@ export default function App() {
                   <span>{clip.name}</span>
                   <span className="overlay-trim end" onPointerDown={event => beginPipTiming(event, clip, 'end')} aria-label="Trim picture-in-picture end" />
                 </button>)}
-                {!renderPipScenes.length && <span className="audio-empty">Pick a media tile → Picture in picture</span>}
+                {!renderPipScenes.length && <span className="audio-empty">{t('Pick a media tile → Picture in picture')}</span>}
               </div></div>
               <div className="timeline-add-slot"><button className="add-clip" aria-label="Add picture in picture" disabled={!canEdit} onClick={() => setTab('media')}><Plus size={16} /></button></div>
             </div>
             {audioLanes.map((lane, laneIndex) => <div className="timeline-row audio-row" role="group" aria-label={`Audio track ${laneIndex + 1}`} key={lane}>
-              <div className="track-label"><Music size={14} /><span>Audio {laneIndex + 1}</span><span className="track-number">{String((hasMediaOverlays ? 5 : 4) + laneIndex).padStart(2, '0')}</span></div>
+              <div className="track-label"><Music size={14} /><span>{t('Audio')} {laneIndex + 1}</span><span className="track-number">{String((hasMediaOverlays ? 5 : 4) + laneIndex).padStart(2, '0')}</span></div>
               <div className="tracks"><div className="audio-track">
                 {audio.filter(clip => (clip.lane ?? 0) === lane).map(clip => {
                   const left = projectTicks ? (clip.startTicks / projectTicks) * 100 : 0;
@@ -4334,7 +4400,7 @@ export default function App() {
                     <span className="audio-trim right" title="Drag to trim the end" onPointerDown={event => beginAudioTrim(event, clip, 'right')} />
                   </button>;
                 })}
-                {!audio.some(clip => (clip.lane ?? 0) === lane) && <span className="audio-empty">Empty audio track</span>}
+                {!audio.some(clip => (clip.lane ?? 0) === lane) && <span className="audio-empty">{t('Empty audio track')}</span>}
               </div></div>
               <div className="timeline-add-slot"><button className="add-clip audio-add" aria-label={`Add audio to track ${laneIndex + 1}`} disabled={!canEdit || !projectTicks} onClick={() => { audioLaneRef.current = lane; void chooseAudio(); }}><Plus size={16} /></button></div>
             </div>)}
@@ -4345,7 +4411,7 @@ export default function App() {
             </div>}
             </div>
           </div>
-          <footer className="editor-footer"><span><span className="status-dot" />Local photo movie editor <span className="footer-separator">/</span> Originals never modified</span><span><kbd>{shortcutText('playback.toggle')}</kbd> to play <span className="footer-separator">·</span> {snapping ? 'Snap on' : 'Snap off'} <span className="footer-separator">·</span> {frameRate(project.timebase).toFixed(0)} FPS</span></footer>
+          <footer className="editor-footer"><span><span className="status-dot" />{t('Local photo movie editor')} <span className="footer-separator">/</span> {t('Originals never modified')}</span><span><kbd>{shortcutText('playback.toggle')}</kbd> to play <span className="footer-separator">·</span> {snapping ? 'Snap on' : 'Snap off'} <span className="footer-separator">·</span> {frameRate(project.timebase).toFixed(0)} FPS</span></footer>
         </section>
       </>}
 
@@ -4513,7 +4579,7 @@ export default function App() {
           {projectGroupsList.length ? <div className="group-manager-list">{projectGroupsList.map(group => <div className="group-manager-row" key={group}><input aria-label={`Name for ${group}`} maxLength={60} value={groupDrafts[group] ?? group} onChange={event => setGroupDrafts(current => ({ ...current, [group]: event.target.value }))} onKeyDown={event => { if (event.key === 'Enter') void saveGroupRename(group); }} /><button className="button" disabled={(groupDrafts[group] ?? group).trim() === group || !(groupDrafts[group] ?? '').trim()} onClick={() => void saveGroupRename(group)}><Check size={14} /> Save</button><button className="button danger" onClick={() => void removeGroup(group)}><Trash2 size={14} /> Remove</button></div>)}</div> : <p className="note">No groups yet. Use a project’s ••• menu to move it into one.</p>}
           <div className="modal-actions"><button className="button primary" onClick={requestCloseModal}>Done</button></div>
         </> : modal === 'formats' ? <>
-          <h2 id="modal-title">Deliverables.</h2>
+          <h2 id="modal-title">{t('Deliverables')}.</h2>
           <p>Select the social formats you publish to. Each selected format keeps its own size, frame rate, quality, and image framing.</p>
           {formatFilterChips(() => { document.getElementById('custom-format-section')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); (document.getElementById('custom-format-name') as HTMLInputElement | null)?.focus(); })}
           <div className="settings-section-title">{formatFilter === 'social' ? 'Social formats' : formatFilter === 'sizes' ? 'Sizes & drafts' : formatFilter === 'all' ? 'Social formats & sizes' : FORMAT_FILTERS.find(filter => filter.id === formatFilter)?.label ?? 'Formats'}</div>
@@ -4648,7 +4714,7 @@ export default function App() {
             <p className="note">Deleting a project removes its local library record and media assets. Exported videos and downloaded project backups are not touched.</p>
           </div>}
         </> : <>
-          <div className="export-title"><h2 id="modal-title">Export video</h2><p>{project.name} <span>· {duration.toFixed(1)} s · {scenes.length} scenes</span></p></div>
+          <div className="export-title"><h2 id="modal-title">{t('Export video')}</h2><p>{project.name} <span>· {duration.toFixed(1)} s · {scenes.length} scenes</span></p></div>
           <div className="export-workspace">
             <div className="export-controls">
               <section className="export-section"><h3>Encoding</h3>

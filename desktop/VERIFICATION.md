@@ -973,7 +973,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Browser check evaluated every text layer in all 14 templates at 16:9, 9:16, 1:1 and 4:5 and found no box outside the canvas after the clamp.
 - Browser checks: the Shape category showed eight cards; a synthetic file drag exposed the timeline hint and the hovered `REPLACE IMAGE` state; dropping a PNG showed the replacing state and finished with “Image replaced”; dropping a generated MP4 produced a VIDEO badge and “Video replaced”. No console errors. Reviewed `output/playwright/shape-library-restored.png`, `timeline-file-drop-hint.png`, and `timeline-replacement-done.png`.
 - Verification: 209 TypeScript tests in 28 files, 39 project-model tests, 24 non-ignored native tests, and all 11 ignored FFmpeg tests pass.
-- Boundary: the native Finder drag path still needs a packaged-app pass on each OS; the browser event path and Tauri `dragDropEnabled: false` configuration are verified. Replacement still reads and decodes the full file before committing, so very large images can take a few seconds; the new replacing state makes that wait visible.
+- Boundary: native Finder/Explorer drops are now handled through Tauri drag-drop events and `import_media_path`; only macOS has been exercised locally. Replacement still hashes/decodes the source before committing, so very large images can take a moment; the replacing state makes that wait visible.
 
 ## Streamed bundle saves — 2026-10-26
 
@@ -1027,8 +1027,9 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Missing-media checks in the browser now ask the asset store whether each reference exists instead of treating every reference as missing. A reference is shown as present until the check answers.
 - Native `import_media` adds a single-image-or-video replacement picker that returns only a reference. `requestReplaceImage` uses it on desktop; browser replace uses `storeAssetBlob`. The old base64 hidden-input path remains only for browser/no-native file-drop fallback.
 - Portable `.pixcut` saves and exports already resolve references from the asset store. The native video export plan accepts `pixcut-asset:` clips directly; no base64 round-trip is required for video.
+- Native file drops now use Tauri drag-drop events (`dragDropEnabled: true`) rather than HTML5 file bytes: `import_media_path` streams the dropped path into the asset store and returns a reference, the scene under the cursor is highlighted, and dropping on a scene replaces it. Drops elsewhere import all paths into the media panel. Browser HTML5 drops still use the blob store.
 - Browser check: a project saved with a green canvas photo reopened with media-tile `src` and timeline filmstrip as `blob:` URLs, a non-empty canvas (`[43,143,111]`), stored project reference `pixcut-asset:73948…`, and no missing-media banner. No console errors. Reviewed `output/playwright/streamed-images.png`.
-- Verification: 282 TypeScript tests in 39 files, 42 project-model tests, 33 non-ignored native tests, and all 13 ignored FFmpeg tests pass.
+- Verification: 290 TypeScript tests in 41 files, 44 project-model tests, 33 non-ignored native tests, and all 13 ignored FFmpeg tests pass.
 - Boundary: template builds still read bundled photos as temporary data URLs before the first project commit turns them into references. Browser drag/drop uses IndexedDB blobs; the native Finder-drop path still needs a packaged-app pass on Windows/Linux. Replacing a very large image can still spend time hashing/decoding the source, but the project no longer serializes or stores it as base64.
 
 ## Cross-platform hardware encoders — 2026-10-26
@@ -1157,3 +1158,10 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Tests: `tests/pip-track.test.ts` (5) covers the second track, timeline length, gaps/overlaps/bounds, required placement, one-overlay limit and clearing; `tests/pip-timing.test.ts` (3) covers free-gap placement, move and trim constraints; Rust adds `validates_the_picture_in_picture_track` (track roles, bounds, overlap, placement, 50-clip cap, command and removal). Counts are listed in the build-state section.
 - Browser check: adding Scene 2 as PiP over Scene 1 created one timeline clip with the inspector heading “Picture in picture”; changing width to 50% and horizontal to 22% drew a clearly visible brown rounded rectangle over the blue base, and seeking to 2.4 s removed it at the clip’s end. No console errors. Reviewed `output/playwright/pip-track.png` and `pip-track-after.png`.
 - Boundary: one PiP track, no PiP-to-PiP transitions, and PiP audio is muted (the base clip’s sound and music still play).
+
+## Inspector and timeline translations — 2026-10-27
+
+- The second i18n pass translates the inspector tab names and tool labels (Framing, Transitions, Color, Speed, Fades, Looks), the inspector headings (scene/video/text/element/audio properties), `RangeField` labels (so Duration, Zoom, Horizontal, Vertical, Speed and others translate once for every panel), the fill modes, transition-card labels, text sections, common summaries (Position, Timing, Animation, Typography, Camera movement, Framing keyframes, Shape mask) and actions (Reposition, Make text readable, Reset styling).
+- The timeline now translates its heading, Visuals, Picture in picture, Text and Elements labels, the audio lane prefix, the empty-audio hint and Add text. The preview chrome translates PREVIEW, Local only, Formats and Safe area with on/off states, and the footer translates its local-editor line.
+- Browser check in Polish: the inspector read “Właściwości sceny”, tabs “Kadrowanie / Przejścia / Kolor / Zanikanie / Wygląd”, the duration field “Czas trwania”, the timeline “Twoja historia / Wizualia / Obraz w obrazie / Dźwięk 1”, Add text “Dodaj tekst”, PREVIEW “PODGLĄD” and Local only “Tylko lokalnie”; no console errors. Reviewed `output/playwright/polish-inspector.png`.
+- Remaining English strings fall back cleanly; the deeper element, export and dialog controls are the next extraction pass.
