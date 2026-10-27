@@ -1158,7 +1158,7 @@ fn read_recovery(app: &tauri::AppHandle, path: &Path) -> Result<(Project, bool),
     }
     let mut project: Project = serde_json::from_reader(fs::File::open(path).map_err(|e| e.to_string())?)
         .map_err(|e| format!("Cannot open recovery: {e}"))?;
-    let legacy = project.schema_version != 14 || has_inline_media(&project);
+    let legacy = project.schema_version != 15 || has_inline_media(&project);
     hydrate_project(&asset_store_dir(app)?, &mut project, true)?;
     project.validate()?;
     Ok((project, legacy))
@@ -1183,7 +1183,7 @@ fn read_project_with_migration(path: &Path) -> Result<(Project, bool), String> {
     }
     let mut p: Project = serde_json::from_reader(fs::File::open(path).map_err(|e| e.to_string())?)
         .map_err(|e| format!("Cannot open project: {e}"))?;
-    let legacy = p.schema_version != 14;
+    let legacy = p.schema_version != 15;
     p.validate()?;
     Ok((p, legacy))
 }
@@ -3249,6 +3249,50 @@ mod integration_tests {
         }
     }
     #[test]
+    #[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+    fn real_compact_deliverables_encode_at_their_own_size() {
+        // The size ladder goes below the old 240 px floor (320×180, 480×854), so
+        // both render paths have to encode those frames at exactly that size.
+        let binary = ffmpeg().expect("FFmpeg is installed");
+        assert!(encoder_available(&binary, ExportCodec::H264));
+        let temp = tempfile::tempdir().unwrap();
+        for (width, height) in [(320u32, 180u32), (480, 854), (640, 360)] {
+            let (project, frames) = fixture_project();
+            let mut options = export_options();
+            options.width = width;
+            options.height = height;
+            options.speed = EncodeSpeed::Fast;
+            let name = format!("compact-{width}x{height}.mp4");
+            options.filename = name.clone();
+            let output = temp.path().join(&name);
+            encode_movie(project.clone(), frames.clone(), vec![15, 15], options.clone(), binary.clone(), output.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+            let plan = ExportPlan {
+                segments: frames.into_iter().map(|png| PlanSegment {
+                    kind: "image".into(), png: Some(png), video: None, source_in_seconds: None,
+                    fit: None, speed: None, speed_end: None, reverse: false, lut: None,
+                    fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true,
+                    audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
+                }).collect(),
+                options: options.clone(),
+            };
+            let plan_output = temp.path().join(format!("plan-{width}x{height}.mp4"));
+            encode_plan(&project, plan, binary.clone(), plan_output.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+            for file in [output, plan_output] {
+                let probe = Process::new("ffprobe")
+                    .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height", "-of", "json"])
+                    .arg(&file)
+                    .output()
+                    .unwrap();
+                assert!(probe.status.success(), "{width}×{height} probe failed");
+                let info: serde_json::Value = serde_json::from_slice(&probe.stdout).unwrap();
+                assert_eq!(info["streams"][0]["codec_name"], "h264");
+                assert_eq!(info["streams"][0]["width"], width, "width of {file:?}");
+                assert_eq!(info["streams"][0]["height"], height, "height of {file:?}");
+            }
+        }
+    }
+
+    #[test]
     #[ignore = "Requires FFmpeg with libx264, libx265 and ffprobe installed"]
     fn real_hevc_exports_all_containers_and_both_render_paths() {
         let binary = ffmpeg().expect("FFmpeg is installed"); assert!(encoder_available(&binary, ExportCodec::Hevc));
@@ -3473,9 +3517,25 @@ mod integration_tests {
         let db: f64 = mean.split("mean_volume:").nth(1).unwrap_or(" -inf ").split("dB").next().unwrap_or(" -inf ").trim().parse().unwrap_or(-100.0);
         assert!(db > -40.0, "expected the imported tone, got {mean}");
 
-        // The export dialog's include-audio switch also drops the music bed.
+        // The timeline's video-audio bus silences imported sound on export too.
         project.audio.clear();
         project.ducking = None;
+        project.audio_mix = Some(pixcut_project::AudioMix { video: 0.0, lanes: vec![] });
+        let bus_muted = temp.path().join("video-bus-muted.mp4");
+        encode_plan(&project, plan(true), binary.clone(), bus_muted.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        let bus_volume = Process::new(&binary)
+            .args(["-hide_banner", "-nostats", "-i"])
+            .arg(&bus_muted)
+            .args(["-af", "volumedetect", "-f", "null", "-"])
+            .output()
+            .unwrap();
+        let bus_log = String::from_utf8_lossy(&bus_volume.stderr);
+        let bus_mean = bus_log.lines().find(|line| line.contains("mean_volume:")).unwrap_or("mean_volume: -inf dB");
+        let bus_db: f64 = bus_mean.split("mean_volume:").nth(1).unwrap_or(" -inf ").split("dB").next().unwrap_or(" -inf ").trim().parse().unwrap_or(-100.0);
+        assert!(bus_db < -80.0, "expected the muted video bus to be silent, got {bus_mean}");
+        project.audio_mix = None;
+
+        // The export dialog's include-audio switch also drops the music bed.
         let muted = temp.path().join("video-muted.mp4");
         encode_plan(&project, plan(false), binary.clone(), muted.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
         let muted_probe = Process::new(binary.with_file_name("ffprobe"))
@@ -3486,6 +3546,57 @@ mod integration_tests {
         assert!(muted_probe.status.success(), "{}", String::from_utf8_lossy(&muted_probe.stderr));
         let muted_info: serde_json::Value = serde_json::from_slice(&muted_probe.stdout).unwrap();
         assert!(!muted_info["streams"].as_array().unwrap().iter().any(|stream| stream["codec_type"] == "audio"));
+    }
+
+    #[test]
+    #[ignore = "Requires FFmpeg with libx264, aac and ffprobe installed"]
+    fn export_applies_audio_lane_gain_and_mute() {
+        let binary = ffmpeg().expect("FFmpeg must be installed for this test");
+        assert!(encoder_available(&binary, ExportCodec::H264));
+        let temp = tempfile::tempdir().unwrap();
+        let (mut project, frames) = fixture_project();
+        project.audio = vec![AudioClip {
+            id: "tone".into(),
+            name: "Tone.wav".into(),
+            data: format!("data:audio/wav;base64,{}", STANDARD.encode(wav_tone(1.0, 440.0))).into(),
+            lane: 0,
+            start_ticks: 0,
+            duration_ticks: 30,
+            source_in_seconds: 0.0,
+            source_duration_seconds: 1.0,
+            volume: 1.0,
+            fade_in: 0.0,
+            fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
+        }];
+        let plan = || ExportPlan {
+            segments: vec![PlanSegment {
+                kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
+                fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None,
+                fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true,
+                duration_ticks: 30, audio_duration_ticks: None, overlays: vec![],
+            }],
+            options: export_options(),
+        };
+        let mut level = |name: &str, mix: Option<pixcut_project::AudioMix>| {
+            project.audio_mix = mix;
+            let output = temp.path().join(name);
+            encode_plan(&project, plan(), binary.clone(), output.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+            let volume = Process::new(&binary)
+                .args(["-hide_banner", "-nostats", "-i"])
+                .arg(&output)
+                .args(["-af", "volumedetect", "-f", "null", "-"])
+                .output()
+                .unwrap();
+            let log = String::from_utf8_lossy(&volume.stderr);
+            let mean = log.lines().find(|line| line.contains("mean_volume:")).unwrap_or("mean_volume: -inf dB");
+            mean.split("mean_volume:").nth(1).unwrap_or(" -inf ").split("dB").next().unwrap_or(" -inf ").trim().parse::<f64>().unwrap_or(-100.0)
+        };
+        let full = level("full.mp4", None);
+        let half = level("half.mp4", Some(pixcut_project::AudioMix { video: 1.0, lanes: vec![pixcut_project::AudioLaneMix { lane: 0, volume: 0.5, muted: false }] }));
+        let muted = level("muted.mp4", Some(pixcut_project::AudioMix { video: 1.0, lanes: vec![pixcut_project::AudioLaneMix { lane: 0, volume: 1.0, muted: true }] }));
+        assert!(full > -40.0, "expected the tone, got {full} dB");
+        assert!((full - half - 6.02).abs() < 1.5, "half volume should be about 6 dB quieter: {full} vs {half}");
+        assert!(muted < -80.0, "a muted lane should be silent, got {muted} dB");
     }
 
     #[test]
@@ -4024,6 +4135,29 @@ mod integration_tests {
         bytes.extend(b"data");
         bytes.extend(&data_len.to_le_bytes());
         bytes.extend(vec![0u8; data_len as usize]);
+        bytes
+    }
+    fn wav_tone(seconds: f32, frequency: f32) -> Vec<u8> {
+        let sample_rate = 8_000u32;
+        let samples = (sample_rate as f32 * seconds) as u32;
+        let data_len = samples * 2;
+        let mut bytes = Vec::with_capacity(44 + data_len as usize);
+        bytes.extend(b"RIFF");
+        bytes.extend(&(36 + data_len).to_le_bytes());
+        bytes.extend(b"WAVEfmt ");
+        bytes.extend(&16u32.to_le_bytes());
+        bytes.extend(&1u16.to_le_bytes());
+        bytes.extend(&1u16.to_le_bytes());
+        bytes.extend(&sample_rate.to_le_bytes());
+        bytes.extend(&(sample_rate * 2).to_le_bytes());
+        bytes.extend(&2u16.to_le_bytes());
+        bytes.extend(&16u16.to_le_bytes());
+        bytes.extend(b"data");
+        bytes.extend(&data_len.to_le_bytes());
+        for index in 0..samples {
+            let value = (index as f32 / sample_rate as f32 * frequency * std::f32::consts::TAU).sin();
+            bytes.extend(((value * 12_000.0) as i16).to_le_bytes());
+        }
         bytes
     }
     #[test]

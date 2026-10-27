@@ -20,7 +20,7 @@ Status legend: **shipped** · **partial** · **planned** · **deferred**
 | 6 | Multi-track and picture-in-picture | shipped (one overlay track) | no |
 | 7 | i18n: translatable interface | shipped (most UI) | no |
 | 8 | One asset store and a SQLite index | partial (index shipped) | no |
-| 9 | Font subsetting for large faces | planned | no |
+| 9 | Font subsetting for large faces | shipped (TTF/OTF) | no |
 | 10 | Signed and notarised releases | deferred | no |
 
 ## Ground rules
@@ -238,7 +238,7 @@ index.
 
 ## 9. Font subsetting
 
-**Status.** Not implemented. Fonts are embedded whole with the 2 MB cap and the 9 MB project budget; large CJK faces still do not fit.
+**Status.** Large TTF/OTF faces are subsetted in the browser with the bundled HarfBuzz hb-subset WASM before they are embedded: the subset covers the project's current text, Latin, Greek, Cyrillic, punctuation, kana and 1,000 common CJK characters. A 22 MB CJK face becomes ~320 KB and renders CJK titles; small fonts and WOFF/WOFF2 under 2 MB are stored whole. Characters typed after import that fall outside that set use the fallback font; WOFF/WOFF2 sources over 2 MB are rejected with an actionable message.
 
 **Why it is missing.** A face is embedded whole with a 2 MB cap, so large CJK
 faces do not fit.

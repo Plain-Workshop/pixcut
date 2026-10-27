@@ -27,6 +27,7 @@ describe('independent overlays',()=>{
    const legacy=timelineOverlays(p)[0];expect(legacy.startTicks).toBe(150);
    const next=validateProject(replaceOverlay(p,legacy,{...legacy,durationTicks:90,x:.3}));
    expect(next.tracks[0].clips[1].elements).toEqual([]);expect(timelineOverlays(next)).toHaveLength(1);expect(next.overlays[0].startTicks).toBe(150);
+   expect(next.overlays[0].z).toBe(1000);
  });
  it('fades in once and rings later with an independently timed sound',()=>{
    const e={...element,durationTicks:210,action:{kind:'ring' as const,startTicks:90,durationTicks:60,repeat:false,sound:true}};

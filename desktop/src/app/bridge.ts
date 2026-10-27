@@ -12,7 +12,7 @@ async function persist(project: Project) { const persisted = await persistProjec
 export async function initialize(): Promise<Session> {
   if (native) return invoke('initialize');
   const db = await database();
-  try { const saved = await new Promise<unknown>((resolve, reject) => { const req = db.transaction('projects').objectStore('projects').get('recovery'); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); }); if (saved) { const validated = validateProject(saved); const persisted = await persistProjectAssets(validated); current = persisted; const legacy = (saved as { schema_version?: number }).schema_version !== 14 || JSON.stringify(persisted) !== JSON.stringify(validated); if (legacy) await persist(current); } } finally { db.close(); }
+  try { const saved = await new Promise<unknown>((resolve, reject) => { const req = db.transaction('projects').objectStore('projects').get('recovery'); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); }); if (saved) { const validated = validateProject(saved); const persisted = await persistProjectAssets(validated); current = persisted; const legacy = (saved as { schema_version?: number }).schema_version !== 15 || JSON.stringify(persisted) !== JSON.stringify(validated); if (legacy) await persist(current); } } finally { db.close(); }
   return view();
 }
 export async function dispatch(command: Command): Promise<Session> {

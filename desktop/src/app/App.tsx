@@ -14,6 +14,8 @@ import { canvasPng } from '../components/preview/png';
 import { framingTravel } from '../components/preview/framing';
 import { centreGuides, edgeGuides, snapToTargets } from '../components/preview/snapping';
 import { registerCustomFonts } from '../components/text/fonts';
+import { subsetCharacters } from '../components/text/subset-chars';
+import { subsetFontBytes } from '../components/text/subset';
 import { splitTransition } from '../components/preview/transition-timing';
 import { constrainPipTiming, freePipStart, pipSourceRoom } from '../components/timeline/pip';
 import { isRamped, sourceSecondsAt, sourceSpan, speedAt, speedCurve } from '../components/preview/speed';
@@ -656,7 +658,7 @@ export default function App() {
   const useHardware = exportHardware && hardwareAvailable && (exportCodec === 'h264' || exportCodec === 'hevc');
   const displayAspect = project.aspect;
   const cueAudio = useMemo(() => actionAudio(project), [project]);
-  const videoDuckWindows = useMemo(() => audibleVideoWindows(projectScenes(project), project.timebase, videoAudioGain(project)), [project.tracks, project.timebase, project.audioMix]);
+  const videoDuckWindows = useMemo(() => audibleVideoWindows(projectScenes(project), project.timebase, videoAudioGain({ audioMix: mixDraft ?? project.audioMix })), [project.tracks, project.timebase, project.audioMix, mixDraft]);
   const audioClips = previewAudio ?? project.audio;
   const audio = audioClips.map(clip => audioDraft?.id === clip.id ? audioDraft : clip);
   const selectedAudio = audioDraft ?? audio.find(clip => clip.id === selectedAudioId) ?? audio[0] ?? null;
@@ -964,7 +966,7 @@ export default function App() {
     for (const clip of audio) {
       const element = audioElements.current.get(clip.id);
       if (!element) continue;
-      syncAudioElement(element, clip, position, playing && playDirection > 0, project.timebase, undefined, duck * audioLaneGain(project, clip.lane ?? 0));
+      syncAudioElement(element, clip, position, playing && playDirection > 0, project.timebase, undefined, duck * audioLaneGain({ audioMix }, clip.lane ?? 0));
       applyClipEq(element, clip);
     }
     for (const clip of cueAudio) {
@@ -972,7 +974,7 @@ export default function App() {
       if (!element) continue;
       syncAudioElement(element, clip, position, playing && playDirection > 0, project.timebase);
     }
-  }, [position, playing, playDirection, audio, cueAudio, project.timebase, videoDuckWindows, project.ducking, project.audioMix]);
+  }, [position, playing, playDirection, audio, cueAudio, project.timebase, videoDuckWindows, project.ducking, audioMix]);
   useEffect(() => () => { for (const element of audioElements.current.values()) element.pause(); recorderRef.current?.state !== 'inactive' && recorderRef.current?.stop(); if (recordTimer.current) clearInterval(recordTimer.current); }, []);
   useEffect(() => {
     if (!projectMenu) return;
@@ -1152,9 +1154,9 @@ export default function App() {
       const speed = speedAt(videoScene, previewLocalSeconds, clipSeconds);
       if (element.playbackRate !== speed) element.playbackRate = speed;
     }
-    element.volume = videoGain(previewLocalSeconds, clipSeconds, videoScene.fadeIn ?? 0, videoScene.fadeOut ?? 0, videoScene.videoVolume ?? 100) * videoAudioGain(project);
+    element.volume = videoGain(previewLocalSeconds, clipSeconds, videoScene.fadeIn ?? 0, videoScene.fadeOut ?? 0, videoScene.videoVolume ?? 100) * videoAudioGain({ audioMix });
     if (element.readyState >= 2 && Math.abs(element.currentTime - target) > 0.12) element.currentTime = target;
-  }, [previewLocalSeconds, videoScene?.id, videoScene?.speed, videoScene?.speedEnd, videoScene?.reverse, videoScene?.fadeIn, videoScene?.fadeOut, videoScene?.videoVolume, project.timebase, project.audioMix]);
+  }, [previewLocalSeconds, videoScene?.id, videoScene?.speed, videoScene?.speedEnd, videoScene?.reverse, videoScene?.fadeIn, videoScene?.fadeOut, videoScene?.videoVolume, project.timebase, audioMix]);
 
   useEffect(() => {
     const element = sceneVideo.current;
@@ -2912,8 +2914,11 @@ export default function App() {
     try {
       const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
       if (!['ttf', 'otf', 'woff', 'woff2'].includes(extension)) throw new Error('Choose a TTF, OTF, WOFF, or WOFF2 font.');
-      if (file.size > 2 * 1024 * 1024) throw new Error('Choose a font smaller than 2 MB.');
+      if (file.size > 40 * 1024 * 1024) throw new Error('Choose a font smaller than 40 MB.');
       if ((project.fonts?.length ?? 0) >= MAX_PROJECT_FONTS) throw new Error(`A project supports up to ${MAX_PROJECT_FONTS} imported fonts.`);
+      if ((extension === 'woff' || extension === 'woff2') && file.size > 2 * 1024 * 1024) {
+        throw new Error('WOFF and WOFF2 fonts cannot be subset here. Choose a TTF or OTF under 2 MB, or a large TTF/OTF that PixCut can subset.');
+      }
       const mime = extension === 'woff2' ? 'font/woff2' : extension === 'woff' ? 'font/woff' : extension === 'otf' ? 'font/otf' : 'font/ttf';
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -2922,13 +2927,41 @@ export default function App() {
         reader.readAsDataURL(file);
       });
       if (!base64) throw new Error('That font file is empty.');
+      let data = `data:${mime};base64,${base64}`;
+      let subsetted = 0;
+      // A CJK face is often tens of megabytes. Subset it to the project's text
+      // plus everyday alphabets so it fits the same local project budget.
+      if ((extension === 'ttf' || extension === 'otf') && file.size > 300_000) {
+        try {
+          const bytes = Uint8Array.from(atob(base64), character => character.charCodeAt(0));
+          const projectText = [
+            ...projectScenes(project).flatMap(scene => sceneTextLayers(scene).flatMap(layer => [layer.title, layer.subtitle])),
+            ...(project.globalText ?? []).flatMap(layer => [layer.title, layer.subtitle]),
+            'The little moments',
+          ].join(' ');
+          const subset = await subsetFontBytes(bytes, subsetCharacters(projectText));
+          if (subset.length && subset.length < bytes.length) {
+            let binary = '';
+            for (let index = 0; index < subset.length; index += 0x8000) {
+              binary += String.fromCharCode(...subset.subarray(index, index + 0x8000));
+            }
+            data = `data:${mime};base64,${btoa(binary)}`;
+            subsetted = subset.length;
+          }
+        } catch { /* fall back to the original if it fits the project budget */ }
+      }
+      if (data.length > 3_000_000) {
+        throw new Error('This font is still larger than 2 MB after subsetting. Choose a TTF or OTF with fewer glyphs.');
+      }
       const font = {
         id: `custom-${crypto.randomUUID()}`,
         name: (file.name.replace(/\.[^.]+$/, '').trim() || 'Imported font').slice(0, 60),
-        data: `data:${mime};base64,${base64}`,
+        data,
       };
       if (await run({ type: 'fonts', fonts: [...(project.fonts ?? []), font] })) {
-        setNotice(`“${font.name}” is now in the font picker.`);
+        setNotice(subsetted
+          ? `“${font.name}” is now in the font picker · subset to ${formatBytes(subsetted)} from ${formatBytes(file.size)}.`
+          : `“${font.name}” is now in the font picker.`);
       }
     } catch (error) {
       setError(messageFor(error));
@@ -4361,7 +4394,7 @@ export default function App() {
               </div>
               <div className="caption-import font-import">
                 <button className="button" disabled={!canEdit || (project.fonts?.length ?? 0) >= MAX_PROJECT_FONTS} onClick={() => fontInput.current?.click()}><Type size={14} /> Import font</button>
-                <small>{project.fonts?.length ? `${project.fonts.length} custom font${project.fonts.length === 1 ? '' : 's'} in the picker` : 'TTF, OTF, or WOFF · appears in the font picker'}</small>
+                <small>{project.fonts?.length ? `${project.fonts.length} custom font${project.fonts.length === 1 ? '' : 's'} in the picker` : 'TTF/OTF up to 40 MB · large faces are subsetted'}</small>
               </div>
               </div></details>
               {TITLE_PRESETS.map(preset => <button key={preset.name} className={`title-preset ${preset.id}`} disabled={!selectedScene || !canEdit || sceneTextLayers(selectedScene).length >= 8} onClick={() => addTextLayerAtPlayhead(preset.layer)} aria-label={`Add ${preset.name} title`}>
@@ -4595,22 +4628,9 @@ export default function App() {
                 </button>;
               })}</div></div><div className="timeline-add-slot"><button className="add-clip" aria-label="Add images to timeline" disabled={!canEdit} onClick={() => void chooseImages()}><Plus size={20} /></button></div>
             </div>
-            <div className="timeline-row pip-row" role="group" aria-label="Picture in picture track">
-              <div className="track-label"><Layers size={14} /><span>{t('Picture in picture')}</span><span className="track-number">02</span></div>
-              <div className="tracks"><div className="pip-track element-track overlay-track" style={{ height: 38, position: 'relative' }}>
-                {renderPipScenes.map(clip => <button key={clip.id} className={`element-clip ${selectedPipId === clip.id ? 'selected' : ''}`} style={{ left: `${clip.startTicks / Math.max(1, projectTicks) * 100}%`, width: `${clip.durationTicks / Math.max(1, projectTicks) * 100}%`, top: 4 }} aria-label={`Picture in picture ${clip.name}, ${ticksToSeconds(clip.startTicks, project.timebase).toFixed(2)} to ${ticksToSeconds(clip.startTicks + clip.durationTicks, project.timebase).toFixed(2)} seconds`} aria-pressed={selectedPipId === clip.id} onClick={() => selectPip(clip)} onPointerDown={event => beginPipTiming(event, clip, 'move')} title={`${clip.name} · drag to move, drag the edges to trim`}>
-                  <span className="overlay-trim start" onPointerDown={event => beginPipTiming(event, clip, 'start')} aria-label="Trim picture-in-picture start" />
-                  <AssetImage className="overlay-thumb" source={clip.videoPoster ?? clip.image} alt="" fallback={<span className="overlay-thumb missing" />} />
-                  <span>{clip.name}</span>
-                  <span className="overlay-trim end" onPointerDown={event => beginPipTiming(event, clip, 'end')} aria-label="Trim picture-in-picture end" />
-                </button>)}
-                {!renderPipScenes.length && <span className="audio-empty">{t('Pick a media tile → Picture in picture')}</span>}
-              </div></div>
-              <div className="timeline-add-slot"><button className="add-clip" aria-label="Add picture in picture" disabled={!canEdit} onClick={() => setTab('media')}><Plus size={16} /></button></div>
-            </div>
             {videoScenes.length > 0 && <div className="timeline-row video-audio-row" role="group" aria-label="Video audio track">
               <div className="track-label audio-mixer">
-                <div className="track-label-head"><Film size={14} /><span>{t('Video audio')}</span><span className="track-number">{String(hasMediaOverlays ? 5 : 4).padStart(2, '0')}</span></div>
+                <div className="track-label-head"><Film size={14} /><span>{t('Video audio')}</span></div>
                 <div className="track-volume">
                   <button className={`track-mute ${audioMix.video > 0 ? '' : 'muted'}`} aria-label={audioMix.video > 0 ? 'Mute video audio' : 'Unmute video audio'} aria-pressed={audioMix.video === 0} disabled={!canEdit} onClick={() => { setVideoAudioLevel(audioMix.video > 0 ? 0 : 1); commitMix(); }}>{audioMix.video > 0 ? <Volume2 size={11} /> : <VolumeX size={11} />}</button>
                   <input aria-label="Video audio volume" type="range" min="0" max="100" step="1" value={Math.round(audioMix.video * 100)} disabled={!canEdit} onChange={event => setVideoAudioLevel(Number(event.target.value) / 100)} onPointerUp={commitMix} onKeyUp={commitMix} onBlur={commitMix} />
@@ -4649,6 +4669,19 @@ export default function App() {
               </div></div>
               <div className="timeline-add-slot"><button className="add-clip" aria-label="Add video to the timeline" disabled={!canEdit} onClick={() => setTab('media')}><Plus size={16} /></button></div>
             </div>}
+            <div className="timeline-row pip-row" role="group" aria-label="Picture in picture track">
+              <div className="track-label"><Layers size={14} /><span>{t('Picture in picture')}</span><span className="track-number">02</span></div>
+              <div className="tracks"><div className="pip-track element-track overlay-track" style={{ height: 38, position: 'relative' }}>
+                {renderPipScenes.map(clip => <button key={clip.id} className={`element-clip ${selectedPipId === clip.id ? 'selected' : ''}`} style={{ left: `${clip.startTicks / Math.max(1, projectTicks) * 100}%`, width: `${clip.durationTicks / Math.max(1, projectTicks) * 100}%`, top: 4 }} aria-label={`Picture in picture ${clip.name}, ${ticksToSeconds(clip.startTicks, project.timebase).toFixed(2)} to ${ticksToSeconds(clip.startTicks + clip.durationTicks, project.timebase).toFixed(2)} seconds`} aria-pressed={selectedPipId === clip.id} onClick={() => selectPip(clip)} onPointerDown={event => beginPipTiming(event, clip, 'move')} title={`${clip.name} · drag to move, drag the edges to trim`}>
+                  <span className="overlay-trim start" onPointerDown={event => beginPipTiming(event, clip, 'start')} aria-label="Trim picture-in-picture start" />
+                  <AssetImage className="overlay-thumb" source={clip.videoPoster ?? clip.image} alt="" fallback={<span className="overlay-thumb missing" />} />
+                  <span>{clip.name}</span>
+                  <span className="overlay-trim end" onPointerDown={event => beginPipTiming(event, clip, 'end')} aria-label="Trim picture-in-picture end" />
+                </button>)}
+                {!renderPipScenes.length && <span className="audio-empty">{t('Pick a media tile → Picture in picture')}</span>}
+              </div></div>
+              <div className="timeline-add-slot"><button className="add-clip" aria-label="Add picture in picture" disabled={!canEdit} onClick={() => setTab('media')}><Plus size={16} /></button></div>
+            </div>
             {audioLanes.map((lane, laneIndex) => {
               const laneMix = audioLaneMix({ audioMix }, lane);
               return <div className={`timeline-row audio-row ${audioDisplay}`} role="group" aria-label={`Audio track ${laneIndex + 1}`} key={lane}>

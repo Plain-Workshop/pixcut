@@ -1017,6 +1017,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Compact sizes needed a lower floor: the format validator (TypeScript and `crates/project`), the native export validator and the three UI guards moved from 240 px to 160 px minimum, still even and ≤ 3840. 320×180 and 480×854 now pass the model, the Rust project model and `validate_export_options`. Custom-size inputs accept 160–3840.
 - Preview sharpness for compact deliverables: the preview canvas now renders at up to 720 px on its long edge even when the deliverable is smaller, so a 320×180 format stays crisp in the editor (measured 720×405) while the export keeps 320×180.
 - Tests: `tests/formats.test.ts` gained 5 tests (15 in the file) — size ladder contents, every preset even/in-range/valid fps-quality/unique id and slug and accepted by `edit()`, compact sizes accepted with 158 px and odd heights rejected, the filter semantics and chip coverage, and the `size` filename code. Rust adds `accepts_compact_exports_down_to_160_pixels` for the encoder options and `accepts_compact_output_formats_down_to_160_pixels` for the project model (320×180, 480×854, 640×360, 160×160 accepted; 158×160 and 320×181 rejected). Full suites: 221 TypeScript tests in 30 files, 44 project-model tests, 27 native tests (11 ignored FFmpeg tests).
+- End-to-end encode check: `real_compact_deliverables_encode_at_their_own_size` (ignored, needs FFmpeg) renders 320×180, 480×854 and 640×360 through both export paths — the frame-series encoder and the plan encoder — and probes each file with ffprobe: codec h264 and exactly the requested width and height. It ran green locally.
 - Browser check: 27 cards in 10 groups, 12 filter chips plus **Custom size**, the Sizes chip shows exactly the 9 new presets, Instagram shows its 4, the custom chip focuses `custom-format-name`; selecting Tiny 320 + Compact 640 + HD 720p produced 4 deliverables, Tiny 320 as the active format gave a 720×405 preview canvas at a 320×180 timeline, no console errors. Reviewed `output/playwright/formats-modal-all.png`, `formats-modal-instagram.png`, `formats-modal-custom.png`, `formats-new-sizes.png`, `formats-selected.png`, `formats-compact-preview.png` and `formats-320-preview.png`.
 
 ## Streamed photos instead of base64 — 2026-10-26
@@ -1135,7 +1136,7 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 
 ## Build state — 2026-10-27 (end of pass)
 
-- `npm run ci` passes: 302 TypeScript tests, 44 project-model tests, 37 native tests (13 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
+- `npm run ci` passes: 305 TypeScript tests, 44 project-model tests, 37 native tests (13 ignored FFmpeg tests), plus the website, link, workflow, audit and formatting gates.
 - Ignored FFmpeg tests also pass locally for the new work: `real_video_transition_keeps_duration_and_sound`, `real_reverse_and_ramp_video_export`, and the existing exporter/hardware suites.
 - `npm run tauri -- build --debug --bundles app` produced a fresh `PixCut.app` after the PiP, menu and export-dialog work. The updater tarball could not be signed because `TAURI_SIGNING_PRIVATE_KEY` is not exported in this shell; the app bundle itself is complete and is running from `target/debug/bundle/macos/PixCut.app` (PID 66891). The SQLite catalog survived the rebuild with 10 rows.
 - No release, tag or version bump was made. Signing remains deferred by the user's decision.
@@ -1262,12 +1263,12 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 ## Live timeline trimming and layer badges — 2026-10-27
 
 - Scene trim now uses the draft scene for the timeline clip width and duration label, so the clip visibly grows or shrinks under the pointer. Pointer moves are coalesced to one `requestAnimationFrame`, and the final trim is applied optimistically before the command persists; the clip no longer snaps back while the native/browser store catches up.
-- Element and overlay rows are sorted by effective stack order (higher `z` first), so trimming an element no longer moves it to the end of the row and top layers stay above lower ones.
+- Element and overlay rows are sorted by effective stack order (higher `z` first), so trimming an element no longer moves it to the end of the row and top layers stay above lower ones. Promoting a legacy scene element to a project overlay now preserves its element stack band, so it does not jump above media/text layers after a duration edit.
 - Every visual clip shows **L0** for the base photo/video layer. Overlay/element clips show their layer number (`L1`, `L2`, …) based on the same stack order; ordering is top-to-bottom in the row.
 - Overlay/element clips that overlap more than one scene show a scene span badge such as **S1–2**, with the full scene range in the tooltip. This makes it visible when an element or video overlay runs across cuts.
 - Browser check: two scenes with two overlays spanning both; dragging scene 1's trim handle changed the live width from 603 to 647 px and the label to `4.6s` before pointer-up, then kept it after release. The element order was Star L2 above Rectangle L1, both showed S1–2, visual clips showed L0, and dragging the top element's end handle kept both elements present and in order after saving. No console errors.
 - Reviewed `output/playwright/timeline-trim-and-layers.png`.
-- Verification: 302 TypeScript tests in 45 files, 44 project-model tests, and 37 non-ignored native tests at the time of this pass; all 13 ignored FFmpeg tests pass.
+- Verification: 306 TypeScript tests in 45 files, 47 project-model tests, and 37 non-ignored native tests at the time of this pass; all 14 ignored FFmpeg tests pass.
 
 ## One native media store — 2026-10-27
 
@@ -1276,3 +1277,12 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Fixed a saved-overlay bug: `drawMediaOrShape` returned early for every `pixcut-asset:` source, so image and video overlays vanished after their data URL was moved into the local store. Both image and video paths already resolve references, so the guard was removed.
 - Browser check: a red image overlay saved with an inline data URL was persisted as `pixcut-asset:b87a…`, reloaded from the library and rendered as a red rounded card over the blue scene with no console errors (`output/playwright/ref-overlay.png`).
 - Native verification remains the SQLite run: the app keeps its media in `assets/` and project bodies carry refs. Boundary: legacy `.pixcut` files or old inline-data projects can still migrate their inline bytes into IndexedDB through `persistProjectAssets`; new imports are native-only.
+
+## Font subsetting — 2026-10-27
+
+- User font import now accepts TTF/OTF sources up to 40 MB and subsets them in the browser through the bundled HarfBuzz `hb-subset` WASM (`harfbuzzjs`, 668 KB asset). The subset keeps the project's current text, Latin/Latin-1/Extended, Greek, Cyrillic, punctuation, currency, arrows, math, geometric and misc symbols, kana, CJK punctuation and 1,000 common CJK ideographs. Hinting is dropped to keep CJK faces small.
+- The subset is embedded as the project font (≤2 MB, same schema); small TTF/OTF files and WOFF/WOFF2 under 2 MB stay whole. WOFF/WOFF2 over 2 MB is rejected with a message asking for a TTF/OTF. Subsetting failure falls back to the original when it fits; otherwise the import explains the limit.
+- The Tauri CSP now allows `'wasm-unsafe-eval'` for the local, fixed subsetter; no remote code or eval is enabled.
+- Tests: `tests/font-subset.test.ts` (3) covers the alphabet/kana ranges, common CJK plus project text, and title punctuation. Browser check imported the 22 MB system `Arial Unicode.ttf` into a project whose title read “你好世界 PixCut”: the stored font shrank to 428,833 base64 characters (~321 KB), the picker showed “Arial Unicode · Custom”, the FontFace loaded, `document.fonts.check` for 你好世界 passed and the canvas rendered the CJK title and subtitle. No console errors. Reviewed `output/playwright/cjk-subset.png`.
+- CSP/WASM check: a static page served with the same `script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'` policy fetched and instantiated the emitted subsetter (39 exports, no CSP error).
+- Boundary: characters typed after import outside the subset use the fallback font; WOFF/WOFF2 large faces are not subsetted; a project supports eight fonts and the embedded subset stays under the 2 MB per-font budget.
