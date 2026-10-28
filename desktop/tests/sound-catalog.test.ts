@@ -9,6 +9,19 @@ function pcm(data: string) {
   return { bytes, view: new DataView(bytes.buffer), frames: (bytes.length - 44) / 2 };
 }
 
+/** One render per effect shared by both heavy tests; CI runners are slow. */
+const rendered = new Map<string, { bytes: Uint8Array; view: DataView; frames: number; samples: Float32Array }>();
+function renderedSound(id: string) {
+  const cached = rendered.get(id);
+  if (cached) return cached;
+  const { bytes, view, frames } = pcm(soundData(id));
+  const samples = new Float32Array(frames);
+  for (let index = 0; index < frames; index++) samples[index] = view.getInt16(44 + index * 2, true) / 32768;
+  const entry = { bytes, view, frames, samples };
+  rendered.set(id, entry);
+  return entry;
+}
+
 /** Coarse perceptual fingerprint: 16 log-spaced bands, 8 envelope steps, brightness and length. */
 const RATE = 22050, WINDOW = 256, BANDS = 16;
 const cos = new Float32Array(WINDOW * WINDOW / 2), sin = new Float32Array(WINDOW * WINDOW / 2);
@@ -75,12 +88,12 @@ describe('grouped sound library', () => {
     for (const category of SOUND_CATEGORIES) expect(SOUND_CATALOG.filter(effect => effect.category === category.id), category.id).toHaveLength(30);
   });
 
-  it('renders distinct, audible, click-free WAV data for every effect', () => {
+  it('renders distinct, audible, click-free WAV data for every effect', { timeout: 30_000 }, () => {
     const fingerprints = new Set<string>();
     for (const effect of SOUND_CATALOG) {
       const data = soundData(effect.id);
       expect(soundData(effect.id), effect.id).toBe(data);
-      const { bytes, view, frames } = pcm(data);
+      const { bytes, view, frames } = renderedSound(effect.id);
       expect(new TextDecoder().decode(bytes.slice(0, 4)), effect.id).toBe('RIFF');
       expect(view.getUint32(24, true), effect.id).toBe(22050);
       expect(frames / 22050, effect.id).toBeCloseTo(effect.seconds, 3);
@@ -99,13 +112,8 @@ describe('grouped sound library', () => {
     expect(fingerprints.size).toBe(SOUND_CATALOG.length);
   });
 
-  it('keeps every pair acoustically distinct — no near-duplicate effects', () => {
-    const features = SOUND_CATALOG.map(effect => {
-      const { view, frames } = pcm(soundData(effect.id));
-      const samples = new Float32Array(frames);
-      for (let index = 0; index < frames; index++) samples[index] = view.getInt16(44 + index * 2, true) / 32768;
-      return { id: effect.id, feature: fingerprint(samples) };
-    });
+  it('keeps every pair acoustically distinct — no near-duplicate effects', { timeout: 30_000 }, () => {
+    const features = SOUND_CATALOG.map(effect => ({ id: effect.id, feature: fingerprint(renderedSound(effect.id).samples) }));
     let closest = { distance: Infinity, pair: '' };
     for (let first = 0; first < features.length; first++) for (let second = first + 1; second < features.length; second++) {
       const value = distance(features[first].feature, features[second].feature);
