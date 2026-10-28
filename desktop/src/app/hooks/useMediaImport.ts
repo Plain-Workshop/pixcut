@@ -1,3 +1,4 @@
+import { loadSavedTracks } from '../../stores/online-downloads';
 import { parseCaptions, placeCaptions } from '../../components/text/captions';
 import { resolveAssetUrl, resolveMediaSource } from '../../components/preview/media-url';
 import * as bridge from '../bridge';
@@ -211,7 +212,7 @@ export function useMediaImport({ canEdit, setBusy, customElementKind, addMediaOv
     setStorageConfirm(false);
     setStorageBusy(true);
     try {
-      const keep = new Set([...(await bridge.referencedRefs()), ...(await libraryAssetRefs())]);
+      const keep = new Set([...(await bridge.referencedRefs()), ...(await libraryAssetRefs()), ...loadSavedTracks().map(track => track.reference)]);
       const removed = await bridge.pruneAssets([...keep]);
       setStorageNote(removed.files
         ? `Removed ${removed.files} unused file${removed.files === 1 ? '' : 's'} · ${formatBytes(removed.bytes)}.`
