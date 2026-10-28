@@ -884,7 +884,7 @@ export default function App() {
   }
 
   const run = useCallback((command: Command): Promise<boolean> => {
-    const light = (value: Command) => value.type === 'order' || value.type === 'update' || value.type === 'updateMany' || value.type === 'audio' || value.type === 'overlays';
+    const light = (value: Command) => value.type === 'order' || value.type === 'update' || value.type === 'updateMany' || value.type === 'audio' || value.type === 'audioMix' || value.type === 'overlays';
     if (operation.current) {
       if (command.type === 'update') {
         const queued = sceneQueue.current;
