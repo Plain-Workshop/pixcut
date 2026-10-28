@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 use base64::{engine::general_purpose::STANDARD, Engine};
 use pixcut_project::{AudioClip, Command, History, Project, Session, View};
 use serde::{Deserialize, Serialize};
@@ -21,8 +22,9 @@ mod library_index;
 /// Native application menu. Items carry the same ids the command palette uses,
 /// so a menu click and a keyboard shortcut run the same code. Accelerators are
 /// left to the webview so a user-remapped shortcut never fires twice.
-/// Menu text in the three shipped interface languages. Unknown keys and
-/// languages fall back to English so a new menu item never renders blank.
+/// Menu text in the status bar menu, in every shipped interface language.
+/// Unknown keys and languages fall back to English so a new menu item never
+/// renders blank.
 fn menu_label(language: &str, english: &'static str) -> &'static str {
     match (language, english) {
         ("pl", "About PixCut") => "O PixCut",
@@ -79,6 +81,222 @@ fn menu_label(language: &str, english: &'static str) -> &'static str {
         ("uk", "Stop") => "Зупинити",
         ("uk", "Help") => "Довідка",
         ("uk", "Keyboard Shortcuts…") => "Клавіатурні скорочення…",
+        ("es", "About PixCut") => "Acerca de PixCut",
+        ("es", "Hide PixCut") => "Ocultar PixCut",
+        ("es", "Hide Others") => "Ocultar otros",
+        ("es", "Show All") => "Mostrar todo",
+        ("es", "Quit PixCut") => "Salir de PixCut",
+        ("es", "File") => "Archivo",
+        ("es", "New Project") => "Nuevo proyecto",
+        ("es", "Open Project…") => "Abrir proyecto…",
+        ("es", "Save") => "Guardar",
+        ("es", "Import Media…") => "Importar medios…",
+        ("es", "Export Video…") => "Exportar vídeo…",
+        ("es", "Close Window") => "Cerrar ventana",
+        ("es", "Edit") => "Edición",
+        ("es", "Undo") => "Deshacer",
+        ("es", "Redo") => "Rehacer",
+        ("es", "View") => "Ver",
+        ("es", "Home") => "Inicio",
+        ("es", "Fullscreen Preview") => "Vista previa a pantalla completa",
+        ("es", "Safe Area") => "Área segura",
+        ("es", "Settings…") => "Ajustes…",
+        ("es", "Playback") => "Reproducción",
+        ("es", "Play / Pause") => "Reproducir / Pausar",
+        ("es", "Play Forward") => "Reproducir hacia delante",
+        ("es", "Play Backwards") => "Reproducir hacia atrás",
+        ("es", "Stop") => "Detener",
+        ("es", "Help") => "Ayuda",
+        ("es", "Keyboard Shortcuts…") => "Atajos de teclado…",
+        ("fr", "About PixCut") => "À propos de PixCut",
+        ("fr", "Hide PixCut") => "Masquer PixCut",
+        ("fr", "Hide Others") => "Masquer les autres",
+        ("fr", "Show All") => "Tout afficher",
+        ("fr", "Quit PixCut") => "Quitter PixCut",
+        ("fr", "File") => "Fichier",
+        ("fr", "New Project") => "Nouveau projet",
+        ("fr", "Open Project…") => "Ouvrir un projet…",
+        ("fr", "Save") => "Enregistrer",
+        ("fr", "Import Media…") => "Importer des médias…",
+        ("fr", "Export Video…") => "Exporter la vidéo…",
+        ("fr", "Close Window") => "Fermer la fenêtre",
+        ("fr", "Edit") => "Édition",
+        ("fr", "Undo") => "Annuler",
+        ("fr", "Redo") => "Rétablir",
+        ("fr", "View") => "Présentation",
+        ("fr", "Home") => "Accueil",
+        ("fr", "Fullscreen Preview") => "Aperçu plein écran",
+        ("fr", "Safe Area") => "Zone de sécurité",
+        ("fr", "Settings…") => "Réglages…",
+        ("fr", "Playback") => "Lecture",
+        ("fr", "Play / Pause") => "Lecture / Pause",
+        ("fr", "Play Forward") => "Avancer",
+        ("fr", "Play Backwards") => "Reculer",
+        ("fr", "Stop") => "Arrêter",
+        ("fr", "Help") => "Aide",
+        ("fr", "Keyboard Shortcuts…") => "Raccourcis clavier…",
+        ("de", "About PixCut") => "Über PixCut",
+        ("de", "Hide PixCut") => "PixCut ausblenden",
+        ("de", "Hide Others") => "Andere ausblenden",
+        ("de", "Show All") => "Alle einblenden",
+        ("de", "Quit PixCut") => "PixCut beenden",
+        ("de", "File") => "Ablage",
+        ("de", "New Project") => "Neues Projekt",
+        ("de", "Open Project…") => "Projekt öffnen…",
+        ("de", "Save") => "Sichern",
+        ("de", "Import Media…") => "Medien importieren…",
+        ("de", "Export Video…") => "Video exportieren…",
+        ("de", "Close Window") => "Fenster schließen",
+        ("de", "Edit") => "Bearbeiten",
+        ("de", "Undo") => "Rückgängig",
+        ("de", "Redo") => "Wiederholen",
+        ("de", "View") => "Darstellung",
+        ("de", "Home") => "Start",
+        ("de", "Fullscreen Preview") => "Vollbildvorschau",
+        ("de", "Safe Area") => "Sicherer Bereich",
+        ("de", "Settings…") => "Einstellungen…",
+        ("de", "Playback") => "Wiedergabe",
+        ("de", "Play / Pause") => "Wiedergabe / Pause",
+        ("de", "Play Forward") => "Vorwärts abspielen",
+        ("de", "Play Backwards") => "Rückwärts abspielen",
+        ("de", "Stop") => "Stopp",
+        ("de", "Help") => "Hilfe",
+        ("de", "Keyboard Shortcuts…") => "Tastenkürzel…",
+        ("pt", "About PixCut") => "Sobre o PixCut",
+        ("pt", "Hide PixCut") => "Ocultar o PixCut",
+        ("pt", "Hide Others") => "Ocultar outros",
+        ("pt", "Show All") => "Mostrar tudo",
+        ("pt", "Quit PixCut") => "Encerrar o PixCut",
+        ("pt", "File") => "Arquivo",
+        ("pt", "New Project") => "Novo projeto",
+        ("pt", "Open Project…") => "Abrir projeto…",
+        ("pt", "Save") => "Salvar",
+        ("pt", "Import Media…") => "Importar mídias…",
+        ("pt", "Export Video…") => "Exportar vídeo…",
+        ("pt", "Close Window") => "Fechar janela",
+        ("pt", "Edit") => "Editar",
+        ("pt", "Undo") => "Desfazer",
+        ("pt", "Redo") => "Refazer",
+        ("pt", "View") => "Visualizar",
+        ("pt", "Home") => "Início",
+        ("pt", "Fullscreen Preview") => "Prévia em tela cheia",
+        ("pt", "Safe Area") => "Área segura",
+        ("pt", "Settings…") => "Configurações…",
+        ("pt", "Playback") => "Reprodução",
+        ("pt", "Play / Pause") => "Reproduzir / Pausar",
+        ("pt", "Play Forward") => "Reproduzir para frente",
+        ("pt", "Play Backwards") => "Reproduzir para trás",
+        ("pt", "Stop") => "Parar",
+        ("pt", "Help") => "Ajuda",
+        ("pt", "Keyboard Shortcuts…") => "Atalhos de teclado…",
+        ("it", "About PixCut") => "Informazioni su PixCut",
+        ("it", "Hide PixCut") => "Nascondi PixCut",
+        ("it", "Hide Others") => "Nascondi altri",
+        ("it", "Show All") => "Mostra tutto",
+        ("it", "Quit PixCut") => "Esci da PixCut",
+        ("it", "File") => "File",
+        ("it", "New Project") => "Nuovo progetto",
+        ("it", "Open Project…") => "Apri progetto…",
+        ("it", "Save") => "Salva",
+        ("it", "Import Media…") => "Importa media…",
+        ("it", "Export Video…") => "Esporta video…",
+        ("it", "Close Window") => "Chiudi finestra",
+        ("it", "Edit") => "Modifica",
+        ("it", "Undo") => "Annulla",
+        ("it", "Redo") => "Ripeti",
+        ("it", "View") => "Visualizza",
+        ("it", "Home") => "Home",
+        ("it", "Fullscreen Preview") => "Anteprima a schermo intero",
+        ("it", "Safe Area") => "Area sicura",
+        ("it", "Settings…") => "Impostazioni…",
+        ("it", "Playback") => "Riproduzione",
+        ("it", "Play / Pause") => "Riproduci / Pausa",
+        ("it", "Play Forward") => "Riproduci avanti",
+        ("it", "Play Backwards") => "Riproduci indietro",
+        ("it", "Stop") => "Interrompi",
+        ("it", "Help") => "Aiuto",
+        ("it", "Keyboard Shortcuts…") => "Scorciatoie da tastiera…",
+        ("ja", "About PixCut") => "PixCutについて",
+        ("ja", "Hide PixCut") => "PixCutを隠す",
+        ("ja", "Hide Others") => "ほかを隠す",
+        ("ja", "Show All") => "すべてを表示",
+        ("ja", "Quit PixCut") => "PixCutを終了",
+        ("ja", "File") => "ファイル",
+        ("ja", "New Project") => "新規プロジェクト",
+        ("ja", "Open Project…") => "プロジェクトを開く…",
+        ("ja", "Save") => "保存",
+        ("ja", "Import Media…") => "メディアを読み込む…",
+        ("ja", "Export Video…") => "動画を書き出す…",
+        ("ja", "Close Window") => "ウインドウを閉じる",
+        ("ja", "Edit") => "編集",
+        ("ja", "Undo") => "取り消す",
+        ("ja", "Redo") => "やり直す",
+        ("ja", "View") => "表示",
+        ("ja", "Home") => "ホーム",
+        ("ja", "Fullscreen Preview") => "フルスクリーンプレビュー",
+        ("ja", "Safe Area") => "セーフエリア",
+        ("ja", "Settings…") => "設定…",
+        ("ja", "Playback") => "再生",
+        ("ja", "Play / Pause") => "再生 / 一時停止",
+        ("ja", "Play Forward") => "順方向に再生",
+        ("ja", "Play Backwards") => "逆方向に再生",
+        ("ja", "Stop") => "停止",
+        ("ja", "Help") => "ヘルプ",
+        ("ja", "Keyboard Shortcuts…") => "キーボードショートカット…",
+        ("ko", "About PixCut") => "PixCut 정보",
+        ("ko", "Hide PixCut") => "PixCut 가리기",
+        ("ko", "Hide Others") => "기타 가리기",
+        ("ko", "Show All") => "모두 보기",
+        ("ko", "Quit PixCut") => "PixCut 종료",
+        ("ko", "File") => "파일",
+        ("ko", "New Project") => "새 프로젝트",
+        ("ko", "Open Project…") => "프로젝트 열기…",
+        ("ko", "Save") => "저장",
+        ("ko", "Import Media…") => "미디어 가져오기…",
+        ("ko", "Export Video…") => "동영상 내보내기…",
+        ("ko", "Close Window") => "윈도우 닫기",
+        ("ko", "Edit") => "편집",
+        ("ko", "Undo") => "실행 취소",
+        ("ko", "Redo") => "실행 복원",
+        ("ko", "View") => "보기",
+        ("ko", "Home") => "홈",
+        ("ko", "Fullscreen Preview") => "전체 화면 미리보기",
+        ("ko", "Safe Area") => "안전 영역",
+        ("ko", "Settings…") => "설정…",
+        ("ko", "Playback") => "재생",
+        ("ko", "Play / Pause") => "재생 / 일시 정지",
+        ("ko", "Play Forward") => "앞으로 재생",
+        ("ko", "Play Backwards") => "뒤로 재생",
+        ("ko", "Stop") => "중지",
+        ("ko", "Help") => "도움말",
+        ("ko", "Keyboard Shortcuts…") => "키보드 단축키…",
+        ("zh", "About PixCut") => "关于 PixCut",
+        ("zh", "Hide PixCut") => "隐藏 PixCut",
+        ("zh", "Hide Others") => "隐藏其他",
+        ("zh", "Show All") => "全部显示",
+        ("zh", "Quit PixCut") => "退出 PixCut",
+        ("zh", "File") => "文件",
+        ("zh", "New Project") => "新建项目",
+        ("zh", "Open Project…") => "打开项目…",
+        ("zh", "Save") => "保存",
+        ("zh", "Import Media…") => "导入媒体…",
+        ("zh", "Export Video…") => "导出视频…",
+        ("zh", "Close Window") => "关闭窗口",
+        ("zh", "Edit") => "编辑",
+        ("zh", "Undo") => "撤销",
+        ("zh", "Redo") => "重做",
+        ("zh", "View") => "显示",
+        ("zh", "Home") => "首页",
+        ("zh", "Fullscreen Preview") => "全屏预览",
+        ("zh", "Safe Area") => "安全区域",
+        ("zh", "Settings…") => "设置…",
+        ("zh", "Playback") => "播放",
+        ("zh", "Play / Pause") => "播放 / 暂停",
+        ("zh", "Play Forward") => "向前播放",
+        ("zh", "Play Backwards") => "向后播放",
+        ("zh", "Stop") => "停止",
+        ("zh", "Help") => "帮助",
+        ("zh", "Keyboard Shortcuts…") => "键盘快捷键…",
         _ => english,
     }
 }
@@ -337,6 +555,7 @@ fn store_asset_ref(
     files.push((entry, BundleSource::File(path)));
     Ok(id.to_string())
 }
+#[cfg(test)]
 fn project_has_asset_refs(project: &Project) -> bool {
     project.overlays.iter().any(|element| element.source.as_deref().is_some_and(|source| source.starts_with("pixcut-asset:")))
         || project.tracks.iter().any(|track| track.clips.iter().any(|scene| {
@@ -444,7 +663,7 @@ fn read_project_bundle_to_store(path: &Path, directory: &Path) -> Result<Project
     let file = fs::File::open(path).map_err(|e| e.to_string())?;
     let mut archive = ZipArchive::new(file).map_err(|e| format!("Cannot open .pixcut package: {e}"))?;
     let manifest_text = {
-        let mut entry = archive.by_name(BUNDLE_MANIFEST).map_err(|_| "The .pixcut package is missing its manifest.")?;
+        let entry = archive.by_name(BUNDLE_MANIFEST).map_err(|_| "The .pixcut package is missing its manifest.")?;
         if entry.size() > 5_000_000 { return Err("The .pixcut manifest is too large.".into()); }
         let mut text = String::new();
         entry.take(5_000_001).read_to_string(&mut text).map_err(|e| e.to_string())?;
@@ -1835,8 +2054,8 @@ fn validate_export_options(options: &ExportOptions) -> Result<(), String> {
         || options.height < 160
         || options.width > 3840
         || options.height > 3840
-        || options.width % 2 != 0
-        || options.height % 2 != 0
+        || !options.width.is_multiple_of(2)
+        || !options.height.is_multiple_of(2)
         || !(15..=60).contains(&options.fps)
         || !(10..=35).contains(&options.crf)
     {
@@ -1909,7 +2128,7 @@ async fn export_movie(
         || project.visual_clips().is_empty()
         || frames.is_empty()
         || frames.len() != durations.len()
-        || durations.iter().any(|duration| *duration == 0)
+        || durations.contains(&0)
         || durations.iter().sum::<u64>() != project.total_ticks()
     {
         return Err("The project changed. Please try exporting again.".into());
@@ -1982,7 +2201,7 @@ async fn export_variants(
     for job in &jobs {
         if job.frames.is_empty()
             || job.frames.len() != job.durations.len()
-            || job.durations.iter().any(|duration| *duration == 0)
+            || job.durations.contains(&0)
             || job.durations.iter().sum::<u64>() != project.total_ticks()
         {
             return Err("The project changed or export settings are invalid.".into());
@@ -1997,7 +2216,7 @@ async fn export_variants(
         return Ok(vec![]);
     };
     let directory = folder.path().to_path_buf();
-    let asset_directory = asset_store_dir(&app)?;
+    let _asset_directory = asset_store_dir(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let total = jobs.len() as f64;
         let mut written = Vec::new();
@@ -2620,7 +2839,7 @@ fn encode_plan(
     let stdout = child.stdout.take().ok_or("FFmpeg progress stream is unavailable.")?;
     let stderr = child.stderr.take().ok_or("FFmpeg error stream is unavailable.")?;
     let progress_thread = std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().flatten() {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             let micros = line
                 .strip_prefix("out_time_us=")
                 .or_else(|| line.strip_prefix("out_time_ms="))
@@ -2751,6 +2970,7 @@ fn write_audio(dir: &Path, clip: &AudioClip, index: usize, asset_dir: &Path) -> 
     Ok(path)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_movie(
     project: Project,
     frames: Vec<String>,
@@ -2894,7 +3114,7 @@ fn encode_movie(
     let stdout = child.stdout.take().ok_or("FFmpeg progress stream is unavailable.")?;
     let stderr = child.stderr.take().ok_or("FFmpeg error stream is unavailable.")?;
     let progress_thread = std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().flatten() {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             let micros = line
                 .strip_prefix("out_time_us=")
                 .or_else(|| line.strip_prefix("out_time_ms="))
@@ -2934,6 +3154,7 @@ fn encode_movie(
     Ok(Some(destination.to_string_lossy().to_string()))
 }
 
+#[allow(clippy::expect_used)] // Tauri cannot recover if the shell fails to start.
 pub fn run() {
     let pending = pixcut_path_from_args(std::env::args_os().skip(1));
     let app = tauri::Builder::default()
@@ -3032,7 +3253,15 @@ mod integration_tests {
         assert_eq!(menu_label("pl", "Export Video…"), "Eksportuj wideo…");
         assert_eq!(menu_label("uk", "File"), "Файл");
         assert_eq!(menu_label("uk", "Keyboard Shortcuts…"), "Клавіатурні скорочення…");
-        assert_eq!(menu_label("de", "Save"), "Save", "unknown languages fall back");
+        assert_eq!(menu_label("de", "Save"), "Sichern");
+        assert_eq!(menu_label("fr", "File"), "Fichier");
+        assert_eq!(menu_label("es", "Export Video…"), "Exportar vídeo…");
+        assert_eq!(menu_label("pt", "New Project"), "Novo projeto");
+        assert_eq!(menu_label("it", "Settings…"), "Impostazioni…");
+        assert_eq!(menu_label("ja", "File"), "ファイル");
+        assert_eq!(menu_label("ko", "File"), "파일");
+        assert_eq!(menu_label("zh", "File"), "文件");
+        assert_eq!(menu_label("ru", "Save"), "Save", "unknown languages fall back");
         assert_eq!(menu_label("pl", "A future item"), "A future item", "unknown keys fall back");
     }
 
@@ -3809,6 +4038,7 @@ mod integration_tests {
                 image_zoom: 1.0,
                 framing_keyframes: vec![],
                 mask: None,
+                curves: None,
                 framing_background: "#000000".into(),
                 brightness: 1.0,
                 contrast: 1.0,

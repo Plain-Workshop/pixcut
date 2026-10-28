@@ -5,7 +5,7 @@ const cache=new Map<string,Promise<SpectrogramData|null>>();
 let queue:Promise<unknown>=Promise.resolve();
 export function decodeSpectrogram(source:string):Promise<SpectrogramData|null>{
   const hit=cache.get(source);if(hit)return hit;
-  if(!globalThis.OfflineAudioContext||!globalThis.Worker||(!source.startsWith('data:audio/')&&!source.startsWith('pixcut-asset:')))return Promise.resolve(null);
+  if(!globalThis.OfflineAudioContext||!globalThis.Worker||(!source.startsWith('data:audio/')&&!source.startsWith('data:video/')&&!source.startsWith('pixcut-asset:')))return Promise.resolve(null);
   const task=queue.then(async()=>{
     try{
       const url=await resolveMediaSource(source);if(!url)return null;
@@ -17,7 +17,7 @@ export function decodeSpectrogram(source:string):Promise<SpectrogramData|null>{
         const worker=new Worker(new URL('./spectrogram-worker.ts',import.meta.url),{type:'module'});
         const timer=window.setTimeout(()=>finish(null),30000);
         function finish(value:SpectrogramData|null){window.clearTimeout(timer);worker.terminate();resolve(value);}
-        worker.onmessage=event=>finish(event.data.result??null);worker.onerror=()=>finish(null);
+        worker.onmessage=event=>{const result=event.data.result??null;finish(result&&result.columns?result:null);};worker.onerror=()=>finish(null);
         worker.postMessage({channels,sampleRate:buffer.sampleRate},channels.map(c=>c.buffer));
       });
     }catch{return null;}
@@ -37,7 +37,7 @@ function texture(data:SpectrogramData){
   }
   ctx.putImageData(image,0,0);return canvas;
 }
-export function Spectrogram({data,sourceInSeconds,durationSeconds,sourceDurationSeconds}:{data:string;sourceInSeconds:number;durationSeconds:number;sourceDurationSeconds:number}){
+export function Spectrogram({data,sourceInSeconds,durationSeconds,sourceDurationSeconds,showStatus=true}:{data:string;sourceInSeconds:number;durationSeconds:number;sourceDurationSeconds:number;showStatus?:boolean}){
   const ref=useRef<HTMLCanvasElement>(null),[analysis,setAnalysis]=useState<SpectrogramData|null>(null),[failed,setFailed]=useState(false);
   useEffect(()=>{
     let live=true;setAnalysis(null);setFailed(false);
@@ -52,5 +52,5 @@ export function Spectrogram({data,sourceInSeconds,durationSeconds,sourceDuration
     const draw=()=>{canvas.width=Math.max(1,Math.min(2048,Math.round(canvas.clientWidth*devicePixelRatio)));canvas.height=128;ctx.clearRect(0,0,canvas.width,canvas.height);if(range.end>range.start)ctx.drawImage(source,range.start,0,range.end-range.start,source.height,0,0,canvas.width,canvas.height);};
     draw();const observer=new ResizeObserver(draw);observer.observe(canvas);return()=>observer.disconnect();
   },[analysis,sourceInSeconds,durationSeconds]);
-  return <><canvas ref={ref} className="audio-spectrogram" width={512} height={128} data-ready={Boolean(analysis)} data-columns={analysis?.columns??0} aria-hidden="true"/>{failed&&<span className="spectrogram-status">Spectrogram unavailable</span>}</>;
+  return <><canvas ref={ref} className="audio-spectrogram" width={512} height={128} data-ready={Boolean(analysis)} data-columns={analysis?.columns??0} aria-hidden="true"/>{failed&&showStatus&&<span className="spectrogram-status">Spectrogram unavailable</span>}</>;
 }

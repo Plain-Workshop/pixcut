@@ -33,10 +33,12 @@ function optional(label, command, args) {
 
 if (!fast && !run('Website build', 'npm', ['run', 'build'])) process.exit(1);
 if (!fast && !run('Website links', 'node', ['scripts/check-links.mjs'])) process.exit(1);
+if (!run('Desktop lint', 'npm', ['run', 'lint'], 'desktop')) process.exit(1);
 if (!run('Desktop tests', 'npm', ['test'], 'desktop')) process.exit(1);
 if (!run('Desktop build', 'npm', ['run', 'build'], 'desktop')) process.exit(1);
 if (!run('Version consistency', 'node', ['scripts/version.mjs', 'check'], 'desktop')) process.exit(1);
 if (!run('Project model tests', 'cargo', ['test', '-p', 'pixcut-project'], 'desktop')) process.exit(1);
+if (!fast && !run('Clippy', 'cargo', ['clippy', '--workspace', '--', '-D', 'warnings'], 'desktop')) process.exit(1);
 if (!fast && !run('Native tests', 'cargo', ['test', '--manifest-path', 'src-tauri/Cargo.toml'], 'desktop')) process.exit(1);
 optional('Workflow lint', 'actionlint', ['.github/workflows/release.yml', '.github/workflows/ci.yml', '.github/workflows/packaging-lint.yml', '.github/workflows/scorecard.yml']);
 optional('Rust advisories', 'cargo', ['audit', '--ignore', 'RUSTSEC-2026-0367', '--ignore', 'RUSTSEC-2026-0368', '--ignore', 'RUSTSEC-2026-0369', '--file', 'desktop/Cargo.lock']);

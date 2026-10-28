@@ -11,6 +11,7 @@ import { elementTransform } from '../elements/transform';
 import { applyElementMotion, applyTextMotion, framingAt } from '../animation/keyframes';
 import { resolveMediaSource } from './media-url';
 import { overlayVideoFrame } from './overlay-video';
+import { pipFrameTarget } from './pip-playback';
 import { drawElementSymbol, ELEMENT_LABEL_DEFAULTS, elementForeground } from '../elements/symbols';
 import { DEFAULT_TIMEBASE, sceneSeconds, secondsToTicks, ticksToSeconds, type AudioClip, type ElementLayer, type Project, type Scene, type TextAnimation, type TextLayer, type Timebase, type TransitionType } from '../../stores/model';
 import { layerDurationSeconds, layerStartSeconds, layerVisibleAt } from '../text/layers';
@@ -793,19 +794,24 @@ function roundedPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: num
  * Composites clips from the picture-in-picture track over the current frame.
  * Each clip is rendered by the same `drawScene` path as the base track, so its
  * fit, grade, text and video frame match preview and export.
+ *
+ * Preview can hand in live `<video>` elements so a PiP clip plays smoothly
+ * instead of being seeked for every frame; export keeps the frame-accurate
+ * seek path.
  */
-export async function drawPipClips(canvas: HTMLCanvasElement, clips: Scene[], projectSeconds: number, aspect: Project['aspect'], quality: 'preview' | 'thumb' | 'export', timebase: Timebase = DEFAULT_TIMEBASE, audio: AudioClip[] = [], precise = false) {
+export async function drawPipClips(canvas: HTMLCanvasElement, clips: Scene[], projectSeconds: number, aspect: Project['aspect'], quality: 'preview' | 'thumb' | 'export', timebase: Timebase = DEFAULT_TIMEBASE, audio: AudioClip[] = [], precise = false, frames?: Map<string, HTMLVideoElement>) {
   const ctx = canvas.getContext('2d');
   if (!ctx || !clips.length) return;
   for (const clip of clips) {
     const pip = clip.pip;
     if (!pip) continue;
-    const local = projectSeconds - ticksToSeconds(clip.startTicks, timebase);
-    if (local < 0 || local >= ticksToSeconds(clip.durationTicks, timebase)) continue;
+    const { active, local, source } = pipFrameTarget(clip, projectSeconds, timebase);
+    if (!active) continue;
     const width = Math.max(2, Math.round(canvas.width * pip.width));
     const height = Math.max(2, Math.round(canvas.height * pip.height));
+    const live = precise ? undefined : frames?.get(clip.id);
     const frame = clip.mediaKind === 'video'
-      ? await overlayVideoFrame(clip.image, ticksToSeconds(clip.sourceInTicks ?? 0, timebase) + local, precise)
+      ? (live && live.readyState >= 2 && live.videoWidth > 0 ? live : await overlayVideoFrame(clip.image, source, precise))
       : null;
     const layer = document.createElement('canvas');
     await drawScene(layer, clip, aspect, quality, local, timebase, { width, height }, frame, audio);

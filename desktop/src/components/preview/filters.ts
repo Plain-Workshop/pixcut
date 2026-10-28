@@ -180,6 +180,11 @@ export function applyColorGrade(data: Uint8ClampedArray, scene: Scene) {
       ng = ng * (1 - highlightWeight) + highlightTint[1] * highlightWeight;
       nb = nb * (1 - highlightWeight) + highlightTint[2] * highlightWeight;
     }
+    if (curveLuts) {
+      nr = sampleCurve(curveLuts.red, nr);
+      ng = sampleCurve(curveLuts.green, ng);
+      nb = sampleCurve(curveLuts.blue, nb);
+    }
     data[index] = nr;
     data[index + 1] = ng;
     data[index + 2] = nb;

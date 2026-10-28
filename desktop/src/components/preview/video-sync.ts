@@ -11,6 +11,19 @@
 export const FORWARD_DRIFT_SECONDS = 0.4;
 export const STEP_DRIFT_SECONDS = 0.05;
 
+/**
+ * Maps a media element time onto the project timeline for a constant-speed,
+ * forward-playing video. Returns null while the media is outside the clip's
+ * source window, which lets the caller fall back to wall time.
+ */
+export function mediaClockPosition(sourceTime: number, sourceIn: number, speed: number, duration: number, activeStart: number): number | null {
+  if (!Number.isFinite(sourceTime) || !Number.isFinite(sourceIn) || !Number.isFinite(activeStart) || !Number.isFinite(duration) || duration <= 0) return null;
+  const rate = Number.isFinite(speed) && speed > 0 ? speed : 1;
+  const local = (sourceTime - sourceIn) / rate;
+  if (!Number.isFinite(local) || local < -0.1 || local > duration + 0.05) return null;
+  return Math.max(0, activeStart + Math.max(0, local));
+}
+
 export function videoSeekTarget(currentTime: number, target: number, forward: boolean, ready: boolean, seeking: boolean): number | null {
   if (!ready || seeking) return null;
   if (!Number.isFinite(currentTime) || !Number.isFinite(target)) return null;

@@ -1,6 +1,6 @@
 [package]
 name = "pixcut"
-version = "0.2.0"
+version = "0.2.2"
 description = "Offline-first PixCut desktop editor"
 authors = ["PixCut"]
 edition = "2021"
@@ -26,3 +26,6 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
 rusqlite = { version = "0.41.0", features = ["bundled"] }
+
+[lints]
+workspace = true

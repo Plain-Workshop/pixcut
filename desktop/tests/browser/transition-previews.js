@@ -19,9 +19,10 @@ async page=>{
  const previews=right.locator('canvas[data-transition]');if(await previews.count()!==9)throw Error('Missing transition examples');
  const checks={};
  for(let i=0;i<9;i++){
-  const canvas=previews.nth(i);await canvas.scrollIntoViewIfNeeded();const type=await canvas.getAttribute('data-transition'),frames=new Set();
+  const canvas=previews.nth(i);await canvas.scrollIntoViewIfNeeded();await canvas.hover();const type=await canvas.getAttribute('data-transition'),frames=new Set();
   for(let sample=0;sample<13;sample++){frames.add(await canvas.evaluate(c=>c.toDataURL()));await page.waitForTimeout(150);}
-  if(frames.size<2)throw Error(`${type} example does not animate`);checks[type]=frames.size;
+  if(type==='none'&&frames.size!==1)throw Error('None transition preview is animated');
+  if(type!=='none'&&frames.size<2)throw Error(`${type} example does not animate on hover`);checks[type]=frames.size;
  }
  await right.locator('canvas[data-transition="wipe"]').click();
  let saved;
@@ -33,7 +34,7 @@ async page=>{
  await right.getByRole('tab',{name:'Transitions',exact:true}).scrollIntoViewIfNeeded();await page.screenshot({path:'output/playwright/animated-transitions.png'});
  await page.emulateMedia({reducedMotion:'reduce'});
  for(let i=0;i<9;i++){
-  const c=previews.nth(i);await c.scrollIntoViewIfNeeded();await page.waitForTimeout(80);const frame=await c.evaluate(el=>el.toDataURL());await page.waitForTimeout(120);if(frame!==await c.evaluate(el=>el.toDataURL()))throw Error('Reduced-motion preview still animates');
+  const c=previews.nth(i);await c.scrollIntoViewIfNeeded();await c.hover();await page.waitForTimeout(80);const frame=await c.evaluate(el=>el.toDataURL());await page.waitForTimeout(120);if(frame!==await c.evaluate(el=>el.toDataURL()))throw Error('Reduced-motion preview still animates');
  }
  await page.emulateMedia({reducedMotion:'no-preference'});
  const parity=await page.evaluate(async()=>{

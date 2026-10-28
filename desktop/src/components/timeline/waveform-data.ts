@@ -67,7 +67,7 @@ export async function decodeWaveform(clipId: string, data: string, buckets = BUC
   const hit = cache.get(key);
   if (hit) return hit;
   const Context = globalThis.OfflineAudioContext;
-  if (!Context || typeof globalThis.fetch !== 'function' || (!data.startsWith('data:audio/') && !data.startsWith('pixcut-asset:'))) return null;
+  if (!Context || typeof globalThis.fetch !== 'function' || (!data.startsWith('data:audio/') && !data.startsWith('data:video/') && !data.startsWith('pixcut-asset:'))) return null;
   const source = await resolveMediaSource(data);
   if (!source) return null;
   const run = queue.then(async () => {

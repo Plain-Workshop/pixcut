@@ -30,7 +30,8 @@ export function TransitionPreview({ type, reduceMotion = false, active = false }
     const draw = (p: number) => {
       if (type === 'none') {
         canvas.width = from.width; canvas.height = from.height;
-        canvas.getContext('2d')?.drawImage(p < .5 ? from : to, 0, 0);
+        // “None” is a hard cut, so the sample intentionally remains still.
+        canvas.getContext('2d')?.drawImage(from, 0, 0);
       } else drawTransitionFrames(canvas, from, to, type, p);
     };
     const animate = (now: number) => {

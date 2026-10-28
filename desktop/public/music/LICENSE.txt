@@ -1,17 +1,48 @@
-PixCut original instrumental music — CC0 1.0 Universal
+Bundled music — CC BY 4.0 (attribution required)
 
-Compositions, synthesis, and recordings created for PixCut. No third-party
-recordings, samples, vocals or melodies are incorporated. The reproducible
-synthesis source is desktop/scripts/generate-music.py.
+These are real recordings by independent artists, not public-domain works. They
+are free to use in personal and commercial videos, but the artist must be
+credited wherever the video is published — usually the video description.
+PixCut copies the exact credit line from the Music panel and the export studio.
 
-To the extent possible under law, PixCut waives all copyright and related
-rights in these compositions and recordings under the CC0 1.0 Universal
-Public Domain Dedication: https://creativecommons.org/publicdomain/zero/1.0/
+Each file is a 110-second excerpt of the artist's published track, loudness
+normalised to -16 LUFS, re-encoded as AAC 128 kbps. The edits and the encoding
+are changes to the original; the artist's copyright and the licence are
+unchanged.
 
-You may copy, edit, remix, redistribute, and use this music in personal and
-commercial videos on any platform. Attribution is not required.
+Scott Buckley — https://www.scottbuckley.com.au/library/
+  “Tears in Rain”  https://www.scottbuckley.com.au/library/tears-in-rain/
+  “Solace”         https://www.scottbuckley.com.au/library/solace/
+  “Origami”        https://www.scottbuckley.com.au/library/origami/
+  “Electric Dreams” https://www.scottbuckley.com.au/library/electric-dreams/
+  “Solecism”       https://www.scottbuckley.com.au/library/solecism/
+  “Aurora”         https://www.scottbuckley.com.au/library/aurora/
+  “Ephemera”       https://www.scottbuckley.com.au/library/ephemera/
+  “Aphelion”       https://www.scottbuckley.com.au/library/aphelion/
+  “Convergence”    https://www.scottbuckley.com.au/library/convergence/
+  “Clear Skies”    https://www.scottbuckley.com.au/library/clear-skies/
+  “In This Moment” https://www.scottbuckley.com.au/library/in-this-moment/
+  “With These Hands” https://www.scottbuckley.com.au/library/with-these-hands/
 
-This dedication also applies to the original PixCut Soft pulse and Night drive
-recordings bundled in templates/media. Other imported music has its own license.
-Automated platform copyright claims are still possible; this document records
-permission for the original bundled tracks, not a platform guarantee.
+  Credit line: “<track>” by Scott Buckley – released under CC-BY 4.0.
+  www.scottbuckley.com.au
+  Scott asks that these files are not resold on their own, not re-uploaded to
+  music streaming platforms, and not registered with Content ID.
+
+Ketsa — https://freemusicarchive.org/music/Ketsa/
+  “Unrealness”    https://freemusicarchive.org/music/Ketsa/upbeat-street/unrealness/
+  “Funk You (Go Funk Yoself)” https://freemusicarchive.org/music/Ketsa/upbeat-street/funk-you-go-funk-yoself/
+  “Cuban Crunch”  https://freemusicarchive.org/music/Ketsa/upbeat-street/cuban-crunch/
+
+  Credit line: “<track>” by Ketsa – licensed under CC BY 4.0
+  (link to the track on the Free Music Archive).
+
+Licence text: https://creativecommons.org/licenses/by/4.0/
+Full attribution and licence details also live in src/stores/music-library.ts.
+
+The two template beds in templates/media (Soft pulse, Night drive) are separate:
+those are original PixCut synthesis released CC0 1.0, produced by
+desktop/scripts/generate-music.py, and need no attribution.
+
+Automated platform copyright checks can still fire on any music, including
+CC BY tracks; the credit line is what the artist needs to release a claim.

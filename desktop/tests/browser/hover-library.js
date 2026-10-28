@@ -30,16 +30,16 @@ async page=>{
  if(saved.overlays.find(e=>e.presetId==='buttons-motion-01').z<=9000)throw Error('New element was added below a manually raised layer');
  await left.getByRole('button',{name:'Audio',exact:true}).click();await left.locator('.audio-list-select').hover();await left.locator('.audio-list-select.previewing').waitFor();
  if(!await page.evaluate(()=>window.__hoverAudios.some(a=>!a.paused)))throw Error('Audio hover did not play');await page.locator('.editor-header').hover();await page.waitForTimeout(100);if(!await page.evaluate(()=>window.__hoverAudios.every(a=>a.paused)))throw Error('Audio continues after leaving library item');
- await left.getByRole('tab',{name:'Music',exact:true}).click();if(await left.locator('.free-music-track').count()!==8)throw Error('Bundled music missing');
- await left.getByLabel('Music mood',{exact:true}).selectOption('Piano');if(await left.locator('.free-music-track').count()!==1)throw Error('Music mood filter failed');
- await left.getByRole('button',{name:'Listen to Little memories',exact:true}).hover();await left.locator('.free-music-track.previewing').waitFor();
- await left.getByRole('button',{name:'Listen to Little memories',exact:true}).click();await left.locator('.free-music-track.previewing').waitFor();
+ await left.getByRole('tab',{name:'Music',exact:true}).click();if(await left.locator('.free-music-track').count()!==15)throw Error('Bundled music missing');
+ await left.getByLabel('Music mood',{exact:true}).selectOption('Chill');if(await left.locator('.free-music-track').count()!==2)throw Error('Music mood filter failed');
+ await left.getByRole('button',{name:'Listen to Solace',exact:true}).hover();await left.locator('.free-music-track.previewing').waitFor();
+ await left.getByRole('button',{name:'Listen to Solace',exact:true}).click();await left.locator('.free-music-track.previewing').waitFor();
  await page.screenshot({path:'output/playwright/free-music-library.png'});
  await page.evaluate(()=>window.dispatchEvent(new Event('blur')));await page.waitForTimeout(100);if(!await page.evaluate(()=>window.__hoverAudios.every(a=>a.paused)))throw Error('Preview audio survives window blur');
- await left.getByRole('button',{name:'Add music Little memories',exact:true}).click();
- for(let i=0;i<30;i++){saved=await page.evaluate(async name=>{const lib=await import('/src/stores/library.ts');const p=(await lib.listProjects()).find(e=>e.name===name);return lib.getLibraryProject(p.id);},name);if(saved.audio.some(a=>a.name==='Little memories · PixCut CC0'))break;await page.waitForTimeout(100);}
- if(!saved.audio.some(a=>a.name==='Little memories · PixCut CC0'))throw Error('Music did not save');
+ await left.getByRole('button',{name:'Add music Solace',exact:true}).click();
+ for(let i=0;i<30;i++){saved=await page.evaluate(async name=>{const lib=await import('/src/stores/library.ts');const p=(await lib.listProjects()).find(e=>e.name===name);return lib.getLibraryProject(p.id);},name);if(saved.audio.some(a=>a.name==='Solace · Scott Buckley'))break;await page.waitForTimeout(100);}
+ if(!saved.audio.some(a=>a.name==='Solace · Scott Buckley'))throw Error('Music did not save');
  await left.getByLabel('Music mood',{exact:true}).selectOption('All');await page.locator('.editor-header').hover();await page.screenshot({path:'output/playwright/free-music-all.png'});
- await page.reload();await page.getByRole('button',{name:new RegExp(`^16:9 ${name}`)}).click();await left.getByRole('button',{name:'Audio',exact:true}).click();if(!await left.getByRole('button',{name:/Little memories · PixCut CC0/}).isVisible())throw Error('Reopened project lost bundled music');
- return {videoHoverMuted:true,elementHoverFrames:samples.size,audioHoverStops:true,newLayerOnTop:true,musicTracks:8,moodFilter:true,musicReopened:true};
+ await page.reload();await page.getByRole('button',{name:new RegExp(`^16:9 ${name}`)}).click();await left.getByRole('button',{name:'Audio',exact:true}).click();if(!await left.getByRole('button',{name:/Solace · Scott Buckley/}).isVisible())throw Error('Reopened project lost bundled music');
+ return {videoHoverMuted:true,elementHoverFrames:samples.size,audioHoverStops:true,newLayerOnTop:true,musicTracks:15,moodFilter:true,musicReopened:true};
 }

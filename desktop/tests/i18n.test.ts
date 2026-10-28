@@ -1,16 +1,23 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { DICTIONARIES, fileCount, formatCount, isLocale, projectCount, sceneCount, setLocale, t } from '../src/i18n';
+import { DICTIONARIES, fileCount, formatCount, isLocale, LOCALES, projectCount, sceneCount, setLocale, t } from '../src/i18n';
 import { TEMPLATES } from '../src/templates/catalog';
 
 afterEach(() => setLocale('en'));
 
+const TRANSLATED = Object.keys(DICTIONARIES) as (keyof typeof DICTIONARIES)[];
+
 describe('interface language', () => {
-  it('accepts the three shipped locales only', () => {
-    expect(isLocale('en')).toBe(true);
-    expect(isLocale('pl')).toBe(true);
-    expect(isLocale('uk')).toBe(true);
-    expect(isLocale('de')).toBe(false);
+  it('accepts the shipped locales only', () => {
+    for (const { id } of LOCALES) expect(isLocale(id)).toBe(true);
+    expect(isLocale('ru')).toBe(false);
+    expect(isLocale('sv')).toBe(false);
     expect(isLocale(undefined)).toBe(false);
+    expect(isLocale(42)).toBe(false);
+  });
+
+  it('labels every shipped locale', () => {
+    expect(LOCALES.every(locale => locale.label.trim().length > 0)).toBe(true);
+    expect(LOCALES.map(locale => locale.id)).toEqual(['en', 'zh', 'es', 'fr', 'pt', 'de', 'ja', 'ko', 'it', 'pl', 'uk']);
   });
 
   it('falls back to English for untranslated strings', () => {
@@ -21,10 +28,26 @@ describe('interface language', () => {
     expect(t('Home')).toBe('Home');
   });
 
-  it('translates into Ukrainian and keeps placeholders', () => {
+  it('translates into each locale and keeps placeholders', () => {
+    expect(t('Projects')).toBe('Projects');
     setLocale('uk');
     expect(t('Projects')).toBe('Проєкти');
     expect(t('Exported {count} files', { count: 3 })).toBe('Exported 3 files');
+    const expected: Record<string, string> = {
+      es: 'Proyectos',
+      fr: 'Projets',
+      de: 'Projekte',
+      pt: 'Projetos',
+      it: 'Progetti',
+      ja: 'プロジェクト',
+      ko: '프로젝트',
+      zh: '项目',
+    };
+    for (const [locale, label] of Object.entries(expected)) {
+      setLocale(locale as keyof typeof DICTIONARIES);
+      expect(t('Projects'), locale).toBe(label);
+      expect(t('Search {count} elements…', { count: 5 }), locale).toContain('5');
+    }
   });
 
   it('uses the right plural for project counts', () => {
@@ -37,6 +60,28 @@ describe('interface language', () => {
     setLocale('uk');
     expect(projectCount(2)).toBe('2 проєкти');
     expect(projectCount(21)).toBe('21 проєкт');
+    setLocale('es');
+    expect(projectCount(1)).toBe('1 proyecto');
+    expect(projectCount(3)).toBe('3 proyectos');
+    setLocale('fr');
+    expect(projectCount(1)).toBe('1 projet');
+    expect(projectCount(3)).toBe('3 projets');
+    setLocale('de');
+    expect(projectCount(1)).toBe('1 Projekt');
+    expect(projectCount(3)).toBe('3 Projekte');
+    setLocale('pt');
+    expect(projectCount(1)).toBe('1 projeto');
+    expect(projectCount(3)).toBe('3 projetos');
+    setLocale('it');
+    expect(projectCount(1)).toBe('1 progetto');
+    expect(projectCount(3)).toBe('3 progetti');
+    setLocale('ja');
+    expect(projectCount(1)).toBe('1件のプロジェクト');
+    setLocale('ko');
+    expect(projectCount(1)).toBe('프로젝트 1개');
+    setLocale('zh');
+    expect(projectCount(1)).toBe('1 个项目');
+    expect(projectCount(3)).toBe('3 个项目');
   });
 
   it('uses locale-aware scene and format counts', () => {
@@ -55,10 +100,16 @@ describe('interface language', () => {
     expect(fileCount(1)).toBe('1 файл');
     expect(fileCount(3)).toBe('3 файли');
     expect(fileCount(11)).toBe('11 файлів');
+    setLocale('de');
+    expect(sceneCount(2)).toBe('2 Szenen');
+    expect(formatCount(3)).toBe('3 Formate');
+    setLocale('zh');
+    expect(sceneCount(3)).toBe('3 个场景');
+    expect(formatCount(3)).toBe('3 种格式');
   });
 
   it('translates every template name, description and category', () => {
-    for (const locale of ['pl', 'uk'] as const) {
+    for (const locale of TRANSLATED) {
       for (const template of TEMPLATES) {
         for (const text of [template.name, template.description, template.category]) {
           const translated = DICTIONARIES[locale][text];
@@ -69,18 +120,17 @@ describe('interface language', () => {
     }
     // Gallery chrome that the picker renders around the cards.
     for (const text of ['Start from a story.', 'Use template', 'Media credits', 'Search templates…', 'Nature', 'Food']) {
-      expect(DICTIONARIES.pl[text], `pl: ${text}`).toBeTruthy();
-      expect(DICTIONARIES.uk[text], `uk: ${text}`).toBeTruthy();
+      for (const locale of TRANSLATED) expect(DICTIONARIES[locale][text], `${locale}: ${text}`).toBeTruthy();
     }
   });
 
-  it('keeps the two translations in sync', () => {
-    const polish = Object.keys(DICTIONARIES.pl).sort();
-    const ukrainian = Object.keys(DICTIONARIES.uk).sort();
-    expect(ukrainian).toEqual(polish);
-    for (const key of polish) {
-      expect(DICTIONARIES.pl[key].trim().length).toBeGreaterThan(0);
-      expect(DICTIONARIES.uk[key].trim().length).toBeGreaterThan(0);
+  it('keeps every translation in sync with the English source', () => {
+    const english = Object.keys(DICTIONARIES.pl).sort();
+    for (const locale of TRANSLATED) {
+      expect(Object.keys(DICTIONARIES[locale]).sort(), locale).toEqual(english);
+      for (const key of english) {
+        expect(DICTIONARIES[locale][key].trim().length, `${locale}: ${key}`).toBeGreaterThan(0);
+      }
     }
   });
 });

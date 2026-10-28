@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -238,6 +239,35 @@ pub struct ChromaKey {
     pub spill: f64,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ToneCurves {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub master: Option<Vec<[f64; 2]>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub red: Option<Vec<[f64; 2]>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub green: Option<Vec<[f64; 2]>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blue: Option<Vec<[f64; 2]>>,
+}
+
+fn valid_curve(points: &[[f64; 2]]) -> bool {
+    (2..=12).contains(&points.len())
+        && points.iter().enumerate().all(|(index, point)| {
+            point[0].is_finite() && point[1].is_finite()
+                && (0.0..=1.0).contains(&point[0])
+                && (0.0..=1.0).contains(&point[1])
+                && (index == 0 || point[0] > points[index - 1][0])
+        })
+}
+
+fn valid_curves(curves: &ToneCurves) -> bool {
+    [&curves.master, &curves.red, &curves.green, &curves.blue]
+        .into_iter()
+        .all(|channel| channel.as_ref().is_none_or(|points| valid_curve(points)))
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ElementLayer {
@@ -365,6 +395,9 @@ pub struct Scene {
     pub framing_keyframes: Vec<FramingKeyframe>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mask: Option<Mask>,
+    /// RGB tone curves applied after the regular grade.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curves: Option<ToneCurves>,
     #[serde(default = "default_black")]
     pub framing_background: String,
     #[serde(default = "default_one")]
@@ -482,7 +515,7 @@ pub struct Scene {
     #[serde(default = "default_text_subtitle_scale")]
     pub text_subtitle_scale: f64,
 }
-fn validate_framing_keyframes(frames: &mut Vec<FramingKeyframe>, duration_seconds: f64) -> bool {
+fn validate_framing_keyframes(frames: &mut [FramingKeyframe], duration_seconds: f64) -> bool {
     if frames.len() > 24 { return false; }
     let valid = frames.iter().all(|frame| {
         frame.at.is_finite()
@@ -498,7 +531,7 @@ fn validate_framing_keyframes(frames: &mut Vec<FramingKeyframe>, duration_second
     valid
 }
 
-fn validate_keyframes(frames: &mut Vec<Keyframe>, duration_seconds: f64) -> bool {
+fn validate_keyframes(frames: &mut [Keyframe], duration_seconds: f64) -> bool {
     if frames.len() > 24 { return false; }
     let valid = frames.iter().all(|frame| {
         frame.at.is_finite()
@@ -1341,6 +1374,7 @@ impl Project {
                     || !(-180.0..=180.0).contains(&s.hue)
                     || !s.vibrance.is_finite()
                     || !(-100.0..=100.0).contains(&s.vibrance)
+                    || s.curves.as_ref().is_some_and(|curves| !valid_curves(curves))
                     || !is_hex_color(&s.shadow_tint_color)
                     || !s.shadow_tint_amount.is_finite()
                     || !(0.0..=100.0).contains(&s.shadow_tint_amount)
@@ -1702,6 +1736,8 @@ pub struct DuplicateItem {
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
+// Boxing the payloads would change the serialized command shape.
+#[allow(clippy::large_enum_variant)]
 pub enum Command {
     Replace { project: Project },
     Rename { name: String },
@@ -2071,6 +2107,7 @@ mod tests {
             image_zoom: 1.0,
             framing_keyframes: Vec::new(),
             mask: None,
+            curves: None,
             framing_background: "#000000".into(),
             brightness: 1.0,
             contrast: 1.0,
@@ -3053,6 +3090,31 @@ mod tests {
         assert_eq!((chroma.similarity, chroma.softness, chroma.spill), (42.0, 12.0, 75.0));
         let mut invalid = p.clone();
         invalid.tracks[0].clips[0].elements[0].chroma.as_mut().unwrap().similarity = 101.0;
+        assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn tone_curves_round_trip_and_reject_invalid_points() {
+        let mut p = Project::default();
+        let mut clip = scene();
+        clip.curves = Some(ToneCurves {
+            master: Some(vec![[0.0, 0.0], [0.5, 0.7], [1.0, 1.0]]),
+            red: Some(vec![[0.0, 0.02], [1.0, 0.98]]),
+            green: None,
+            blue: None,
+        });
+        p.tracks[0].clips.push(clip);
+        p.validate().unwrap();
+        let curves = p.tracks[0].clips[0].curves.as_ref().unwrap();
+        assert_eq!(curves.master.as_ref().unwrap()[1], [0.5, 0.7]);
+        let mut invalid = p.clone();
+        invalid.tracks[0].clips[0].curves.as_mut().unwrap().red = Some(vec![[0.6, 0.2], [0.4, 0.8]]);
+        assert!(invalid.validate().is_err());
+        let mut invalid = p.clone();
+        invalid.tracks[0].clips[0].curves.as_mut().unwrap().master = Some(vec![[0.0, 0.0]]);
+        assert!(invalid.validate().is_err());
+        let mut invalid = p.clone();
+        invalid.tracks[0].clips[0].curves.as_mut().unwrap().green = Some(vec![[0.0, 1.2], [1.0, 1.0]]);
         assert!(invalid.validate().is_err());
     }
 

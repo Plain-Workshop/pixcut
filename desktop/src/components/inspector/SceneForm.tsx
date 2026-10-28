@@ -10,6 +10,7 @@ import { MAX_TEXT_LAYERS, TEXT_LAYER_STYLE_DEFAULTS, createTextLayer } from '../
 import { KeyframeControls } from '../animation/KeyframeControls';
 import { FramingKeyframeControls } from '../animation/FramingKeyframeControls';
 import { MaskControls } from './MaskControls';
+import { CurveControls } from './CurveControls';
 import { sceneStack, stackIndex, stackZ, overlaysForScene, type StackMove } from '../elements/stack';
 import { StackOrder } from './StackOrder';
 import { FILTERS, clamp } from '../preview/filters';
@@ -30,8 +31,8 @@ const COLOR_CONTROLS: { key: ColorKey; label: string; min: number; max: number; 
   { key: 'vibrance', label: 'Vibrance', min: -100, max: 100, step: 1 },
 ];
 
-const COLOR_DEFAULTS: Partial<Scene> = { brightness: 1, contrast: 1, saturation: 1, exposure: 0, highlights: 0, shadows: 0, temperature: 0, tint: 0, hue: 0, vibrance: 0, shadowTintColor: '#000000', shadowTintAmount: 0, highlightTintColor: '#000000', highlightTintAmount: 0 };
-const COLOR_KEYS: ScenePatchKey[] = COLOR_CONTROLS.map(control => control.key);
+const COLOR_DEFAULTS: Partial<Scene> = { brightness: 1, contrast: 1, saturation: 1, exposure: 0, highlights: 0, shadows: 0, temperature: 0, tint: 0, hue: 0, vibrance: 0, shadowTintColor: '#000000', shadowTintAmount: 0, highlightTintColor: '#000000', highlightTintAmount: 0, curves: undefined };
+const COLOR_KEYS: ScenePatchKey[] = [...COLOR_CONTROLS.map(control => control.key), 'curves'];
 const TEXT_STYLE_DEFAULTS: Partial<TextLayer> = { ...TEXT_LAYER_STYLE_DEFAULTS };
 const LEGIBLE_TEXT: Partial<TextLayer> = {
   ...TEXT_STYLE_DEFAULTS,
@@ -169,6 +170,7 @@ function comparable(scene: Scene) {
     tint: scene.tint ?? 0,
     filter: scene.filter ?? 'none',
     filterIntensity: scene.filterIntensity ?? 100,
+    curves: scene.curves ?? null,
     speed: scene.speed ?? 1,
     pitch: scene.pitch ?? true,
     fadeIn: scene.fadeIn ?? 0,
@@ -807,6 +809,7 @@ export function SceneForm({
         <label className="field color-field">Highlight tint<input aria-label="Highlight tint color" type="color" value={draft.highlightTintColor ?? '#000000'} onChange={event => preview(stage({ highlightTintColor: event.target.value }))} onBlur={() => commit()} /><span>{(draft.highlightTintColor ?? '#000000').toUpperCase()}</span></label>
         <RangeField label="Highlight strength" value={draft.highlightTintAmount ?? 0} min={0} max={100} step={1} unit="%" onChange={value => preview(stage({ highlightTintAmount: value }))} onCommit={() => commit()} />
       </div>
+      <CurveControls curves={draft.curves} onStage={curves => preview(stage({ curves }))} onCommit={() => commit()} onApply={curves => apply({ curves }, ['curves'])} />
       <div className="property-actions">
         <button className="button" onClick={() => apply(COLOR_DEFAULTS, COLOR_KEYS)}><RotateCcw size={13} /> Reset color</button>
         <button className="button" onClick={() => onCopyProperties(draftRef.current)}><Copy size={13} /> Copy</button>

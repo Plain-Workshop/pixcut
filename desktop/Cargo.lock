@@ -2714,7 +2714,7 @@ dependencies = [
 
 [[package]]
 name = "pixcut"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "base64 0.22.1",
  "pixcut-project",
@@ -2733,48 +2733,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "pixcut-ai-optional"
-version = "0.1.0"
-
-[[package]]
-name = "pixcut-audio"
-version = "0.1.0"
-
-[[package]]
-name = "pixcut-core"
-version = "0.1.0"
-
-[[package]]
-name = "pixcut-effects"
-version = "0.1.0"
-
-[[package]]
-name = "pixcut-media"
-version = "0.1.0"
-
-[[package]]
-name = "pixcut-preview"
-version = "0.1.0"
-
-[[package]]
 name = "pixcut-project"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
 ]
-
-[[package]]
-name = "pixcut-render"
-version = "0.1.0"
-
-[[package]]
-name = "pixcut-templates"
-version = "0.1.0"
-
-[[package]]
-name = "pixcut-timeline"
-version = "0.1.0"
 
 [[package]]
 name = "pkg-config"

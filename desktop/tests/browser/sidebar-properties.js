@@ -71,9 +71,9 @@ async page=>{
  const canvases=right.locator('canvas[data-motion]');if(await canvases.count()!==13)throw Error('Not all element motions are visible');
  const motionChecks={};
  for(let i=0;i<13;i++){
-  const canvas=canvases.nth(i);await canvas.scrollIntoViewIfNeeded();const id=await canvas.getAttribute('data-motion');const frames=new Set();
+  const canvas=canvases.nth(i);await canvas.scrollIntoViewIfNeeded();await canvas.hover();const id=await canvas.getAttribute('data-motion');const frames=new Set();
   for(let sample=0;sample<6;sample++){await page.waitForTimeout(140);frames.add(await canvas.evaluate(c=>c.toDataURL()));}
-  if(id==='none'&&frames.size!==1)throw Error('Still is animated');if(id!=='none'&&frames.size<2)throw Error(`${id} preview is frozen`);motionChecks[id]=frames.size;
+  if(id==='none'&&frames.size!==1)throw Error('Still is animated');if(id!=='none'&&frames.size<2)throw Error(`${id} preview is frozen on hover`);motionChecks[id]=frames.size;
  }
  await right.getByRole('button',{name:'Pulse',exact:true}).click();if(!await right.getByRole('checkbox',{name:'Repeat motion',exact:true}).isChecked())throw Error('Pulse stops after one cycle');
  await right.getByRole('button',{name:'Float',exact:true}).click();if(!await right.getByRole('checkbox',{name:'Repeat motion',exact:true}).isChecked())throw Error('Float stops after one cycle');
