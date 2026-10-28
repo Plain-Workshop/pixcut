@@ -19,7 +19,7 @@ serde_json = "1"
 rfd = "0.15"
 base64 = "0.22"
 tempfile = "3"
-sha2 = "0.10"
+sha2 = "0.11"
 zip = { version = "2", default-features = false }
 pixcut-project = { path = "../crates/project" }
 tauri-plugin-updater = "2"
