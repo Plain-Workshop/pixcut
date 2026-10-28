@@ -2669,7 +2669,8 @@ export default function App() {
 
   async function addOnlineMusic(track: OnlineTrack) {
     if (!canEdit || !projectTicks) return;
-    stopLibraryPreview(); setBusy(true);
+    stopLibraryPreview();
+    // The download can take a while; the editor stays usable meanwhile, and the row in the list shows the progress.
     try {
       const existing = findSavedTrack(savedTracksRef.current, track);
       const downloaded = existing ? { reference: existing.reference, name: existing.name, bytes: 0 } : await downloadOnlineTrack(track);
@@ -2680,7 +2681,7 @@ export default function App() {
       const lane = Array.from({ length: 8 }, (_, i) => i).find(i => !snapshot.audio.some(c => (c.lane ?? 0) === i && c.startTicks < startTicks + durationTicks && c.startTicks + c.durationTicks > startTicks));
       const clip: AudioClip = { id: crypto.randomUUID(), name: downloaded.name, data: downloaded.reference, lane: lane ?? 7, startTicks, durationTicks, sourceInSeconds: 0, sourceDurationSeconds: track.seconds, volume: .55, fadeIn: .15, fadeOut: Math.min(.6, ticksToSeconds(durationTicks, snapshot.timebase) / 3), credit: track.credit };
       if (await run({ type: 'audio', audio: [...snapshot.audio, clip] })) setNotice(`${track.title} added at the playhead. The credit line is saved with the clip and shows in the Audio panel.`);
-    } catch (error) { setError(messageFor(error)); } finally { setBusy(false); }
+    } catch (error) { setError(messageFor(error)); }
   }
 
   function previewSound(id: SoundEffectId) {
