@@ -72,6 +72,10 @@ pub struct AudioClip {
     pub mid: f64,
     #[serde(default)]
     pub high: f64,
+    /// Attribution line for tracks that need one (CC BY). Carried with the clip
+    /// so the export credits stay correct after the file is renamed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credit: Option<String>,
 }
 /// Mixer level for one audio lane. Missing lanes play at full volume.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -684,7 +688,7 @@ impl Project {
                     source_duration_seconds: source_duration.max(duration_seconds),
                     volume: music.volume,
                     fade_in: music.fade_in,
-                    fade_out: music.fade_out, low: 0.0, mid: 0.0, high: 0.0,
+                    fade_out: music.fade_out, low: 0.0, mid: 0.0, high: 0.0, credit: None,
                 }]
             } else {
                 vec![]
@@ -705,6 +709,11 @@ impl Project {
             }
             if clip.name.is_empty() || clip.name.chars().count() > 120 {
                 return Err("Invalid audio name.".into());
+            }
+            if let Some(credit) = &mut clip.credit {
+                *credit = credit.trim().to_string();
+                if credit.is_empty() { clip.credit = None; }
+                else if credit.chars().count() > 600 { return Err("An audio credit is too long.".into()); }
             }
             if clip.lane > 7 {
                 return Err("A project supports up to 8 audio tracks.".into());

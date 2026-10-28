@@ -234,7 +234,7 @@ fn audio_must_be_local_and_bounded() {
         source_duration_seconds: 30.0,
         volume: 0.8,
         fade_in: 1.0,
-        fade_out: 1.0, low: 0.0, mid: 0.0, high: 0.0,
+        fade_out: 1.0, low: 0.0, mid: 0.0, high: 0.0, credit: None,
     }];
     p.validate().unwrap();
     let mut bad_volume = p.clone();
@@ -679,7 +679,7 @@ fn accepts_local_asset_references() {
         source_duration_seconds: 10.0,
         volume: 0.8,
         fade_in: 0.0,
-        fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
+        fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0, credit: None,
     }];
     p.validate().unwrap();
 }
@@ -1384,4 +1384,45 @@ fn audio_mix_defaults_on_v14_migration() {
     p.validate().unwrap();
     assert_eq!(p.schema_version, 15);
     assert!(p.audio_mix.is_none());
+}
+
+#[test]
+fn audio_credit_is_optional_trimmed_and_bounded() {
+    let mut p = Project::default();
+    p.tracks[0].clips.push(scene());
+    let clip = |credit: Option<&str>| AudioClip {
+        id: "audio".into(),
+        name: "Track.mp3".into(),
+        data: "data:audio/mpeg;base64,AA==".into(),
+        lane: 0,
+        start_ticks: 0,
+        duration_ticks: 120,
+        source_in_seconds: 0.0,
+        source_duration_seconds: 30.0,
+        volume: 0.8,
+        fade_in: 0.0,
+        fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
+        credit: credit.map(str::to_string),
+    };
+    p.audio = vec![clip(Some("  “Song” by Artist – CC BY 4.0  "))];
+    p.validate().unwrap();
+    assert_eq!(p.audio[0].credit.as_deref(), Some("“Song” by Artist – CC BY 4.0"));
+    p.audio = vec![clip(Some("   "))];
+    p.validate().unwrap();
+    assert_eq!(p.audio[0].credit, None);
+    p.audio = vec![clip(Some(&"x".repeat(601)))];
+    assert!(p.validate().is_err());
+}
+
+#[test]
+fn audio_clips_without_a_credit_still_load_and_stay_compact() {
+    let old = r#"{"id":"a","name":"Old.mp3","data":"data:audio/mpeg;base64,AA==","lane":0,"startTicks":0,"durationTicks":120,"sourceInSeconds":0,"sourceDurationSeconds":30,"volume":0.8,"fadeIn":0,"fadeOut":0}"#;
+    let clip: AudioClip = serde_json::from_str(old).unwrap();
+    assert_eq!(clip.credit, None);
+    assert!(!serde_json::to_string(&clip).unwrap().contains("credit"));
+    let mut with_credit = clip.clone();
+    with_credit.credit = Some("Credit".into());
+    let json = serde_json::to_string(&with_credit).unwrap();
+    assert!(json.contains("\"credit\":\"Credit\""));
+    assert_eq!(serde_json::from_str::<AudioClip>(&json).unwrap().credit.as_deref(), Some("Credit"));
 }

@@ -203,8 +203,7 @@ fn real_webm_and_prores_exports_match_their_containers() {
             source_duration_seconds: 1.0,
             volume: 0.8,
             fade_in: 0.0,
-            fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
-        }];
+            fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0, credit: None }];
         let mut options = export_options();
         options.width = 320; options.height = 240; options.codec = codec;
         options.container = container; options.speed = EncodeSpeed::Fast;
@@ -464,8 +463,7 @@ fn plan_export_keeps_imported_video_audio() {
         source_duration_seconds: 1.0,
         volume: 0.8,
         fade_in: 0.0,
-        fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
-    }];
+        fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0, credit: None }];
     project.ducking = Some(60.0);
     let plan = |include_audio: bool| ExportPlan {
         segments: vec![
@@ -552,8 +550,7 @@ fn export_applies_audio_lane_gain_and_mute() {
         source_duration_seconds: 1.0,
         volume: 1.0,
         fade_in: 0.0,
-        fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
-    }];
+        fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0, credit: None }];
     let plan = || ExportPlan {
         segments: vec![PlanSegment {
             kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
@@ -1020,8 +1017,7 @@ fn plan_export_reads_streamed_video_assets() {
         source_duration_seconds: 1.0,
         volume: 0.8,
         fade_in: 0.0,
-        fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
-    }];
+        fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0, credit: None }];
     let plan = ExportPlan {
         segments: vec![
             PlanSegment {
@@ -1266,8 +1262,7 @@ fn real_mp4_includes_multiple_audio_clips() {
         source_duration_seconds: 1.0,
         volume: 0.8,
         fade_in: 0.2,
-        fade_out: 0.2, low: 0.0, mid: 0.0, high: 0.0,
-    }, AudioClip {
+        fade_out: 0.2, low: 0.0, mid: 0.0, high: 0.0, credit: None }, AudioClip {
         id: "audio-2".into(),
         name: "Bed 2.wav".into(),
         data: format!(
@@ -1282,8 +1277,7 @@ fn real_mp4_includes_multiple_audio_clips() {
         source_duration_seconds: 1.0,
         volume: 0.6,
         fade_in: 0.0,
-        fade_out: 0.1, low: 0.0, mid: 0.0, high: 0.0,
-    }];
+        fade_out: 0.1, low: 0.0, mid: 0.0, high: 0.0, credit: None }];
     let binary = ffmpeg().expect("FFmpeg must be installed for this test");
     encode_movie(project, frames, vec![15, 15], export_options(), binary.clone(), path.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
     let result = Process::new(binary.with_file_name("ffprobe"))
@@ -1325,8 +1319,7 @@ fn project_bundle_roundtrips_with_binary_assets() {
         source_duration_seconds: 1.0,
         volume: 0.8,
         fade_in: 0.2,
-        fade_out: 0.2, low: 0.0, mid: 0.0, high: 0.0,
-    }, AudioClip {
+        fade_out: 0.2, low: 0.0, mid: 0.0, high: 0.0, credit: None }, AudioClip {
         id: "audio-2".into(),
         name: "Bed 2.wav".into(),
         data: format!(
@@ -1341,8 +1334,7 @@ fn project_bundle_roundtrips_with_binary_assets() {
         source_duration_seconds: 1.0,
         volume: 0.6,
         fade_in: 0.0,
-        fade_out: 0.1, low: 0.0, mid: 0.0, high: 0.0,
-    }];
+        fade_out: 0.1, low: 0.0, mid: 0.0, high: 0.0, credit: None }];
     write_project_bundle(&path, &project, None).unwrap();
     let manifest_text = {
         let file = fs::File::open(&path).unwrap();
@@ -1394,8 +1386,7 @@ fn custom_overlays_roundtrip_in_bundle_and_local_store() {
         source_duration_seconds: 1.0,
         volume: 0.8,
         fade_in: 0.0,
-        fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
-    }];
+        fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0, credit: None }];
     project.validate().unwrap();
     let path = temp.path().join("overlay.pixcut");
     write_project_bundle(&path, &project, None).unwrap();
@@ -1483,8 +1474,7 @@ fn local_asset_store_roundtrips_and_deduplicates() {
         source_duration_seconds: 1.0,
         volume: 0.8,
         fade_in: 0.2,
-        fade_out: 0.2, low: 0.0, mid: 0.0, high: 0.0,
-    }, AudioClip {
+        fade_out: 0.2, low: 0.0, mid: 0.0, high: 0.0, credit: None }, AudioClip {
         id: "audio-2".into(),
         name: "Bed 2.wav".into(),
         data: format!(
@@ -1499,8 +1489,7 @@ fn local_asset_store_roundtrips_and_deduplicates() {
         source_duration_seconds: 1.0,
         volume: 0.6,
         fade_in: 0.0,
-        fade_out: 0.1, low: 0.0, mid: 0.0, high: 0.0,
-    }];
+        fade_out: 0.1, low: 0.0, mid: 0.0, high: 0.0, credit: None }];
     let original = project.clone();
     persist_project(&directory, &mut project).unwrap();
     assert!(project
@@ -1537,8 +1526,7 @@ fn streamed_media_saves_into_a_portable_bundle() {
         source_duration_seconds: 1.0,
         volume: 0.8,
         fade_in: 0.0,
-        fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0,
-    }];
+        fade_out: 0.0, low: 0.0, mid: 0.0, high: 0.0, credit: None }];
     let original = project.clone();
     persist_project(&directory, &mut project).unwrap();
     assert!(project.visual_clips().iter().all(|scene| scene.image.starts_with("pixcut-asset:")));

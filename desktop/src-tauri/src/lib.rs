@@ -25,9 +25,10 @@ mod project_io;
 mod export;
 mod plan;
 mod encode;
+mod online_music;
 
 #[allow(unused_imports)]
-use {assets::*, bundle::*, encode::*, export::*, menu::*, plan::*, project_io::*};
+use {assets::*, bundle::*, encode::*, export::*, menu::*, online_music::*, plan::*, project_io::*};
 
 fn guard<T>(what: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
@@ -126,6 +127,8 @@ pub fn run() {
             pending_open: Mutex::new(pending),
         })
         .invoke_handler(tauri::generate_handler![
+            online_music::online_music_search,
+            online_music::online_music_download,
             project_io::initialize,
             project_io::take_pending_project,
             project_io::apply_order,

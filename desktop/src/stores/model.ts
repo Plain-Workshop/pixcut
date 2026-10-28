@@ -329,6 +329,8 @@ export type AudioClip = {
   low?: number;
   mid?: number;
   high?: number;
+  /** Attribution line for tracks that need one (CC BY). Travels with the clip. */
+  credit?: string;
 };
 /** Audio lanes in one project. Imported video sound has its own bus. */
 export const MAX_AUDIO_LANES = 8;
@@ -649,6 +651,9 @@ function readAudioClip(value: unknown, total: number, timebase: Timebase): Audio
   const clip = value as AudioClip;
   if (typeof clip.id !== 'string' || !clip.id || typeof clip.name !== 'string' || !clip.name || clip.name.length > 120) throw new Error('Invalid audio clip identity.');
   if (typeof clip.data !== 'string' || (!AUDIO_DATA.test(clip.data) && !ASSET_REF.test(clip.data))) throw new Error('Invalid audio clip data.');
+  if (clip.credit !== undefined && typeof clip.credit !== 'string') throw new Error('Invalid audio credit.');
+  const credit = clip.credit?.trim();
+  if (credit && credit.length > 600) throw new Error('An audio credit is too long.');
   const lane = clip.lane ?? 0;
   if (!Number.isInteger(lane) || lane < 0 || lane > 7) throw new Error('Invalid audio track.');
   if (!Number.isInteger(clip.startTicks) || clip.startTicks < 0 || !Number.isInteger(clip.durationTicks) || clip.durationTicks < 1) throw new Error('Invalid audio clip timing.');
@@ -673,6 +678,7 @@ function readAudioClip(value: unknown, total: number, timebase: Timebase): Audio
     ...(readNumber(clip.low, -12, 12, 0, 'bass') ? { low: clip.low } : {}),
     ...(readNumber(clip.mid, -12, 12, 0, 'mid') ? { mid: clip.mid } : {}),
     ...(readNumber(clip.high, -12, 12, 0, 'treble') ? { high: clip.high } : {}),
+    ...(credit ? { credit } : {}),
   };
 }
 function readFormats(value: unknown, aspect: Project['aspect'], clipIds: Set<string>): FormatVariant[] {

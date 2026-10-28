@@ -1,3 +1,5 @@
+import { OnlineMusic } from '../../components/music/OnlineMusic';
+import type { OnlineTrack } from '../../stores/online-music';
 import { HoverVideo } from '../../components/preview/HoverVideo';
 import { MUSIC_TRACKS, MUSIC_LICENSE, MUSIC_MOODS, musicTrackPreviewUrl, musicTrackCredit, type MusicTrack } from '../../stores/music-library';
 import { SOUND_CATALOG, soundData, type SoundId } from '../../components/elements/sound-catalog';
@@ -9,7 +11,7 @@ import { applyElementMotion } from '../../components/animation/keyframes';
 import { AssetImage } from '../../components/preview/AssetImage';
 import { type TimelineOverlay } from '../../components/elements/overlays';
 import { sceneCount, t } from '../../i18n';
-import { type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { Captions, ArrowRight, Camera, Check, ChevronDown, Clapperboard, Copy, Download, Film, ImagePlus, Layers, LayoutTemplate, Maximize2, Music, Pause, Play, Plus, RefreshCw, Repeat, Search, Settings2, Shapes, SkipBack, Trash2, Type } from 'lucide-react';
 import { ElementPreview } from '../../components/elements/ElementPreview';
 import { IconButton } from '../../components/IconButton';
@@ -29,7 +31,7 @@ import type { ElementPreset } from '../../components/elements/catalog';
 import { TITLE_PRESETS } from '../title-presets';
 import { elementDisplayName } from '../../components/elements/catalog';
 
-export function EditorBody({ libraryWidth, tab, setTab, tabTitles, canEdit, chooseImages, chooseVideo, selectedScene, chooseCustomElement, projectTicks, audioLaneRef, selectedAudio, chooseAudio, setModal, mediaQuery, setMediaQuery, dragOverTarget, dropIntoMedia, filteredScenes, beginMediaDrag, mediaDragRef, setDropTarget, setHoveredMedia, previewMedia, hoveredMedia, playing, modal, project, appendMedia, addMediaPip, setError, sourceMedia, editTarget, selectedGlobalTextId, selectGlobalText, run, setSelectedGlobalTextId, addProjectText, selectedTextLayerId, selectTextLayer, scenes, captionInput, exportCaptions, fontTargetId, fontInput, removeFont, addTextLayerAtPlayhead, audioLibraryTab, setAudioLibraryTab, audio, previewingAudio, hoverLibraryAudio, stopLibraryPreview, focusAudio, musicMood, setMusicMood, copyMusicCredit, addMusic, copyMusicCredits, setNotice, soundQuery, setSoundQuery, soundGroups, openSoundGroup, setOpenSoundGroup, addSound, position, chooseTemplate, templateImage, elementSearch, setElementSearch, setElementLimit, elementCollection, setElementCollection, setElementCategory, elementCategory, allOverlays, selectedElementId, selectOverlay, filteredElements, elementLimit, setHoveredElement, addElement, hoveredElement, preferences, beginResize, tip, safeArea, runCommandId, activeFormat, setActiveFormatId, previewTarget, activeSize, saveStillFrame, togglePreviewFullscreen, previewArea, previewStage, previewSize, preview, sceneVideo, setVideoTick, pipVideoScenes, pipVideoElements, setPipVideoTick, snapGuides, framingMode, beginImagePan, selectedTextLayer, selectedGlobalText, textBox, selectedTextVisible, selectedElement, editingText, beginTextMove, setTextDraft, setEditingText, beginTextResize, overlayDraft, sceneLayerRank, beginElementMove, beginElementRotate, beginElementResize, textDraft, previewInlineText, blurInlineText, cancelInlineText, commitInlineText, fadeAmount, shortcutText, duration, frameSeconds, scrubTo, setPosition, setPlaying, togglePlayback, loop, setLoop, inspectorWidth, selectedPip, propertyKind, selectedCount, setSelectedIds, setPrimarySelected, selectionAnchor, activePip, removePip, pipScenes, stagePip, commitPip, stagePipStyle, removeAudio, audioInspector, elementInspector, selectedTextScene, inspectorScene, updateSelection, setGlobalTextDraft, setPreviewScene, copySceneProperties, propertyClipboard, notifyPasted, inspectorFlush, requestReplaceImage, textStartTicks, textLayerLocal, previewLocalSeconds, textFocus, setFramingMode, applyFramingToAllFormats, renderOverlays, reorderLayer, deleteSelected, hasSceneSelection, duplicateSelected }: {
+export function EditorBody({ addOnlineMusic, libraryWidth, tab, setTab, tabTitles, canEdit, chooseImages, chooseVideo, selectedScene, chooseCustomElement, projectTicks, audioLaneRef, selectedAudio, chooseAudio, setModal, mediaQuery, setMediaQuery, dragOverTarget, dropIntoMedia, filteredScenes, beginMediaDrag, mediaDragRef, setDropTarget, setHoveredMedia, previewMedia, hoveredMedia, playing, modal, project, appendMedia, addMediaPip, setError, sourceMedia, editTarget, selectedGlobalTextId, selectGlobalText, run, setSelectedGlobalTextId, addProjectText, selectedTextLayerId, selectTextLayer, scenes, captionInput, exportCaptions, fontTargetId, fontInput, removeFont, addTextLayerAtPlayhead, audioLibraryTab, setAudioLibraryTab, audio, previewingAudio, hoverLibraryAudio, stopLibraryPreview, focusAudio, musicMood, setMusicMood, copyMusicCredit, addMusic, copyMusicCredits, setNotice, soundQuery, setSoundQuery, soundGroups, openSoundGroup, setOpenSoundGroup, addSound, position, chooseTemplate, templateImage, elementSearch, setElementSearch, setElementLimit, elementCollection, setElementCollection, setElementCategory, elementCategory, allOverlays, selectedElementId, selectOverlay, filteredElements, elementLimit, setHoveredElement, addElement, hoveredElement, preferences, beginResize, tip, safeArea, runCommandId, activeFormat, setActiveFormatId, previewTarget, activeSize, saveStillFrame, togglePreviewFullscreen, previewArea, previewStage, previewSize, preview, sceneVideo, setVideoTick, pipVideoScenes, pipVideoElements, setPipVideoTick, snapGuides, framingMode, beginImagePan, selectedTextLayer, selectedGlobalText, textBox, selectedTextVisible, selectedElement, editingText, beginTextMove, setTextDraft, setEditingText, beginTextResize, overlayDraft, sceneLayerRank, beginElementMove, beginElementRotate, beginElementResize, textDraft, previewInlineText, blurInlineText, cancelInlineText, commitInlineText, fadeAmount, shortcutText, duration, frameSeconds, scrubTo, setPosition, setPlaying, togglePlayback, loop, setLoop, inspectorWidth, selectedPip, propertyKind, selectedCount, setSelectedIds, setPrimarySelected, selectionAnchor, activePip, removePip, pipScenes, stagePip, commitPip, stagePipStyle, removeAudio, audioInspector, elementInspector, selectedTextScene, inspectorScene, updateSelection, setGlobalTextDraft, setPreviewScene, copySceneProperties, propertyClipboard, notifyPasted, inspectorFlush, requestReplaceImage, textStartTicks, textLayerLocal, previewLocalSeconds, textFocus, setFramingMode, applyFramingToAllFormats, renderOverlays, reorderLayer, deleteSelected, hasSceneSelection, duplicateSelected }: {
   libraryWidth: any;
   tab: "media" | "text" | "elements" | "audio" | "templates";
   setTab: Dispatch<SetStateAction<"media" | "text" | "elements" | "audio" | "templates">>;
@@ -88,6 +90,7 @@ export function EditorBody({ libraryWidth, tab, setTab, tabTitles, canEdit, choo
   setMusicMood: Dispatch<SetStateAction<string>>;
   copyMusicCredit: (track: MusicTrack) => Promise<void>;
   addMusic: (track: MusicTrack) => Promise<void>;
+  addOnlineMusic: (track: OnlineTrack) => Promise<void>;
   copyMusicCredits: () => Promise<void>;
   setNotice: Dispatch<SetStateAction<string>>;
   soundQuery: string;
@@ -205,6 +208,7 @@ export function EditorBody({ libraryWidth, tab, setTab, tabTitles, canEdit, choo
   hasSceneSelection: boolean;
   duplicateSelected: () => void;
 }) {
+  const [musicSource, setMusicSource] = useState<'bundled' | 'online'>('bundled');
   return (
     <>
       <div className="editor-body">
@@ -282,6 +286,8 @@ export function EditorBody({ libraryWidth, tab, setTab, tabTitles, canEdit, choo
               <p>Add as many audio clips as you need.<br />Stays on this device.</p>
             </div>}
             </> : audioLibraryTab === 'music' ? <div className="free-music-library">
+              <div className="music-source-switch" role="tablist" aria-label="Music source">{([['bundled', 'Bundled'], ['online', 'Online']] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={musicSource === id} className={musicSource === id ? 'active' : ''} onClick={() => { stopLibraryPreview(); setMusicSource(id); }}>{label}</button>)}</div>
+              {musicSource === 'online' ? <OnlineMusic canEdit={canEdit && Boolean(projectTicks)} onAdd={addOnlineMusic} onStopOther={stopLibraryPreview} /> : <>
               <label className="field music-mood">Mood<select aria-label="Music mood" value={musicMood} onChange={event=>setMusicMood(event.target.value)}>{MUSIC_MOODS.map(mood=><option key={mood}>{mood}</option>)}</select></label>
               <div className="free-music-list">{MUSIC_TRACKS.filter(track=>musicMood==='All'||track.mood===musicMood).map((track,index)=><div key={track.id} className={`free-music-track ${previewingAudio===track.id?'previewing':''}`} onPointerEnter={()=>hoverLibraryAudio(track.id,()=>musicTrackPreviewUrl(track))} onPointerLeave={stopLibraryPreview}>
                 <button className="music-listen" aria-label={`Listen to ${track.title}`} onFocus={()=>hoverLibraryAudio(track.id,()=>musicTrackPreviewUrl(track))} onBlur={stopLibraryPreview} onClick={()=>hoverLibraryAudio(track.id,()=>musicTrackPreviewUrl(track),0,track.seconds,true)}><Play size={16}/></button>
@@ -290,6 +296,7 @@ export function EditorBody({ libraryWidth, tab, setTab, tabTitles, canEdit, choo
                 <button className="icon-button" aria-label={`Add music ${track.title}`} disabled={!canEdit||!projectTicks} onClick={()=>void addMusic(track)}><Plus size={16}/></button>
               </div>)}</div>
               <details className="library-disclosure music-license"><summary>CC BY 4.0 · credit required</summary><p>Real recordings from Scott Buckley and Ketsa, free for commercial videos when the artist is credited.</p><p>Paste the credit line into your video description. Content ID checks can still fire on any music.</p><div className="music-credits">{MUSIC_TRACKS.map(track=><div key={track.id}><strong>{track.title}</strong><span>{musicTrackCredit(track)}</span></div>)}</div><button className="button" onClick={()=>void copyMusicCredits()}>Copy all credits</button><button className="button" onClick={()=>void navigator.clipboard.writeText(MUSIC_LICENSE).then(()=>setNotice('Music licence copied.')).catch(()=>setError('Could not copy the music licence. It is included in the music folder.'))}>Copy licence</button></details>
+              </>}
             </div> : <div className="sound-library">
               <label className="search-field"><Search size={14} /><input aria-label="Search sound effects" placeholder={`Search ${SOUND_CATALOG.length} sounds…`} value={soundQuery} onChange={event => setSoundQuery(event.target.value)} /></label>
               {soundGroups.map(group => {
