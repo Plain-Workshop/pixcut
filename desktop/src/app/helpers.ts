@@ -1,3 +1,4 @@
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { t } from '../i18n';
 import { resolveMediaSource } from '../components/preview/media-url';
 import { MAX_AUDIO_FILE_BYTES } from '../stores/model';
@@ -96,4 +97,9 @@ export function mediaSource(value: string | undefined) {
 /** True when a source is a data URL or a streamed asset reference. */
 export function hasMedia(value: string | undefined) {
   return Boolean(value) && (value!.startsWith('pixcut-asset:') || Boolean(mediaSource(value)));
+}
+
+/** Keep a drag's pointerup inside the webview when the cursor leaves the window. */
+export function captureDragPointer(event: ReactPointerEvent<HTMLElement>) {
+  try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* pointer already released */ }
 }
