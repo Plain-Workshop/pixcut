@@ -1,3 +1,4 @@
+import { creditsFileText } from '../helpers';
 import { exportOutputFormat } from '../export-progress';
 import { canvasPng } from '../../components/preview/png';
 import { splitTransition } from '../../components/preview/transition-timing';
@@ -17,7 +18,7 @@ import { messageFor } from '../errors';
 import type { TransitionType } from '../../stores/model';
 import { type Dispatch, type SetStateAction, type RefObject } from 'react';
 
-export function useVideoExport({ exportAudio, exportCancelled, setExportProgress, exportCodec, exportContainer, exportSpeed, useHardware, exportFilename, sceneForPreview, setError, previewTransition, resolvedNextScene, displayAspect, previewLocalSeconds, project, activeSize, renderOverlays, position, videoScene, sceneVideo, renderPipScenes, activeFormat, setNotice, latestProject, presentRefs, exportCodecs, commitElement, inspectorFlush, pending, exportFormatIds, exportResolution, exportQuality, exportFps, setCancellingExport, setExporting, setExportElapsed, setExportJob, setPlaying, setModal }: {
+export function useVideoExport({ saveCredits, musicCredits, exportAudio, exportCancelled, setExportProgress, exportCodec, exportContainer, exportSpeed, useHardware, exportFilename, sceneForPreview, setError, previewTransition, resolvedNextScene, displayAspect, previewLocalSeconds, project, activeSize, renderOverlays, position, videoScene, sceneVideo, renderPipScenes, activeFormat, setNotice, latestProject, presentRefs, exportCodecs, commitElement, inspectorFlush, pending, exportFormatIds, exportResolution, exportQuality, exportFps, setCancellingExport, setExporting, setExportElapsed, setExportJob, setPlaying, setModal }: {
   exportAudio: boolean;
   exportCancelled: RefObject<boolean>;
   setExportProgress: Dispatch<SetStateAction<number>>;
@@ -41,6 +42,8 @@ export function useVideoExport({ exportAudio, exportCancelled, setExportProgress
   renderPipScenes: Scene[];
   activeFormat: FormatVariant;
   setNotice: Dispatch<SetStateAction<string>>;
+  saveCredits: boolean;
+  musicCredits: string[];
   latestProject: RefObject<Project>;
   presentRefs: Set<string>;
   exportCodecs: bridge.ExportCodec[];
@@ -58,6 +61,15 @@ export function useVideoExport({ exportAudio, exportCancelled, setExportProgress
   setPlaying: Dispatch<SetStateAction<boolean>>;
   setModal: Dispatch<SetStateAction<"source" | "templates" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null>>;
 }) {
+  /** Writes `<video>-credits.txt` beside each exported video when the project uses music that needs a credit. */
+  async function writeCredits(paths: string[], name: string) {
+    if (!saveCredits || !exportAudio || !musicCredits.length) return;
+    const text = creditsFileText(name, musicCredits);
+    for (const path of paths) {
+      try { await bridge.saveCreditsFile(path, text); } catch (e) { setError(messageFor(e)); return; }
+    }
+  }
+
   async function videoFrameReader(sourceValue: string) {
     const url = await resolveMediaSource(sourceValue);
     if (!url) throw new Error('That video is missing from the local store. Relink the clip and export again.');
@@ -242,6 +254,7 @@ export function useVideoExport({ exportAudio, exportCancelled, setExportProgress
         setExportProgress(72); setExportJob(current => ({ ...current, phase: 'Choose destination / starting encoder' }));
         const paths = await bridge.exportPlanVariants(snapshot.id, jobs, snapshot);
         if (paths.length) {
+          await writeCredits(paths, snapshot.name);
           setExportProgress(100);
           setNotice(`${paths.length} video${paths.length === 1 ? '' : 's'} exported. Files stay on this device.`);
           setModal(current => current === 'export' ? null : current);
@@ -299,6 +312,7 @@ export function useVideoExport({ exportAudio, exportCancelled, setExportProgress
       setExportProgress(72); setExportJob(current => ({ ...current, phase: 'Choose destination / starting encoder' }));
       const paths = await bridge.exportVariants(snapshot.id, jobs, snapshot);
       if (paths.length) {
+        await writeCredits(paths, snapshot.name);
         setExportProgress(100);
         setNotice(`${paths.length} video${paths.length === 1 ? '' : 's'} exported. Files stay on this device.`);
         setModal(current => current === 'export' ? null : current);

@@ -159,6 +159,7 @@ pub fn run() {
             library_index::library_index_clear,
             library_index::library_index_count,
             export::export_movie,
+            export::save_credits_file,
             export::export_variants,
             encode::export_plan_variants,
             export::cancel_export

@@ -82,6 +82,7 @@ export type PlanOverlay = { png: string; frames?: string[]; startTicks: number; 
 export type PlanSegment = { kind: 'image' | 'video'; png?: string; video?: string; sourceInSeconds?: number; fit?: 'cover' | 'contain' | 'blur'; speed?: number; /** End rate of a linear ramp; omitted for constant speed. */ speedEnd?: number; reverse?: boolean; lut?: string; fadeIn?: number; fadeOut?: number; videoVolume?: number; includeAudio?: boolean; durationTicks: number; /** Clip sound can outlast a shortened visual segment while a transition runs. */ audioDurationTicks?: number; overlays: PlanOverlay[] };
 export type ExportPlan = { segments: PlanSegment[]; options: ExportOptions };
 export async function exportMovie(projectId: string, frames: string[], durations: number[], options: ExportOptions): Promise<string | null> { return invoke('export_movie', { projectId, frames, durations, options }); }
+export async function saveCreditsFile(videoPath: string, text: string): Promise<string | null> { return native ? invoke('save_credits_file', { videoPath, text }) : null; }
 export async function exportVariants(projectId: string, jobs: ExportJob[], snapshot?: Project): Promise<string[]> { return invoke('export_variants', { projectId, jobs, snapshot }); }
 export async function exportPlanVariants(projectId: string, plans: ExportPlan[], snapshot?: Project): Promise<string[]> { return invoke('export_plan_variants', { projectId, plans, snapshot }); }
 export async function cancelExport(): Promise<void> { if (native) await invoke('cancel_export'); }

@@ -563,3 +563,59 @@ pub(crate) async fn export_variants(
     .await
     .map_err(|e| e.to_string())?
 }
+
+/// `<video name>-credits.txt`, beside the exported video.
+pub(crate) fn credits_path_for(video: &Path) -> Option<PathBuf> {
+    let stem = video.file_stem()?.to_str()?;
+    Some(video.with_file_name(format!("{stem}-credits.txt")))
+}
+
+/// Saves the music credits next to an exported video, so a CC BY credit line
+/// is ready to paste wherever the video is published.
+#[tauri::command]
+pub(crate) fn save_credits_file(video_path: String, text: String) -> Result<String, String> {
+    guard("saving the credits", || {
+        let video = PathBuf::from(&video_path);
+        if !video.is_absolute() || !video.is_file() {
+            return Err("The exported video could not be found, so the credits were not saved.".into());
+        }
+        if text.trim().is_empty() || text.chars().count() > 20_000 {
+            return Err("There are no credits to save.".into());
+        }
+        let destination = credits_path_for(&video).ok_or("The video name is not valid.")?;
+        let directory = destination.parent().ok_or("The video folder is not valid.")?;
+        let mut temporary = tempfile::Builder::new()
+            .prefix(".credits-")
+            .tempfile_in(directory)
+            .map_err(|e| format!("Could not write the credits file: {e}"))?;
+        temporary.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+        temporary.flush().map_err(|e| e.to_string())?;
+        temporary
+            .persist(&destination)
+            .map_err(|e| format!("Could not write the credits file: {e}"))?;
+        Ok(destination.to_string_lossy().to_string())
+    })
+}
+
+#[cfg(test)]
+mod credits_tests {
+    use super::*;
+
+    #[test]
+    fn credits_file_sits_beside_the_video() {
+        assert_eq!(credits_path_for(Path::new("/tmp/My Story.mp4")), Some(PathBuf::from("/tmp/My Story-credits.txt")));
+    }
+
+    #[test]
+    fn credits_are_written_next_to_an_existing_video_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let video = dir.path().join("clip.mp4");
+        std::fs::write(&video, b"x").unwrap();
+        let saved = save_credits_file(video.to_string_lossy().to_string(), "Music credits\n“Song” by A".into()).unwrap();
+        assert!(saved.ends_with("clip-credits.txt"));
+        assert!(std::fs::read_to_string(&saved).unwrap().contains("“Song” by A"));
+        assert!(save_credits_file(dir.path().join("missing.mp4").to_string_lossy().to_string(), "x".into()).is_err());
+        assert!(save_credits_file(video.to_string_lossy().to_string(), "  ".into()).is_err());
+        assert!(save_credits_file("relative.mp4".into(), "x".into()).is_err());
+    }
+}

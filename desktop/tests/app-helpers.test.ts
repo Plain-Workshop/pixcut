@@ -28,3 +28,14 @@ describe('app helpers', () => {
     expect((input[0] as { updatedAt: number }).updatedAt).toBe(1);
   });
 });
+
+describe('credits file', () => {
+  it('lists each credit once and names the project', async () => {
+    const { creditsFileText } = await import('../src/app/helpers');
+    const text = creditsFileText(' My Story ', ['“A” by X – CC BY 4.0', ' “A” by X – CC BY 4.0 ', '', '“B” by Y – CC0']);
+    expect(text).toContain('Music credits for “My Story”');
+    expect(text.match(/“A” by X/g)).toHaveLength(1);
+    expect(text).toContain('“B” by Y – CC0');
+    expect(creditsFileText('', ['x'])).toContain('“Untitled”');
+  });
+});

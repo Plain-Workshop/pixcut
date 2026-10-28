@@ -1,5 +1,57 @@
 use super::*;
 
+/// Runs a prepared FFmpeg command to completion: reports progress from its
+/// `-progress` stream, honours cancellation, and turns a failure into the tail
+/// of FFmpeg's own error output.
+pub(crate) fn run_ffmpeg(
+    command: &mut Process,
+    duration: f64,
+    cancel: &AtomicBool,
+    progress: impl Fn(u8) + Send + 'static,
+) -> Result<(), String> {
+    let mut child = command.spawn().map_err(|e| e.to_string())?;
+    let stdout = child.stdout.take().ok_or("FFmpeg progress stream is unavailable.")?;
+    let stderr = child.stderr.take().ok_or("FFmpeg error stream is unavailable.")?;
+    let progress_thread = std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            let micros = line
+                .strip_prefix("out_time_us=")
+                .or_else(|| line.strip_prefix("out_time_ms="))
+                .and_then(|value| value.trim().parse::<f64>().ok());
+            if let Some(micros) = micros {
+                let percent = (micros / 1_000_000.0 / duration.max(0.001) * 100.0).clamp(0.0, 99.0) as u8;
+                progress(percent);
+            }
+        }
+    });
+    let error_thread = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = BufReader::new(stderr).read_to_string(&mut text);
+        text
+    });
+    let status = loop {
+        if cancel.load(Ordering::SeqCst) {
+            let _ = child.kill();
+        }
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(status) => break status,
+            None => std::thread::sleep(std::time::Duration::from_millis(120)),
+        }
+    };
+    let _ = progress_thread.join();
+    let error = error_thread.join().unwrap_or_default();
+    if cancel.load(Ordering::SeqCst) {
+        return Err("Export cancelled.".into());
+    }
+    if !status.success() {
+        return Err(format!(
+            "FFmpeg export failed: {}",
+            error.chars().take(1000).collect::<String>()
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn encode_plan(
     project: &Project,
     plan: ExportPlan,
@@ -323,46 +375,7 @@ pub(crate) fn encode_plan(
         &format!("{duration:.6}"),
     ]);
     command.arg(output.path()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = command.spawn().map_err(|e| e.to_string())?;
-    let stdout = child.stdout.take().ok_or("FFmpeg progress stream is unavailable.")?;
-    let stderr = child.stderr.take().ok_or("FFmpeg error stream is unavailable.")?;
-    let progress_thread = std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            let micros = line
-                .strip_prefix("out_time_us=")
-                .or_else(|| line.strip_prefix("out_time_ms="))
-                .and_then(|value| value.trim().parse::<f64>().ok());
-            if let Some(micros) = micros {
-                let percent = (micros / 1_000_000.0 / duration.max(0.001) * 100.0).clamp(0.0, 99.0) as u8;
-                progress(percent);
-            }
-        }
-    });
-    let error_thread = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = BufReader::new(stderr).read_to_string(&mut text);
-        text
-    });
-    let status = loop {
-        if cancel.load(Ordering::SeqCst) {
-            let _ = child.kill();
-        }
-        match child.try_wait().map_err(|e| e.to_string())? {
-            Some(status) => break status,
-            None => std::thread::sleep(std::time::Duration::from_millis(120)),
-        }
-    };
-    let _ = progress_thread.join();
-    let error = error_thread.join().unwrap_or_default();
-    if cancel.load(Ordering::SeqCst) {
-        return Err("Export cancelled.".into());
-    }
-    if !status.success() {
-        return Err(format!(
-            "FFmpeg export failed: {}",
-            error.chars().take(1000).collect::<String>()
-        ));
-    }
+    run_ffmpeg(&mut command, duration, &cancel, progress)?;
     output.persist(&destination).map_err(|e| e.to_string())?;
     Ok(Some(destination.to_string_lossy().to_string()))
 }
@@ -598,46 +611,7 @@ pub(crate) fn encode_movie(
         .arg(output.path())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = command.spawn().map_err(|e| e.to_string())?;
-    let stdout = child.stdout.take().ok_or("FFmpeg progress stream is unavailable.")?;
-    let stderr = child.stderr.take().ok_or("FFmpeg error stream is unavailable.")?;
-    let progress_thread = std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            let micros = line
-                .strip_prefix("out_time_us=")
-                .or_else(|| line.strip_prefix("out_time_ms="))
-                .and_then(|value| value.trim().parse::<f64>().ok());
-            if let Some(micros) = micros {
-                let percent = (micros / 1_000_000.0 / duration.max(0.001) * 100.0).clamp(0.0, 99.0) as u8;
-                progress(percent);
-            }
-        }
-    });
-    let error_thread = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = BufReader::new(stderr).read_to_string(&mut text);
-        text
-    });
-    let status = loop {
-        if cancel.load(Ordering::SeqCst) {
-            let _ = child.kill();
-        }
-        match child.try_wait().map_err(|e| e.to_string())? {
-            Some(status) => break status,
-            None => std::thread::sleep(std::time::Duration::from_millis(120)),
-        }
-    };
-    let _ = progress_thread.join();
-    let error = error_thread.join().unwrap_or_default();
-    if cancel.load(Ordering::SeqCst) {
-        return Err("Export cancelled.".into());
-    }
-    if !status.success() {
-        return Err(format!(
-            "FFmpeg export failed: {}",
-            error.chars().take(1000).collect::<String>()
-        ));
-    }
+    run_ffmpeg(&mut command, duration, &cancel, progress)?;
     output.persist(&destination).map_err(|e| e.to_string())?;
     Ok(Some(destination.to_string_lossy().to_string()))
 }
