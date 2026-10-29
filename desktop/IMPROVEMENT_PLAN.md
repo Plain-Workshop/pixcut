@@ -143,11 +143,15 @@ Step 4 done: **editor view** (`src/app/editor-view.tsx`). The block in `App.tsx`
 
 Known looseness kept on purpose: `selectedTextLayer` is typed as always present although it can be absent when a clip has no text; the panels only read it under a text selection. Tightening that is a separate change.
 
+Step 5 done: **editor actions** (`src/app/editor-actions.tsx`). The 62 callbacks `EditorBody` received (media, audio, text, element, picture-in-picture, preview gestures, inspector actions) are one typed `EditorActions` object that `App` assembles from the hooks implementing each action; the panel calls them directly. The type lines were moved mechanically, not retyped. `EditorBody` 150 → 88 props (from 180 at the start of Phase 4).
+
+Honest note: `App` still builds and passes the object, so `App.tsx` itself did not shrink (2,300 lines). What changed is that `EditorBody` can now be split into sub-components (library panel, preview, inspector) that each call `useEditorActions()` without threading props.
+
 Remaining:
-1. **Callbacks.** About 60 of `EditorBody`'s props are functions (`selectScene`, `updateSelection`, `deleteSelected`, audio and element actions, export). Group them into small hooks or contexts the panel calls directly (clip, audio, element, export), starting with the ones that only wrap `run`.
-2. **Drafts.** Drag drafts (`previewScene`, `overlayDraft`, `pipDraft`, `audioDraft`) are still `useState` in `App`; moving them next to the stores lets `deriveEditorView` take them without `App` threading them through.
-3. **Project and commands** (`session`, `run`, undo flags) into a store.
-4. Replace the remaining `any`s in `EditorBody`'s prop types.
+1. **Split `EditorBody`** (1,000+ lines, 88 props left) into library, preview and inspector components that read the contexts; the remaining props are mostly state setters and refs.
+2. **Drafts.** Drag drafts (`previewScene`, `overlayDraft`, `pipDraft`, `audioDraft`) are still `useState` in `App`; move them next to the stores.
+3. **Project and commands** (`session`, `run`, undo flags) into a store, then move the hook calls that build `editorActions` out of `App`.
+4. Replace the remaining `any`s in prop types.
 
 **Done when:** no component takes more than ~25 props and `App.tsx` is under 800 lines.
 

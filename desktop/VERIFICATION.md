@@ -1638,3 +1638,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - `src/app/editor-view.tsx`: `deriveEditorView` (pure) plus hook and context for the active clip, selected clips, preview target, project text, picture-in-picture and text-layer selection. `tests/editor-view.test.ts` (8). `TimelinePanel` 71 → 65 props, `EditorBody` 165 → 150.
 - Browser preview: with nothing selected the inspector followed the playhead (MOVE WITH IT. at 0.5 s, KEEP GOING. at 2.5 s); a click overrode it; shift-click gave "Editing 3 clips"; text, element and audio inspectors opened; playback ran; no console errors. No project data was edited.
 - Tests: 559 TypeScript.
+
+## Editor actions context (Phase 4, step 5) (2026-10-29)
+
+- `src/app/editor-actions.tsx`: 62 callbacks as one typed context. `tests/editor-actions.test.ts` (2). `EditorBody` 150 → 88 props.
+- Browser preview, each undone afterwards: duplicate clip (3 → 4 → 3), add element (1 → 2 → 1), add bundled sound (1 → 2 → 1), add text with `T` (9 → 10 → 9); no console errors. The project ended in its starting state.
+- Tests: 561 TypeScript.
