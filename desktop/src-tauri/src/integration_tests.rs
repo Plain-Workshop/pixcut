@@ -1689,7 +1689,7 @@ fn real_transition_frames_all_reach_the_output() {
         .args(["-vf", "scale=1:1,format=rgb24", "-f", "rawvideo", "-"])
         .output().unwrap();
     assert!(raw.status.success(), "{}", String::from_utf8_lossy(&raw.stderr));
-    let pixels: Vec<(u8, u8)> = raw.stdout.chunks_exact(3).map(|rgb| (rgb[0], rgb[2])).collect();
+    let pixels: Vec<(u8, u8)> = raw.stdout.as_chunks::<3>().0.iter().map(|rgb| (rgb[0], rgb[2])).collect();
     let expected = HOLD as usize * 2 + STILLS;
     assert_eq!(pixels.len(), expected, "every planned tick must become one output frame: {pixels:?}");
     let blend = &pixels[HOLD as usize..HOLD as usize + STILLS];
