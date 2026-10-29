@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { projectCount, sceneCount, t } from '../../i18n';
 import { ArrowRight, ArrowUpRight, Ban, Clapperboard, FolderOpen, Images, Layers, LayoutTemplate, Play, Plus, Search, Settings2, Star, Upload, WifiOff, Zap } from 'lucide-react';
+import { homeProjectOrder, resumeProject } from '../home-order';
 import { type ProjectSummary } from '../../stores/library';
 import { TEMPLATES, type TemplateDefinition } from '../../templates/catalog';
 import type { Dispatch, SetStateAction, ReactElement } from 'react';
@@ -55,8 +56,8 @@ export function HomeMain({ libraryReady, shortcutText, openProject, homeSection,
           </button>
         </section>;
   // Starred projects lead the Home grid; the sort is stable, so recency still orders each group.
-  const homeProjects = returning ? [...visibleProjects].sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite))).slice(0, 6) : visibleProjects;
-  const resumeTarget = projects.length ? projects.reduce((latest, entry) => entry.updatedAt > latest.updatedAt ? entry : latest) : null;
+  const homeProjects = returning ? homeProjectOrder(visibleProjects) : visibleProjects;
+  const resumeTarget = resumeProject(projects);
 
   useEffect(() => {
     if (homeSection !== 'home') return;
