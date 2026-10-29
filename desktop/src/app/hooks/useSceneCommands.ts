@@ -166,18 +166,23 @@ export function useSceneCommands({ activeFormat, audio, audioTargetRef, commitEl
     if (seek) focusScene(scene);
   }
 
-  function updateSelection(next: Scene, force: ScenePatchKey[] = []): Promise<boolean> {
-    if (selectedGlobalText) {
+  /**
+   * Writes the inspector's draft to the selected clips. With `scope: 'all'`
+   * only the `force` fields are written, to every clip in the story, and an
+   * unset field is written as unset so it clears on the others too.
+   */
+  function updateSelection(next: Scene, force: ScenePatchKey[] = [], scope: 'selection' | 'all' = 'selection'): Promise<boolean> {
+    if (selectedGlobalText && scope === 'selection') {
       const layers = next.textLayers ?? [];
       return run({ type: 'globalText', layers }).finally(() => setGlobalTextDraft(null));
     }
-    const targets = selectedScenes;
+    const targets = scope === 'all' ? scenes : selectedScenes;
     if (!targets.length) return Promise.resolve(false);
     const base = targets.find(scene => scene.id === next.id) ?? targets[0];
-    const patch = scenePatch(base, next);
+    const patch: Partial<Scene> = scope === 'all' ? {} : scenePatch(base, next);
     for (const key of force) {
       const value = (next as unknown as Record<string, unknown>)[key];
-      if (value !== undefined) (patch as Record<string, unknown>)[key] = value;
+      if (value !== undefined || scope === 'all') (patch as Record<string, unknown>)[key] = value;
     }
     if (!Object.keys(patch).length) return Promise.resolve(true);
     const ids = targets.map(scene => scene.id);

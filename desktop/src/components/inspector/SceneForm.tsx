@@ -1,9 +1,10 @@
+import { APPLY_ALL_KEYS, applyAllValues, TAB_DEFAULTS, TAB_RESET_KEYS, tabChanged, type SceneTab } from './scene-tabs';
 import { LookPreview } from '../preview/LookPreview';
 import { TransitionPreview } from '../preview/TransitionPreview';
 import { ElementPreview } from '../elements/ElementPreview';
 import { t } from '../../i18n';
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
-import { AlignCenter, AlignLeft, ImagePlus, AlignRight, Blend, Crop, Maximize2, SlidersHorizontal, SunDim, Wand2, Check, ClipboardPaste, Copy, Gauge, Move, Plus, RotateCcw, Search, Sparkles, Type } from 'lucide-react';
+import { AlignCenter, AlignLeft, Layers, AlignRight, Blend, Crop, Maximize2, SlidersHorizontal, SunDim, Wand2, Check, ClipboardPaste, Copy, Gauge, Move, Plus, RotateCcw, Search, Sparkles, Type } from 'lucide-react';
 import { sceneSeconds, secondsToTicks, setSceneSeconds, ticksToSeconds, type ElementLayer, type Scene, type ScenePatchKey, type TextAnimation, type TextLayer, type Timebase, type TransitionType } from '../../stores/model';
 import { DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TEXT_SIZE, DEFAULT_TEXT_SUBTITLE_SCALE, DEFAULT_TEXT_WEIGHT, DEFAULT_TEXT_WIDTH, DEFAULT_TEXT_X, DEFAULT_TEXT_Y, allFonts, clampWeight, fontOption, fontWeights } from '../text/fonts';
 import { MAX_TEXT_LAYERS, TEXT_LAYER_STYLE_DEFAULTS, createTextLayer } from '../text/layers';
@@ -310,7 +311,7 @@ function RangeField({
 }
 
 export function SceneForm({
-  mode = 'scene', hasNextScene = true, onReplaceImage, reduceMotion = false,
+  mode = 'scene', hasNextScene = true, reduceMotion = false,
   scene,
   update,
   onPreview,
@@ -330,6 +331,8 @@ export function SceneForm({
   onApplyFramingToAll = () => {},
   overlays = [],
   onReorderLayer,
+  sceneCount = 1,
+  onApplyToAll,
 }: {
   mode?: 'scene' | 'text';
   reduceMotion?: boolean;
@@ -341,7 +344,6 @@ export function SceneForm({
   onPasteProperties: () => void;
   propertyClipboard: Partial<Scene> | null;
   flushRef?: MutableRefObject<() => void>;
-  onReplaceImage?: () => void;
   timebase: Timebase;
   textLayerId: string | null;
   onSelectTextLayer: (id: string | null) => void;
@@ -356,7 +358,11 @@ export function SceneForm({
   onApplyFramingToAll?: () => void;
   overlays?: ElementLayer[];
   onReorderLayer?: (kind: 'text' | 'element' | 'overlay', id: string, z: number) => void;
+  /** Clips in the story, for "Apply to all clips". */
+  sceneCount?: number;
+  onApplyToAll?: (scene: Scene, keys: ScenePatchKey[]) => Promise<boolean> | void;
 }) {
+  const [appliedNote, setAppliedNote] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>(mode === 'text' ? 'text' : 'video');
   const [draft, setDraft] = useState(scene);
   const [dirty, setDirty] = useState(false);
@@ -454,6 +460,21 @@ export function SceneForm({
       committedRef.current = signature;
       finishPreview(updateRef.current(next, force));
     } else previewRef.current(null);
+  }
+
+  function resetTab(target: SceneTab) {
+    internalFlushRef.current();
+    if (target === 'speed') { apply({ ...speedPatch(1), speedEnd: undefined, reverse: false }, ['speed', 'reverse']); return; }
+    apply(TAB_DEFAULTS[target], TAB_RESET_KEYS[target]);
+  }
+
+  async function applyToAll(target: SceneTab) {
+    const keys = APPLY_ALL_KEYS[target];
+    if (!keys || !onApplyToAll) return;
+    internalFlushRef.current();
+    const next = { ...draftRef.current, ...applyAllValues(target, draftRef.current) };
+    const ok = await onApplyToAll(next, keys);
+    if (ok !== false) setAppliedNote(t('Applied to all {count} clips.', { count: sceneCount }));
   }
 
   function stageDuration(value: number) {
@@ -629,14 +650,25 @@ export function SceneForm({
   }, [filterQuery]);
 
   const displayTab = mode === 'text' ? 'text' : tab === 'text' ? 'video' : tab;
+  const sceneTab: SceneTab | null = displayTab === 'text' || displayTab === 'elements' ? null : displayTab;
   return <>
-    {mode === 'scene' && <div className="inspector-icon-tabs" role="tablist" aria-label="Scene inspector">
+    {mode === 'scene' && <div className="inspector-icon-tabs labelled" role="tablist" aria-label="Scene inspector">
       {([
-        ['video', 'Framing', Crop], ['transition', 'Transitions', Blend],
+        ['video', 'Framing', Crop], ['transition', 'Transition', Blend],
         ['color', 'Color', SlidersHorizontal], ['speed', 'Speed', Gauge], ['fade', 'Fades', SunDim], ['filters', 'Looks', Wand2],
-      ] as const).filter(([id]) => (id !== 'speed' || draft.mediaKind === 'video')).map(([value, label, Icon]) => <button key={value} role="tab" aria-label={t(label)} title={t(label)} aria-selected={displayTab === value} className={displayTab === value ? 'active' : ''} onClick={() => { internalFlushRef.current(); setTab(value); if (value !== 'video' && framingActive) onToggleFraming(); }}><Icon size={18} /></button>)}
+      ] as const).filter(([id]) => (id !== 'speed' || draft.mediaKind === 'video')).map(([value, label, Icon]) => {
+        const changed = tabChanged(value, draft);
+        return <button key={value} role="tab" aria-label={changed ? `${t(label)} · ${t('changed')}` : t(label)} title={t(label)} aria-selected={displayTab === value} className={displayTab === value ? 'active' : ''} onClick={() => { internalFlushRef.current(); setAppliedNote(null); setTab(value); if (value !== 'video' && framingActive) onToggleFraming(); }}><Icon size={14} /><span>{t(label)}</span>{changed && <i className="tab-changed-dot" aria-hidden="true" />}</button>;
+      })}
     </div>}
-    {mode === 'scene' && <div className="inspector-current-tool">{t(({ elements: 'Element', video: 'Framing', text: 'Text', transition: 'Transitions', color: 'Color', speed: 'Speed', fade: 'Fades', filters: 'Looks' })[displayTab])}</div>}
+    {mode === 'scene' && sceneTab && <div className="inspector-tool-head">
+      <span>{t(({ elements: 'Element', video: 'Framing', text: 'Text', transition: 'Transitions', color: 'Color', speed: 'Speed', fade: 'Fades', filters: 'Looks' })[displayTab])}</span>
+      <div>
+        {tabChanged(sceneTab, draft) && <button type="button" className="text-button" title={t('Reset this tab to its defaults')} onClick={() => resetTab(sceneTab)}><RotateCcw size={12} /> {t('Reset')}</button>}
+        {onApplyToAll && sceneCount > 1 && APPLY_ALL_KEYS[sceneTab] && <button type="button" className="text-button" title={sceneTab === 'video' ? t('Copy the framing mode, zoom, background and camera movement to every clip') : t('Copy these settings to every clip')} onClick={() => void applyToAll(sceneTab)}><Layers size={12} /> {t('Apply to all clips')}</button>}
+      </div>
+    </div>}
+    {appliedNote && <p className="inspector-applied-note" role="status">{appliedNote}</p>}
 
     {displayTab === 'video' && <>
       <RangeField label="Duration" value={duration} min={0.5} max={draft.mediaKind === 'video' && draft.sourceDurationSeconds ? Math.max(duration, (draft.sourceDurationSeconds - ticksToSeconds(draft.sourceInTicks, timebase)) / speed) : Math.max(duration, draft.mediaKind === 'video' ? 600 : 30)} step={0.1} unit="s" onChange={stageDuration} onCommit={() => commit()} />
@@ -670,7 +702,6 @@ export function SceneForm({
         {(draft.motion ?? 'none') !== 'none' && <RangeField label="Amount" value={(draft.motionAmount ?? .2) * 100} min={5} max={60} step={1} unit="%" onChange={value => preview(stage({ motionAmount: value / 100 }))} onCommit={() => commit()} />}
       </details>}
       {formatCount > 1 && <button className="text-button format-apply" onClick={onApplyFramingToAll}>Apply framing to all formats</button>}
-      {onReplaceImage && <button type="button" className="button replace-scene-image" aria-label="Replace selected scene media" onClick={onReplaceImage}><ImagePlus size={15} /> Replace media…</button>}
     </>}
 
     {displayTab === 'text' && <>
