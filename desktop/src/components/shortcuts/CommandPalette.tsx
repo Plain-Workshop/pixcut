@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Search } from 'lucide-react';
 import {
@@ -59,17 +60,17 @@ export function CommandPalette({
       <Search size={16} />
       <input
         autoFocus
-        aria-label="Search commands"
+        aria-label={t('Search commands')}
         aria-controls="palette-results"
         aria-activedescendant={results[selected] ? `palette-command-${results[selected].id}` : undefined}
-        placeholder="Search every action, synonym, or shortcut…"
+        placeholder={t('Search every action, synonym, or shortcut…')}
         value={query}
         onChange={event => setQuery(event.target.value)}
         onKeyDown={keydown}
       />
       <kbd>{results.length}</kbd>
     </label>
-    <div className="palette-results" id="palette-results" role="listbox" aria-label="Available commands">
+    <div className="palette-results" id="palette-results" role="listbox" aria-label={t('Available commands')}>
       {results.map((command, index) => {
         const state = availability[command.id] ?? { disabled: false };
         const binding = bindings[command.id] ?? '';
@@ -90,14 +91,14 @@ export function CommandPalette({
           </span>
           <span className="palette-meta">
             <kbd>{formatBinding(binding, platform)}</kbd>
-            {state.disabled && <span className="palette-disabled">Unavailable</span>}
+            {state.disabled && <span className="palette-disabled">{t('Unavailable')}</span>}
           </span>
         </button>;
       })}
-      {!results.length && <div className="palette-empty"><Search size={22} /><strong>No matching commands.</strong><span>Try “split”, “export”, or “undo”.</span></div>}
+      {!results.length && <div className="palette-empty"><Search size={22} /><strong>{t('No matching commands.')}</strong><span>{t('Try “split”, “export”, or “undo”.')}</span></div>}
     </div>
     <div className="palette-footer">
-      <span>Search works offline, by action name or synonym.</span>
+      <span>{t('Search works offline, by action name or synonym.')}</span>
       <span><kbd>↑</kbd><kbd>↓</kbd> navigate <span className="footer-separator">·</span> <kbd>↵</kbd> run <span className="footer-separator">·</span> <kbd>esc</kbd> close</span>
     </div>
   </div>;

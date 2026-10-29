@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { Copy, RefreshCw, Scissors, Trash2 } from 'lucide-react';
 import type { CommandAvailability } from '../../shortcuts/registry';
 
@@ -16,10 +17,10 @@ export function ClipContextMenu({ position, canEdit, selectedCount, onReplace, a
       className="clip-context-menu"
       style={{ left: Math.max(10, Math.min(position.x, window.innerWidth - 252)), top: Math.max(10, Math.min(position.y, window.innerHeight - 232)) }}
       role="menu"
-      aria-label="Clip actions"
+      aria-label={t('Clip actions')}
     >
-      <span className="context-menu-heading">Clip actions</span>
-      <button role="menuitem" disabled={!canEdit || selectedCount !== 1} title={selectedCount === 1 ? 'Replace this scene photo or video and keep its timing, text, and looks' : 'Select one clip to replace its media'} onClick={onReplace}><RefreshCw size={14} /><span>Replace media…</span><kbd>—</kbd></button>
+      <span className="context-menu-heading">{t('Clip actions')}</span>
+      <button role="menuitem" disabled={!canEdit || selectedCount !== 1} title={selectedCount === 1 ? 'Replace this scene photo or video and keep its timing, text, and looks' : 'Select one clip to replace its media'} onClick={onReplace}><RefreshCw size={14} /><span>{t('Replace media…')}</span><kbd>—</kbd></button>
       <span className="context-menu-divider" aria-hidden="true" />
       {[
         { id: 'clip.split', label: 'Split at playhead', icon: <Scissors size={14} /> },

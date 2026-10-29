@@ -47,7 +47,7 @@ export function HomeMain({ deleted, goProjects, batch, openSettings, libraryRead
   const [templateAspect, setTemplateAspect] = useState<string>('all');
   const templateAspects = useMemo(() => [...new Set(TEMPLATES.map(template => template.aspect))], []);
   const shownTemplates = TEMPLATES.filter(template => templateAspect === 'all' || template.aspect === templateAspect).slice(0, 6);
-  const createGrid = <section className={`create-grid ${returning ? 'compact' : ''}`} aria-label="Create something new">
+  const createGrid = <section className={`create-grid ${returning ? 'compact' : ''}`} aria-label={t('Create something new')}>
           <button className="create-card new-video" disabled={!ready} onClick={() => setModal('new')}>
             <span className="create-icon"><Plus size={25} /></span>
             <span className="create-copy"><strong>{t('New Video')}</strong><small>{t('Start with an empty timeline.')}</small></span>
@@ -119,19 +119,19 @@ export function HomeMain({ deleted, goProjects, batch, openSettings, libraryRead
             <div><h2>{t(homeSection === 'home' ? (returning ? 'Continue editing' : 'Recent projects') : 'Your projects')}</h2><p>{t(homeSection === 'home' ? 'Pick up where you left off.' : 'Stored locally, recovered automatically.')}</p></div>
             <span className="count-label">{projects.length ? (returning && visibleProjects.length > homeProjects.length ? `${homeProjects.length} of ${projectCount(projects.length)}` : projectCount(projects.length)) : t('Nothing yet')}</span>
           </div>
-          {returning && (projectGroupsList.length > 0 || projects.some(entry => entry.favorite)) && <div className="group-filter home-shortcuts" role="group" aria-label="Jump to favorites and groups">
+          {returning && (projectGroupsList.length > 0 || projects.some(entry => entry.favorite)) && <div className="group-filter home-shortcuts" role="group" aria-label={t('Jump to favorites and groups')}>
             {projects.some(entry => entry.favorite) && <button className="group-chip" onClick={() => { setFavoriteOnly(true); setGroupFilter('all'); goProjects(); }}><Star size={11} fill="currentColor" />{t('Favorites')} <span>{projects.filter(entry => entry.favorite).length}</span></button>}
             {projectGroupsList.map(group => <button key={group} className="group-chip" onClick={() => { setFavoriteOnly(false); setGroupFilter(group); goProjects(); }}><FolderOpen size={11} />{group} <span>{projects.filter(entry => entry.group === group).length}</span></button>)}
           </div>}
-          {loading ? <div className="project-grid home-skeletons" aria-busy="true" aria-label="Loading projects">{[0, 1, 2].map(index => <div className="project-card skeleton" key={index}><div className="skeleton-thumb" /><div className="skeleton-line" /><div className="skeleton-line short" /></div>)}</div> : projects.length ? <>
+          {loading ? <div className="project-grid home-skeletons" aria-busy="true" aria-label={t('Loading projects')}>{[0, 1, 2].map(index => <div className="project-card skeleton" key={index}><div className="skeleton-thumb" /><div className="skeleton-line" /><div className="skeleton-line short" /></div>)}</div> : projects.length ? <>
             {homeSection === 'projects' && <div className="library-controls">
-              <label className="search-field"><Search size={14} /><input aria-label="Search projects" placeholder={t('Search projects or groups…')} value={libraryQuery} onChange={event => setLibraryQuery(event.target.value)} /></label>
-              <select aria-label="Sort projects" value={librarySort} onChange={event => setLibrarySort(event.target.value as 'recent' | 'name' | 'duration')}><option value="recent">{t('Recently edited')}</option><option value="name">{t('Name A–Z')}</option><option value="duration">{t('Longest first')}</option></select>
+              <label className="search-field"><Search size={14} /><input aria-label={t('Search projects')} placeholder={t('Search projects or groups…')} value={libraryQuery} onChange={event => setLibraryQuery(event.target.value)} /></label>
+              <select aria-label={t('Sort projects')} value={librarySort} onChange={event => setLibrarySort(event.target.value as 'recent' | 'name' | 'duration')}><option value="recent">{t('Recently edited')}</option><option value="name">{t('Name A–Z')}</option><option value="duration">{t('Longest first')}</option></select>
               <button className={`favorite-filter ${favoriteOnly ? 'active' : ''}`} aria-pressed={favoriteOnly} onClick={() => setFavoriteOnly(value => !value)}><Star size={13} fill={favoriteOnly ? 'currentColor' : 'none'} /> {t('Favorites')}</button>
               <button className={`favorite-filter ${batch.mode ? 'active' : ''}`} aria-pressed={batch.mode} onClick={() => batch.mode ? batch.end() : batch.begin()}><Check size={13} /> {t('Select')}</button>
             </div>}
             {homeSection === 'projects' && batch.mode && <BatchBar batch={batch} groups={projectGroupsList} selectedCount={batch.ids.length} />}
-            {homeSection === 'projects' && <div className="group-filter" role="group" aria-label="Filter projects by group">
+            {homeSection === 'projects' && <div className="group-filter" role="group" aria-label={t('Filter projects by group')}>
               <button className={`group-chip ${groupFilter === 'all' ? 'active' : ''}`} onClick={() => setGroupFilter('all')}>{t('All')} <span>{projects.length}</span></button>
               {projectGroupsList.map(group => <button key={group} className={`group-chip ${groupFilter === group ? 'active' : ''}`} onClick={() => setGroupFilter(group)}><FolderOpen size={11} />{group} <span>{projects.filter(entry => entry.group === group).length}</span></button>)}
               <button className={`group-chip ${groupFilter === 'ungrouped' ? 'active' : ''}`} onClick={() => setGroupFilter('ungrouped')}>{t('Ungrouped')} <span>{projects.filter(entry => !entry.group).length}</span></button>
@@ -143,7 +143,7 @@ export function HomeMain({ deleted, goProjects, batch, openSettings, libraryRead
                 const items = group === 'Ungrouped' ? matchingProjects.filter(entry => !entry.group) : matchingProjects.filter(entry => entry.group === group);
                 if (!items.length) return null;
                 return <div className="project-group-section" key={group}>
-                  <div className="project-group-title"><h3>{group}</h3><span>{items.length} project{items.length === 1 ? '' : 's'}</span></div>
+                  <div className="project-group-title"><h3>{group}</h3><span>{projectCount(items.length)}</span></div>
                   <div className="project-grid">{items.map(renderProjectCard)}</div>
                 </div>;
               })}
@@ -185,9 +185,9 @@ export function HomeMain({ deleted, goProjects, batch, openSettings, libraryRead
 
         {returning && createGrid}
 
-        {homeSection === 'home' && <section className="thumb-strip" aria-label="Template inspiration">
+        {homeSection === 'home' && <section className="thumb-strip" aria-label={t('Template inspiration')}>
           <div className="section-title"><div><h2>{t('Skip the blank page')}</h2><p>{t('Start from a sample and make it yours.')}</p></div><button className="text-button" onClick={() => setModal('templates')}>{t('Browse templates')} <ArrowRight size={14} /></button></div>
-          <div className="group-filter template-filter" role="group" aria-label="Filter templates by format">
+          <div className="group-filter template-filter" role="group" aria-label={t('Filter templates by format')}>
             {['all', ...templateAspects].map(aspect => <button key={aspect} className={`group-chip ${templateAspect === aspect ? 'active' : ''}`} aria-pressed={templateAspect === aspect} onClick={() => setTemplateAspect(aspect)}>{aspect === 'all' ? t('All') : aspect}</button>)}
           </div>
           <div className="thumb-grid">{shownTemplates.map(template => <button key={template.id} className="thumb-card" onClick={() => chooseTemplate(template)}><span className="thumb-art"><img src={templateImage(template)} alt="" /></span><span><strong>{t(template.name)}</strong><small>{sceneCount(template.sceneCount)} · {template.duration.toFixed(1)} s</small></span></button>)}</div>

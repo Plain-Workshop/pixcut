@@ -1,3 +1,4 @@
+import { t, videoCount } from '../../i18n';
 import { markProjectExported } from '../../stores/library';
 import { projectFingerprint } from '../../stores/fingerprint';
 import { creditsFileText } from '../helpers';
@@ -69,7 +70,7 @@ export function useVideoExport({ saveCredits, musicCredits, exportAudio, exportC
   }
 
   async function saveStillFrame() {
-    if (!sceneForPreview) { setError('Add a scene before saving a still frame.'); return; }
+    if (!sceneForPreview) { setError(t('Add a scene before saving a still frame.')); return; }
     try {
       await document.fonts.ready;
       const canvas = document.createElement('canvas');
@@ -82,27 +83,27 @@ export function useVideoExport({ saveCredits, musicCredits, exportAudio, exportC
       await drawPipClips(canvas, renderPipScenes, position, displayAspect, 'export', project.timebase, project.audio, true);
       await drawProjectText(canvas, project.globalText ?? [], position, project.timebase);
       const saved = await bridge.saveStillFrame(await canvasPng(canvas), `${project.name} - ${activeFormat?.name ?? 'Original'}`);
-      if (saved) setNotice(`Still frame saved at ${activeSize.width} × ${activeSize.height}. The preview, overlays and colour match the timeline.`);
+      if (saved) setNotice(t('Still frame saved at {width} × {height}. The preview, overlays and colour match the timeline.', { width: activeSize.width, height: activeSize.height }));
     } catch (error) {
       setError(messageFor(error));
     }
   }
 
   async function exportVideo() {
-    if (missingAssets(latestProject.current, presentRefs).length) { setError('Relink missing media before exporting this project.'); return; }
-    if (!exportCodecs.includes(exportCodec)) { setError('Choose an available video codec before exporting.'); return; }
+    if (missingAssets(latestProject.current, presentRefs).length) { setError(t('Relink missing media before exporting this project.')); return; }
+    if (!exportCodecs.includes(exportCodec)) { setError(t('Choose an available video codec before exporting.')); return; }
     commitElement(); inspectorFlush.current();
     await pending.current;
     const snapshot = structuredClone(latestProject.current);
     const visualAudio = snapshot.audio;
     snapshot.audio = exportAudio ? [...snapshot.audio, ...actionAudio(snapshot)] : [];
     const selectedFormats = snapshot.formats.filter(format => exportFormatIds.includes(format.id)).map(format => exportOutputFormat(format, exportResolution, exportQuality, exportFps));
-    if (!selectedFormats.length) { setError('Choose at least one output format.'); return; }
+    if (!selectedFormats.length) { setError(t('Choose at least one output format.')); return; }
     // Several social formats often share one render. Encode it once and name
     // the file for every platform it covers.
     const outputs = groupFormatsByOutput(selectedFormats);
     exportCancelled.current = false; setCancellingExport(false);
-    setExporting(true); setExportProgress(1); setExportElapsed(0); setExportJob({ name: snapshot.name, phase: 'Preparing frames' }); setPlaying(false); setError(''); setModal(current => current === 'export' ? null : current);
+    setExporting(true); setExportProgress(1); setExportElapsed(0); setExportJob({ name: snapshot.name, phase: 'Preparing frames' }); setPlaying(false); setError(t('')); setModal(current => current === 'export' ? null : current);
     try {
       await document.fonts.ready;
       if (projectScenes(snapshot).some(scene => scene.mediaKind === 'video')) {
@@ -115,7 +116,7 @@ export function useVideoExport({ saveCredits, musicCredits, exportAudio, exportC
           await writeCredits(paths, snapshot.name);
           setExportProgress(100);
           void markProjectExported(snapshot.id, projectFingerprint(snapshot)).catch(() => {});
-          setNotice(`${paths.length} video${paths.length === 1 ? '' : 's'} exported. Files stay on this device.`);
+          setNotice(t('{videos} exported. Files stay on this device.', { videos: videoCount(paths.length) }));
           setModal(current => current === 'export' ? null : current);
         }
         return;
@@ -174,12 +175,12 @@ export function useVideoExport({ saveCredits, musicCredits, exportAudio, exportC
         await writeCredits(paths, snapshot.name);
         setExportProgress(100);
         void markProjectExported(snapshot.id, projectFingerprint(snapshot)).catch(() => {});
-        setNotice(`${paths.length} video${paths.length === 1 ? '' : 's'} exported. Files stay on this device.`);
+        setNotice(t('{videos} exported. Files stay on this device.', { videos: videoCount(paths.length) }));
         setModal(current => current === 'export' ? null : current);
       }
     } catch (e) {
       if (/cancel/i.test(e instanceof Error ? e.message : String(e))) {
-        setNotice('Export cancelled. No file was written.');
+        setNotice(t('Export cancelled. No file was written.'));
       } else {
         setError(messageFor(e));
       }

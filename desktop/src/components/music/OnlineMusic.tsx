@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { Check, ExternalLink, Loader2, Pause, Play, Plus, Search, Star, X } from 'lucide-react';
 import { FALLBACK_AFTER_MS, cancelOnlineDownload, catalogueDown, fallbackOrder, downloadPercent, formatDownloadProgress, subscribeDownloadProgress, type DownloadProgress, ONLINE_GENRES, ONLINE_SOUND_TOPICS, ONLINE_PROVIDERS, buildOnlineQuery, onlineHasMore, onlineLicenseLabel, searchOnlineFill, type OnlineKind, type OnlineSearchPage, type OnlineSource, type OnlineTrack } from '../../stores/online-music';
@@ -73,7 +74,7 @@ export function OnlineMusic({ canEdit, onAdd, onStopOther, kind = 'music', isDow
     // Paging must not interrupt a preview that is playing; a new search replaces the list, so it does.
     if (!append) stop();
     const searching: OnlineSource = (append ? result?.provider : undefined) ?? nextSource;
-    setLoading(true); setError(''); setNoMore(false); setPending({ source: searching, append });
+    setLoading(true); setError(t('')); setNoMore(false); setPending({ source: searching, append });
     try {
       const previous = append ? result : null;
       const seen = new Set(append ? tracks.map(track => track.id) : []);
@@ -100,10 +101,10 @@ export function OnlineMusic({ canEdit, onAdd, onStopOther, kind = 'music', isDow
     audio.onerror = () => {
       if (player.current !== audio) return;
       if (track.fallbackUrl && !triedFallback) { triedFallback = true; audio.src = track.fallbackUrl; void audio.play().catch(() => {}); return; }
-      stop(); setError(`This ${noun} could not be played from its host. Try another one.`);
+      stop(); setError(sounds ? t('This sound could not be played from its host. Try another one.') : t('This track could not be played from its host. Try another one.'));
     };
     setPlaying(track.id);
-    void audio.play().catch(() => { if (player.current === audio) { stop(); setError(`This ${noun} could not be played from its host. Try another one.`); } });
+    void audio.play().catch(() => { if (player.current === audio) { stop(); setError(sounds ? t('This sound could not be played from its host. Try another one.') : t('This track could not be played from its host. Try another one.')); } });
   }
 
   async function add(track: OnlineTrack) {
@@ -124,15 +125,15 @@ export function OnlineMusic({ canEdit, onAdd, onStopOther, kind = 'music', isDow
       <label className="search-field"><Search size={14} /><input aria-label={sounds ? 'Search online sound effects' : 'Search online music'} placeholder={sounds ? 'Search applause, laughter, whoosh…' : 'Search songs, moods, artists…'} value={query} onChange={event => setQuery(event.target.value)} /></label>
       <button className="button primary" type="submit" disabled={loading}>{loading ? <Loader2 size={14} className="spin" /> : 'Search'}</button>
     </form>
-    <div className="online-genres online-views" role="group" aria-label="View">
-      <button type="button" className={!showSaved ? 'active' : ''} aria-pressed={!showSaved} onClick={() => setShowSaved(false)}>Search</button>
+    <div className="online-genres online-views" role="group" aria-label={t('View')}>
+      <button type="button" className={!showSaved ? 'active' : ''} aria-pressed={!showSaved} onClick={() => setShowSaved(false)}>{t('Search')}</button>
       <button type="button" className={showSaved ? 'active' : ''} aria-pressed={showSaved} onClick={() => { stop(); setShowSaved(true); }}><Star size={10} /> Saved ({saved.length})</button>
     </div>
     <div className="online-genres" role="group" aria-label={sounds ? 'Topic' : 'Genre'}>
       {['All', ...topics].map(item => <button key={item} type="button" className={genre === item ? 'active' : ''} aria-pressed={genre === item} onClick={() => { setGenre(item); setGenreChosen(item !== 'All'); void search(item); }}>{item}</button>)}
     </div>
-    <div className="online-genres online-sources" role="group" aria-label="Catalogue">
-      {([{ id: 'auto', label: 'Auto' }, ...ONLINE_PROVIDERS.filter(provider => provider.kinds.includes(kind))] as { id: OnlineSource; label: string }[]).map(item => <button key={item.id} type="button" className={source === item.id ? 'active' : ''} aria-pressed={source === item.id} title={item.id !== 'auto' && catalogueDown(item.id as never) ? `${item.label} did not answer recently` : undefined} onClick={() => { setSource(item.id); void search(genre, false, item.id); }}>{item.label}{item.id !== 'auto' && catalogueDown(item.id as never) && <span className="online-down" aria-label="not answering"> ·&nbsp;down</span>}</button>)}
+    <div className="online-genres online-sources" role="group" aria-label={t('Catalogue')}>
+      {([{ id: 'auto', label: 'Auto' }, ...ONLINE_PROVIDERS.filter(provider => provider.kinds.includes(kind))] as { id: OnlineSource; label: string }[]).map(item => <button key={item.id} type="button" className={source === item.id ? 'active' : ''} aria-pressed={source === item.id} title={item.id !== 'auto' && catalogueDown(item.id as never) ? `${item.label} did not answer recently` : undefined} onClick={() => { setSource(item.id); void search(genre, false, item.id); }}>{item.label}{item.id !== 'auto' && catalogueDown(item.id as never) && <span className="online-down" aria-label={t('not answering')}> ·&nbsp;down</span>}</button>)}
     </div>
     <p className={`online-status ${statusText ? 'busy' : ''}`} role="status" aria-live="polite">{statusText && <><Loader2 size={12} className="spin" /> {statusText}</>}</p>
     {error && <p className="online-music-error" role="alert">{error}</p>}
@@ -143,22 +144,22 @@ export function OnlineMusic({ canEdit, onAdd, onStopOther, kind = 'music', isDow
     </div>}
     {!showSaved && searched && !tracks.length && !loading && !error && <div className="library-empty music-empty"><strong>{sounds ? 'No sounds found.' : 'No tracks found.'}</strong><p>Try another word{sounds ? '' : ' or genre'}.</p></div>}
     {fresh && !showSaved && <div className="free-music-list online-music-list online-skeleton" aria-hidden="true">{[0, 1, 2, 3].map(row => <div key={row} className="free-music-track"><i className="skeleton-dot" /><span><i className="skeleton-line" style={{ width: `${70 - row * 8}%` }} /><i className="skeleton-line short" /></span></div>)}</div>}
-    {showSaved && !saved.length && <div className="library-empty music-empty"><strong>Nothing saved yet.</strong><p>Press the star on a {noun} to keep it here. Playing or adding it still contacts its host.</p></div>}
+    {showSaved && !saved.length && <div className="library-empty music-empty"><strong>{t('Nothing saved yet.')}</strong><p>Press the star on a {noun} to keep it here. Playing or adding it still contacts its host.</p></div>}
     {(showSaved || !fresh) && <div className="free-music-list online-music-list">
       {(showSaved ? saved : tracks).map(track => <div key={track.id} className={`free-music-track ${playing === track.id ? 'previewing' : ''}`}>
-        <button className="music-listen" aria-label={`${playing === track.id ? 'Stop' : 'Listen to'} ${track.title}`} onClick={() => listen(track)}>{playing === track.id ? <Pause size={13} /> : <Play size={13} />}</button>
-        <span><strong>{track.title}</strong>{isDownloaded?.(track) && <em className="online-downloaded" title="Saved on this device, works offline"><Check size={10} /> Downloaded</em>}<small>{track.artist} · {onlineLicenseLabel(track)}{source === 'auto' && track.provider === 'commons' ? ' · Wikimedia' : ''} · {sounds ? `${track.seconds.toFixed(track.seconds < 10 ? 1 : 0)}s` : `${Math.floor(track.seconds / 60)}:${String(Math.round(track.seconds) % 60).padStart(2, '0')}`}</small>{adding === track.id && <span className="online-progress" role="status" aria-live="polite"><em>{progress ? formatDownloadProgress(progress) : 'Starting download…'}</em><progress max={100} value={progress ? downloadPercent(progress) ?? undefined : undefined} aria-label={`Download progress for ${track.title}`} /></span>}</span>
-        <button className={`icon-button star ${favorites.some(item => item.id === track.id) ? 'on' : ''}`} aria-pressed={favorites.some(item => item.id === track.id)} aria-label={`${favorites.some(item => item.id === track.id) ? 'Remove' : 'Save'} ${track.title}`} title="Save to favorites" onClick={() => star(track)}><Star size={14} fill={favorites.some(item => item.id === track.id) ? 'currentColor' : 'none'} /></button>
-        <a className="icon-button" href={track.landingUrl} target="_blank" rel="noreferrer noopener" aria-label={`Open ${track.title} on its source page`} title="Open the source page"><ExternalLink size={14} /></a>
+        <button className="music-listen" aria-label={playing === track.id ? t('Stop {name}', { name: track.title }) : t('Listen to {name}', { name: track.title })} onClick={() => listen(track)}>{playing === track.id ? <Pause size={13} /> : <Play size={13} />}</button>
+        <span><strong>{track.title}</strong>{isDownloaded?.(track) && <em className="online-downloaded" title={t('Saved on this device, works offline')}><Check size={10} /> Downloaded</em>}<small>{track.artist} · {onlineLicenseLabel(track)}{source === 'auto' && track.provider === 'commons' ? ' · Wikimedia' : ''} · {sounds ? `${track.seconds.toFixed(track.seconds < 10 ? 1 : 0)}s` : `${Math.floor(track.seconds / 60)}:${String(Math.round(track.seconds) % 60).padStart(2, '0')}`}</small>{adding === track.id && <span className="online-progress" role="status" aria-live="polite"><em>{progress ? formatDownloadProgress(progress) : 'Starting download…'}</em><progress max={100} value={progress ? downloadPercent(progress) ?? undefined : undefined} aria-label={t('Download progress for {title}', { title: track.title })} /></span>}</span>
+        <button className={`icon-button star ${favorites.some(item => item.id === track.id) ? 'on' : ''}`} aria-pressed={favorites.some(item => item.id === track.id)} aria-label={favorites.some(item => item.id === track.id) ? t('Remove {name}', { name: track.title }) : t('Save {name}', { name: track.title })} title={t('Save to favorites')} onClick={() => star(track)}><Star size={14} fill={favorites.some(item => item.id === track.id) ? 'currentColor' : 'none'} /></button>
+        <a className="icon-button" href={track.landingUrl} target="_blank" rel="noreferrer noopener" aria-label={t('Open {title} on its source page', { title: track.title })} title={t('Open the source page')}><ExternalLink size={14} /></a>
         {adding === track.id
-          ? <button className="icon-button" aria-label={`Cancel download of ${track.title}`} title="Cancel download" onClick={() => void cancelOnlineDownload()}><X size={15} /></button>
-          : <button className="icon-button" aria-label={`Add ${track.title} to the project`} disabled={!canEdit || adding !== null} onClick={() => void add(track)}><Plus size={16} /></button>}
+          ? <button className="icon-button" aria-label={t('Cancel download of {title}', { title: track.title })} title={t('Cancel download')} onClick={() => void cancelOnlineDownload()}><X size={15} /></button>
+          : <button className="icon-button" aria-label={t('Add {title} to the project', { title: track.title })} disabled={!canEdit || adding !== null} onClick={() => void add(track)}><Plus size={16} /></button>}
       </div>)}
     </div>}
-    {!showSaved && result && onlineHasMore(result) && tracks.length > 0 && <button className="button subtle online-more" disabled={loading} onClick={() => void search(genre, true)}>Load more</button>}
+    {!showSaved && result && onlineHasMore(result) && tracks.length > 0 && <button className="button subtle online-more" disabled={loading} onClick={() => void search(genre, true)}>{t('Load more')}</button>}
     <p className="online-status" role="status" aria-live="polite">{pending?.append && <><Loader2 size={12} className="spin" /> Loading more…</>}</p>
-    {!showSaved && tracks.length > 0 && (noMore || (result && !onlineHasMore(result))) && !loading && <p className="note online-fallback">No more results for this search.</p>}
-    <details className="library-disclosure music-license"><summary>Licenses · credit saved with the clip</summary>
+    {!showSaved && tracks.length > 0 && (noMore || (result && !onlineHasMore(result))) && !loading && <p className="note online-fallback">{t('No more results for this search.')}</p>}
+    <details className="library-disclosure music-license"><summary>{t('Licenses · credit saved with the clip')}</summary>
       <p>Only CC0, CC BY and public-domain {noun}s are shown, so they are free for commercial videos. CC BY {noun}s need the artist credited where you publish; PixCut saves the credit line with the clip and adds it to the Audio panel and the export credits.</p>
       <p>{sounds ? 'Sounds' : 'Tracks'} play and download straight from their host when you press Listen or Add. Opening this tab loads a popular search; nothing is requested while you edit or export. Search covers Openverse and Wikimedia Commons, and falls back to Commons when Openverse is down. Licenses come from the catalogue and are not verified by PixCut, so check the source page for anything important.</p>
     </details>

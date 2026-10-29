@@ -37,9 +37,9 @@ export function FramingKeyframeControls({
       <div className="keyframe-list">{keys.map(key => <div className="keyframe-row" key={key.at}>
         <span className="keyframe-time">{key.at.toFixed(2)} s</span>
         <span className="keyframe-values">{describe(key)}</span>
-        <button type="button" className="icon-button" aria-label={`Remove framing keyframe at ${key.at.toFixed(2)} seconds`} disabled={disabled} onClick={() => onChange(removeFramingKeyframe(keys, key.at))}><Trash2 size={13} /></button>
+        <button type="button" className="icon-button" aria-label={t('Remove framing keyframe at {seconds} seconds', { seconds: key.at.toFixed(2) })} disabled={disabled} onClick={() => onChange(removeFramingKeyframe(keys, key.at))}><Trash2 size={13} /></button>
       </div>)}</div>
-      <button type="button" className="text-button" disabled={disabled} onClick={() => onChange(undefined)}>Clear framing keyframes</button>
+      <button type="button" className="text-button" disabled={disabled} onClick={() => onChange(undefined)}>{t('Clear framing keyframes')}</button>
     </>}
   </details>;
 }

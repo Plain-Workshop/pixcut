@@ -1,3 +1,4 @@
+import { beatMarkerCount, cutCount, t } from '../../i18n';
 import { landedOn, setSnapGuide, snapEdges, snapThreshold, timelineSnapPoints } from '../../components/timeline/timeline-snap';
 import { resolveAssetUrl } from '../../components/preview/media-url';
 import { assetRef, storeAssetBlob } from '../../stores/assets';
@@ -72,7 +73,7 @@ export function useAudioActions({ timelineSnapping, canEdit, setError, audioInpu
   }
 
   async function importStreamedAudio(imported: bridge.ImportedMedia) {
-    if (!projectTicks) { setNotice('Add photos before adding audio.'); return; }
+    if (!projectTicks) { setNotice(t('Add photos before adding audio.')); return; }
     try {
       const url = await resolveAssetUrl(imported.reference);
       const sourceDuration = Math.round((await audioDuration(url)) * 100) / 100;
@@ -96,7 +97,7 @@ export function useAudioActions({ timelineSnapping, canEdit, setError, audioInpu
       if (await run({ type: 'audio', audio: [...project.audio, clip] })) {
         setEditTarget('audio'); setSelectedAudioId(clip.id);
         setTab('audio');
-        setNotice(`Audio added at ${ticksToSeconds(clip.startTicks, project.timebase).toFixed(1)} s. It stays on this device.`);
+        setNotice(t('Audio added at {seconds} s. It stays on this device.', { seconds: ticksToSeconds(clip.startTicks, project.timebase).toFixed(1) }));
       }
     } catch (e) { setError(messageFor(e)); }
   }
@@ -133,7 +134,7 @@ export function useAudioActions({ timelineSnapping, canEdit, setError, audioInpu
 
   async function importAudio(file: File | null | undefined) {
     if (!file || !canEdit) return;
-    if (!projectTicks) { setNotice('Add photos before adding audio.'); return; }
+    if (!projectTicks) { setNotice(t('Add photos before adding audio.')); return; }
     try {
       const data = await audioFileData(file);
       const sourceDuration = Math.round((await audioDuration(data)) * 100) / 100;
@@ -157,7 +158,7 @@ export function useAudioActions({ timelineSnapping, canEdit, setError, audioInpu
       if (await run({ type: 'audio', audio: [...project.audio, clip] })) {
         setEditTarget('audio'); setSelectedAudioId(clip.id);
         setTab('audio');
-        setNotice(`Audio added at ${ticksToSeconds(clip.startTicks, project.timebase).toFixed(1)} s. It stays on this device.`);
+        setNotice(t('Audio added at {seconds} s. It stays on this device.', { seconds: ticksToSeconds(clip.startTicks, project.timebase).toFixed(1) }));
       }
     } catch (e) { setError(messageFor(e)); } finally { if (audioInput.current) audioInput.current.value = ''; }
   }
@@ -165,7 +166,7 @@ export function useAudioActions({ timelineSnapping, canEdit, setError, audioInpu
   async function startVoiceover() {
     if (!canEdit) return;
     if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-      setError('Voiceover recording is not available in this build. Import an audio file instead.');
+      setError(t('Voiceover recording is not available in this build. Import an audio file instead.'));
       return;
     }
     try {
@@ -184,7 +185,7 @@ export function useAudioActions({ timelineSnapping, canEdit, setError, audioInpu
       const started = performance.now();
       recordTimer.current = window.setInterval(() => setRecordSeconds((performance.now() - started) / 1000), 200);
     } catch {
-      setError('Microphone access is needed for voiceover. Allow it in your system settings and try again.');
+      setError(t('Microphone access is needed for voiceover. Allow it in your system settings and try again.'));
     }
   }
 
@@ -235,7 +236,7 @@ export function useAudioActions({ timelineSnapping, canEdit, setError, audioInpu
       });
       if (await run({ type: 'audio', audio: [...snapshot.audio, clip] })) {
         setEditTarget('audio'); setSelectedAudioId(clip.id); setTab('audio');
-        setNotice('Voiceover added at the playhead. It stays on this device.');
+        setNotice(t('Voiceover added at the playhead. It stays on this device.'));
       }
     } catch (error) {
       setError(messageFor(error));
@@ -250,7 +251,7 @@ export function useAudioActions({ timelineSnapping, canEdit, setError, audioInpu
     void run({ type: 'audio', audio: next }).then(ok => {
       if (!ok) return;
       setSelectedAudioId(current => current === id ? next[0]?.id ?? null : current);
-      setNotice('Audio clip removed from this project.');
+      setNotice(t('Audio clip removed from this project.'));
     });
   }
 
@@ -350,27 +351,27 @@ export function useAudioActions({ timelineSnapping, canEdit, setError, audioInpu
   async function detectAudioBeats() {
     if (!selectedAudio || !canEdit) return;
     setBeatBusy(true);
-    setError('');
+    setError(t(''));
     try {
       const analysis = await detectBeats(selectedAudio.data);
       if (!analysis?.beats.length) {
-        setError('No clear beat was found in this audio. Try a track with a steady pulse, or add markers at the playhead.');
+        setError(t('No clear beat was found in this audio. Try a track with a steady pulse, or add markers at the playhead.'));
         return;
       }
       setBeatTempo(analysis.bpm);
       const ticks = beatMarkerTicks(analysis.beats, selectedAudio.startTicks, project.timebase, projectTicks);
       if (!ticks.length) {
-        setNotice('The detected beats fall outside this timeline.');
+        setNotice(t('The detected beats fall outside this timeline.'));
         return;
       }
       const merged = [...new Set([...(project.beatTicks ?? []), ...ticks])].sort((a, b) => a - b).slice(0, 500);
       const added = Math.max(0, merged.length - (project.beatTicks?.length ?? 0));
       if (!added) {
-        setNotice(`Found ${analysis.bpm ? `${analysis.bpm} BPM` : 'a pulse'} · these beat markers are already on the timeline.`);
+        setNotice(t('Found {pulse} · these beat markers are already on the timeline.', { pulse: analysis.bpm ? `${analysis.bpm} BPM` : t('a pulse') }));
         return;
       }
       if (await run({ type: 'beats', beatTicks: merged })) {
-        setNotice(`Found ${analysis.bpm ? `${analysis.bpm} BPM` : 'a pulse'} · ${added} beat marker${added === 1 ? '' : 's'} added. Overlay moves and trims now snap to them.`);
+        setNotice(t('Found {pulse} · {markers} added. Overlay moves and trims now snap to them.', { pulse: analysis.bpm ? `${analysis.bpm} BPM` : t('a pulse'), markers: beatMarkerCount(added) }));
       }
     } catch (error) {
       setError(messageFor(error));
@@ -383,15 +384,15 @@ export function useAudioActions({ timelineSnapping, canEdit, setError, audioInpu
     if (!selectedAudio || !canEdit) return;
     const photoScenes = projectScenes(project);
     if (photoScenes.some(scene => scene.mediaKind === 'video')) {
-      setError('Beat sync currently works with photo stories. Video cuts keep their own source timing.');
+      setError(t('Beat sync currently works with photo stories. Video cuts keep their own source timing.'));
       return;
     }
     if (photoScenes.length < 2) {
-      setError('Add at least two photo scenes before snapping cuts to a beat.');
+      setError(t('Add at least two photo scenes before snapping cuts to a beat.'));
       return;
     }
     setBeatBusy(true);
-    setError('');
+    setError(t(''));
     try {
       let beats = (project.beatTicks ?? []).map(tick => ticksToSeconds(tick, project.timebase));
       let offsetSeconds = 0;
@@ -399,7 +400,7 @@ export function useAudioActions({ timelineSnapping, canEdit, setError, audioInpu
       if (!beats.length) {
         const analysis = await detectBeats(selectedAudio.data);
         if (!analysis?.beats.length) {
-          setError('No clear beat was found in this audio. Try a track with a steady pulse, or add markers at the playhead.');
+          setError(t('No clear beat was found in this audio. Try a track with a steady pulse, or add markers at the playhead.'));
           return;
         }
         beats = analysis.beats;
@@ -409,11 +410,11 @@ export function useAudioActions({ timelineSnapping, canEdit, setError, audioInpu
       }
       const result = snapScenesToBeats(photoScenes, beats, offsetSeconds, project.timebase);
       if (!result.moved) {
-        setNotice(`Found ${bpm ? `${bpm} BPM` : 'a pulse'}, but no cut was within 0.35 s of a beat.`);
+        setNotice(t('Found {pulse}, but no cut was within 0.35 s of a beat.', { pulse: bpm ? `${bpm} BPM` : t('a pulse') }));
         return;
       }
       if (await run({ type: 'updateMany', scenes: result.scenes })) {
-        setNotice(`Snapped ${result.moved} cut${result.moved === 1 ? '' : 's'} to ${bpm ? `${bpm} BPM` : 'the beat'}.`);
+        setNotice(t('Snapped {cuts} to {target}.', { cuts: cutCount(result.moved), target: bpm ? `${bpm} BPM` : t('the beat') }));
       }
     } catch (error) {
       setError(messageFor(error));

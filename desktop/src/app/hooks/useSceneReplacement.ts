@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { assetRef, storeAssetBlob } from '../../stores/assets';
 import { type DragEvent as ReactDragEvent } from 'react';
 import * as bridge from '../bridge';
@@ -58,7 +59,7 @@ export function useSceneReplacement({ canEdit, setReplacingSceneId, inspectorFlu
       }
       const before = optimisticScene(next);
       const ok = await run({ type: 'update', scene: next });
-      if (ok) setNotice(asset.mime.startsWith('video/') ? 'Video replaced. Text, looks, and the scene\'s timeline position were kept.' : 'Image replaced. Timing, text, and looks were kept.');
+      if (ok) setNotice(asset.mime.startsWith('video/') ? t('Video replaced. Text, looks, and the scene\'s timeline position were kept.') : t('Image replaced. Timing, text, and looks were kept.'));
       else { latestProject.current = before; setSession(current => ({ ...current, project: before })); }
     } catch (error) { setError(messageFor(error)); }
     finally { setReplacingSceneId(null); }
@@ -66,7 +67,7 @@ export function useSceneReplacement({ canEdit, setReplacingSceneId, inspectorFlu
 
   function requestReplaceImage(sceneId?: string) {
     const id = sceneId ?? (selectedCount === 1 ? selectedScene?.id : undefined);
-    if (!id) { setNotice('Select one scene to replace its media.'); return; }
+    if (!id) { setNotice(t('Select one scene to replace its media.')); return; }
     if (!canEdit) return;
     if (bridge.native) {
       void bridge.importMediaAsset().then(asset => { if (asset) void replaceSceneWithAsset(id, asset); }).catch(error => setError(messageFor(error)));
@@ -99,7 +100,7 @@ export function useSceneReplacement({ canEdit, setReplacingSceneId, inspectorFlu
       };
       const before = optimisticScene(next);
       const ok = await run({ type: 'update', scene: next });
-      if (ok) setNotice(`Video replaced. Text, looks, and the scene's timeline position were kept.`);
+      if (ok) setNotice(t('Video replaced. Text, looks, and the scene\'s timeline position were kept.'));
       else { latestProject.current = before; setSession(current => ({ ...current, project: before })); }
     } catch (e) { setError(messageFor(e)); }
     finally { setReplacingSceneId(null); }
@@ -132,7 +133,7 @@ export function useSceneReplacement({ canEdit, setReplacingSceneId, inspectorFlu
       const next = replaceSceneImage(target, image, file.name);
       const before = optimisticScene(next);
       const ok = await run({ type: 'update', scene: next });
-      if (ok) setNotice(`Image replaced. Timing, text, and looks were kept.`);
+      if (ok) setNotice(t('Image replaced. Timing, text, and looks were kept.'));
       else { latestProject.current = before; setSession(current => ({ ...current, project: before })); }
     } catch (e) { setError(messageFor(e)); }
     finally { setReplacingSceneId(null); }
@@ -187,7 +188,7 @@ export function useSceneReplacement({ canEdit, setReplacingSceneId, inspectorFlu
     setDropTarget(null);
     setFileDragActive(false);
     const file = Array.from(event.dataTransfer.files).find(item => item.type.startsWith('image/') || item.type.startsWith('video/'));
-    if (!file) { setError('Drop a JPEG, PNG, WebP, MP4, MOV, M4V, or WebM file to replace this scene.'); return; }
+    if (!file) { setError(t('Drop a JPEG, PNG, WebP, MP4, MOV, M4V, or WebM file to replace this scene.')); return; }
     await replaceSceneMedia(scene.id, file);
   }
 

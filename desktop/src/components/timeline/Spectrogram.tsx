@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { resolveMediaSource } from '../preview/media-url';
 import { spectrogramRange, spectrogramVisibleBins, type SpectrogramData } from './spectrogram-data';
@@ -56,5 +57,5 @@ export function Spectrogram({data,sourceInSeconds,durationSeconds,sourceDuration
     const draw=()=>{canvas.width=Math.max(1,Math.min(2048,Math.round(canvas.clientWidth*devicePixelRatio)));canvas.height=128;ctx.clearRect(0,0,canvas.width,canvas.height);if(range.end>range.start)ctx.drawImage(source,range.start,source.height-shown,range.end-range.start,shown,0,0,canvas.width,canvas.height);};
     draw();const observer=new ResizeObserver(draw);observer.observe(canvas);return()=>observer.disconnect();
   },[analysis,sourceInSeconds,durationSeconds]);
-  return <><canvas ref={ref} className="audio-spectrogram" width={512} height={128} data-ready={Boolean(analysis)} data-columns={analysis?.columns??0} aria-hidden="true"/>{failed&&showStatus&&<span className="spectrogram-status">Spectrogram unavailable</span>}</>;
+  return <><canvas ref={ref} className="audio-spectrogram" width={512} height={128} data-ready={Boolean(analysis)} data-columns={analysis?.columns??0} aria-hidden="true"/>{failed&&showStatus&&<span className="spectrogram-status">{t('Spectrogram unavailable')}</span>}</>;
 }

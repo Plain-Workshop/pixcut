@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { Plus, Trash2 } from 'lucide-react';
 import { MAX_KEYFRAMES, type Keyframe } from '../../stores/model';
 import { keyframeAtPlayhead, removeKeyframe, upsertKeyframe } from './keyframes';
@@ -43,9 +44,9 @@ export function KeyframeControls({
       <div className="keyframe-list">{keys.map(key => <div className="keyframe-row" key={key.at}>
         <span className="keyframe-time">{key.at.toFixed(2)} s</span>
         <span className="keyframe-values">{describe(key)}</span>
-        <button type="button" className="icon-button" aria-label={`Remove keyframe at ${key.at.toFixed(2)} seconds`} disabled={disabled} onClick={() => onChange(removeKeyframe(keys, key.at))}><Trash2 size={13} /></button>
+        <button type="button" className="icon-button" aria-label={t('Remove keyframe at {seconds} seconds', { seconds: key.at.toFixed(2) })} disabled={disabled} onClick={() => onChange(removeKeyframe(keys, key.at))}><Trash2 size={13} /></button>
       </div>)}</div>
-      <button type="button" className="text-button" disabled={disabled} onClick={() => onChange(undefined)}>Clear keyframes</button>
+      <button type="button" className="text-button" disabled={disabled} onClick={() => onChange(undefined)}>{t('Clear keyframes')}</button>
     </>}
   </details>;
 }

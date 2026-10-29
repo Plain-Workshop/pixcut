@@ -35,7 +35,7 @@ import { LatestRenderQueue } from '../components/preview/render-queue';
 import { loadMediaBin, saveMediaBin, uniqueMediaSources } from '../stores/media-bin';
 import { missingAssets, projectAssetRefs, replaceAssetRef, type MissingAsset } from '../stores/missing-assets';
 import { syncAudioElement } from '../components/preview/audio';
-import { formatCount, isLocale, sceneCount, setLocale, t, type Locale } from '../i18n';
+import { captionCount, formatCount, isLocale, mediaFileCount, sceneCount, setLocale, t, type Locale } from '../i18n';
 import { applyClipEq } from '../components/preview/eq';
 import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
@@ -450,7 +450,7 @@ export default function App() {
       if (projectFile) { void bridge.openProjectPath(projectFile).catch(e => setError(messageFor(e))); return; }
       const paths = (event.paths ?? []).filter(path => /\.(png|jpe?g|webp|mp4|m4v|mov|webm)$/i.test(path));
       if (!(event.paths?.length)) return;
-      if (!paths.length) { setError('Drop a PNG, JPEG, WebP, MP4, MOV, M4V, or WebM file.'); return; }
+      if (!paths.length) { setError(t('Drop a PNG, JPEG, WebP, MP4, MOV, M4V, or WebM file.')); return; }
       if (sceneId) void dropNativeOnScene(sceneId, paths);
       else void importNativePaths(paths);
     })?.then(fn => { if (disposed) fn(); else unlisten = fn; }).catch(() => {});
@@ -568,7 +568,7 @@ export default function App() {
       setProjects(sortProjects(listed));
       void backfillThumbnails(listed).then(fixed => { if (fixed) setProjects(current => current.map(item => { const next = fixed.find(entry => entry.id === item.id); return next?.thumbnail && !item.thumbnail ? { ...item, thumbnail: next.thumbnail } : item; })); }).catch(() => {});
     }
-    catch (e) { setError(`Project library could not be read. ${messageFor(e)}`); }
+    catch (e) { setError(t('Project library could not be read. {e}', { e: messageFor(e) })); }
     finally { setLibraryReady(true); }
   }, []);
 
@@ -602,7 +602,7 @@ export default function App() {
     setSnapping(DEFAULT_PREFERENCES.snapping);
     setShowHints(true);
     try { localStorage.removeItem(HINTS_KEY); } catch { /* optional */ }
-    setNotice('Preferences reset to their defaults.');
+    setNotice(t('Preferences reset to their defaults.'));
   }
 
   function refreshStorage() {
@@ -613,7 +613,7 @@ export default function App() {
   }
 
   function recheckExporter() {
-    bridge.exporterAvailable().then(available => { setExporter(available); setNotice(available ? 'FFmpeg is ready for MP4 export.' : 'FFmpeg was not found on this device.'); }).catch(error => setError(messageFor(error)));
+    bridge.exporterAvailable().then(available => { setExporter(available); setNotice(available ? t('FFmpeg is ready for MP4 export.') : t('FFmpeg was not found on this device.')); }).catch(error => setError(messageFor(error)));
   }
 
   const { appVersion, updateState, updateInfo, updateProgress, updateMessage, checkForUpdates, downloadUpdate, restartUpdate, copyDownloadLink } = useUpdates({ automaticUpdates: preferences.automaticUpdates, home: screen === 'home', exporting, setNotice, saveBeforeUpdate: async () => { if (ready) await persistCurrent(); } });
@@ -654,8 +654,8 @@ export default function App() {
 
   function copyDiagnostics() {
     const text = diagnostics();
-    if (!navigator.clipboard) { setNotice('Clipboard access is unavailable in this preview.'); return; }
-    navigator.clipboard.writeText(text).then(() => setNotice('Build diagnostics copied.')).catch(error => setError(messageFor(error)));
+    if (!navigator.clipboard) { setNotice(t('Clipboard access is unavailable in this preview.')); return; }
+    navigator.clipboard.writeText(text).then(() => setNotice(t('Build diagnostics copied.'))).catch(error => setError(messageFor(error)));
   }
 
   const persistCurrent = useCallback(async () => {
@@ -668,7 +668,7 @@ export default function App() {
     } catch { /* recovery remains the source of truth if a thumbnail cannot be drawn */ }
   }, []);
 
-  useEffect(() => { bridge.initialize().then(s => { setSession(s); latestProject.current = s.project; setName(s.project.name); }).catch(e => setError(`Recovery could not be loaded. ${messageFor(e)}`)).finally(() => setReady(true)); bridge.exporterAvailable().then(setExporter).catch(() => setExporter(false)); }, []);
+  useEffect(() => { bridge.initialize().then(s => { setSession(s); latestProject.current = s.project; setName(s.project.name); }).catch(e => setError(t('Recovery could not be loaded. {e}', { e: messageFor(e) }))).finally(() => setReady(true)); bridge.exporterAvailable().then(setExporter).catch(() => setExporter(false)); }, []);
   useEffect(() => { const listener = bridge.onExportProgress(percent => { setExportJob(job => ({ ...job, phase: 'Encoding video' })); setExportProgress(current => Math.max(current, 72 + Math.round(Math.min(99, percent) * .27))); }); return () => { void listener?.then(unlisten => unlisten()); }; }, []);
   useEffect(() => {
     if (!bridge.native) return;
@@ -740,7 +740,7 @@ export default function App() {
       const videos = files.filter(file => /^video\//.test(file.type));
       if (images.length) { const transfer = new DataTransfer(); images.forEach(file => transfer.items.add(file)); void importFiles(transfer.files); }
       else if (videos.length) { const transfer = new DataTransfer(); videos.forEach(file => transfer.items.add(file)); void importVideos(transfer.files); }
-      else setError('Drop photos, videos or a .pixcut project file.');
+      else setError(t('Drop photos, videos or a .pixcut project file.'));
     };
     window.addEventListener('dragover', over);
     window.addEventListener('drop', drop);
@@ -832,7 +832,7 @@ export default function App() {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = previous; };
   }, [modal]);
-  useEffect(() => { if (!notice) return; const id = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(id); }, [notice]);
+  useEffect(() => { if (!notice) return; const id = setTimeout(() => setNotice(t('')), 5000); return () => clearTimeout(id); }, [notice]);
 
   function optimisticScene(scene: Scene) {
     const before = latestProject.current;
@@ -969,7 +969,7 @@ export default function App() {
       element.muted = true;
       const source = videoScene.image;
       void resolveMediaSource(source).then(url => {
-        if (!url) { setError('That video is missing from the local store. Relink the clip.'); return; }
+        if (!url) { setError(t('That video is missing from the local store. Relink the clip.')); return; }
         if (element.dataset.sceneSource !== source) return;
         element.src = url;
         element.load();
@@ -1055,7 +1055,7 @@ export default function App() {
       element.muted = true;
       const source = clip.image;
       void resolveMediaSource(source).then(url => {
-        if (!url) { setError('That video is missing from the local store. Relink the clip.'); return; }
+        if (!url) { setError(t('That video is missing from the local store. Relink the clip.')); return; }
         if (pipVideoSources.current.get(clip.id) !== source) return;
         element.src = url;
         element.load();
@@ -1138,8 +1138,8 @@ export default function App() {
   }, [activeSize.width, activeSize.height, screen]);
 
   const save = useCallback(async () => {
-    if (missingAssets(latestProject.current, presentRefs).length) { setError('Relink missing media before saving this project.'); return; }
-    try { await pending.current; await persistCurrent(); if (await bridge.saveProject(latestProject.current)) setNotice(bridge.native ? 'Project saved as a .pixcut package with its media files.' : 'Project file downloaded. A local copy is also saved on this device.'); } catch (e) { setError(messageFor(e)); }
+    if (missingAssets(latestProject.current, presentRefs).length) { setError(t('Relink missing media before saving this project.')); return; }
+    try { await pending.current; await persistCurrent(); if (await bridge.saveProject(latestProject.current)) setNotice(bridge.native ? t('Project saved as a .pixcut package with its media files.') : t('Project file downloaded. A local copy is also saved on this device.')); } catch (e) { setError(messageFor(e)); }
   }, [persistCurrent]);
 
   function goHome() {
@@ -1174,12 +1174,12 @@ export default function App() {
   const LANE_EDITS = new Set(['clip.delete', 'clip.ripple_delete', 'clip.split', 'clip.trim_start', 'clip.trim_end', 'clip.nudge_left', 'clip.nudge_right', 'clip.nudge_left_10', 'clip.nudge_right_10']);
   /** Locked lanes refuse every keyboard edit, whatever the command. */
   function availabilityFor(id: string): CommandAvailability {
-    if (LANE_EDITS.has(id) && lockedLanes.includes(clipEditing.current?.selectionLane() ?? '')) return { disabled: true, reason: 'This lane is locked. Unlock it to edit.' };
+    if (LANE_EDITS.has(id) && lockedLanes.includes(clipEditing.current?.selectionLane() ?? '')) return { disabled: true, reason: t('This lane is locked. Unlock it to edit.') };
     return baseAvailability(id);
   }
 
   function baseAvailability(id: string): CommandAvailability {
-    if (exporting && id === 'export.open') return { disabled: true, reason: 'An export is already running.' };
+    if (exporting && id === 'export.open') return { disabled: true, reason: t('An export is already running.') };
     const editor = screen === 'editor';
     const hasProject = scenes.length > 0;
     const scene = selectedScene;
@@ -1187,41 +1187,41 @@ export default function App() {
     const sceneOffsetTicks = secondsToTicks(position, project.timebase) - sceneStartTicks;
     const splitMinimum = minTicks(project.timebase);
     switch (id) {
-      case 'project.new': return ready ? AVAILABLE : { disabled: true, reason: 'PixCut is still loading.' };
-      case 'project.open': return canEdit ? AVAILABLE : { disabled: true, reason: 'Finish the current operation first.' };
-      case 'project.save': return ready ? AVAILABLE : { disabled: true, reason: 'PixCut is still loading.' };
-      case 'project.import': return canEdit ? AVAILABLE : { disabled: true, reason: 'Finish the current operation first.' };
-      case 'export.open': return hasProject && ready && !busy ? AVAILABLE : { disabled: true, reason: hasProject ? 'PixCut is busy.' : 'Add at least one scene to export.' };
-      case 'history.undo': return session.canUndo && canEdit ? AVAILABLE : { disabled: true, reason: session.canUndo ? 'Finish the current operation first.' : 'Nothing to undo.' };
-      case 'history.redo': return session.canRedo && canEdit ? AVAILABLE : { disabled: true, reason: session.canRedo ? 'Finish the current operation first.' : 'Nothing to redo.' };
+      case 'project.new': return ready ? AVAILABLE : { disabled: true, reason: t('PixCut is still loading.') };
+      case 'project.open': return canEdit ? AVAILABLE : { disabled: true, reason: t('Finish the current operation first.') };
+      case 'project.save': return ready ? AVAILABLE : { disabled: true, reason: t('PixCut is still loading.') };
+      case 'project.import': return canEdit ? AVAILABLE : { disabled: true, reason: t('Finish the current operation first.') };
+      case 'export.open': return hasProject && ready && !busy ? AVAILABLE : { disabled: true, reason: hasProject ? t('PixCut is busy.') : t('Add at least one scene to export.') };
+      case 'history.undo': return session.canUndo && canEdit ? AVAILABLE : { disabled: true, reason: session.canUndo ? t('Finish the current operation first.') : t('Nothing to undo.') };
+      case 'history.redo': return session.canRedo && canEdit ? AVAILABLE : { disabled: true, reason: session.canRedo ? t('Finish the current operation first.') : t('Nothing to redo.') };
       case 'playback.toggle':
       case 'playback.forward':
       case 'playback.reverse':
       case 'playback.stop':
-        if (!editor) return { disabled: true, reason: 'Open a story to use playback.' };
-        if (!duration) return { disabled: true, reason: 'Add a scene to play.' };
-        return canEdit ? AVAILABLE : { disabled: true, reason: 'Finish the current operation first.' };
+        if (!editor) return { disabled: true, reason: t('Open a story to use playback.') };
+        if (!duration) return { disabled: true, reason: t('Add a scene to play.') };
+        return canEdit ? AVAILABLE : { disabled: true, reason: t('Finish the current operation first.') };
       case 'clip.split':
-        if (!editor) return { disabled: true, reason: 'Open a story to edit clips.' };
-        if (!canEdit) return { disabled: true, reason: 'Finish the current operation first.' };
+        if (!editor) return { disabled: true, reason: t('Open a story to edit clips.') };
+        if (!canEdit) return { disabled: true, reason: t('Finish the current operation first.') };
         if (editTargetRef.current === 'audio') {
           const audioClip = audio.find(item => item.id === audioTargetRef.current) ?? selectedAudio;
-          if (!audioClip) return { disabled: true, reason: 'Select an audio clip first.' };
+          if (!audioClip) return { disabled: true, reason: t('Select an audio clip first.') };
           const audioOffsetTicks = secondsToTicks(position, project.timebase) - audioClip.startTicks;
-          return audioOffsetTicks >= splitMinimum && audioClip.durationTicks - audioOffsetTicks >= splitMinimum ? AVAILABLE : { disabled: true, reason: 'Place the playhead at least half a second inside the selected audio clip.' };
+          return audioOffsetTicks >= splitMinimum && audioClip.durationTicks - audioOffsetTicks >= splitMinimum ? AVAILABLE : { disabled: true, reason: t('Place the playhead at least half a second inside the selected audio clip.') };
         }
-        if (!selectedScenes.length) return { disabled: true, reason: 'Select a clip first.' };
-        if (selectedScenes.length !== 1) return { disabled: true, reason: 'Select one clip to split.' };
-        return scene && sceneOffsetTicks >= splitMinimum && scene.durationTicks - sceneOffsetTicks >= splitMinimum ? AVAILABLE : { disabled: true, reason: 'Place the playhead at least half a second inside the selected clip.' };
+        if (!selectedScenes.length) return { disabled: true, reason: t('Select a clip first.') };
+        if (selectedScenes.length !== 1) return { disabled: true, reason: t('Select one clip to split.') };
+        return scene && sceneOffsetTicks >= splitMinimum && scene.durationTicks - sceneOffsetTicks >= splitMinimum ? AVAILABLE : { disabled: true, reason: t('Place the playhead at least half a second inside the selected clip.') };
       case 'clip.delete':
       case 'clip.ripple_delete':
-        if (!editor) return { disabled: true, reason: 'Open a story to edit clips.' };
-        if (editTargetRef.current !== 'audio' && !selectedScenes.length || editTargetRef.current === 'audio' && !audioTargetRef.current) return { disabled: true, reason: 'Select a clip first.' };
-        return canEdit ? AVAILABLE : { disabled: true, reason: 'Finish the current operation first.' };
+        if (!editor) return { disabled: true, reason: t('Open a story to edit clips.') };
+        if (editTargetRef.current !== 'audio' && !selectedScenes.length || editTargetRef.current === 'audio' && !audioTargetRef.current) return { disabled: true, reason: t('Select a clip first.') };
+        return canEdit ? AVAILABLE : { disabled: true, reason: t('Finish the current operation first.') };
       case 'clip.duplicate':
-        if (!editor) return { disabled: true, reason: 'Open a story to edit clips.' };
-        if (!selectedScenes.length) return { disabled: true, reason: 'Select a clip first.' };
-        return canEdit ? AVAILABLE : { disabled: true, reason: 'Finish the current operation first.' };
+        if (!editor) return { disabled: true, reason: t('Open a story to edit clips.') };
+        if (!selectedScenes.length) return { disabled: true, reason: t('Select a clip first.') };
+        return canEdit ? AVAILABLE : { disabled: true, reason: t('Finish the current operation first.') };
       case 'clip.trim_start':
       case 'clip.trim_end':
       case 'clip.nudge_left':
@@ -1229,12 +1229,12 @@ export default function App() {
       case 'clip.nudge_left_10':
       case 'clip.nudge_right_10':
       case 'clip.copy':
-        if (!editor) return { disabled: true, reason: 'Open a story to edit clips.' };
-        return canEdit ? AVAILABLE : { disabled: true, reason: 'Finish the current operation first.' };
+        if (!editor) return { disabled: true, reason: t('Open a story to edit clips.') };
+        return canEdit ? AVAILABLE : { disabled: true, reason: t('Finish the current operation first.') };
       case 'clip.paste':
-        return editor && canEdit ? AVAILABLE : { disabled: true, reason: 'Open a story to paste clips.' };
+        return editor && canEdit ? AVAILABLE : { disabled: true, reason: t('Open a story to paste clips.') };
       case 'edit.select_after':
-        return scenes.length && canEdit ? AVAILABLE : { disabled: true, reason: 'Open a project with scenes first.' };
+        return scenes.length && canEdit ? AVAILABLE : { disabled: true, reason: t('Open a project with scenes first.') };
       case 'timeline.prev_frame':
       case 'timeline.next_frame':
       case 'timeline.prev_edit':
@@ -1246,31 +1246,31 @@ export default function App() {
       case 'timeline.zoom_in':
       case 'timeline.zoom_out':
       case 'timeline.zoom_fit':
-        return editor && duration > 0 ? AVAILABLE : { disabled: true, reason: 'Add a scene to move around the timeline.' };
+        return editor && duration > 0 ? AVAILABLE : { disabled: true, reason: t('Add a scene to move around the timeline.') };
       case 'timeline.snapping':
       case 'view.safe_area':
-        return editor ? AVAILABLE : { disabled: true, reason: 'Open a story to use editor controls.' };
+        return editor ? AVAILABLE : { disabled: true, reason: t('Open a story to use editor controls.') };
       case 'edit.select_all':
-        return scenes.length && canEdit ? AVAILABLE : { disabled: true, reason: 'Open a project with scenes first.' };
+        return scenes.length && canEdit ? AVAILABLE : { disabled: true, reason: t('Open a project with scenes first.') };
       case 'edit.deselect':
         return AVAILABLE;
       case 'beat.add':
-        return projectTicks && canEdit ? AVAILABLE : { disabled: true, reason: 'Add a scene before placing a beat.' };
+        return projectTicks && canEdit ? AVAILABLE : { disabled: true, reason: t('Add a scene before placing a beat.') };
       case 'text.add':
-        return selectedScene && canEdit ? AVAILABLE : { disabled: true, reason: 'Select a scene first.' };
+        return selectedScene && canEdit ? AVAILABLE : { disabled: true, reason: t('Select a scene first.') };
       default: return AVAILABLE;
     }
   }
 
   function tip(id: string, label: string) {
     const state = availabilityFor(id);
-    return `${label} · ${shortcutText(id)}${state.disabled && state.reason ? ` — ${state.reason}` : ''}`;
+    return `${t(label)} · ${shortcutText(id)}${state.disabled && state.reason ? ` — ${state.reason}` : ''}`;
   }
 
   function applyShortcuts(next: ShortcutSettingsData) {
-    try { saveShortcutSettings(next); } catch (e) { setError(`Shortcuts could not be saved. ${messageFor(e)}`); return false; }
+    try { saveShortcutSettings(next); } catch (e) { setError(t('Shortcuts could not be saved. {e}', { e: messageFor(e) })); return false; }
     setShortcuts(next);
-    setNotice('Shortcuts applied everywhere: tooltips, help, and the command palette.');
+    setNotice(t('Shortcuts applied everywhere: tooltips, help, and the command palette.'));
     return true;
   }
 
@@ -1331,11 +1331,11 @@ export default function App() {
       textOpacity: source.textOpacity ?? 100,
       textSubtitleScale: source.textSubtitleScale ?? 0.4,
     });
-    setNotice('Color, look, text layout, and text-effect properties copied. Select another clip to paste them.');
+    setNotice(t('Color, look, text layout, and text-effect properties copied. Select another clip to paste them.'));
   }
 
   function notifyPasted() {
-    setNotice('Color, look, and text effects pasted.');
+    setNotice(t('Color, look, and text effects pasted.'));
   }
 
   function selectTextLayer(id: string | null) {
@@ -1362,15 +1362,15 @@ export default function App() {
   }
 
   function addProjectText() {
-    if (!canEdit || !projectTicks) { setNotice('Add a scene before adding project text.'); return; }
-    if ((project.globalText?.length ?? 0) >= MAX_GLOBAL_TEXT) { setNotice(`A project supports up to ${MAX_GLOBAL_TEXT} project text layers.`); return; }
+    if (!canEdit || !projectTicks) { setNotice(t('Add a scene before adding project text.')); return; }
+    if ((project.globalText?.length ?? 0) >= MAX_GLOBAL_TEXT) { setNotice(t('A project supports up to {max} project text layers.', { max: MAX_GLOBAL_TEXT })); return; }
     const startTicks = Math.min(Math.max(0, secondsToTicks(positionRef.current, project.timebase)), projectTicks - 1);
     const layer = createTextLayer(Math.max(1, projectTicks - startTicks), { startTicks, y: .84, size: .052 });
     void run({ type: 'globalText', layers: [...(project.globalText ?? []), layer] }).then(ok => {
       if (!ok) return;
       setEditTarget('text'); setSelectedElementId(null); setSelectedTextLayerId(null); setSelectedGlobalTextId(layer.id);
       setTab('text'); setTextFocus(value => value + 1);
-      setNotice('Project text added. It stays on screen across every scene.');
+      setNotice(t('Project text added. It stays on screen across every scene.'));
     });
   }
 
@@ -1382,9 +1382,9 @@ export default function App() {
     const preset = ELEMENT_CATALOG.find(item => item.id === presetId);
     if (!preset) return;
     const kind = preset.kind;
-    if (!selectedScene || !canEdit) { setNotice('Select a scene first.'); return; }
+    if (!selectedScene || !canEdit) { setNotice(t('Select a scene first.')); return; }
     const count = allOverlays.length;
-    if (count >= 64) { setNotice('This project already has 64 overlays.'); return; }
+    if (count >= 64) { setNotice(t('This project already has 64 overlays.')); return; }
     const element: ElementLayer = {
       id: crypto.randomUUID(), kind, presetId, z: newOverlayZ(sceneLayerStack), label: preset.text, ...(preset.behavior ? { behavior: preset.behavior } : {}), x: .5 + (count % 3) * .035, y: .5 + (count % 2) * .035, ...presetSize(preset, activeSize),
       rotation: 0, color: preset?.color ?? ELEMENT_COLOR_DEFAULTS[kind] ?? '#9D7CFF', opacity: 100,
@@ -1473,8 +1473,8 @@ export default function App() {
     if (!canEdit || !projectTicks) return;
     const tick = Math.min(projectTicks, Math.max(0, secondsToTicks(position, project.timebase)));
     const beats = project.beatTicks ?? [];
-    if (beats.some(existing => Math.abs(existing - tick) < 2)) { setNotice('A beat is already there.'); return; }
-    if (beats.length >= 500) { setNotice('A project supports up to 500 beat markers.'); return; }
+    if (beats.some(existing => Math.abs(existing - tick) < 2)) { setNotice(t('A beat is already there.')); return; }
+    if (beats.length >= 500) { setNotice(t('A project supports up to 500 beat markers.')); return; }
     void run({ type: 'beats', beatTicks: [...beats, tick].sort((a, b) => a - b) });
   }
 
@@ -1485,8 +1485,8 @@ export default function App() {
 
   function addTextLayerAtPlayhead(preset: Partial<TextLayer> = {}) {
     const scene = selectedScene ?? active;
-    if (!scene || !canEdit) { setNotice('Add a photo before adding text.'); return; }
-    if (sceneTextLayers(scene).length >= 8) { setNotice('This scene already has eight text layers.'); return; }
+    if (!scene || !canEdit) { setNotice(t('Add a photo before adding text.')); return; }
+    if (sceneTextLayers(scene).length >= 8) { setNotice(t('This scene already has eight text layers.')); return; }
     const startTicks = Math.min(Math.max(0, textStartTicks), Math.max(0, scene.durationTicks - 1));
     const layer = createTextLayer(Math.max(1, scene.durationTicks - startTicks), { ...preset, startTicks });
     const next = replaceSceneTextLayers(scene, [...sceneTextLayers(scene), layer]);
@@ -1551,7 +1551,7 @@ export default function App() {
 
   function requestCloseModal() {
     if (modal === 'settings' && settingsTab === 'shortcuts' && shortcutDirty) {
-      setNotice('Apply or cancel your shortcut changes before closing Settings.');
+      setNotice(t('Apply or cancel your shortcut changes before closing Settings.'));
       return;
     }
     if (modal === 'new') setPendingTemplate(null);
@@ -1758,8 +1758,8 @@ export default function App() {
   }
 
   async function addMediaOverlay(source: Scene) {
-    if (!selectedScene) { setNotice('Select the background scene first, then add an overlay.'); return; }
-    if (allOverlays.length >= 64) { setNotice('This project already has 64 overlays.'); return; }
+    if (!selectedScene) { setNotice(t('Select the background scene first, then add an overlay.')); return; }
+    if (allOverlays.length >= 64) { setNotice(t('This project already has 64 overlays.')); return; }
     const startTicks = Math.max(0, Math.min(projectTicks - 1, secondsToTicks(position, project.timebase)));
     let width = 1, height = 1, sourceDuration = ticksToSeconds(source.sourceInTicks + source.durationTicks, project.timebase);
     if (source.mediaKind === 'video') { const probe = await probeVideo((await resolveMediaSource(source.image)) ?? source.image); width = probe.width; height = probe.height; sourceDuration = probe.duration; }
@@ -1838,8 +1838,8 @@ export default function App() {
         : [...(project.fonts ?? []), font];
       if (await run({ type: 'fonts', fonts })) {
         setNotice(subsetted
-          ? `“${font.name}” ${target ? 'subset refreshed' : 'is now in the font picker'} · ${formatBytes(subsetted)} of ${formatBytes(file.size)}.`
-          : `“${font.name}” ${target ? 'updated' : 'is now in the font picker'}.`);
+          ? (target ? t('“{name}” subset refreshed · {subset} of {original}.', { name: font.name, subset: formatBytes(subsetted), original: formatBytes(file.size) }) : t('“{name}” is now in the font picker · {subset} of {original}.', { name: font.name, subset: formatBytes(subsetted), original: formatBytes(file.size) }))
+          : (target ? t('“{name}” updated.', { name: font.name }) : t('“{name}” is now in the font picker.', { name: font.name })));
       }
     } catch (error) {
       setError(messageFor(error));
@@ -1851,16 +1851,16 @@ export default function App() {
   function removeFont(id: string) {
     const font = (project.fonts ?? []).find(item => item.id === id);
     void run({ type: 'fonts', fonts: (project.fonts ?? []).filter(item => item.id !== id) }).then(ok => {
-      if (ok) setNotice(`“${font?.name ?? 'Font'}” removed. Text using it falls back to Inter.`);
+      if (ok) setNotice(t('“{name}” removed. Text using it falls back to Inter.', { name: font?.name ?? t('Font') }));
     });
   }
 
   async function exportCaptions() {
     const captions = textLayersAsCaptions(projectScenes(latestProject.current), project.timebase);
-    if (!captions.length) { setError('Add a title or caption layer before exporting captions.'); return; }
+    if (!captions.length) { setError(t('Add a title or caption layer before exporting captions.')); return; }
     try {
       const saved = await bridge.saveTextFile(toSrt(captions), `${project.name} - captions`, 'srt', 'SubRip subtitles');
-      if (saved) setNotice(`${captions.length} caption${captions.length === 1 ? '' : 's'} exported as an SRT file.`);
+      if (saved) setNotice(t('{captions} exported as an SRT file.', { captions: captionCount(captions.length) }));
     } catch (error) {
       setError(messageFor(error));
     }
@@ -1971,7 +1971,7 @@ export default function App() {
   function togglePreviewFullscreen() { const element = document.querySelector('.preview-panel'); if (!document.fullscreenElement) void element?.requestFullscreen?.(); else void document.exitFullscreen(); }
 
   async function relinkMissing(asset: MissingAsset) {
-    if (!bridge.native) { setError('Relinking is available in the desktop app.'); return; }
+    if (!bridge.native) { setError(t('Relinking is available in the desktop app.')); return; }
     setRelinking(asset.ref);
     try {
       // Stream the replacement into the same local store as the rest of the
@@ -1990,15 +1990,15 @@ export default function App() {
       if (!imported) return;
       const next = replaceAssetRef(latestProject.current, asset.ref, imported.reference);
       if (await run({ type: 'replace', project: next })) {
-        setNotice(`Relinked ${asset.label} with ${imported.name}.`);
-        setError('');
+        setNotice(t('Relinked {label} with {name}.', { label: asset.label, name: imported.name }));
+        setError(t(''));
       }
     } catch (error) { setError(messageFor(error)); }
     finally { setRelinking(null); }
   }
 
   function openExportModal() {
-    if (missing.length) { setError('Relink missing media before exporting this project.'); return; }
+    if (missing.length) { setError(t('Relink missing media before exporting this project.')); return; }
     void bridge.exporterCapabilities().then(setExportCodecs).catch(() => setExportCodecs([]));
     void bridge.exporterHardware().then(available => {
       setHardwareAvailable(available);
@@ -2083,7 +2083,7 @@ export default function App() {
   });
 
   function formatFilterChips(onCustom?: () => void) {
-    return <div className="format-filters" role="tablist" aria-label="Format filters">
+    return <div className="format-filters" role="tablist" aria-label={t('Format filters')}>
       {FORMAT_FILTERS.map(filter => <button key={filter.id} role="tab" aria-selected={formatFilter === filter.id} className={formatFilter === filter.id ? 'active' : ''} onClick={() => setFormatFilter(filter.id)}>{t(filter.label)}</button>)}
       {onCustom && <button type="button" className="format-filter-custom" onClick={onCustom}><Plus size={11} /> {t('Custom size')}</button>}
     </div>;
@@ -2115,14 +2115,14 @@ export default function App() {
           {(() => { const state = exportState(entry); return <span className={`project-export ${state}`}>{state === 'never' ? t('Not exported yet') : state === 'changed' ? t('Changed since export {time}', { time: relativeTime(entry.exportedAt ?? 0) }) : t('Exported {time}', { time: relativeTime(entry.exportedAt ?? 0) })}</span>; })()}
         </div>
       </button>
-      {!batchMode && <div className="project-quick" role="group" aria-label={`Quick actions for ${entry.name}`}>
-        <button aria-label={`Export ${entry.name}`} title={t('Export project file')} onClick={() => void exportLibraryProject(entry)}><Download size={13} /></button>
-        <button aria-label={`Duplicate ${entry.name}`} title={t('Duplicate')} disabled={!canEdit} onClick={() => void duplicateProject(entry)}><Copy size={13} /></button>
-        <button aria-label={`Rename ${entry.name}`} title={t('Rename…')} disabled={!canEdit} onClick={() => askRenameProject(entry)}><Pencil size={13} /></button>
+      {!batchMode && <div className="project-quick" role="group" aria-label={t('Quick actions for {name}', { name: entry.name })}>
+        <button aria-label={t('Export {name}', { name: entry.name })} title={t('Export project file')} onClick={() => void exportLibraryProject(entry)}><Download size={13} /></button>
+        <button aria-label={t('Duplicate {name}', { name: entry.name })} title={t('Duplicate')} disabled={!canEdit} onClick={() => void duplicateProject(entry)}><Copy size={13} /></button>
+        <button aria-label={t('Rename {name}', { name: entry.name })} title={t('Rename…')} disabled={!canEdit} onClick={() => askRenameProject(entry)}><Pencil size={13} /></button>
       </div>}
       {!batchMode && <button className={`project-favorite ${entry.favorite ? 'active' : ''}`} aria-label={entry.favorite ? `Remove ${entry.name} from favorites` : `Add ${entry.name} to favorites`} aria-pressed={Boolean(entry.favorite)} onClick={() => void toggleProjectFavorite(entry)}><Star size={15} fill={entry.favorite ? 'currentColor' : 'none'} /></button>}
-      {!batchMode && <button className="project-actions" data-project-actions={entry.id} aria-label={`Actions for ${entry.name}`} aria-haspopup="menu" aria-expanded={projectMenu === entry.id} onClick={() => setProjectMenu(id => id === entry.id ? null : entry.id)}><MoreHorizontal size={16} /></button>}
-      {projectMenu === entry.id && <div className="project-menu" data-project-menu={entry.id} role="menu" aria-label={`${entry.name} actions`}>
+      {!batchMode && <button className="project-actions" data-project-actions={entry.id} aria-label={t('Actions for {name}', { name: entry.name })} aria-haspopup="menu" aria-expanded={projectMenu === entry.id} onClick={() => setProjectMenu(id => id === entry.id ? null : entry.id)}><MoreHorizontal size={16} /></button>}
+      {projectMenu === entry.id && <div className="project-menu" data-project-menu={entry.id} role="menu" aria-label={t('{name} actions', { name: entry.name })}>
         <span className="project-menu-heading">{entry.name}</span>
         <button role="menuitem" onClick={() => void openLibraryProject(entry)}><FolderOpen size={14} /><span>{t('Open project')}</span></button>
         <button role="menuitem" disabled={!canEdit} onClick={() => askRenameProject(entry)}><Pencil size={14} /><span>{t('Rename…')}</span></button>
@@ -2152,7 +2152,7 @@ export default function App() {
               </div>
               {selectedAudio && <div className="audio-editor">
                 <div className="audio-editor-title"><small>{isAssetRef(selectedAudio.data) ? t('Stored locally') : formatBytes(selectedAudio.data.length * .75)} · {t('{duration} s source', { duration: selectedAudio.sourceDurationSeconds.toFixed(1) })}</small></div>
-                {(selectedAudio.credit || creditForClipName(selectedAudio.name)) && <div className="music-credit-note"><Music size={13} /><span>{selectedAudio.credit || creditForClipName(selectedAudio.name)}</span><button className="text-button" onClick={() => void navigator.clipboard.writeText((selectedAudio.credit || creditForClipName(selectedAudio.name))!).then(() => setNotice('Music credit copied.')).catch(() => setError('Could not copy the credit. It is listed in the Music panel.'))}><Copy size={12} /> {t('Copy credit')}</button></div>}
+                {(selectedAudio.credit || creditForClipName(selectedAudio.name)) && <div className="music-credit-note"><Music size={13} /><span>{selectedAudio.credit || creditForClipName(selectedAudio.name)}</span><button className="text-button" onClick={() => void navigator.clipboard.writeText((selectedAudio.credit || creditForClipName(selectedAudio.name))!).then(() => setNotice(t('Music credit copied.'))).catch(() => setError(t('Could not copy the credit. It is listed in the Music panel.')))}><Copy size={12} /> {t('Copy credit')}</button></div>}
                 <label className="field">{t('Audio track')}<select aria-label={t('Audio track')} value={selectedAudio.lane} onChange={event => stageAudio({ lane: Number(event.target.value) })} onBlur={commitAudio}>{audioLanes.map((lane, index) => <option key={lane} value={lane}>{t('Track {number}', { number: index + 1 })}</option>)}{audioLanes.length < 8 && <option value={audioLanes.length}>{t('Track {number}', { number: audioLanes.length + 1 })}</option>}</select></label>
                 <RangeField label={'Start'} sliderLabel="Audio start" unit="s" min={0} max={ticksToSeconds(Math.max(0, projectTicks - selectedAudio.durationTicks), project.timebase)} step={secondsPerTick(project.timebase)} value={ticksToSeconds(selectedAudio.startTicks, project.timebase)} disabled={!canEdit} onChange={v => stageAudio({ startTicks: secondsToTicks(v, project.timebase) })} onCommit={commitAudio} />
                 <RangeField label={'Trim in'} sliderLabel="Audio trim in" unit="s" min={0} max={Math.max(0, selectedAudio.sourceDurationSeconds - secondsPerTick(project.timebase))} step={0.1} value={selectedAudio.sourceInSeconds} disabled={!canEdit} onChange={v => stageAudio({ sourceInSeconds: v })} onCommit={commitAudio} />
@@ -2182,9 +2182,9 @@ export default function App() {
 
   const elementInspector = selectedElement && <div className="element-controls">
                 <div className="element-controls-head"><strong>{elementName(selectedElement)}</strong><button className="text-button danger" onClick={() => removeElement(selectedElement.id)}><Trash2 size={12} /> {t('Delete')}</button></div>
-                {!selectedElement.presetId && !['image','video'].includes(selectedElement.kind) && <label className="field">{t('Replace old decoration')}<select aria-label={t('Replace old decoration')} value="" onChange={event => { const preset = ELEMENT_CATALOG.find(p => p.id === event.target.value); if (preset) updateElement({ kind:preset.kind,presetId:preset.id,label:preset.text,color:preset.color,animation:preset.animation,...presetSize(preset,activeSize) }); }}><option value="">Choose a current element…</option>{ELEMENT_CATALOG.filter(p => ['Social','Titles'].includes(p.category)).map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></label>}
+                {!selectedElement.presetId && !['image','video'].includes(selectedElement.kind) && <label className="field">{t('Replace old decoration')}<select aria-label={t('Replace old decoration')} value="" onChange={event => { const preset = ELEMENT_CATALOG.find(p => p.id === event.target.value); if (preset) updateElement({ kind:preset.kind,presetId:preset.id,label:preset.text,color:preset.color,animation:preset.animation,...presetSize(preset,activeSize) }); }}><option value="">{t('Choose a current element…')}</option>{ELEMENT_CATALOG.filter(p => ['Social','Titles'].includes(p.category)).map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></label>}
                 {(selectedElement.presetId || ELEMENT_LABEL_DEFAULTS[selectedElement.kind] !== undefined) && <ElementTextField key={selectedElement.id} value={selectedElement.label ?? elementPreset(selectedElement)?.text ?? ELEMENT_LABEL_DEFAULTS[selectedElement.kind] ?? ''} stage={label => stageElement({ label })} commit={commitElement} />}
-                {selectedElement.kind !== 'image' && selectedElement.kind !== 'video' && <div className="element-color-row">{ELEMENT_COLORS.map(color => <button key={color} className={`element-color ${selectedElement.color === color ? 'active' : ''}`} style={{ background: color }} aria-label={`Element color ${color}`} onClick={() => updateElement({ color })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} />)}</div>}
+                {selectedElement.kind !== 'image' && selectedElement.kind !== 'video' && <div className="element-color-row">{ELEMENT_COLORS.map(color => <button key={color} className={`element-color ${selectedElement.color === color ? 'active' : ''}`} style={{ background: color }} aria-label={t('Element color {color}', { color })} onClick={() => updateElement({ color })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} />)}</div>}
                 {selectedElement.kind === 'video' && <p className="note">{t('Overlay audio is muted. Add music on an audio track.')}</p>}
                 {sceneLayerStack.length > 1 && <StackOrder position={elementStackPosition(selectedElement)} total={sceneLayerStack.length} disabled={!canEdit} onMove={moveElementLayer} />}
                 <details className="inspector-section" open><summary>{t('Timing')}</summary><div className="overlay-timing">
@@ -2199,7 +2199,7 @@ export default function App() {
                 <label className="checkbox-field element-repeat"><input type="checkbox" checked={selectedElement.loop ?? false} disabled={selectedElement.animation === 'none'} onChange={event => updateElement({ loop: event.target.checked })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /> {isContinuousMotion(selectedElement.animation) ? 'Repeat motion' : 'Repeat entrance'}</label>
                 {selectedElement.animation !== 'none' && <label className="field">{t('Entrance duration')}<input aria-label={t('Element animation duration')} type="number" min="0.1" max="5" step="0.1" value={selectedElement.animationDuration ?? .6} onChange={event => stageElement({ animationDuration: Math.max(.1, Math.min(5, Number(event.target.value) || .6)) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>}
                 </section>
-                <details className="overlay-action"><summary>{t('Timed action')}</summary><label className="field">{t('Later action')}<select aria-label={t('Element action')} value={selectedElement.action?.kind ?? 'none'} onChange={event => updateElement({ action: event.target.value === 'none' ? undefined : { kind: event.target.value as 'ring', startTicks: Math.min(selectedElement.durationTicks - 1, secondsToTicks(1, project.timebase)), durationTicks: Math.min(selectedElement.durationTicks, secondsToTicks(2, project.timebase)), repeat: false, sound: false } })}><option value="none">None</option><option value="ring">Ring / shake</option><option value="pulse">Pulse</option><option value="float">Float</option><option value="spin">Spin</option></select></label>
+                <details className="overlay-action"><summary>{t('Timed action')}</summary><label className="field">{t('Later action')}<select aria-label={t('Element action')} value={selectedElement.action?.kind ?? 'none'} onChange={event => updateElement({ action: event.target.value === 'none' ? undefined : { kind: event.target.value as 'ring', startTicks: Math.min(selectedElement.durationTicks - 1, secondsToTicks(1, project.timebase)), durationTicks: Math.min(selectedElement.durationTicks, secondsToTicks(2, project.timebase)), repeat: false, sound: false } })}><option value="none">{t('None')}</option><option value="ring">{t('Ring / shake')}</option><option value="pulse">{t('Pulse')}</option><option value="float">{t('Float')}</option><option value="spin">{t('Spin')}</option></select></label>
                 {selectedElement.action && <>
                   <label className="field">{t('Action starts after (seconds)')}<input aria-label={t('Action start')} type="number" min="0" max={ticksToSeconds(selectedElement.durationTicks - 1, project.timebase)} step="0.1" value={ticksToSeconds(selectedElement.action.startTicks, project.timebase)} onChange={event => stageElement({ action: { ...selectedElement.action!, startTicks: secondsToTicks(Number(event.target.value), project.timebase) } })} onBlur={commitElement} onKeyDown={event => { if (event.key === 'Enter') commitElement(); }} /></label>
                   <label className="field">{t('Action duration (seconds)')}<input aria-label={t('Action duration')} type="number" min="0.1" max={ticksToSeconds(selectedElement.durationTicks - selectedElement.action.startTicks, project.timebase)} step="0.1" value={ticksToSeconds(selectedElement.action.durationTicks, project.timebase)} onChange={event => stageElement({ action: { ...selectedElement.action!, durationTicks: secondsToTicks(Number(event.target.value), project.timebase) } })} onBlur={commitElement} /></label>
@@ -2241,7 +2241,7 @@ export default function App() {
 
         {missing.length > 0 && <div className="missing-banner" role="alert">
           <span className="missing-badge"><AlertTriangle size={16} /></span>
-          <span className="missing-copy"><strong>{missing.length} media file{missing.length === 1 ? '' : 's'} missing</strong><span>This project still opens, but those clips stay empty until you relink them. Saving and exporting are paused.</span></span>
+          <span className="missing-copy"><strong>{t('{files} missing', { files: mediaFileCount(missing.length) })}</strong><span>{t('This project still opens, but those clips stay empty until you relink them. Saving and exporting are paused.')}</span></span>
           <button className="button" onClick={() => setModal('missing')}><LinkIcon size={14} /> Relink media</button>
         </div>}
 
@@ -2250,14 +2250,14 @@ export default function App() {
           <span className="hint"><kbd>{shortcutText('playback.toggle')}</kbd> Play / pause</span>
           <span className="hint"><kbd>{shortcutText('clip.split')}</kbd> Split at playhead</span>
           <span className="hint"><kbd>{shortcutText('history.undo')}</kbd> Undo</span>
-          <button className="text-button hint-dismiss" onClick={dismissHints}>Got it</button>
+          <button className="text-button hint-dismiss" onClick={dismissHints}>{t('Got it')}</button>
         </div>}
 
         <EditorBody savedTracks={savedTracks} addSavedTrack={addSavedTrack} removeSavedTrack={removeSavedTrack} libraryWidth={libraryWidth} tab={tab} setTab={setTab} tabTitles={tabTitles} canEdit={canEdit} chooseImages={chooseImages} chooseVideo={chooseVideo} selectedScene={selectedScene} chooseCustomElement={chooseCustomElement} projectTicks={projectTicks} audioLaneRef={audioLaneRef} selectedAudio={selectedAudio} chooseAudio={chooseAudio} setModal={setModal} mediaQuery={mediaQuery} setMediaQuery={setMediaQuery} dragOverTarget={dragOverTarget} dropIntoMedia={dropIntoMedia} filteredScenes={filteredScenes} beginMediaDrag={beginMediaDrag} mediaDragRef={mediaDragRef} setDropTarget={setDropTarget} setHoveredMedia={setHoveredMedia} previewMedia={previewMedia} hoveredMedia={hoveredMedia} playing={playing} modal={modal} project={project} appendMedia={appendMedia} addMediaPip={addMediaPip} setError={setError} sourceMedia={sourceMedia} editTarget={editTarget} selectedGlobalTextId={selectedGlobalTextId} selectGlobalText={selectGlobalText} run={run} setSelectedGlobalTextId={setSelectedGlobalTextId} addProjectText={addProjectText} selectedTextLayerId={selectedTextLayerId} selectTextLayer={selectTextLayer} scenes={scenes} captionInput={captionInput} exportCaptions={exportCaptions} fontTargetId={fontTargetId} fontInput={fontInput} removeFont={removeFont} addTextLayerAtPlayhead={addTextLayerAtPlayhead} audioLibraryTab={audioLibraryTab} setAudioLibraryTab={setAudioLibraryTab} audio={audio} previewingAudio={previewingAudio} hoverLibraryAudio={hoverLibraryAudio} stopLibraryPreview={stopLibraryPreview} focusAudio={focusAudio} musicMood={musicMood} setMusicMood={setMusicMood} copyMusicCredit={copyMusicCredit} addMusic={addMusic} addOnlineMusic={addOnlineMusic} copyMusicCredits={copyMusicCredits} setNotice={setNotice} soundQuery={soundQuery} setSoundQuery={setSoundQuery} soundGroups={soundGroups} openSoundGroup={openSoundGroup} setOpenSoundGroup={setOpenSoundGroup} addSound={addSound} recordedSounds={recordedSounds} addRecordedSound={addRecordedSound} position={position} chooseTemplate={chooseTemplate} templateImage={templateImage} elementSearch={elementSearch} setElementSearch={setElementSearch} setElementLimit={setElementLimit} elementCollection={elementCollection} setElementCollection={setElementCollection} setElementCategory={setElementCategory} elementCategory={elementCategory} allOverlays={allOverlays} selectedElementId={selectedElementId} selectOverlay={selectOverlay} filteredElements={filteredElements} elementLimit={elementLimit} setHoveredElement={setHoveredElement} addElement={addElement} hoveredElement={hoveredElement} preferences={preferences} beginResize={beginResize} tip={tip} safeArea={safeArea} runCommandId={runCommandId} activeFormat={activeFormat} setActiveFormatId={setActiveFormatId} previewTarget={previewTarget} activeSize={activeSize} saveStillFrame={saveStillFrame} togglePreviewFullscreen={togglePreviewFullscreen} previewArea={previewArea} previewStage={previewStage} previewSize={previewSize} preview={preview} sceneVideo={sceneVideo} setVideoTick={setVideoTick} pipVideoScenes={pipVideoScenes} pipVideoElements={pipVideoElements} setPipVideoTick={setPipVideoTick} snapGuides={snapGuides} framingMode={framingMode} beginImagePan={beginImagePan} selectedTextLayer={selectedTextLayer} selectedGlobalText={selectedGlobalText} textBox={textBox} selectedTextVisible={selectedTextVisible} selectedElement={selectedElement} editingText={editingText} beginTextMove={beginTextMove} setTextDraft={setTextDraft} setEditingText={setEditingText} beginTextResize={beginTextResize} overlayDraft={overlayDraft} sceneLayerRank={sceneLayerRank} beginElementMove={beginElementMove} beginElementRotate={beginElementRotate} beginElementResize={beginElementResize} textDraft={textDraft} previewInlineText={previewInlineText} blurInlineText={blurInlineText} cancelInlineText={cancelInlineText} commitInlineText={commitInlineText} fadeAmount={fadeAmount} shortcutText={shortcutText} duration={duration} frameSeconds={frameSeconds} scrubTo={scrubTo} setPosition={setPosition} setPlaying={setPlaying} togglePlayback={togglePlayback} loop={loop} setLoop={setLoop} inspectorWidth={inspectorWidth} selectedPip={selectedPip} propertyKind={propertyKind} selectedCount={selectedCount} setSelectedIds={setSelectedIds} setPrimarySelected={setPrimarySelected} selectionAnchor={selectionAnchor} activePip={activePip} removePip={removePip} pipScenes={pipScenes} stagePip={stagePip} commitPip={commitPip} stagePipStyle={stagePipStyle} removeAudio={removeAudio} audioInspector={audioInspector} elementInspector={elementInspector} selectedTextScene={selectedTextScene} inspectorScene={inspectorScene} updateSelection={updateSelection} setGlobalTextDraft={setGlobalTextDraft} setPreviewScene={setPreviewScene} copySceneProperties={copySceneProperties} propertyClipboard={propertyClipboard} notifyPasted={notifyPasted} inspectorFlush={inspectorFlush} requestReplaceImage={requestReplaceImage} textStartTicks={textStartTicks} textLayerLocal={textLayerLocal} previewLocalSeconds={previewLocalSeconds} textFocus={textFocus} setFramingMode={setFramingMode} applyFramingToAllFormats={applyFramingToAllFormats} renderOverlays={renderOverlays} reorderLayer={reorderLayer} deleteSelected={deleteSelected} hasSceneSelection={hasSceneSelection} duplicateSelected={duplicateSelected} />
 
         <div className="splitter horizontal" onPointerDown={e => beginResize('timeline', timelineHeight, e.clientY)} />
 
-        <TimelinePanel lockedLanes={lockedLanes} toggleLaneLock={toggleLaneLock} onLockedEdit={() => setNotice('This lane is locked. Unlock it to edit.')} timelineControls={timelineControls} collapsedLanes={collapsedLanes} toggleLane={toggleLane} setCollapsedLanes={setCollapsedLanes} timelineHeight={timelineHeight} scenes={scenes} selectedCount={selectedCount} selectedScene={selectedScene} canEdit={canEdit} run={run} snapping={snapping} tip={tip} runCommandId={runCommandId} addBeatAtPlayhead={addBeatAtPlayhead} timelineZoom={timelineZoom} changeTimelineZoom={changeTimelineZoom} audioDisplay={audioDisplay} setAudioDisplay={setAudioDisplay} duration={duration} fileDragActive={fileDragActive} timelineScroll={timelineScroll} mediaDragRef={mediaDragRef} dropLibraryMedia={dropLibraryMedia} timelineRatio={timelineRatio} beginPlayheadDrag={beginPlayheadDrag} project={project} projectTicks={projectTicks} removeBeat={removeBeat} frameSeconds={frameSeconds} position={position} scrubTo={scrubTo} hasMediaOverlays={hasMediaOverlays} isSelected={isSelected} selectScene={selectScene} setTab={setTab} setTextFocus={setTextFocus} selectedTextLayer={selectedTextLayer} setEditTarget={setEditTarget} setSelectedElementId={setSelectedElementId} setSelectedTextLayerId={setSelectedTextLayerId} setPosition={setPosition} addTextLayerAtPlayhead={addTextLayerAtPlayhead} orderedLayers={orderedLayers} overlayDraft={overlayDraft} selectedElementId={selectedElementId} selectOverlay={selectOverlay} beginOverlayTiming={beginOverlayTiming} layerNumbers={layerNumbers} previewScene={previewScene} active={active} dropTarget={dropTarget} reorderId={reorderId} replacingSceneId={replacingSceneId} beginReorder={beginReorder} endReorder={endReorder} dragOverScene={dragOverScene} setDropTarget={setDropTarget} dropScene={dropScene} selectedIds={selectedIds} setSelectedIds={setSelectedIds} setPrimarySelected={setPrimarySelected} selectionAnchor={selectionAnchor} setPlaying={setPlaying} setContextMenu={setContextMenu} beginFadeDrag={beginFadeDrag} beginSceneTrim={beginSceneTrim} fadeDrag={fadeDrag} chooseImages={chooseImages} videoScenes={videoScenes} audioMix={audioMix} setVideoAudioLevel={setVideoAudioLevel} commitMix={commitMix} editTarget={editTarget} videoVolumeDraft={videoVolumeDraft} stageVideoVolume={stageVideoVolume} commitVideoVolume={commitVideoVolume} renderPipScenes={renderPipScenes} selectedPipId={selectedPipId} selectPip={selectPip} beginPipTiming={beginPipTiming} audioLanes={audioLanes} toggleLaneMute={toggleLaneMute} setLaneMix={setLaneMix} audio={audio} selectedAudio={selectedAudio} focusAudio={focusAudio} beginAudioMove={beginAudioMove} beginAudioTrim={beginAudioTrim} stageAudio={stageAudio} commitAudio={commitAudio} audioLaneRef={audioLaneRef} chooseAudio={chooseAudio} shortcutText={shortcutText} />
+        <TimelinePanel lockedLanes={lockedLanes} toggleLaneLock={toggleLaneLock} onLockedEdit={() => setNotice(t('This lane is locked. Unlock it to edit.'))} timelineControls={timelineControls} collapsedLanes={collapsedLanes} toggleLane={toggleLane} setCollapsedLanes={setCollapsedLanes} timelineHeight={timelineHeight} scenes={scenes} selectedCount={selectedCount} selectedScene={selectedScene} canEdit={canEdit} run={run} snapping={snapping} tip={tip} runCommandId={runCommandId} addBeatAtPlayhead={addBeatAtPlayhead} timelineZoom={timelineZoom} changeTimelineZoom={changeTimelineZoom} audioDisplay={audioDisplay} setAudioDisplay={setAudioDisplay} duration={duration} fileDragActive={fileDragActive} timelineScroll={timelineScroll} mediaDragRef={mediaDragRef} dropLibraryMedia={dropLibraryMedia} timelineRatio={timelineRatio} beginPlayheadDrag={beginPlayheadDrag} project={project} projectTicks={projectTicks} removeBeat={removeBeat} frameSeconds={frameSeconds} position={position} scrubTo={scrubTo} hasMediaOverlays={hasMediaOverlays} isSelected={isSelected} selectScene={selectScene} setTab={setTab} setTextFocus={setTextFocus} selectedTextLayer={selectedTextLayer} setEditTarget={setEditTarget} setSelectedElementId={setSelectedElementId} setSelectedTextLayerId={setSelectedTextLayerId} setPosition={setPosition} addTextLayerAtPlayhead={addTextLayerAtPlayhead} orderedLayers={orderedLayers} overlayDraft={overlayDraft} selectedElementId={selectedElementId} selectOverlay={selectOverlay} beginOverlayTiming={beginOverlayTiming} layerNumbers={layerNumbers} previewScene={previewScene} active={active} dropTarget={dropTarget} reorderId={reorderId} replacingSceneId={replacingSceneId} beginReorder={beginReorder} endReorder={endReorder} dragOverScene={dragOverScene} setDropTarget={setDropTarget} dropScene={dropScene} selectedIds={selectedIds} setSelectedIds={setSelectedIds} setPrimarySelected={setPrimarySelected} selectionAnchor={selectionAnchor} setPlaying={setPlaying} setContextMenu={setContextMenu} beginFadeDrag={beginFadeDrag} beginSceneTrim={beginSceneTrim} fadeDrag={fadeDrag} chooseImages={chooseImages} videoScenes={videoScenes} audioMix={audioMix} setVideoAudioLevel={setVideoAudioLevel} commitMix={commitMix} editTarget={editTarget} videoVolumeDraft={videoVolumeDraft} stageVideoVolume={stageVideoVolume} commitVideoVolume={commitVideoVolume} renderPipScenes={renderPipScenes} selectedPipId={selectedPipId} selectPip={selectPip} beginPipTiming={beginPipTiming} audioLanes={audioLanes} toggleLaneMute={toggleLaneMute} setLaneMix={setLaneMix} audio={audio} selectedAudio={selectedAudio} focusAudio={focusAudio} beginAudioMove={beginAudioMove} beginAudioTrim={beginAudioTrim} stageAudio={stageAudio} commitAudio={commitAudio} audioLaneRef={audioLaneRef} chooseAudio={chooseAudio} shortcutText={shortcutText} />
       </>}
 
       {contextMenu && <ClipContextMenu
@@ -2271,8 +2271,8 @@ export default function App() {
         onRun={id => { runCommandId(id); setContextMenu(null); }}
       />}
 
-      {notice && <Toast message={notice} onDismiss={() => setNotice('')} />}
-      {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
+      {notice && <Toast message={notice} onDismiss={() => setNotice(t(''))} />}
+      {error && <ErrorBanner message={error} onDismiss={() => setError(t(''))} />}
 
       {exporting && <ExportJobCard name={exportJob.name} phase={exportJob.phase} progress={exportProgress} elapsed={exportElapsed} cancelling={cancellingExport} onCancel={cancelExport} />}
       {modal && <div className="modal-backdrop"><section className={`modal ${modal === 'export' ? 'export-studio' : modal === 'new' ? 'project-setup' : modal === 'formats' ? 'format-studio' : modal === 'settings' ? 'settings-modal' : wideModal ? 'wide' : mediumModal ? 'medium' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
@@ -2298,7 +2298,7 @@ export default function App() {
         </> : modal === 'shortcuts' ? <>
           <ShortcutHelp settings={shortcuts} platform={platform} onOpenSettings={() => { setModal('settings'); setSettingsTab('shortcuts'); }} />
         </> : modal === 'palette' ? <>
-          <h2 id="modal-title">Command palette</h2><p>Every action, searchable. Shortcuts reflect your current settings.</p>
+          <h2 id="modal-title">{t('Command palette')}</h2><p>{t('Every action, searchable. Shortcuts reflect your current settings.')}</p>
           <CommandPalette platform={platform} bindings={shortcuts.bindings} availability={commandAvailability} onRun={runCommandId} onClose={requestCloseModal} />
         </> : modal === 'settings' ? <>
           <SettingsModal settingsTab={settingsTab} shortcutDirty={shortcutDirty} setNotice={setNotice} setSettingsTab={setSettingsTab} preferences={preferences} updatePreferences={updatePreferences} storageUsage={storageUsage} refreshAssetUsage={refreshAssetUsage} storageBusy={storageBusy} cleanStorage={cleanStorage} storageConfirm={storageConfirm} storageNote={storageNote} language={language} setLanguage={setLanguage} resetPreferences={resetPreferences} showHints={showHints} setShowHints={setShowHints} setSnapping={setSnapping} setLayout={setLayout} shortcuts={shortcuts} platform={platform} applyShortcuts={applyShortcuts} setShortcutDirty={setShortcutDirty} closeShortcutSettings={closeShortcutSettings} appVersion={appVersion} updateState={updateState} updateInfo={updateInfo} updateMessage={updateMessage} checkForUpdates={checkForUpdates} downloadUpdate={downloadUpdate} updateProgress={updateProgress} restartUpdate={restartUpdate} copyDownloadLink={copyDownloadLink} exporter={exporter} diagnostics={diagnostics} copyDiagnostics={copyDiagnostics} recheckExporter={recheckExporter} storageLabel={storageLabel} refreshStorage={refreshStorage} />

@@ -144,6 +144,72 @@ const COUNT_FORMS: Record<Locale, Record<CountNoun, PluralForms>> = {
 };
 
 let activeLocale: Locale = 'en';
+type ExtraNoun = 'clip' | 'caption' | 'marker' | 'cut' | 'font' | 'conflict' | 'cue' | 'mediaFile';
+
+/** Counted nouns added after the first table; same rules. Languages without grammatical number keep one form. */
+const MORE_COUNT_FORMS: Record<Locale, Record<ExtraNoun, PluralForms>> = {
+  en: {
+    clip: { one: '{count} clip', other: '{count} clips' }, caption: { one: '{count} caption', other: '{count} captions' },
+    marker: { one: '{count} beat marker', other: '{count} beat markers' }, cut: { one: '{count} cut', other: '{count} cuts' },
+    font: { one: '{count} custom font', other: '{count} custom fonts' }, conflict: { one: '{count} shortcut conflict', other: '{count} shortcut conflicts' },
+    cue: { one: '{count} long cue', other: '{count} long cues' }, mediaFile: { one: '{count} media file', other: '{count} media files' },
+  },
+  de: {
+    clip: { one: '{count} Clip', other: '{count} Clips' }, caption: { one: '{count} Untertitel', other: '{count} Untertitel' },
+    marker: { one: '{count} Beat-Markierung', other: '{count} Beat-Markierungen' }, cut: { one: '{count} Schnitt', other: '{count} Schnitte' },
+    font: { one: '{count} eigene Schriftart', other: '{count} eigene Schriftarten' }, conflict: { one: '{count} Tastenkürzel-Konflikt', other: '{count} Tastenkürzel-Konflikte' },
+    cue: { one: '{count} langer Untertitelblock', other: '{count} lange Untertitelblöcke' }, mediaFile: { one: '{count} Mediendatei', other: '{count} Mediendateien' },
+  },
+  es: {
+    clip: { one: '{count} clip', other: '{count} clips' }, caption: { one: '{count} subtítulo', other: '{count} subtítulos' },
+    marker: { one: '{count} marcador de ritmo', other: '{count} marcadores de ritmo' }, cut: { one: '{count} corte', other: '{count} cortes' },
+    font: { one: '{count} fuente propia', other: '{count} fuentes propias' }, conflict: { one: '{count} conflicto de atajos', other: '{count} conflictos de atajos' },
+    cue: { one: '{count} bloque largo', other: '{count} bloques largos' }, mediaFile: { one: '{count} archivo multimedia', other: '{count} archivos multimedia' },
+  },
+  fr: {
+    clip: { one: '{count} clip', other: '{count} clips' }, caption: { one: '{count} sous-titre', other: '{count} sous-titres' },
+    marker: { one: '{count} repère de rythme', other: '{count} repères de rythme' }, cut: { one: '{count} coupe', other: '{count} coupes' },
+    font: { one: '{count} police personnalisée', other: '{count} polices personnalisées' }, conflict: { one: '{count} conflit de raccourcis', other: '{count} conflits de raccourcis' },
+    cue: { one: '{count} long segment', other: '{count} longs segments' }, mediaFile: { one: '{count} fichier multimédia', other: '{count} fichiers multimédias' },
+  },
+  it: {
+    clip: { one: '{count} clip', other: '{count} clip' }, caption: { one: '{count} sottotitolo', other: '{count} sottotitoli' },
+    marker: { one: '{count} marcatore di ritmo', other: '{count} marcatori di ritmo' }, cut: { one: '{count} taglio', other: '{count} tagli' },
+    font: { one: '{count} font personalizzato', other: '{count} font personalizzati' }, conflict: { one: '{count} conflitto di scorciatoie', other: '{count} conflitti di scorciatoie' },
+    cue: { one: '{count} blocco lungo', other: '{count} blocchi lunghi' }, mediaFile: { one: '{count} file multimediale', other: '{count} file multimediali' },
+  },
+  pt: {
+    clip: { one: '{count} clipe', other: '{count} clipes' }, caption: { one: '{count} legenda', other: '{count} legendas' },
+    marker: { one: '{count} marcador de batida', other: '{count} marcadores de batida' }, cut: { one: '{count} corte', other: '{count} cortes' },
+    font: { one: '{count} fonte própria', other: '{count} fontes próprias' }, conflict: { one: '{count} conflito de atalhos', other: '{count} conflitos de atalhos' },
+    cue: { one: '{count} bloco longo', other: '{count} blocos longos' }, mediaFile: { one: '{count} arquivo de mídia', other: '{count} arquivos de mídia' },
+  },
+  pl: {
+    clip: { one: '{count} klip', few: '{count} klipy', many: '{count} klipów', other: '{count} klipu' }, caption: { one: '{count} napis', few: '{count} napisy', many: '{count} napisów', other: '{count} napisu' },
+    marker: { one: '{count} znacznik rytmu', few: '{count} znaczniki rytmu', many: '{count} znaczników rytmu', other: '{count} znacznika rytmu' }, cut: { one: '{count} cięcie', few: '{count} cięcia', many: '{count} cięć', other: '{count} cięcia' },
+    font: { one: '{count} własna czcionka', few: '{count} własne czcionki', many: '{count} własnych czcionek', other: '{count} własnej czcionki' }, conflict: { one: '{count} konflikt skrótów', few: '{count} konflikty skrótów', many: '{count} konfliktów skrótów', other: '{count} konfliktu skrótów' },
+    cue: { one: '{count} długi blok', few: '{count} długie bloki', many: '{count} długich bloków', other: '{count} długiego bloku' }, mediaFile: { one: '{count} plik multimedialny', few: '{count} pliki multimedialne', many: '{count} plików multimedialnych', other: '{count} pliku multimedialnego' },
+  },
+  uk: {
+    clip: { one: '{count} кліп', few: '{count} кліпи', many: '{count} кліпів', other: '{count} кліпу' }, caption: { one: '{count} субтитр', few: '{count} субтитри', many: '{count} субтитрів', other: '{count} субтитру' },
+    marker: { one: '{count} маркер ритму', few: '{count} маркери ритму', many: '{count} маркерів ритму', other: '{count} маркера ритму' }, cut: { one: '{count} склейка', few: '{count} склейки', many: '{count} склейок', other: '{count} склейки' },
+    font: { one: '{count} власний шрифт', few: '{count} власні шрифти', many: '{count} власних шрифтів', other: '{count} власного шрифту' }, conflict: { one: '{count} конфлікт скорочень', few: '{count} конфлікти скорочень', many: '{count} конфліктів скорочень', other: '{count} конфлікту скорочень' },
+    cue: { one: '{count} довгий блок', few: '{count} довгі блоки', many: '{count} довгих блоків', other: '{count} довгого блоку' }, mediaFile: { one: '{count} медіафайл', few: '{count} медіафайли', many: '{count} медіафайлів', other: '{count} медіафайла' },
+  },
+  ja: {
+    clip: { other: '{count} 個のクリップ' }, caption: { other: '{count} 件の字幕' }, marker: { other: '{count} 個のビートマーカー' }, cut: { other: '{count} か所のカット' },
+    font: { other: '{count} 個のカスタムフォント' }, conflict: { other: '{count} 件のショートカットの競合' }, cue: { other: '{count} 件の長い字幕ブロック' }, mediaFile: { other: '{count} 個のメディアファイル' },
+  },
+  ko: {
+    clip: { other: '클립 {count}개' }, caption: { other: '자막 {count}개' }, marker: { other: '비트 마커 {count}개' }, cut: { other: '컷 {count}개' },
+    font: { other: '사용자 글꼴 {count}개' }, conflict: { other: '단축키 충돌 {count}건' }, cue: { other: '긴 자막 블록 {count}개' }, mediaFile: { other: '미디어 파일 {count}개' },
+  },
+  zh: {
+    clip: { other: '{count} 个片段' }, caption: { other: '{count} 条字幕' }, marker: { other: '{count} 个节拍标记' }, cut: { other: '{count} 处剪辑点' },
+    font: { other: '{count} 种自定义字体' }, conflict: { other: '{count} 个快捷键冲突' }, cue: { other: '{count} 段较长字幕' }, mediaFile: { other: '{count} 个媒体文件' },
+  },
+};
+
 const pluralRules = new Map<Locale, Intl.PluralRules>();
 
 export function setLocale(next: Locale): void {
@@ -161,13 +227,13 @@ export function t(text: string, vars?: Record<string, string | number>): string 
   return template.replace(/\{(\w+)\}/g, (_, key: string) => String(vars[key] ?? `{${key}}`));
 }
 
-function count(noun: CountNoun, value: number): string {
+function count(noun: CountNoun | ExtraNoun, value: number): string {
   let rules = pluralRules.get(activeLocale);
   if (!rules) {
     rules = new Intl.PluralRules(activeLocale);
     pluralRules.set(activeLocale, rules);
   }
-  const forms = COUNT_FORMS[activeLocale][noun];
+  const forms = (COUNT_FORMS[activeLocale] as Record<string, PluralForms>)[noun] ?? (MORE_COUNT_FORMS[activeLocale] as Record<string, PluralForms>)[noun];
   const template = forms[rules.select(value)] ?? forms.other ?? '{count}';
   return template.replace('{count}', String(value));
 }
@@ -201,3 +267,13 @@ export function renderCount(value: number): string {
 export function videoCount(value: number): string {
   return count('video', value);
 }
+
+/** Locale-aware counts for notices that used to glue an English "s" onto the noun. */
+export const clipCount = (value: number) => count('clip', value);
+export const captionCount = (value: number) => count('caption', value);
+export const beatMarkerCount = (value: number) => count('marker', value);
+export const cutCount = (value: number) => count('cut', value);
+export const fontCount = (value: number) => count('font', value);
+export const conflictCount = (value: number) => count('conflict', value);
+export const cueCount = (value: number) => count('cue', value);
+export const mediaFileCount = (value: number) => count('mediaFile', value);

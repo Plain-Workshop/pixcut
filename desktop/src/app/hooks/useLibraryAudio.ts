@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { findSavedTrack, loadSavedTracks, storeSavedTracks, withSavedTrack, withoutSavedTrack, type SavedTrack } from '../../stores/online-downloads';
 import { onlineLicenseLabel, DOWNLOAD_CANCELLED, downloadOnlineTrack, type OnlineTrack } from '../../stores/online-music';
 import { MUSIC_TRACKS, musicTrackData, musicTrackPreviewUrl, musicTrackCredit, musicTrackClipName, releaseMusicPreviewUrls, type MusicTrack } from '../../stores/music-library';
@@ -45,7 +46,7 @@ export function useLibraryAudio({ canEdit, projectTicks, position, project, late
       player.onloadedmetadata=()=>{player.currentTime=Math.min(start,Math.max(0,player.duration-.01));};
       player.ontimeupdate=()=>{if(player.currentTime>=start+length)stopLibraryPreview();};
       player.onended=()=>stopLibraryPreview();
-      void player.play().then(()=>{if(token===libraryAudioToken.current)setPreviewingAudio(id);else player.pause();}).catch(()=>{if(token===libraryAudioToken.current){setPreviewingAudio(null);if(explicit)setNotice('Audio preview could not start. Check the app audio permissions and try Listen again.');}});
+      void player.play().then(()=>{if(token===libraryAudioToken.current)setPreviewingAudio(id);else player.pause();}).catch(()=>{if(token===libraryAudioToken.current){setPreviewingAudio(null);if(explicit)setNotice(t('Audio preview could not start. Check the app audio permissions and try Listen again.'));}});
     };
     const resolve=()=>{
       // Bundled music is read from the app bundle first: the desktop shell
@@ -74,13 +75,13 @@ export function useLibraryAudio({ canEdit, projectTicks, position, project, late
   },[]);
 
   async function copyMusicCredit(track:MusicTrack) {
-    try { await navigator.clipboard.writeText(musicTrackCredit(track)); setNotice(`Credit for ${track.title} copied. Paste it into your video description.`); }
-    catch { setError('Could not copy the credit. It is listed under the music licence in the Music panel.'); }
+    try { await navigator.clipboard.writeText(musicTrackCredit(track)); setNotice(t('Credit for {title} copied. Paste it into your video description.', { title: track.title })); }
+    catch { setError(t('Could not copy the credit. It is listed under the music licence in the Music panel.')); }
   }
   async function copyMusicCredits() {
     const credits = MUSIC_TRACKS.map(track => musicTrackCredit(track)).join('\n');
-    try { await navigator.clipboard.writeText(`Music (CC BY 4.0):\n${credits}`); setNotice('All music credits copied.'); }
-    catch { setError('Could not copy the credits. They are listed under the music licence in the Music panel.'); }
+    try { await navigator.clipboard.writeText(`Music (CC BY 4.0):\n${credits}`); setNotice(t('All music credits copied.')); }
+    catch { setError(t('Could not copy the credits. They are listed under the music licence in the Music panel.')); }
   }
   async function addMusic(track:MusicTrack) {
     if(!canEdit||!projectTicks)return;
@@ -91,7 +92,7 @@ export function useLibraryAudio({ canEdit, projectTicks, position, project, late
       const durationTicks=Math.min(total-startTicks,Math.max(1,secondsToTicks(track.seconds,snapshot.timebase)));
       const lane=Array.from({length:8},(_,i)=>i).find(i=>!snapshot.audio.some(c=>(c.lane??0)===i&&c.startTicks<startTicks+durationTicks&&c.startTicks+c.durationTicks>startTicks));
       const clip:AudioClip={id:crypto.randomUUID(),name:musicTrackClipName(track),data,lane:lane??7,startTicks,durationTicks,sourceInSeconds:0,sourceDurationSeconds:track.seconds,volume:.55,fadeIn:.15,fadeOut:Math.min(.6,ticksToSeconds(durationTicks,snapshot.timebase)/3)};
-      if(await run({type:'audio',audio:[...snapshot.audio,clip]}))setNotice(`${track.title} added at the playhead. Credit ${track.author} when you publish — the line is in the Audio panel.`);
+      if(await run({type:'audio',audio:[...snapshot.audio,clip]}))setNotice(t('{title} added at the playhead. Credit {author} when you publish — the line is in the Audio panel.', { title: track.title, author: track.author }));
     }catch(error){setError(messageFor(error));}finally{setBusy(false);}
   }
 
@@ -113,7 +114,7 @@ export function useLibraryAudio({ canEdit, projectTicks, position, project, late
       const lane = Array.from({ length: 8 }, (_, i) => i).find(i => !snapshot.audio.some(c => (c.lane ?? 0) === i && c.startTicks < startTicks + durationTicks && c.startTicks + c.durationTicks > startTicks));
       const music = saved.kind === 'music';
       const clip: AudioClip = { id: crypto.randomUUID(), name: saved.name, data: saved.reference, lane: lane ?? 7, startTicks, durationTicks, sourceInSeconds: 0, sourceDurationSeconds: saved.seconds, volume: music ? .55 : .7, fadeIn: music ? .15 : 0, fadeOut: Math.min(music ? .6 : .03, ticksToSeconds(durationTicks, snapshot.timebase) / 3), ...(saved.credit ? { credit: saved.credit } : {}) };
-      if (await run({ type: 'audio', audio: [...snapshot.audio, clip] })) setNotice(`${saved.title} added at the playhead from your downloads.`);
+      if (await run({ type: 'audio', audio: [...snapshot.audio, clip] })) setNotice(t('{title} added at the playhead from your downloads.', { title: saved.title }));
     } catch (error) { setError(messageFor(error)); } finally { setBusy(false); }
   }
 
@@ -130,10 +131,10 @@ export function useLibraryAudio({ canEdit, projectTicks, position, project, late
       const durationTicks = Math.min(total - startTicks, Math.max(1, secondsToTicks(track.seconds, snapshot.timebase)));
       const lane = Array.from({ length: 8 }, (_, i) => i).find(i => !snapshot.audio.some(c => (c.lane ?? 0) === i && c.startTicks < startTicks + durationTicks && c.startTicks + c.durationTicks > startTicks));
       const clip: AudioClip = { id: crypto.randomUUID(), name: downloaded.name, data: downloaded.reference, lane: lane ?? 7, startTicks, durationTicks, sourceInSeconds: 0, sourceDurationSeconds: track.seconds, volume: kind === 'music' ? .55 : .7, fadeIn: kind === 'music' ? .15 : 0, fadeOut: Math.min(kind === 'music' ? .6 : .03, ticksToSeconds(durationTicks, snapshot.timebase) / 3), credit: track.credit };
-      if (await run({ type: 'audio', audio: [...snapshot.audio, clip] })) setNotice(`${track.title} added at the playhead. The credit line is saved with the clip and shows in the Audio panel.`);
+      if (await run({ type: 'audio', audio: [...snapshot.audio, clip] })) setNotice(t('{title} added at the playhead. The credit line is saved with the clip and shows in the Audio panel.', { title: track.title }));
     } catch (error) {
       // Cancelling is the user's own choice, so it gets a quiet notice instead of the error banner.
-      if (messageFor(error) === DOWNLOAD_CANCELLED) setNotice('Download cancelled.');
+      if (messageFor(error) === DOWNLOAD_CANCELLED) setNotice(t('Download cancelled.'));
       else setError(messageFor(error));
     }
   }
@@ -147,13 +148,13 @@ export function useLibraryAudio({ canEdit, projectTicks, position, project, late
     if (!canEdit) return;
     try {
       const clip = createRecordedSoundClip(latestProject.current, sound, await recordedSoundData(sound), startTicks);
-      if (clip && await run({ type: 'audio', audio: [...latestProject.current.audio, clip] })) setNotice(creditForRecordedClip(clip.name, [sound]) ? `${sound.label} added. Credit ${sound.author} when you publish — the line is in the Audio panel.` : `${sound.label} added to the audio timeline. Drag it to adjust timing.`);
+      if (clip && await run({ type: 'audio', audio: [...latestProject.current.audio, clip] })) setNotice(creditForRecordedClip(clip.name, [sound]) ? t('{label} added. Credit {author} when you publish — the line is in the Audio panel.', { label: sound.label, author: sound.author }) : t('{label} added to the audio timeline. Drag it to adjust timing.', { label: sound.label }));
     } catch (error) { setError(messageFor(error)); }
   }
   async function addSound(id: SoundId, startTicks: number) {
     if (!canEdit) return;
     const clip = createSoundClip(latestProject.current, id, startTicks);
-    if (clip && await run({ type: 'audio', audio: [...latestProject.current.audio, clip] })) setNotice(`${clip.name} added to the audio timeline. Drag it to adjust timing.`);
+    if (clip && await run({ type: 'audio', audio: [...latestProject.current.audio, clip] })) setNotice(t('{name} added to the audio timeline. Drag it to adjust timing.', { name: clip.name }));
   }
 
   return { previewingAudio, savedTracks, stopLibraryPreview, hoverLibraryAudio, copyMusicCredit, copyMusicCredits, addMusic, removeSavedTrack, addSavedTrack, addOnlineMusic, previewSound, addRecordedSound, addSound };

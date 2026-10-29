@@ -32,14 +32,14 @@ export function HomeSidebar({ storageLabel, projects, openProject, setHomeSectio
   return (
     <>
       <aside className="home-sidebar">
-        <button className="brand-button home-brand" aria-label="PixCut home" onClick={() => setHomeSection('home')}><Brand /></button>
-        <nav className="home-nav" aria-label="Main navigation">
+        <button className="brand-button home-brand" aria-label={t('PixCut home')} onClick={() => setHomeSection('home')}><Brand /></button>
+        <nav className="home-nav" aria-label={t('Main navigation')}>
           <button className={homeSection === 'home' ? 'active' : ''} onClick={() => setHomeSection('home')}><Home size={18} /><span>{t('Home')}</span></button>
           <button className={homeSection === 'projects' ? 'active' : ''} onClick={() => setHomeSection('projects')}><FolderOpen size={18} /><span>{t('Projects')}</span></button>
           <button onClick={() => setModal('templates')}><LayoutTemplate size={18} /><span>{t('Templates')}</span></button>
           <button onClick={() => setModal('settings')}><Settings2 size={18} /><span>{t('Settings')}</span></button>
         </nav>
-        {recent.length > 0 && <div className="sidebar-recent" aria-label="Recent projects">
+        {recent.length > 0 && <div className="sidebar-recent" aria-label={t('Recent projects')}>
           <span className="sidebar-heading">{t('Recent')}</span>
           {recent.map(entry => <button key={entry.id} onClick={() => void openProject(entry)} title={entry.name}><Clapperboard size={13} /><span>{entry.name}</span></button>)}
         </div>}
@@ -56,7 +56,7 @@ export function HomeSidebar({ storageLabel, projects, openProject, setHomeSectio
           </button>}
           <button className="sidebar-link" onClick={() => setModal('shortcuts')}><Keyboard size={16} /><span>{t('Keyboard shortcuts')}</span></button>
           <button className="sidebar-link" onClick={() => { setSettingsTab('updates'); setModal('settings'); }}><Info size={16} /><span>{t('Version & build details')}</span></button>
-          <div className="sidebar-version"><span>PIXCUT DESKTOP</span><span>v{appVersion}</span></div>
+          <div className="sidebar-version"><span>{t('PIXCUT DESKTOP')}</span><span>v{appVersion}</span></div>
         </div>
       </aside>
     </>

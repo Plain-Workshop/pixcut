@@ -114,14 +114,18 @@ Not done, on purpose:
 
 Not done: other tabs (Fades, Looks, Text) still use their older layout; the group component is ready for them.
 
-### Phase 3 — internationalisation sweep (M)
+### Phase 3 — internationalisation sweep (M) — done 2026-10-29
 
-1. Add a test that fails when a `t()` key has no entry in a locale. Keep a short allow-list while translations catch up.
-2. Wrap the ~290 hard-coded strings, starting with `aria-label`s and starting in `EditorBody`, `SceneForm` and `TimelinePanel`.
-3. Replace hand-built plurals with `count()`.
-4. Translate the 86 missing keys in all ten languages.
+1. **Coverage test** (`tests/i18n-coverage.test.ts`): every literal `t('…')` key, plus `tip('id', '…')`, `<IconButton|RangeField label="…">` and disabled reasons, must exist in all ten languages, keep the same `{placeholders}`, and be non-empty. The allow-list is empty. It also rejects hand-built plurals (`? '' : 's'`) and `t(cond ? 'a' : 'b')`, which would hide keys from the check.
+2. **Plurals:** 20 sentence-with-glued-"s" sites now use `count()` nouns. Eight nouns were added (clip, caption, beat marker, cut, font, shortcut conflict, long cue, media file) with Polish and Ukrainian few/many forms; a test checks every noun in every language.
+3. **Wrapped:** 136 notices and errors in the hooks (they had no translation at all), 285 JSX labels, 49 template-literal screen-reader labels, 31 disabled reasons, and `IconButton`/`tip()` now translate their labels.
+4. **Translated:** about 780 new keys in all ten languages, including 92 gaps from this session's own earlier work and about 30 slider labels (`Shadow blur`, `Letter spacing`) that had silently been English.
 
-**Done when:** the coverage test passes with an empty allow-list.
+Still English, on purpose or not yet reached:
+- Names from data tables: look/filter names, transition and element catalogue names, template titles.
+- Error text thrown by the project model (`model.ts`, `lib.rs`) and `messageFor`.
+- Multi-line JSX text and `label=` props on components other than `IconButton` and `RangeField`.
+- The native menu already has its own translations in Rust; not re-checked.
 
 ### Phase 4 — split the editor state (L, incremental)
 

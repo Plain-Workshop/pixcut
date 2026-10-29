@@ -1,3 +1,4 @@
+import { projectCount, t } from '../../i18n';
 import { useEffect, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import * as bridge from '../bridge';
 import { messageFor } from '../errors';
@@ -50,7 +51,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
     try {
       const p = await getLibraryProject(summary.id);
       if (!p) throw new Error('This project could not be found on this device.');
-      if (await launchProject(p)) setNotice(`Opened “${p.name}”.`);
+      if (await launchProject(p)) setNotice(t('Opened “{name}”.', { name: p.name }));
     } catch (e) { setError(messageFor(e)); }
   }
 
@@ -61,7 +62,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
       const copy = await duplicateLibraryProject(summary.id);
       if (!copy) throw new Error('This project could not be duplicated.');
       await refreshLibrary();
-      setNotice(`“${copy.name}” added to your library.`);
+      setNotice(t('“{name}” added to your library.', { name: copy.name }));
     } catch (e) { setError(messageFor(e)); }
   }
 
@@ -93,7 +94,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
     try {
       await setProjectGroup(target.id, group);
       setProjects(items => items.map(item => item.id === target.id ? { ...item, ...(group?.trim() ? { group: group.trim() } : { group: undefined }) } : item));
-      setNotice(group?.trim() ? `“${target.name}” moved to “${group.trim()}”.` : `“${target.name}” removed from its group.`);
+      setNotice(group?.trim() ? t('“{name}” moved to “{group}”.', { name: target.name, group: group.trim() }) : t('“{name}” removed from its group.', { name: target.name }));
     } catch (e) { setError(messageFor(e)); }
   }
 
@@ -120,7 +121,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
         return next;
       });
       if (groupFilter === from) setGroupFilter(to);
-      setNotice(`Group renamed to “${to}”.`);
+      setNotice(t('Group renamed to “{to}”.', { to }));
     } catch (e) { setError(messageFor(e)); }
   }
 
@@ -130,7 +131,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
       await refreshLibrary();
       setGroupDrafts(current => { const next = { ...current }; delete next[group]; return next; });
       if (groupFilter === group) setGroupFilter('all');
-      setNotice(`“${group}” removed. Its projects are now ungrouped.`);
+      setNotice(t('“{group}” removed. Its projects are now ungrouped.', { group }));
     } catch (e) { setError(messageFor(e)); }
   }
 
@@ -138,7 +139,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
     try {
       await setProjectFavorite(summary.id, !summary.favorite);
       setProjects(items => items.map(item => item.id === summary.id ? { ...item, ...(summary.favorite ? { favorite: undefined } : { favorite: true }) } : item));
-      setNotice(summary.favorite ? `“${summary.name}” removed from favorites.` : `“${summary.name}” added to favorites.`);
+      setNotice(summary.favorite ? t('“{name}” removed from favorites.', { name: summary.name }) : t('“{name}” added to favorites.', { name: summary.name }));
       setProjectMenu(null);
     } catch (e) { setError(messageFor(e)); }
   }
@@ -160,7 +161,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
         setPosition(0);
         setScreen('home');
       }
-      setNotice(`“${target.name}” moved to Recently deleted. It is removed for good after 30 days.`);
+      setNotice(t('“{name}” moved to Recently deleted. It is removed for good after 30 days.', { name: target.name }));
     } catch (e) { setError(messageFor(e)); }
   }
 
@@ -174,7 +175,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
       await restoreLibraryProject(entry.id);
       await refreshLibrary();
       await refreshDeleted();
-      setNotice(`“${entry.name}” restored.`);
+      setNotice(t('“{name}” restored.', { name: entry.name }));
     } catch (e) { setError(messageFor(e)); }
   }
 
@@ -182,7 +183,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
     try {
       await deleteLibraryProject(entry.id);
       await refreshDeleted();
-      setNotice(`“${entry.name}” deleted from this device for good.`);
+      setNotice(t('“{name}” deleted from this device for good.', { name: entry.name }));
     } catch (e) { setError(messageFor(e)); }
   }
 
@@ -195,7 +196,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
     try {
       for (const entry of targets) await setProjectFavorite(entry.id, on);
       setProjects(items => items.map(item => batchIds.includes(item.id) ? { ...item, favorite: on ? true : undefined } : item));
-      setNotice(`${targets.length} project${targets.length === 1 ? '' : 's'} ${on ? 'added to' : 'removed from'} favorites.`);
+      setNotice(on ? t('{projects} added to favorites.', { projects: projectCount(targets.length) }) : t('{projects} removed from favorites.', { projects: projectCount(targets.length) }));
       endBatch();
     } catch (e) { setError(messageFor(e)); }
   }
@@ -206,7 +207,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
     try {
       for (const entry of targets) await setProjectGroup(entry.id, name);
       setProjects(items => items.map(item => batchIds.includes(item.id) ? { ...item, group: name ?? undefined } : item));
-      setNotice(name ? `${targets.length} project${targets.length === 1 ? '' : 's'} moved to “${name}”.` : `${targets.length} project${targets.length === 1 ? '' : 's'} removed from their group.`);
+      setNotice(name ? t('{projects} moved to “{name}”.', { projects: projectCount(targets.length), name }) : t('{projects} removed from their group.', { projects: projectCount(targets.length) }));
       endBatch();
     } catch (e) { setError(messageFor(e)); }
   }
@@ -220,7 +221,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
         await run({ type: 'replace', project: emptyProject() });
         setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null; setPosition(0); setScreen('home');
       }
-      setNotice(`${targets.length} project${targets.length === 1 ? '' : 's'} moved to Recently deleted.`);
+      setNotice(t('{projects} moved to Recently deleted.', { projects: projectCount(targets.length) }));
       void refreshDeleted();
       endBatch();
     } catch (e) { setError(messageFor(e)); await refreshLibrary(); }
@@ -242,7 +243,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
       await refreshLibrary();
       setModal(null);
       setRenameTarget(null);
-      setNotice(`Project renamed to “${name}”.`);
+      setNotice(t('Project renamed to “{name}”.', { name }));
     } catch (e) { setError(messageFor(e)); }
   }
 
@@ -251,7 +252,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
     try {
       const stored = await getLibraryProject(summary.id);
       if (!stored) throw new Error('This project could not be found on this device.');
-      if (await bridge.exportProjectFile(stored)) setNotice(`Project file for “${stored.name}” saved.`);
+      if (await bridge.exportProjectFile(stored)) setNotice(t('Project file for “{name}” saved.', { name: stored.name }));
     } catch (e) { setError(messageFor(e)); }
   }
 

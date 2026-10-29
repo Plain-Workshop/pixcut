@@ -19,7 +19,7 @@ export function BatchBar({ batch, groups, selectedCount }: { batch: BatchControl
   const [confirming, setConfirming] = useState(false);
   const none = selectedCount === 0;
   const label = `${selectedCount} ${t('selected')}`;
-  return <div className="batch-bar" role="toolbar" aria-label="Actions for selected projects">
+  return <div className="batch-bar" role="toolbar" aria-label={t('Actions for selected projects')}>
     <strong>{label}</strong>
     <button className="button subtle" disabled={none} onClick={() => void batch.favorite(true)}><Star size={13} /> {t('Favorite')}</button>
     <button className="button subtle" disabled={none} onClick={() => void batch.favorite(false)}>{t('Unfavorite')}</button>
@@ -27,7 +27,7 @@ export function BatchBar({ batch, groups, selectedCount }: { batch: BatchControl
     <button className={`button ${confirming ? 'danger' : 'subtle'}`} disabled={none} onClick={() => { if (confirming) { setConfirming(false); void batch.remove(); } else { setConfirming(true); setMoving(false); } }}><Trash2 size={13} /> {confirming ? t('Confirm: move to Recently deleted') : t('Delete')}</button>
     <button className="button subtle batch-done" onClick={batch.end}><X size={13} /> {t('Done')}</button>
     {moving && !none && <div className="batch-move">
-      <input autoFocus maxLength={60} aria-label="Group name" placeholder={t('Group name')} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && draft.trim()) void batch.move(draft); }} />
+      <input autoFocus maxLength={60} aria-label={t('Group name')} placeholder={t('Group name')} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && draft.trim()) void batch.move(draft); }} />
       {groups.map(group => <button key={group} className="group-chip" onClick={() => void batch.move(group)}>{group}</button>)}
       <button className="button primary" disabled={!draft.trim()} onClick={() => void batch.move(draft)}>{t('Move')}</button>
       <button className="button subtle" onClick={() => void batch.move(null)}>{t('Remove from group')}</button>

@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { CURVE_CHANNELS, neutralCurve, type CurveChannel, type CurvePoint, type ToneCurves } from '../../stores/model';
 import { evaluateCurve, hasToneCurves } from '../preview/curves';
@@ -100,10 +101,10 @@ export function CurveControls({ curves, disabled, onStage, onCommit, onApply }: 
   return <details className="advanced-disclosure curve-controls">
     <summary>Tone curves{active ? ' · custom' : ''}</summary>
     <p className="inspector-inline-status">Master shapes every channel first; Red, Green and Blue then adjust one channel each. Click the graph to add a point, drag to shape it, and double-click a point to remove it.</p>
-    <div className="curve-tabs" role="group" aria-label="Curve channel">
+    <div className="curve-tabs" role="group" aria-label={t('Curve channel')}>
       {CURVE_CHANNELS.map(name => <button key={name} type="button" className={`curve-tab ${channel === name ? 'active' : ''}`} aria-pressed={channel === name} disabled={disabled} onClick={() => setChannel(name)}><span style={{ background: CHANNEL_COLOR[name] }} />{CHANNEL_LABEL[name]}</button>)}
     </div>
-    <svg ref={surface} className="curve-graph" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`${CHANNEL_LABEL[channel]} tone curve`} onPointerDown={addPoint}>
+    <svg ref={surface} className="curve-graph" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={t('{channel} tone curve', { channel: CHANNEL_LABEL[channel] })} onPointerDown={addPoint}>
       <rect x="0" y="0" width="100" height="100" className="curve-background" pointerEvents="none" />
       {[25, 50, 75].map(value => <g key={value} pointerEvents="none"><line x1={value} y1="0" x2={value} y2="100" className="curve-grid" /><line x1="0" y1={value} x2="100" y2={value} className="curve-grid" /></g>)}
       <line x1="0" y1="100" x2="100" y2="0" className="curve-identity" pointerEvents="none" />
@@ -114,7 +115,7 @@ export function CurveControls({ curves, disabled, onStage, onCommit, onApply }: 
       <span>{CHANNEL_LABEL[channel]} · {points.length} points</span>
       <div>
         <button type="button" className="text-button" disabled={disabled || !curves?.[channel]} onClick={resetChannel}>Reset {CHANNEL_LABEL[channel].toLowerCase()}</button>
-        {active && <button type="button" className="text-button danger" disabled={disabled} onClick={() => onApply(undefined)}>Reset all</button>}
+        {active && <button type="button" className="text-button danger" disabled={disabled} onClick={() => onApply(undefined)}>{t('Reset all')}</button>}
       </div>
     </div>
   </details>;

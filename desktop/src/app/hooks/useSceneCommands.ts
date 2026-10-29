@@ -1,3 +1,4 @@
+import { clipCount, t } from '../../i18n';
 import { splitAudioClip } from '../../components/timeline/audio-split';
 import { type TimelineOverlay } from '../../components/elements/overlays';
 import { type Dispatch, type MouseEvent as ReactMouseEvent, type RefObject, type SetStateAction } from 'react';
@@ -242,7 +243,7 @@ export function useSceneCommands({ activeFormat, audio, audioTargetRef, commitEl
       return;
     }
     if (selectedScenes.length !== 1) {
-      setNotice('Select one clip to split at the playhead.');
+      setNotice(t('Select one clip to split at the playhead.'));
       return;
     }
     const scene = selectedScenes[0];
@@ -251,7 +252,7 @@ export function useSceneCommands({ activeFormat, audio, audioTargetRef, commitEl
     const atTicks = secondsToTicks(position, project.timebase) - scene.startTicks;
     const splitMinimum = minTicks(project.timebase);
     if (atTicks < splitMinimum || scene.durationTicks - atTicks < splitMinimum) {
-      setNotice('Place the playhead at least half a second inside the selected clip.');
+      setNotice(t('Place the playhead at least half a second inside the selected clip.'));
       return;
     }
     const newId = crypto.randomUUID();
@@ -260,7 +261,7 @@ export function useSceneCommands({ activeFormat, audio, audioTargetRef, commitEl
         setSelectedIds([newId]);
         setPrimarySelected(newId);
         selectionAnchor.current = newId;
-        setNotice(scene.mediaKind === 'video' ? 'Video split at the playhead, with its sound. Undo restores one clip.' : 'Clip split at the playhead. Undo restores one clip.');
+        setNotice(scene.mediaKind === 'video' ? t('Video split at the playhead, with its sound. Undo restores one clip.') : t('Clip split at the playhead. Undo restores one clip.'));
       }
     });
   }
@@ -272,18 +273,18 @@ export function useSceneCommands({ activeFormat, audio, audioTargetRef, commitEl
    * the visual selection falls back to whatever sits under the playhead.
    */
   function splitAudioAtPlayhead(clip: AudioClip | null) {
-    if (!clip) { setNotice('Select an audio clip to split at the playhead.'); return; }
+    if (!clip) { setNotice(t('Select an audio clip to split at the playhead.')); return; }
     const atTicks = secondsToTicks(position, project.timebase) - clip.startTicks;
     const splitMinimum = minTicks(project.timebase);
     if (atTicks < splitMinimum || clip.durationTicks - atTicks < splitMinimum) {
-      setNotice('Place the playhead at least half a second inside the selected audio clip.');
+      setNotice(t('Place the playhead at least half a second inside the selected audio clip.'));
       return;
     }
     const parts = splitAudioClip(clip, atTicks, crypto.randomUUID(), project.timebase);
-    if (!parts) { setNotice('Place the playhead inside the selected audio clip.'); return; }
+    if (!parts) { setNotice(t('Place the playhead inside the selected audio clip.')); return; }
     const audio = project.audio.flatMap(item => item.id === clip.id ? [parts.left, parts.right] : [item]);
     void run({ type: 'audio', audio }).then(ok => {
-      if (ok) { setEditTarget('audio'); setSelectedAudioId(parts.right.id); setNotice('Audio split at the playhead. Undo restores one clip.'); }
+      if (ok) { setEditTarget('audio'); setSelectedAudioId(parts.right.id); setNotice(t('Audio split at the playhead. Undo restores one clip.')); }
     });
   }
 
@@ -297,7 +298,7 @@ export function useSceneCommands({ activeFormat, audio, audioTargetRef, commitEl
         setSelectedIds(newIds);
         setPrimarySelected(newIds.at(-1) ?? null);
         selectionAnchor.current = newIds.at(-1) ?? null;
-        setNotice(`${items.length} clip${items.length === 1 ? '' : 's'} duplicated${items.length === 1 ? '' : ' together'}.`);
+        setNotice(t('{clips} duplicated.', { clips: clipCount(items.length) }));
       }
     });
   }
@@ -322,7 +323,7 @@ export function useSceneCommands({ activeFormat, audio, audioTargetRef, commitEl
         const clip = audio.find(item => item.id === selectedAudioId);
         if (clip) { removeAudio(clip.id); return; }
       }
-      setNotice('Select a clip to delete.');
+      setNotice(t('Select a clip to delete.'));
       return;
     }
     const targets = selectedScenes;
@@ -333,7 +334,7 @@ export function useSceneCommands({ activeFormat, audio, audioTargetRef, commitEl
         setSelectedIds([]);
         setPrimarySelected(null);
         selectionAnchor.current = null;
-        setNotice(`${ids.length} clip${ids.length === 1 ? '' : 's'} deleted. Undo restores ${ids.length === 1 ? 'it' : 'them'}.`);
+        setNotice(t('{clips} deleted. Undo brings them back.', { clips: clipCount(ids.length) }));
       }
     });
   }

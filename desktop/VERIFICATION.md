@@ -1606,3 +1606,10 @@ Verified in the browser preview on "Birthday reel" (photos) and "Motion opener" 
 - Tests: 507 TypeScript (`tests/number-field.test.ts` adds 6).
 
 Not verified: the card animation as a user sees it. The preview pane reports `prefers-reduced-motion: reduce`, which PixCut honours by stopping all animation, so cards stay still there by design. Also not checked: chroma key and mask sliders (they need an image overlay selected), and the native window.
+
+## Translation sweep (2026-10-29)
+
+- Coverage: `tests/i18n-coverage.test.ts` fails if any `t()` key, tooltip label, `IconButton`/`RangeField` label or disabled reason lacks a translation in any of the ten languages, if a `{placeholder}` differs, or if a hand-built plural or `t(cond ? 'a' : 'b')` appears.
+- Checked in the app with real key presses: in German the toolbar, timeline labels, tooltips, the copy notice and the trim message were translated, with variables filled in ("Textebene 1 in …: … 0.00 bis 2.00 Sekunden"). In Polish the copy notice read "1 klip", "2 klipy", "3 klipy"; "5 klipów" is covered by a unit test.
+- Found by the new checks: about 30 slider labels, 92 strings from earlier this session, and `t(safeArea ? 'on' : 'off')`, which hid two keys.
+- Tests: 535 TypeScript. The translations are mine, not a native speaker's review; a proofread by native speakers is advisable before release.

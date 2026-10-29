@@ -15,7 +15,7 @@ export function RecentlyDeleted({ deleted }: { deleted: DeletedControls }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
   if (!deleted.items.length) return null;
-  return <section className="recently-deleted" aria-label="Recently deleted">
+  return <section className="recently-deleted" aria-label={t('Recently deleted')}>
     <button className="recently-deleted-head" aria-expanded={open} onClick={() => setOpen(value => !value)}>
       <Trash2 size={14} /> <strong>{t('Recently deleted')}</strong> <span>{deleted.items.length}</span> <ChevronDown size={14} className={open ? 'open' : ''} />
     </button>

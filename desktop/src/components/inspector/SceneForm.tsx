@@ -150,7 +150,7 @@ function TemplateCard({ kind, preset, active, onApply }: { kind: 'backdrop' | 'o
     const blur = Math.min(12, (patch.shadowBlur ?? 8) / 2);
     stage = <span className="text-style-stage mid-stage"><span className="text-style-aa" style={{ textShadow: enabled ? `${(patch.shadowOffsetX ?? 0) / 2}px ${(patch.shadowOffsetY ?? 2) / 2}px ${blur}px ${hexToRgba(color, intensity)}` : undefined }}>Aa</span></span>;
   }
-  return <button className={`text-style-card ${active ? 'active' : ''}`} type="button" onClick={onApply} title={preset.label} aria-label={`${kind} template: ${preset.label}`}>
+  return <button className={`text-style-card ${active ? 'active' : ''}`} type="button" onClick={onApply} title={preset.label} aria-label={t('{kind} template: {label}', { kind, label: preset.label })}>
     {stage}
     <span className="text-style-name">{preset.label}</span>
   </button>;
@@ -563,7 +563,7 @@ export function SceneForm({
   const displayTab = mode === 'text' ? 'text' : tab === 'text' ? 'video' : tab;
   const sceneTab: SceneTab | null = displayTab === 'text' || displayTab === 'elements' ? null : displayTab;
   return <>
-    {mode === 'scene' && <div className="inspector-icon-tabs labelled" role="tablist" aria-label="Scene inspector">
+    {mode === 'scene' && <div className="inspector-icon-tabs labelled" role="tablist" aria-label={t('Scene inspector')}>
       {([
         ['video', 'Framing', Crop], ['transition', 'Transition', Blend],
         ['color', 'Color', SlidersHorizontal], ['speed', 'Speed', Gauge], ['fade', 'Fades', SunDim], ['filters', 'Looks', Wand2],
@@ -583,14 +583,14 @@ export function SceneForm({
 
     {displayTab === 'video' && <>
       <RangeField label="Duration" value={duration} min={0.5} max={draft.mediaKind === 'video' && draft.sourceDurationSeconds ? Math.max(duration, (draft.sourceDurationSeconds - ticksToSeconds(draft.sourceInTicks, timebase)) / speed) : Math.max(duration, draft.mediaKind === 'video' ? 600 : 30)} step={0.1} unit="s" onChange={stageDuration} onCommit={() => commit()} />
-      <div className="framing-modes" role="group" aria-label="Image framing">{([['cover', 'Fill', Crop], ['contain', 'Fit', Maximize2], ['blur', 'Blur fill', Blend]] as const).map(([fit, label, Icon]) => <button key={fit} aria-pressed={draft.fit === fit} className={draft.fit === fit ? 'active' : ''} onClick={() => apply({ fit }, ['fit'])}><Icon size={16} />{t(label)}</button>)}</div>
+      <div className="framing-modes" role="group" aria-label={t('Image framing')}>{([['cover', 'Fill', Crop], ['contain', 'Fit', Maximize2], ['blur', 'Blur fill', Blend]] as const).map(([fit, label, Icon]) => <button key={fit} aria-pressed={draft.fit === fit} className={draft.fit === fit ? 'active' : ''} onClick={() => apply({ fit }, ['fit'])}><Icon size={16} />{t(label)}</button>)}</div>
       <RangeField label="Zoom" sliderLabel="Image zoom" unit="%" min={100} max={400} step={1} value={Math.round((draft.imageZoom ?? 1) * 100)} onChange={v => preview(stage({ imageZoom: v / 100 }))} onCommit={() => commit()} />
       <div className="framing-actions">
         <button className={`button ${framingActive ? 'active' : ''}`} aria-pressed={framingActive} onClick={onToggleFraming}><Move size={15} /> {t('Reposition')}</button>
-        <button className="icon-button" title="Center image" aria-label="Center image" onClick={() => apply({ imageX: 0, imageY: 0 })}><Maximize2 size={16} /></button>
-        <button className="icon-button" title="Reset framing" aria-label="Reset framing" onClick={() => apply({ imageX: 0, imageY: 0, imageZoom: 1, framingBackground: '#000000' })}><RotateCcw size={16} /></button>
+        <button className="icon-button" title={t('Center image')} aria-label={t('Center image')} onClick={() => apply({ imageX: 0, imageY: 0 })}><Maximize2 size={16} /></button>
+        <button className="icon-button" title={t('Reset framing')} aria-label={t('Reset framing')} onClick={() => apply({ imageX: 0, imageY: 0, imageZoom: 1, framingBackground: '#000000' })}><RotateCcw size={16} /></button>
       </div>
-      {draft.fit === 'contain' && <label className="field color-field">Background<input aria-label="Image background color" type="color" value={draft.framingBackground ?? '#000000'} onChange={event => preview(stage({ framingBackground: event.target.value }))} onBlur={() => commit()} /></label>}
+      {draft.fit === 'contain' && <label className="field color-field">{t('Background')}<input aria-label={t('Image background color')} type="color" value={draft.framingBackground ?? '#000000'} onChange={event => preview(stage({ framingBackground: event.target.value }))} onBlur={() => commit()} /></label>}
       {draft.mediaKind !== 'video' && <details className="inspector-disclosure camera-movement" open><summary>{t('Camera movement')} <small>{draft.motion && draft.motion !== 'none' ? t(MOTION_CHOICES.find(choice => choice.id === draft.motion)?.label ?? 'None') : t('None')}</small></summary>
         <div className="motion-choices" role="radiogroup" aria-label={t('Camera movement')}>
           {MOTION_CHOICES.map(choice => <button key={choice.id} type="button" role="radio" aria-checked={(draft.motion ?? 'none') === choice.id} className={`motion-choice ${(draft.motion ?? 'none') === choice.id ? 'active' : ''}`} onClick={() => apply({ motion: choice.id })}>
@@ -617,21 +617,21 @@ export function SceneForm({
         onCommit={commit}
         onApply={mask => apply({ mask }, ['mask'])}
       />}
-      {formatCount > 1 && <button className="text-button format-apply" onClick={onApplyFramingToAll}>Apply framing to all formats</button>}
+      {formatCount > 1 && <button className="text-button format-apply" onClick={onApplyFramingToAll}>{t('Apply framing to all formats')}</button>}
     </>}
 
     {displayTab === 'text' && <>
       {selectedLayer ? <>
-        <label className="field">{t('Text')}<textarea aria-label="Text layer content" maxLength={120} rows={3} placeholder="Give this moment a title…" value={selectedLayer.title} onChange={event => stageLayer({ title: event.target.value })} onBlur={() => commit()} /></label>
-        <label className="field">{t('Subtitle')}<input aria-label="Text layer subtitle" maxLength={200} placeholder="A little more to the story" value={selectedLayer.subtitle} onChange={event => stageLayer({ subtitle: event.target.value })} onBlur={() => commit()} /></label>
-        <label className="field color-field">{t('Text color')}<input aria-label="Text layer color" type="color" value={selectedLayer.color} onChange={event => stageLayer({ color: event.target.value })} onBlur={() => commit()} /><span>{selectedLayer.color.toUpperCase()}</span></label>
+        <label className="field">{t('Text')}<textarea aria-label={t('Text layer content')} maxLength={120} rows={3} placeholder={t('Give this moment a title…')} value={selectedLayer.title} onChange={event => stageLayer({ title: event.target.value })} onBlur={() => commit()} /></label>
+        <label className="field">{t('Subtitle')}<input aria-label={t('Text layer subtitle')} maxLength={200} placeholder={t('A little more to the story')} value={selectedLayer.subtitle} onChange={event => stageLayer({ subtitle: event.target.value })} onBlur={() => commit()} /></label>
+        <label className="field color-field">{t('Text color')}<input aria-label={t('Text layer color')} type="color" value={selectedLayer.color} onChange={event => stageLayer({ color: event.target.value })} onBlur={() => commit()} /><span>{selectedLayer.color.toUpperCase()}</span></label>
         {stack.length > 1 && <StackOrder position={selectedLayerStackAt} total={stack.length} onMove={moveTextLayer} />}
 
         <details className="advanced-disclosure text-layout-panel">
           <summary>{t('Timing')}</summary>
           <RangeField label="Appears at" value={ticksToSeconds(selectedLayer.startTicks, timebase)} min={0} max={ticksToSeconds(Math.max(0, sceneDurationTicks - 1), timebase)} step={0.1} unit="sec" onChange={stageLayerStart} onCommit={() => commit()} />
           <RangeField label="Visible for" value={ticksToSeconds(selectedLayer.durationTicks, timebase)} min={Math.max(0.1, ticksToSeconds(1, timebase))} max={ticksToSeconds(Math.max(1, sceneDurationTicks - selectedLayer.startTicks), timebase)} step={0.1} unit="sec" onChange={stageLayerDuration} onCommit={() => commit()} />
-          <button className="text-button" onClick={resetTextTiming}>Reset timing</button>
+          <button className="text-button" onClick={resetTextTiming}>{t('Reset timing')}</button>
         </details>
 
         <KeyframeControls
@@ -643,20 +643,20 @@ export function SceneForm({
 
         <details className="advanced-disclosure text-layout-panel">
           <summary>{t('Animation')}</summary>
-          <div className="animation-choices" role="group" aria-label="Text animation">{TEXT_ANIMATIONS.map(option => <button key={option.id} aria-label={`Text motion ${option.label}`} onPointerEnter={()=>setHoverEntrance(option.id)} onPointerLeave={()=>setHoverEntrance(null)} onFocus={()=>setHoverEntrance(option.id)} onBlur={()=>setHoverEntrance(null)} aria-pressed={selectedLayer.animation === option.id} className={selectedLayer.animation === option.id ? 'active' : ''} onClick={() => applyLayer({ animation: option.id })}><span className="motion-preview"><ElementPreview motionSample kind="name-tag" label={'Aa\nMotion'} color={selectedLayer.color} animation={option.id} active={hoverEntrance===option.id} reduceMotion={reduceMotion} /></span><span>{option.label}</span></button>)}</div>
+          <div className="animation-choices" role="group" aria-label={t('Text animation')}>{TEXT_ANIMATIONS.map(option => <button key={option.id} aria-label={t('Text motion {label}', { label: option.label })} onPointerEnter={()=>setHoverEntrance(option.id)} onPointerLeave={()=>setHoverEntrance(null)} onFocus={()=>setHoverEntrance(option.id)} onBlur={()=>setHoverEntrance(null)} aria-pressed={selectedLayer.animation === option.id} className={selectedLayer.animation === option.id ? 'active' : ''} onClick={() => applyLayer({ animation: option.id })}><span className="motion-preview"><ElementPreview motionSample kind="name-tag" label={'Aa\nMotion'} color={selectedLayer.color} animation={option.id} active={hoverEntrance===option.id} reduceMotion={reduceMotion} /></span><span>{option.label}</span></button>)}</div>
           <RangeField label="Animation duration" value={selectedLayer.animationDuration} min={0.1} max={2} step={0.1} unit="sec" disabled={selectedLayer.animation === 'none'} onChange={value => stageLayer({ animationDuration: value })} onCommit={() => commit()} />
         </details>
 
         <details className="inspector-disclosure"><summary>{t('Typography')}</summary><div className="text-typography">
-          <label className="field">Font<select aria-label="Text font" value={selectedLayer.font} onChange={event => { const id = event.target.value; applyLayer({ font: id, fontWeight: clampWeight(selectedLayer.fontWeight, id), fontStyle: fontOption(id).italic ? selectedLayer.fontStyle : 'normal' }); }}>{allFonts().map(font => <option key={font.id} value={font.id}>{font.label} · {font.category}</option>)}</select></label>
+          <label className="field">{t('Font')}<select aria-label={t('Text font')} value={selectedLayer.font} onChange={event => { const id = event.target.value; applyLayer({ font: id, fontWeight: clampWeight(selectedLayer.fontWeight, id), fontStyle: fontOption(id).italic ? selectedLayer.fontStyle : 'normal' }); }}>{allFonts().map(font => <option key={font.id} value={font.id}>{font.label} · {font.category}</option>)}</select></label>
           <p className="font-preview" style={{ fontFamily: fontOption(selectedLayer.font).family, fontWeight: clampWeight(selectedLayer.fontWeight, selectedLayer.font), fontStyle: selectedLayer.fontStyle }}>{selectedLayer.title || 'The little moments'}</p>
           <RangeField label="Text size" value={Math.round(selectedLayer.size * 1080)} min={16} max={240} step={1} unit="px" onChange={value => stageLayer({ size: value / 1080 })} onCommit={() => commit()} />
           <div className="text-style-row">
-            <label className="field">Weight<select aria-label="Text weight" value={clampWeight(selectedLayer.fontWeight, selectedLayer.font)} onChange={event => applyLayer({ fontWeight: Number(event.target.value) })}>{fontWeights(selectedLayer.font).map(weight => <option key={weight} value={weight}>{weight}</option>)}</select></label>
+            <label className="field">{t('Weight')}<select aria-label={t('Text weight')} value={clampWeight(selectedLayer.fontWeight, selectedLayer.font)} onChange={event => applyLayer({ fontWeight: Number(event.target.value) })}>{fontWeights(selectedLayer.font).map(weight => <option key={weight} value={weight}>{weight}</option>)}</select></label>
             <button className={`button text-italic ${selectedLayer.fontStyle === 'italic' ? 'active' : ''}`} disabled={!fontOption(selectedLayer.font).italic} aria-pressed={selectedLayer.fontStyle === 'italic'} onClick={() => applyLayer({ fontStyle: selectedLayer.fontStyle === 'italic' ? 'normal' : 'italic' })}><span>I</span> Italic</button>
           </div>
-          <div className="text-align-row" role="group" aria-label="Text alignment">
-            {(['left', 'center', 'right'] as const).map(value => <button key={value} className={`button ${selectedLayer.align === value ? 'active' : ''}`} aria-label={`Align text ${value}`} aria-pressed={selectedLayer.align === value} onClick={() => applyLayer({ align: value })}>{value === 'left' ? <AlignLeft size={14} /> : value === 'center' ? <AlignCenter size={14} /> : <AlignRight size={14} />}</button>)}
+          <div className="text-align-row" role="group" aria-label={t('Text alignment')}>
+            {(['left', 'center', 'right'] as const).map(value => <button key={value} className={`button ${selectedLayer.align === value ? 'active' : ''}`} aria-label={t('Align text {alignment}', { value })} aria-pressed={selectedLayer.align === value} onClick={() => applyLayer({ align: value })}>{value === 'left' ? <AlignLeft size={14} /> : value === 'center' ? <AlignCenter size={14} /> : <AlignRight size={14} />}</button>)}
           </div>
           <details className="advanced-disclosure text-layout-panel">
             <summary>{t('Position & spacing')}</summary>
@@ -680,10 +680,10 @@ export function SceneForm({
           <div className="text-effect-group">
             <div className="text-effect-group-head">
               <label className="checkbox-field"><input type="checkbox" checked={selectedLayer.backdropEnabled} onChange={event => toggleBackdrop(event.target.checked)} /> Backdrop</label>
-              <span className="tiny-label">Frosted plate</span>
+              <span className="tiny-label">{t('Frosted plate')}</span>
             </div>
             <div className="text-style-grid">{BACKDROP_PRESETS.map(preset => <TemplateCard key={preset.label} kind="backdrop" preset={preset} active={templateActive(preset)} onApply={() => applyTemplate(preset)} />)}</div>
-            <label className="field color-field">Backdrop color<input aria-label="Text backdrop color" type="color" disabled={!selectedLayer.backdropEnabled} value={selectedLayer.backdropColor} onChange={event => stageLayer({ backdropColor: event.target.value })} onBlur={() => commit()} /><span>{selectedLayer.backdropColor.toUpperCase()}</span></label>
+            <label className="field color-field">{t('Backdrop color')}<input aria-label={t('Text backdrop color')} type="color" disabled={!selectedLayer.backdropEnabled} value={selectedLayer.backdropColor} onChange={event => stageLayer({ backdropColor: event.target.value })} onBlur={() => commit()} /><span>{selectedLayer.backdropColor.toUpperCase()}</span></label>
             <RangeField label="Backdrop opacity" value={selectedLayer.backdropOpacity} min={0} max={100} step={1} unit="%" disabled={!selectedLayer.backdropEnabled} onChange={value => stageLayer({ backdropOpacity: value })} onCommit={() => commit()} />
             <RangeField label="Backdrop blur" value={selectedLayer.backdropBlur} min={0} max={60} step={1} unit="px" disabled={!selectedLayer.backdropEnabled} onChange={value => stageLayer({ backdropBlur: value })} onCommit={() => commit()} />
             <RangeField label="Backdrop padding" value={selectedLayer.backdropPadding} min={0} max={80} step={1} unit="px" disabled={!selectedLayer.backdropEnabled} onChange={value => stageLayer({ backdropPadding: value })} onCommit={() => commit()} />
@@ -694,20 +694,20 @@ export function SceneForm({
           <div className="text-effect-group">
             <div className="text-effect-group-head">
               <label className="checkbox-field"><input type="checkbox" checked={selectedLayer.outlineEnabled} onChange={event => toggleOutline(event.target.checked)} /> Outline</label>
-              <span className="tiny-label">Crisp edge</span>
+              <span className="tiny-label">{t('Crisp edge')}</span>
             </div>
             <div className="text-style-grid">{OUTLINE_PRESETS.map(preset => <TemplateCard key={preset.label} kind="outline" preset={preset} active={templateActive(preset)} onApply={() => applyTemplate(preset)} />)}</div>
-            <label className="field color-field">Outline color<input aria-label="Text outline color" type="color" disabled={!selectedLayer.outlineEnabled} value={selectedLayer.strokeColor} onChange={event => stageLayer({ strokeColor: event.target.value })} onBlur={() => commit()} /><span>{selectedLayer.strokeColor.toUpperCase()}</span></label>
+            <label className="field color-field">{t('Outline color')}<input aria-label={t('Text outline color')} type="color" disabled={!selectedLayer.outlineEnabled} value={selectedLayer.strokeColor} onChange={event => stageLayer({ strokeColor: event.target.value })} onBlur={() => commit()} /><span>{selectedLayer.strokeColor.toUpperCase()}</span></label>
             <RangeField label="Outline width" value={selectedLayer.strokeWidth} min={0} max={12} step={0.5} unit="px" disabled={!selectedLayer.outlineEnabled} onChange={value => stageLayer({ strokeWidth: value })} onCommit={() => commit()} />
           </div>
 
           <div className="text-effect-group">
             <div className="text-effect-group-head">
               <label className="checkbox-field"><input type="checkbox" checked={selectedLayer.glowEnabled} onChange={event => toggleGlow(event.target.checked)} /> Glow</label>
-              <span className="tiny-label">Soft halo</span>
+              <span className="tiny-label">{t('Soft halo')}</span>
             </div>
             <div className="text-style-grid">{GLOW_PRESETS.map(preset => <TemplateCard key={preset.label} kind="glow" preset={preset} active={templateActive(preset)} onApply={() => applyTemplate(preset)} />)}</div>
-            <label className="field color-field">Glow color<input aria-label="Text glow color" type="color" disabled={!selectedLayer.glowEnabled} value={selectedLayer.glowColor} onChange={event => stageLayer({ glowColor: event.target.value })} onBlur={() => commit()} /><span>{selectedLayer.glowColor.toUpperCase()}</span></label>
+            <label className="field color-field">{t('Glow color')}<input aria-label={t('Text glow color')} type="color" disabled={!selectedLayer.glowEnabled} value={selectedLayer.glowColor} onChange={event => stageLayer({ glowColor: event.target.value })} onBlur={() => commit()} /><span>{selectedLayer.glowColor.toUpperCase()}</span></label>
             <RangeField label="Glow blur" value={selectedLayer.glowBlur} min={0} max={80} step={1} unit="px" disabled={!selectedLayer.glowEnabled} onChange={value => stageLayer({ glowBlur: value })} onCommit={() => commit()} />
             <RangeField label="Glow intensity" value={selectedLayer.glowIntensity} min={0} max={100} step={1} unit="%" disabled={!selectedLayer.glowEnabled} onChange={value => stageLayer({ glowIntensity: value })} onCommit={() => commit()} />
           </div>
@@ -715,20 +715,20 @@ export function SceneForm({
           <div className="text-effect-group">
             <div className="text-effect-group-head">
               <label className="checkbox-field"><input type="checkbox" checked={selectedLayer.shadowEnabled} onChange={event => toggleShadow(event.target.checked)} /> Drop shadow</label>
-              <span className="tiny-label">Depth</span>
+              <span className="tiny-label">{t('Depth')}</span>
             </div>
             <div className="text-style-grid">{SHADOW_PRESETS.map(preset => <TemplateCard key={preset.label} kind="shadow" preset={preset} active={templateActive(preset)} onApply={() => applyTemplate(preset)} />)}</div>
-            <label className="field color-field">Shadow color<input aria-label="Text shadow color" type="color" disabled={!selectedLayer.shadowEnabled} value={selectedLayer.shadowColor} onChange={event => stageLayer({ shadowColor: event.target.value })} onBlur={() => commit()} /><span>{selectedLayer.shadowColor.toUpperCase()}</span></label>
+            <label className="field color-field">{t('Shadow color')}<input aria-label={t('Text shadow color')} type="color" disabled={!selectedLayer.shadowEnabled} value={selectedLayer.shadowColor} onChange={event => stageLayer({ shadowColor: event.target.value })} onBlur={() => commit()} /><span>{selectedLayer.shadowColor.toUpperCase()}</span></label>
             <RangeField label="Shadow blur" value={selectedLayer.shadowBlur} min={0} max={60} step={1} unit="px" disabled={!selectedLayer.shadowEnabled} onChange={value => stageLayer({ shadowBlur: value })} onCommit={() => commit()} />
             <RangeField label="Shadow intensity" value={selectedLayer.shadowIntensity} min={0} max={100} step={1} unit="%" disabled={!selectedLayer.shadowEnabled} onChange={value => stageLayer({ shadowIntensity: value })} onCommit={() => commit()} />
             <RangeField label="Shadow offset X" value={selectedLayer.shadowOffsetX} min={-40} max={40} step={1} unit="px" disabled={!selectedLayer.shadowEnabled} onChange={value => stageLayer({ shadowOffsetX: value })} onCommit={() => commit()} />
             <RangeField label="Shadow offset Y" value={selectedLayer.shadowOffsetY} min={-40} max={40} step={1} unit="px" disabled={!selectedLayer.shadowEnabled} onChange={value => stageLayer({ shadowOffsetY: value })} onCommit={() => commit()} />
           </div>
         </details>
-      </> : <div className="library-empty compact"><Type size={28} /><strong>No text on this scene yet.</strong><p>Add a layer, then place it in the preview and choose when it appears.</p><button type="button" className="button primary text-add-layer" onClick={addTextLayer}><Plus size={14} /> Add text layer</button></div>}
+      </> : <div className="library-empty compact"><Type size={28} /><strong>{t('No text on this scene yet.')}</strong><p>{t('Add a layer, then place it in the preview and choose when it appears.')}</p><button type="button" className="button primary text-add-layer" onClick={addTextLayer}><Plus size={14} /> Add text layer</button></div>}
     </>}
 
-    {displayTab === 'transition' && !hasNextScene && <p className="note">Add a scene after this clip to use a transition.</p>}
+    {displayTab === 'transition' && !hasNextScene && <p className="note">{t('Add a scene after this clip to use a transition.')}</p>}
     {displayTab === 'transition' && hasNextScene && <>
       <div className="transition-grid">{TRANSITION_OPTIONS.map(option => <button key={option.id} onPointerEnter={()=>setHoverTransition(option.id)} onPointerLeave={()=>setHoverTransition(null)} onFocus={()=>setHoverTransition(option.id)} onBlur={()=>setHoverTransition(null)} className={`transition-card ${(draft.transition?.type ?? 'none') === option.id ? 'active' : ''}`} onClick={() => apply({ transition: option.id === 'none' ? null : { type: option.id, duration: draft.transition?.duration ?? .6 } }, ['transition'])}><TransitionPreview type={option.id} reduceMotion={reduceMotion} active={hoverTransition===option.id} /><strong>{t(option.label)}</strong><small>{option.description}</small></button>)}</div>
       <RangeField label="Transition duration" value={draft.transition?.duration ?? .6} min={0.1} max={Math.min(2, duration / 2)} step={0.1} unit="sec" disabled={!draft.transition} onChange={value => preview(stage({ transition: { type: draft.transition?.type ?? 'fade', duration: value } }))} onCommit={() => commit()} />
@@ -753,9 +753,9 @@ export function SceneForm({
       </InspectorGroup>)}
       <details className="inspector-disclosure split-tone" open={Boolean(draft.shadowTintAmount || draft.highlightTintAmount)}>
         <summary>{t('Split toning')} <small>{t('Shadows and highlights')}</small></summary>
-        <label className="field color-field">{t('Shadow tint')}<input aria-label="Shadow tint color" type="color" value={draft.shadowTintColor ?? '#000000'} onChange={event => preview(stage({ shadowTintColor: event.target.value }))} onBlur={() => commit()} /><span>{(draft.shadowTintColor ?? '#000000').toUpperCase()}</span></label>
+        <label className="field color-field">{t('Shadow tint')}<input aria-label={t('Shadow tint color')} type="color" value={draft.shadowTintColor ?? '#000000'} onChange={event => preview(stage({ shadowTintColor: event.target.value }))} onBlur={() => commit()} /><span>{(draft.shadowTintColor ?? '#000000').toUpperCase()}</span></label>
         <RangeField label="Shadow strength" value={draft.shadowTintAmount ?? 0} min={0} max={100} step={1} unit="%" onChange={value => preview(stage({ shadowTintAmount: value }))} onCommit={() => commit()} />
-        <label className="field color-field">{t('Highlight tint')}<input aria-label="Highlight tint color" type="color" value={draft.highlightTintColor ?? '#000000'} onChange={event => preview(stage({ highlightTintColor: event.target.value }))} onBlur={() => commit()} /><span>{(draft.highlightTintColor ?? '#000000').toUpperCase()}</span></label>
+        <label className="field color-field">{t('Highlight tint')}<input aria-label={t('Highlight tint color')} type="color" value={draft.highlightTintColor ?? '#000000'} onChange={event => preview(stage({ highlightTintColor: event.target.value }))} onBlur={() => commit()} /><span>{(draft.highlightTintColor ?? '#000000').toUpperCase()}</span></label>
         <RangeField label="Highlight strength" value={draft.highlightTintAmount ?? 0} min={0} max={100} step={1} unit="%" onChange={value => preview(stage({ highlightTintAmount: value }))} onCommit={() => commit()} />
       </details>
       <CurveControls curves={draft.curves} onStage={curves => preview(stage({ curves }))} onCommit={() => commit()} onApply={curves => apply({ curves }, ['curves'])} />
@@ -766,16 +766,16 @@ export function SceneForm({
     </>}
 
     {displayTab === 'speed' && draft.mediaKind === 'video' && <>
-      <InspectorGroup title="Speed" hint="Pick a preset or ramp from one speed to another.">
+      <InspectorGroup title={t('Speed')} hint="Pick a preset or ramp from one speed to another.">
         <div className="speed-presets">{SPEED_PRESETS.map(value => <button key={value} className={`button ${Math.abs(speed - value) < 0.01 ? 'active' : ''}`} onClick={() => applySpeed(value)}>{value}×</button>)}</div>
         <RangeField label="Speed" value={speed} min={0.25} max={4} step={0.05} unit="×" onChange={stageSpeed} onCommit={() => applySpeed(draftRef.current.speed ?? 1)} />
         <RangeField label="End speed" value={draft.speedEnd ?? speed} min={0.25} max={4} step={0.05} unit="×" onChange={value => preview(stage(rampPatch(value)))} onCommit={() => apply(rampPatch(draftRef.current.speedEnd ?? speed), ['speedEnd'])} />
         <p className="inspector-inline-status">{Math.abs((draft.speedEnd ?? speed) - speed) < 0.01 ? `${t('Constant')} ${speed}×` : `${t('Ramps')} ${speed}× → ${draft.speedEnd ?? speed}×`} · {t('Duration')} {duration.toFixed(1)} s</p>
       </InspectorGroup>
-      <InspectorGroup title="Direction">
+      <InspectorGroup title={t('Direction')}>
         <label className="checkbox-field"><input type="checkbox" checked={Boolean(draft.reverse)} onChange={event => apply({ reverse: event.target.checked }, ['reverse'])} /> {t('Play this clip backwards (picture only)')}</label>
       </InspectorGroup>
-      <InspectorGroup title="Sound">
+      <InspectorGroup title={t('Sound')}>
         <label className="checkbox-field"><input type="checkbox" checked={(draft.videoVolume ?? 100) > 0} onChange={event => apply({ videoVolume: event.target.checked ? 100 : 0 }, ['videoVolume'])} /> {t('Play the clip\'s own audio')}</label>
         <RangeField label="Clip sound" value={draft.videoVolume ?? 100} min={0} max={100} step={1} unit="%" onChange={value => stage({ videoVolume: value })} onCommit={() => commit()} />
       </InspectorGroup>
@@ -789,11 +789,11 @@ export function SceneForm({
       </div>
       <RangeField label="Fade in" value={draft.fadeIn ?? 0} min={0} max={duration} step={0.1} unit="sec" onChange={value => preview(stage({ fadeIn: value }))} onCommit={() => commit()} />
       <RangeField label="Fade out" value={draft.fadeOut ?? 0} min={0} max={duration} step={0.1} unit="sec" onChange={value => preview(stage({ fadeOut: value }))} onCommit={() => commit()} />
-      {(draft.fadeIn ?? 0) + (draft.fadeOut ?? 0) > duration && <p className="fade-warning">Fade in and fade out overlap. The clip may not reach full opacity.</p>}
+      {(draft.fadeIn ?? 0) + (draft.fadeOut ?? 0) > duration && <p className="fade-warning">{t('Fade in and fade out overlap. The clip may not reach full opacity.')}</p>}
     </>}
 
     {displayTab === 'filters' && <>
-      <label className="search-field"><Search size={14} /><input aria-label="Search filters" placeholder="Search looks…" value={filterQuery} onChange={event => setFilterQuery(event.target.value)} /></label>
+      <label className="search-field"><Search size={14} /><input aria-label={t('Search filters')} placeholder={t('Search looks…')} value={filterQuery} onChange={event => setFilterQuery(event.target.value)} /></label>
       <div className="filter-grid">
         {filteredFilters.map(filter => <button
           key={filter.id}
@@ -809,10 +809,10 @@ export function SceneForm({
           <small>{filter.description}</small>
         </button>)}
       </div>
-      {!filteredFilters.length && <div className="library-empty compact"><Search size={24} /><strong>No matching look.</strong><p>Try “warm”, “mono”, or clear the search.</p></div>}
+      {!filteredFilters.length && <div className="library-empty compact"><Search size={24} /><strong>{t('No matching look.')}</strong><p>{t('Try “warm”, “mono”, or clear the search.')}</p></div>}
       <RangeField label="Filter intensity" value={filterIntensity} min={0} max={100} step={1} unit="%" disabled={activeFilter === 'none'} onChange={value => preview(stage({ filterIntensity: value }))} onCommit={() => commit()} />
       {activeFilter === 'none' && <p className="note">Choose a look to adjust intensity. Original is always first and never changes the source image.</p>}
-      <p className="note"><Sparkles size={14} /><span>Hover or focus a look to preview it in the main viewer. Click to apply.</span></p>
+      <p className="note"><Sparkles size={14} /><span>{t('Hover or focus a look to preview it in the main viewer. Click to apply.')}</span></p>
     </>}
   </>;
 }

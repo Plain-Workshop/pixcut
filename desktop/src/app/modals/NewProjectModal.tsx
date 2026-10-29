@@ -34,7 +34,7 @@ export function NewProjectModal({ pendingTemplate, templateImage, canEdit, start
         <p>{t('Your current story is already saved in the local library. This template opens as a new project: {scenes} to edit.', { scenes: sceneCount(pendingTemplate.sceneCount) })}</p>
         <div className="template-confirm">
           <span className="template-confirm-art"><img src={templateImage(pendingTemplate)} alt="" /></span>
-          <div><strong>{t(pendingTemplate.name)}</strong><small>{pendingTemplate.aspect} · {sceneCount(pendingTemplate.sceneCount)} · {pendingTemplate.duration.toFixed(1)} s</small><p>{t(pendingTemplate.description)}</p><span className="template-badges">{pendingTemplate.video && <span className="template-badge video">VIDEO</span>}{pendingTemplate.audio && <span className="template-badge music">MUSIC</span>}</span></div>
+          <div><strong>{t(pendingTemplate.name)}</strong><small>{pendingTemplate.aspect} · {sceneCount(pendingTemplate.sceneCount)} · {pendingTemplate.duration.toFixed(1)} s</small><p>{t(pendingTemplate.description)}</p><span className="template-badges">{pendingTemplate.video && <span className="template-badge video">{t('VIDEO')}</span>}{pendingTemplate.audio && <span className="template-badge music">{t('MUSIC')}</span>}</span></div>
         </div>
         <div className="modal-actions">
           <button className="button primary" disabled={!canEdit} onClick={() => void startTemplate(pendingTemplate)}>{t('Start with {name}', { name: t(pendingTemplate.name) })} <ArrowRight size={15} /></button>

@@ -37,7 +37,7 @@ export function useUpdates({ automaticUpdates, home, exporting, setNotice, saveB
     if (updateCheckInFlight.current) return;
     updateCheckInFlight.current = true;
     lastUpdateCheck.current = Date.now();
-    if (!silent) { setUpdateState('checking'); setUpdateMessage(''); }
+    if (!silent) { setUpdateState('checking'); setUpdateMessage(t('')); }
     try {
       const info = await bridge.checkForUpdate();
       lastCheckFailed.current = false;
@@ -70,11 +70,11 @@ export function useUpdates({ automaticUpdates, home, exporting, setNotice, saveB
   async function downloadUpdate() {
     const blocked = updateBlockedReason(exporting);
     if (blocked) { setNotice(t(blocked)); return; }
-    setUpdateState('downloading'); setUpdateProgress(0); setUpdateMessage('');
+    setUpdateState('downloading'); setUpdateProgress(0); setUpdateMessage(t(''));
     try {
       await saveBeforeUpdate();
       await bridge.installUpdate(setUpdateProgress);
-      setUpdateState('ready'); setUpdateMessage('');
+      setUpdateState('ready'); setUpdateMessage(t(''));
       setNotice(t('Update downloaded. Restart PixCut to finish.'));
     } catch (error) {
       setUpdateState('error'); setUpdateMessage(updateErrorText(error));

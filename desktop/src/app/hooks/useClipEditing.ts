@@ -1,3 +1,4 @@
+import { clipCount, t } from '../../i18n';
 import { useRef, type Dispatch, type SetStateAction } from 'react';
 import { MAX_AUDIO_LANES, minTicks, overlayScenes, projectScenes, secondsToTicks, ticksToSeconds, trimSceneWindow, type AudioClip, type Command, type ElementLayer, type Project, type Scene } from '../../stores/model';
 import { nudgeStart, pasteStart, rippleRemove, startingAtOrAfter, trimToPlayhead } from '../../components/timeline/clip-edit';
@@ -66,18 +67,18 @@ export function useClipEditing({ project, run, position, canEdit, setNotice, edi
     const audio = audioTarget();
     if (audio) {
       const next = rippleRemove(project.audio, audio.id, (clip, removed) => (clip.lane ?? 0) === (removed.lane ?? 0));
-      void run({ type: 'audio', audio: next }).then(ok => { if (ok) { setSelectedAudioId(next[0]?.id ?? null); setNotice('Audio clip removed and the gap closed.'); } });
+      void run({ type: 'audio', audio: next }).then(ok => { if (ok) { setSelectedAudioId(next[0]?.id ?? null); setNotice(t('Audio clip removed and the gap closed.')); } });
       return;
     }
     const element = elementTarget();
     if (element && !element.legacySceneId && (project.overlays ?? []).some(item => item.id === element.id)) {
       const next = rippleRemove(project.overlays ?? [], element.id, (clip, removed) => isMedia(clip) === isMedia(removed));
-      void run({ type: 'overlays', overlays: next }).then(ok => { if (ok) { setSelectedElementId(null); setNotice('Element removed and the gap closed.'); } });
+      void run({ type: 'overlays', overlays: next }).then(ok => { if (ok) { setSelectedElementId(null); setNotice(t('Element removed and the gap closed.')); } });
       return;
     }
     if (selectedPip) {
       const next = rippleRemove(overlayScenes(project), selectedPip.id);
-      void run({ type: 'pip', scenes: next }).then(ok => { if (ok) { setSelectedPipId(null); setNotice('Picture-in-picture clip removed and the gap closed.'); } });
+      void run({ type: 'pip', scenes: next }).then(ok => { if (ok) { setSelectedPipId(null); setNotice(t('Picture-in-picture clip removed and the gap closed.')); } });
       return;
     }
     removeSelected();
@@ -87,7 +88,7 @@ export function useClipEditing({ project, run, position, canEdit, setNotice, edi
   function trimSelected(edge: 'start' | 'end') {
     if (!canEdit) return;
     const at = playTick(), minimum = minTicks(timebase);
-    const refuse = () => setNotice('Place the playhead inside the selected clip, at least half a second from its other edge.');
+    const refuse = () => setNotice(t('Place the playhead inside the selected clip, at least half a second from its other edge.'));
     const audio = audioTarget();
     if (audio) {
       const trimmed = trimToPlayhead(audio, edge, at, minimum);
@@ -112,7 +113,7 @@ export function useClipEditing({ project, run, position, canEdit, setNotice, edi
       void run({ type: 'pip', scenes: overlayScenes(project).map(clip => clip.id === next.id ? next : clip) });
       return;
     }
-    if (selectedScenes.length !== 1) { setNotice('Select one clip to trim to the playhead.'); return; }
+    if (selectedScenes.length !== 1) { setNotice(t('Select one clip to trim to the playhead.')); return; }
     const scene = selectedScenes[0];
     const local = at - scene.startTicks;
     if (!trimToPlayhead({ id: scene.id, startTicks: 0, durationTicks: scene.durationTicks }, edge, local, minimum)) { refuse(); return; }
@@ -141,27 +142,27 @@ export function useClipEditing({ project, run, position, canEdit, setNotice, edi
       if (start !== selectedPip.startTicks) void run({ type: 'pip', scenes: overlayScenes(project).map(clip => clip.id === selectedPip.id ? { ...clip, startTicks: start } : clip) });
       return;
     }
-    setNotice('Visual clips follow each other. Use the arrows in the timeline toolbar to move one earlier or later.');
+    setNotice(t('Visual clips follow each other. Use the arrows in the timeline toolbar to move one earlier or later.'));
   }
 
   function copySelected() {
     const audio = audioTarget();
-    if (audio) { clipboard.current = { kind: 'audio', clip: audio }; setNotice(`Copied “${audio.name}”. Paste puts it at the playhead.`); return; }
+    if (audio) { clipboard.current = { kind: 'audio', clip: audio }; setNotice(t('Copied “{name}”. Paste puts it at the playhead.', { name: audio.name })); return; }
     const element = elementTarget();
-    if (element) { clipboard.current = { kind: 'element', element }; setNotice('Copied the element. Paste puts it at the playhead.'); return; }
-    if (selectedPip) { clipboard.current = { kind: 'pip', clip: selectedPip }; setNotice('Copied the picture-in-picture clip. Paste puts it at the playhead.'); return; }
-    if (selectedScenes.length) { clipboard.current = { kind: 'scenes', ids: selectedScenes.map(scene => scene.id) }; setNotice(`Copied ${selectedScenes.length} clip${selectedScenes.length === 1 ? '' : 's'}. Paste adds ${selectedScenes.length === 1 ? 'a copy' : 'copies'} after ${selectedScenes.length === 1 ? 'it' : 'them'}.`); return; }
-    setNotice('Select a clip to copy.');
+    if (element) { clipboard.current = { kind: 'element', element }; setNotice(t('Copied the element. Paste puts it at the playhead.')); return; }
+    if (selectedPip) { clipboard.current = { kind: 'pip', clip: selectedPip }; setNotice(t('Copied the picture-in-picture clip. Paste puts it at the playhead.')); return; }
+    if (selectedScenes.length) { clipboard.current = { kind: 'scenes', ids: selectedScenes.map(scene => scene.id) }; setNotice(t('Copied {clips}. Paste adds copies after the originals.', { clips: clipCount(selectedScenes.length) })); return; }
+    setNotice(t('Select a clip to copy.'));
   }
 
   function pasteClipboard() {
     if (!canEdit) return;
     const item = clipboard.current;
-    if (!item) { setNotice('Nothing copied yet. Select a clip and copy it first.'); return; }
+    if (!item) { setNotice(t('Nothing copied yet. Select a clip and copy it first.')); return; }
     const at = playTick();
     if (item.kind === 'scenes') {
       const existing = projectScenes(project).filter(scene => item.ids.includes(scene.id));
-      if (!existing.length) { setNotice('The copied clips are no longer in this project.'); return; }
+      if (!existing.length) { setNotice(t('The copied clips are no longer in this project.')); return; }
       const items = existing.map(scene => ({ id: scene.id, newId: crypto.randomUUID() }));
       void run({ type: 'duplicateMany', items }).then(ok => {
         if (!ok) return;
@@ -172,12 +173,12 @@ export function useClipEditing({ project, run, position, canEdit, setNotice, edi
     }
     const duration = item.kind === 'audio' ? item.clip.durationTicks : item.kind === 'element' ? item.element.durationTicks : item.clip.durationTicks;
     const start = pasteStart(duration, at, projectTicks);
-    if (start === null) { setNotice('That clip is longer than the whole story.'); return; }
+    if (start === null) { setNotice(t('That clip is longer than the whole story.')); return; }
     const id = crypto.randomUUID();
     if (item.kind === 'audio') {
       const busy = (lane: number) => project.audio.some(clip => (clip.lane ?? 0) === lane && clip.startTicks < start + duration && clip.startTicks + clip.durationTicks > start);
       const lane = [item.clip.lane ?? 0, ...Array.from({ length: MAX_AUDIO_LANES }, (_, index) => index)].find(candidate => !busy(candidate));
-      if (lane === undefined) { setNotice('Every audio track is busy at the playhead. Move the playhead or free a track.'); return; }
+      if (lane === undefined) { setNotice(t('Every audio track is busy at the playhead. Move the playhead or free a track.')); return; }
       const clip: AudioClip = { ...item.clip, id, lane, startTicks: start };
       void run({ type: 'audio', audio: [...project.audio, clip] }).then(ok => { if (ok) { setSelectedAudioId(id); setEditTarget('audio'); } });
       return;
@@ -195,9 +196,9 @@ export function useClipEditing({ project, run, position, canEdit, setNotice, edi
   /** Selects every visual clip that starts at or after the playhead. */
   function selectAfterPlayhead() {
     const ids = startingAtOrAfter(projectScenes(project), playTick());
-    if (!ids.length) { setNotice('No clips start at or after the playhead.'); return; }
+    if (!ids.length) { setNotice(t('No clips start at or after the playhead.')); return; }
     setSelectedIds(ids); setPrimarySelected(ids[0]); selectionAnchor.current = ids[0]; setEditTarget('scene');
-    setNotice(`${ids.length} clip${ids.length === 1 ? '' : 's'} selected after the playhead.`);
+    setNotice(t('{clips} selected after the playhead.', { clips: clipCount(ids.length) }));
   }
 
   return { rippleDeleteSelected, trimSelected, nudgeSelected, copySelected, pasteClipboard, selectAfterPlayhead, selectionLane };
