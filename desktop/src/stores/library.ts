@@ -22,6 +22,10 @@ export type ProjectSummary = {
   favorite?: boolean;
   /** Every deliverable the project holds, so cards can show them. */
   formats?: { name: string; width: number; height: number; aspect: string }[];
+  /** When a video of this project was last exported on this device. */
+  exportedAt?: number;
+  /** Small scene previews for hover scrubbing, drawn on first hover and cleared whenever the project is saved. */
+  frames?: string[];
 };
 
 type ProjectRow = { id: string; project: Project };
@@ -64,6 +68,10 @@ function transactionDone(transaction: IDBTransaction) {
 export async function projectThumbnail(project: Project) {
   const scene = projectScenes(project)[0];
   if (!scene) return '';
+  return sceneThumbnail(project, scene);
+}
+
+async function sceneThumbnail(project: Project, scene: ReturnType<typeof projectScenes>[number], maxWidth = 0) {
   const canvas = document.createElement('canvas');
   const format = project.formats?.[0];
   const resolved = resolveSceneForFormat(scene, format);
@@ -71,10 +79,64 @@ export async function projectThumbnail(project: Project) {
   await drawScene(canvas, resolved, project.aspect, 'thumb', thumbSeconds, project.timebase, format ? { width: format.width, height: format.height } : undefined, undefined, project.audio, project.overlays ?? [], ticksToSeconds(scene.startTicks, project.timebase) + thumbSeconds);
   await drawPipClips(canvas, overlayScenes(project), ticksToSeconds(scene.startTicks, project.timebase) + thumbSeconds, project.aspect, 'thumb', project.timebase, project.audio);
   await drawProjectText(canvas, project.globalText ?? [], ticksToSeconds(scene.startTicks, project.timebase) + thumbSeconds, project.timebase);
+  if (maxWidth && canvas.width > maxWidth) {
+    const small = document.createElement('canvas');
+    small.width = maxWidth;
+    small.height = Math.max(1, Math.round(canvas.height * maxWidth / canvas.width));
+    small.getContext('2d')?.drawImage(canvas, 0, 0, small.width, small.height);
+    return small.toDataURL('image/jpeg', .7);
+  }
   return canvas.toDataURL('image/jpeg', .76);
 }
 
-function summaryFrom(project: Project, createdAt: number, thumbnail: string, group?: string, favorite?: boolean): ProjectSummary {
+const FRAME_COUNT = 6;
+const pendingExports = new Map<string, number>();
+
+/** Up to six scenes spread across the project, as small previews. */
+export async function projectFrames(project: Project, count = FRAME_COUNT): Promise<string[]> {
+  const scenes = projectScenes(project);
+  if (!scenes.length) return [];
+  const picked = scenes.length <= count ? scenes : Array.from({ length: count }, (_, index) => scenes[Math.round(index * (scenes.length - 1) / (count - 1))]);
+  const frames: string[] = [];
+  for (const scene of picked) {
+    try { const frame = await sceneThumbnail(project, scene, 240); if (frame) frames.push(frame); } catch { /* skip a scene that cannot be drawn */ }
+  }
+  return frames;
+}
+
+/** Returns the hover previews for a project, drawing and caching them on first use. */
+export async function loadProjectFrames(id: string): Promise<string[]> {
+  const summary = await readSummary(id);
+  if (!summary) return [];
+  if (summary.frames?.length) return summary.frames;
+  const project = await getLibraryProject(id);
+  if (!project) return [];
+  const frames = await projectFrames(project);
+  if (!frames.length) return [];
+  const latest = await readSummary(id);
+  // A save in the meantime cleared the cache for a reason; do not write stale frames over it.
+  if (!latest || latest.updatedAt !== summary.updatedAt) return frames;
+  const db = await openDatabase();
+  const write = db.transaction(META, 'readwrite');
+  write.objectStore(META).put({ ...latest, frames });
+  await transactionDone(write);
+  return frames;
+}
+
+/** Records that a video of the project was exported. Held until the first save if the project is not in the library yet. */
+export async function markProjectExported(id: string) {
+  const at = Date.now();
+  const summary = await readSummary(id);
+  if (!summary) { pendingExports.set(id, at); return; }
+  const next = { ...summary, exportedAt: at };
+  const db = await openDatabase();
+  const write = db.transaction(META, 'readwrite');
+  write.objectStore(META).put(next);
+  await transactionDone(write);
+  await syncIndex(next);
+}
+
+function summaryFrom(project: Project, createdAt: number, thumbnail: string, group?: string, favorite?: boolean, exportedAt?: number): ProjectSummary {
   return {
     id: project.id,
     name: project.name,
@@ -90,6 +152,7 @@ function summaryFrom(project: Project, createdAt: number, thumbnail: string, gro
     formats: (project.formats ?? []).map(format => ({ name: format.name, width: format.width, height: format.height, aspect: format.aspect })),
     ...(group ? { group } : {}),
     ...(favorite ? { favorite } : {}),
+    ...(exportedAt ? { exportedAt } : {}),
   };
 }
 
@@ -101,7 +164,7 @@ function summaryFrom(project: Project, createdAt: number, thumbnail: string, gro
 async function syncIndex(summary: ProjectSummary): Promise<void> {
   if (!bridge.native) return;
   try {
-    await bridge.libraryIndexUpsert([{ id: summary.id, name: summary.name, updatedAt: summary.updatedAt, summary: JSON.stringify(summary) }]);
+    await bridge.libraryIndexUpsert([{ id: summary.id, name: summary.name, updatedAt: summary.updatedAt, summary: JSON.stringify({ ...summary, frames: undefined }) }]);
   } catch {
     await bridge.libraryIndexClear().catch(() => {});
   }
@@ -110,7 +173,7 @@ async function syncIndex(summary: ProjectSummary): Promise<void> {
 async function syncIndexes(summaries: ProjectSummary[]): Promise<void> {
   if (!bridge.native || !summaries.length) return;
   try {
-    await bridge.libraryIndexUpsert(summaries.map(summary => ({ id: summary.id, name: summary.name, updatedAt: summary.updatedAt, summary: JSON.stringify(summary) })));
+    await bridge.libraryIndexUpsert(summaries.map(summary => ({ id: summary.id, name: summary.name, updatedAt: summary.updatedAt, summary: JSON.stringify({ ...summary, frames: undefined }) })));
   } catch {
     await bridge.libraryIndexClear().catch(() => {});
   }
@@ -284,7 +347,8 @@ export async function saveLibraryProject(project: Project): Promise<ProjectSumma
   const persisted = await persistProjectAssets(hydrated);
   const previous = await readSummary(project.id);
   const thumbnail = await projectThumbnail(hydrated).catch(() => '');
-  const summary = summaryFrom(hydrated, previous?.createdAt ?? Date.now(), thumbnail, previous?.group, previous?.favorite);
+  const summary = summaryFrom(hydrated, previous?.createdAt ?? Date.now(), thumbnail, previous?.group, previous?.favorite, previous?.exportedAt ?? pendingExports.get(project.id));
+  pendingExports.delete(project.id);
   const db = await openDatabase();
   const transaction = db.transaction([PROJECTS, META], 'readwrite');
   transaction.objectStore(PROJECTS).put({ id: project.id, project: persisted } satisfies ProjectRow);

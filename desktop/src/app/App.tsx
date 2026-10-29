@@ -170,6 +170,7 @@ import { TimelinePanel } from './screens/TimelinePanel';
 import { EditorBody } from './screens/EditorBody';
 import { EditorHeader } from './screens/EditorHeader';
 import { HomeMain } from './screens/HomeMain';
+import { ProjectThumb } from '../components/ProjectThumb';
 import { HomeSidebar } from './screens/HomeSidebar';
 import { useVideoExport } from './hooks/useVideoExport';
 import { useSceneReplacement } from './hooks/useSceneReplacement';
@@ -1992,7 +1993,7 @@ export default function App() {
     const active = entry.id === project.id;
     return <div className={`project-card ${active ? 'active' : ''} ${projectMenu === entry.id ? 'menu-open' : ''}`} key={entry.id}>
       <button className="project-open" onClick={() => void openLibraryProject(entry)} disabled={!libraryReady || !canEdit}>
-        <div className="project-thumb">
+        <ProjectThumb key={`${entry.id}-${entry.updatedAt}`} entry={entry}>
           <div className="project-frame" style={{ aspectRatio: entry.width && entry.height ? `${entry.width} / ${entry.height}` : entry.aspect.replace(':', ' / ') }}>
             {entry.thumbnail ? <img src={entry.thumbnail} alt="" /> : <span className="project-thumb-fallback"><Clapperboard size={24} /></span>}
           </div>
@@ -2000,7 +2001,7 @@ export default function App() {
           {missingCounts[entry.id] > 0 && <span className="project-missing" title={t('Some media for this project is missing from this device.')}><AlertTriangle size={10} />{missingCounts[entry.id]} {t('missing')}</span>}
           {entry.group && <span className="project-group-badge"><FolderOpen size={10} />{entry.group}</span>}
           <span className="project-play"><Play size={15} fill="currentColor" /></span>
-        </div>
+        </ProjectThumb>
         <div className="project-meta">
           <strong>{entry.name}</strong>
           <small>{sceneCount(entry.sceneCount)} · {timecode(entry.duration, entry.timebase)}</small>
@@ -2009,6 +2010,7 @@ export default function App() {
             {entry.formats.length > 1 && <span className="project-format-count">{formatCount(entry.formats.length)}</span>}
           </span>}
           <span className="project-status"><span className="status-dot" /> {active ? t('Open now') : t('Edited {time}', { time: relativeTime(entry.updatedAt) })}</span>
+          <span className={`project-export ${entry.exportedAt ? 'done' : ''}`}>{entry.exportedAt ? t('Exported {time}', { time: relativeTime(entry.exportedAt) }) : t('Not exported yet')}</span>
         </div>
       </button>
       <button className={`project-favorite ${entry.favorite ? 'active' : ''}`} aria-label={entry.favorite ? `Remove ${entry.name} from favorites` : `Add ${entry.name} to favorites`} aria-pressed={Boolean(entry.favorite)} onClick={() => void toggleProjectFavorite(entry)}><Star size={15} fill={entry.favorite ? 'currentColor' : 'none'} /></button>

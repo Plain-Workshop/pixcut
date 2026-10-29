@@ -1,3 +1,4 @@
+import { markProjectExported } from '../../stores/library';
 import { creditsFileText } from '../helpers';
 import { buildVideoPlan } from '../export-plan';
 import { exportOutputFormat } from '../export-progress';
@@ -112,6 +113,7 @@ export function useVideoExport({ saveCredits, musicCredits, exportAudio, exportC
         if (paths.length) {
           await writeCredits(paths, snapshot.name);
           setExportProgress(100);
+          void markProjectExported(snapshot.id).catch(() => {});
           setNotice(`${paths.length} video${paths.length === 1 ? '' : 's'} exported. Files stay on this device.`);
           setModal(current => current === 'export' ? null : current);
         }
@@ -170,6 +172,7 @@ export function useVideoExport({ saveCredits, musicCredits, exportAudio, exportC
       if (paths.length) {
         await writeCredits(paths, snapshot.name);
         setExportProgress(100);
+        void markProjectExported(snapshot.id).catch(() => {});
         setNotice(`${paths.length} video${paths.length === 1 ? '' : 's'} exported. Files stay on this device.`);
         setModal(current => current === 'export' ? null : current);
       }
