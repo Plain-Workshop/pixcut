@@ -21,13 +21,13 @@ import { IconButton } from '../../components/IconButton';
 import { SceneForm } from '../../components/inspector/SceneForm';
 import { RangeField } from '../../components/inspector/NumberField';
 import { useLayout } from '../layout-store';
-import { MAX_PROJECT_FONTS, minTicks, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, type AudioClip, type Command, type Project, type Scene, type ScenePatchKey, type TextLayer, type FormatVariant, type ElementLayer } from '../../stores/model';
+import { useEditorModel } from '../editor-model';
+import { MAX_PROJECT_FONTS, minTicks, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, type AudioClip, type Scene, type ScenePatchKey, type TextLayer, type FormatVariant, type ElementLayer } from '../../stores/model';
 import { type ResizeCorner } from '../../components/preview/transform-handles';
 import { sceneTextLayers, sceneTextTitle } from '../../components/text/layers';
 import { fontOption } from '../../components/text/fonts';
 import { messageFor } from '../errors';
 import { formatBytes, hasMedia } from '../helpers';
-import { type Preferences } from '../../stores/preferences';
 import { SAMPLE_TEMPLATE, TEMPLATES, type TemplateDefinition } from '../../templates/catalog';
 import type { Dispatch, SetStateAction, ReactElement, RefObject } from 'react';
 import type { SoundCategoryId, SoundSpec } from '../../components/elements/sound-catalog';
@@ -36,16 +36,14 @@ import type { ElementPreset } from '../../components/elements/catalog';
 import { TITLE_PRESETS } from '../title-presets';
 import { elementDisplayName } from '../../components/elements/catalog';
 
-export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOnlineMusic, tab, setTab, tabTitles, canEdit, chooseImages, chooseVideo, selectedScene, chooseCustomElement, projectTicks, audioLaneRef, selectedAudio, chooseAudio, setModal, mediaQuery, setMediaQuery, dragOverTarget, dropIntoMedia, filteredScenes, beginMediaDrag, mediaDragRef, setDropTarget, setHoveredMedia, previewMedia, hoveredMedia, playing, modal, project, appendMedia, addMediaPip, setError, sourceMedia, editTarget, selectedGlobalTextId, selectGlobalText, run, setSelectedGlobalTextId, addProjectText, selectedTextLayerId, selectTextLayer, scenes, captionInput, exportCaptions, fontTargetId, fontInput, removeFont, addTextLayerAtPlayhead, audioLibraryTab, setAudioLibraryTab, audio, previewingAudio, hoverLibraryAudio, stopLibraryPreview, focusAudio, musicMood, setMusicMood, copyMusicCredit, addMusic, copyMusicCredits, setNotice, soundQuery, setSoundQuery, soundGroups, openSoundGroup, setOpenSoundGroup, addSound, recordedSounds, addRecordedSound, position, chooseTemplate, templateImage, elementSearch, setElementSearch, setElementLimit, elementCollection, setElementCollection, setElementCategory, elementCategory, allOverlays, selectedElementId, selectOverlay, filteredElements, elementLimit, setHoveredElement, addElement, hoveredElement, preferences, tip, safeArea, runCommandId, activeFormat, setActiveFormatId, previewTarget, activeSize, saveStillFrame, togglePreviewFullscreen, previewArea, previewStage, previewSize, preview, sceneVideo, setVideoTick, pipVideoScenes, pipVideoElements, setPipVideoTick, snapGuides, framingMode, beginImagePan, selectedTextLayer, selectedGlobalText, textBox, selectedTextVisible, selectedElement, editingText, beginTextMove, setTextDraft, setEditingText, beginTextResize, overlayDraft, sceneLayerRank, beginElementMove, beginElementRotate, beginElementResize, textDraft, previewInlineText, blurInlineText, cancelInlineText, commitInlineText, fadeAmount, shortcutText, duration, frameSeconds, scrubTo, setPosition, setPlaying, togglePlayback, loop, setLoop, selectedPip, propertyKind, selectedCount, setSelectedIds, setPrimarySelected, selectionAnchor, activePip, removePip, pipScenes, stagePip, commitPip, stagePipStyle, removeAudio, audioInspector, elementInspector, selectedTextScene, inspectorScene, updateSelection, setGlobalTextDraft, setPreviewScene, copySceneProperties, propertyClipboard, notifyPasted, inspectorFlush, requestReplaceImage, textStartTicks, textLayerLocal, previewLocalSeconds, textFocus, setFramingMode, applyFramingToAllFormats, renderOverlays, reorderLayer, deleteSelected, hasSceneSelection, duplicateSelected }: {
+export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOnlineMusic, tab, setTab, tabTitles, chooseImages, chooseVideo, selectedScene, chooseCustomElement, audioLaneRef, selectedAudio, chooseAudio, setModal, mediaQuery, setMediaQuery, dragOverTarget, dropIntoMedia, filteredScenes, beginMediaDrag, mediaDragRef, setDropTarget, setHoveredMedia, previewMedia, hoveredMedia, playing, modal, appendMedia, addMediaPip, sourceMedia, editTarget, selectedGlobalTextId, selectGlobalText, setSelectedGlobalTextId, addProjectText, selectedTextLayerId, selectTextLayer, captionInput, exportCaptions, fontTargetId, fontInput, removeFont, addTextLayerAtPlayhead, audioLibraryTab, setAudioLibraryTab, previewingAudio, hoverLibraryAudio, stopLibraryPreview, focusAudio, musicMood, setMusicMood, copyMusicCredit, addMusic, copyMusicCredits, soundQuery, setSoundQuery, soundGroups, openSoundGroup, setOpenSoundGroup, addSound, recordedSounds, addRecordedSound, position, chooseTemplate, templateImage, elementSearch, setElementSearch, setElementLimit, elementCollection, setElementCollection, setElementCategory, elementCategory, allOverlays, selectedElementId, selectOverlay, filteredElements, elementLimit, setHoveredElement, addElement, hoveredElement, tip, safeArea, runCommandId, activeFormat, setActiveFormatId, previewTarget, saveStillFrame, togglePreviewFullscreen, previewArea, previewStage, previewSize, preview, sceneVideo, setVideoTick, pipVideoScenes, pipVideoElements, setPipVideoTick, snapGuides, framingMode, beginImagePan, selectedTextLayer, selectedGlobalText, textBox, selectedTextVisible, selectedElement, editingText, beginTextMove, setTextDraft, setEditingText, beginTextResize, overlayDraft, sceneLayerRank, beginElementMove, beginElementRotate, beginElementResize, textDraft, previewInlineText, blurInlineText, cancelInlineText, commitInlineText, fadeAmount, shortcutText, scrubTo, setPosition, setPlaying, togglePlayback, loop, setLoop, selectedPip, propertyKind, selectedCount, setSelectedIds, setPrimarySelected, selectionAnchor, activePip, removePip, pipScenes, stagePip, commitPip, stagePipStyle, removeAudio, audioInspector, elementInspector, selectedTextScene, inspectorScene, updateSelection, setGlobalTextDraft, setPreviewScene, copySceneProperties, propertyClipboard, notifyPasted, inspectorFlush, requestReplaceImage, textStartTicks, textLayerLocal, previewLocalSeconds, textFocus, setFramingMode, applyFramingToAllFormats, renderOverlays, reorderLayer, deleteSelected, hasSceneSelection, duplicateSelected }: {
   tab: "media" | "text" | "elements" | "audio" | "templates";
   setTab: Dispatch<SetStateAction<"media" | "text" | "elements" | "audio" | "templates">>;
   tabTitles: { readonly media: "Your media"; readonly text: "Titles"; readonly elements: "Elements"; readonly transitions: "Transitions"; readonly effects: "Effects"; readonly audio: "Audio"; readonly templates: "Templates"; };
-  canEdit: boolean;
   chooseImages: () => Promise<void>;
   chooseVideo: () => Promise<void>;
   selectedScene: Scene | undefined;
   chooseCustomElement: (kind: "image" | "video") => Promise<void>;
-  projectTicks: number;
   audioLaneRef: RefObject<number>;
   selectedAudio: AudioClip;
   chooseAudio: () => Promise<void>;
@@ -63,20 +61,16 @@ export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOn
   hoveredMedia: string | null;
   playing: boolean;
   modal: "templates" | "source" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null;
-  project: Project;
   appendMedia: (scene: Scene) => Promise<void>;
   addMediaPip: (source: Scene) => Promise<void>;
-  setError: Dispatch<SetStateAction<string>>;
   sourceMedia: Scene[];
   editTarget: "text" | "audio" | "scene" | "element";
   selectedGlobalTextId: string | null;
   selectGlobalText: (id: string) => void;
-  run: (command: Command) => Promise<boolean>;
   setSelectedGlobalTextId: Dispatch<SetStateAction<string | null>>;
   addProjectText: () => void;
   selectedTextLayerId: string | null;
   selectTextLayer: (id: string | null) => void;
-  scenes: Scene[];
   captionInput: RefObject<HTMLInputElement | null>;
   exportCaptions: () => Promise<void>;
   fontTargetId: RefObject<string | null>;
@@ -85,7 +79,6 @@ export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOn
   addTextLayerAtPlayhead: (preset?: Partial<TextLayer>) => void;
   audioLibraryTab: "project" | "music" | "sounds";
   setAudioLibraryTab: Dispatch<SetStateAction<"project" | "music" | "sounds">>;
-  audio: AudioClip[];
   previewingAudio: string | null;
   hoverLibraryAudio: (id: string, source: string | (() => Promise<string>), start?: number, length?: number, explicit?: boolean) => void;
   stopLibraryPreview: () => void;
@@ -99,7 +92,6 @@ export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOn
   removeSavedTrack: (key: string) => void;
   addOnlineMusic: (track: OnlineTrack, kind?: 'music' | 'sound_effect') => Promise<void>;
   copyMusicCredits: () => Promise<void>;
-  setNotice: Dispatch<SetStateAction<string>>;
   soundQuery: string;
   setSoundQuery: Dispatch<SetStateAction<string>>;
   soundGroups: { id: SoundCategoryId; label: string; count: number; sounds: SoundSpec[]; }[];
@@ -126,14 +118,12 @@ export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOn
   setHoveredElement: Dispatch<SetStateAction<string | null>>;
   addElement: (presetId: string) => void;
   hoveredElement: string | null;
-  preferences: Preferences;
   tip: (id: string, label: string) => string;
   safeArea: boolean;
   runCommandId: (id: string) => void;
   activeFormat: FormatVariant;
   setActiveFormatId: Dispatch<SetStateAction<string | null>>;
   previewTarget: Scene | undefined;
-  activeSize: { width: number; height: number; };
   saveStillFrame: () => Promise<void>;
   togglePreviewFullscreen: () => void;
   previewArea: RefObject<HTMLDivElement | null>;
@@ -170,8 +160,6 @@ export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOn
   commitInlineText: () => void;
   fadeAmount: number;
   shortcutText: (id: string) => string;
-  duration: number;
-  frameSeconds: number;
   scrubTo: (value: number) => void;
   setPosition: Dispatch<SetStateAction<number>>;
   setPlaying: Dispatch<SetStateAction<boolean>>;
@@ -215,6 +203,7 @@ export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOn
   hasSceneSelection: boolean;
   duplicateSelected: () => void;
 }) {
+  const { canEdit, projectTicks, project, setError, run, scenes, audio, setNotice, preferences, activeSize, duration, frameSeconds } = useEditorModel();
   const { libraryWidth, inspectorWidth, beginResize } = useLayout();
   const recordedGroups = searchRecordedSounds(recordedSounds, soundQuery);
   const [musicSource, setMusicSource] = useState<'bundled' | 'online' | 'saved'>('bundled');

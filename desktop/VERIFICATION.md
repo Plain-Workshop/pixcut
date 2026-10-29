@@ -1625,3 +1625,10 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - `src/app/layout-store.tsx` replaces `usePanelLayout`: validated and clamped state, persistence to `pixcut-layout`, and `reset()`. `tests/layout-store.test.ts` (6): normalising garbage and old layouts, limits, load/corrupt storage, save and notify per change, reset, splitter drags (clamped, written to storage only when the drag ends).
 - Checked in the browser preview: all three splitters (library 280→340, inspector 288→340, timeline 340→400), saved on release; zoom 150%, one collapsed and one locked lane and the library width survived a reload; Settings → Editing → Reset panel layout restored defaults and cleared storage.
 - Props: `TimelinePanel` 93 → 79, `EditorBody` 180 → 177. Tests: 549 TypeScript.
+
+## Editor model context (Phase 4, step 3) (2026-10-29)
+
+- `src/app/editor-model.tsx`: one context for the twelve project-level values both panels read. `tests/editor-model.test.ts` (2). `TimelinePanel` 79 → 71 props, `EditorBody` 177 → 165.
+- Browser preview: delete a scene (notice shown) and undo (3 → 2 → 3 scenes), copy notice, audio inspector with its nine typed fields, preview canvas and media library present, no console errors.
+- Playback timings were not measured: the Browser pane was hidden, so frame times were throttled. Playback store deferred until measured in the desktop app (see IMPROVEMENT_PLAN.md).
+- Tests: 551 TypeScript.

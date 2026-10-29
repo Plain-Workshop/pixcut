@@ -133,12 +133,16 @@ Done: **selection** (`src/app/selection-store.tsx`). Eight `useState` calls in `
 
 Step 2 done: **layout** (`src/app/layout-store.tsx`). Panel sizes, timeline zoom, collapsed and locked lanes moved from `usePanelLayout` into a store with validated, clamped state and one `reset()` (Settings no longer clears `localStorage` itself). `TimelinePanel` lost 8 more props (93 → 79 in total) and `EditorBody` 3 (180 → 177); `Dispatch<any>` for the layout is gone.
 
-Next, one store per commit, behaviour unchanged and tests passing each time:
-1. **Playback** (`position`, `playing`, `playDirection`): the most re-render-sensitive state; subscribe the preview and timeline selectively.
-2. **Project and commands** (`session`, `run`, undo flags).
-3. Then convert `EditorBody` (about 180 props) the same way, and replace `Dispatch<any>` and the remaining `any`s.
+Step 3 done: **editor model** (`src/app/editor-model.tsx`). A context holding the twelve project-level values both big panels read (project, scenes, audio, `canEdit`, `run`, duration, project ticks, frame length, preferences, output size, `setNotice`, `setError`). `TimelinePanel` 79 → 71 props and `EditorBody` 177 → 165.
 
-Not yet true: `App.tsx` is still about 2,300 lines and still re-renders on every selection change, because it subscribes to the whole store. The re-render saving only arrives once the big children subscribe selectively; this step only removes props and gives them a place to do that.
+**Deliberately not done yet: a playback store.** `position` feeds 62 places in `App.tsx`, and a store alone would still re-render `App` every frame; the saving only comes from making the preview and timeline subscribe selectively, which touches rendering that must match export. It would remove only ~10 props, and the Browser pane here was hidden, so frame timings were throttled and meaningless. Measure playback in the desktop app on a heavy project first (long task counts and frame times during play); do the playback store only if the numbers justify it.
+
+Also checked: only one state pair (`elementLimit`) is used purely inside `EditorBody`, so "push state down" would save about 2 props.
+
+Remaining:
+1. **Selectors on the stores.** `EditorBody` still receives about 30 values derived from the project plus selection (`selectedScene`, `selectedElement`, `selectedPip`, `previewTarget`, …) and about 60 callbacks. Compute the derived ones with hooks reading the three stores, and group the callbacks (clip, audio, element, export) into small contexts or hooks the panel calls directly.
+2. **Project and commands** (`session`, `run`, undo flags) into a store once the derived selectors exist.
+3. Replace the remaining `any`s in `EditorBody`'s prop types.
 
 **Done when:** no component takes more than ~25 props and `App.tsx` is under 800 lines.
 
