@@ -20,7 +20,7 @@ rfd = "0.15"
 base64 = "0.22"
 tempfile = "3"
 sha2 = "0.10"
-zip = { version = "2", default-features = false }
+zip = { version = "4", default-features = false }
 pixcut-project = { path = "../crates/project" }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
