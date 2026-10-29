@@ -14,7 +14,7 @@ import { BehaviorControls } from '../components/elements/BehaviorControls';
 import { ELEMENT_CATALOG, elementPreset, elementDisplayName } from '../components/elements/catalog';
 import { exportOutputFormat } from './export-progress';
 import { framingTravel } from '../components/preview/framing';
-import { centreGuides, edgeGuides, snapToTargets } from '../components/preview/snapping';
+import { edgeGuides, snapToTargets } from '../components/preview/snapping';
 import { registerCustomFonts } from '../components/text/fonts';
 import { subsetCharacters } from '../components/text/subset-chars';
 import { subsetFontBytes } from '../components/text/subset';
@@ -23,7 +23,6 @@ import { sourceSecondsAt, sourceSpan, speedAt, speedCurve } from '../components/
 import { textLayersAsCaptions, toSrt } from '../components/text/captions-export';
 import { applyTextMotion } from '../components/animation/keyframes';
 import { KeyframeControls } from '../components/animation/KeyframeControls';
-import { snapOverlayTiming } from '../components/timeline/beats';
 import { isAssetRef, resolveMediaSource } from '../components/preview/media-url';
 import { assetExists } from '../stores/assets';
 import { readPixcutBundle } from '../stores/pixcut-bundle';
@@ -48,6 +47,8 @@ import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
 import { useUpdates } from './hooks/useUpdates';
 import { useFormats } from './hooks/useFormats';
+import { useElementPointer } from './hooks/useElementPointer';
+import { useSourcePreview } from './hooks/useSourcePreview';
 import { useProjectLibrary } from './hooks/useProjectLibrary';
 import { ELEMENT_LABEL_DEFAULTS } from '../components/elements/symbols';
 import { useCallback, useMemo, useEffect, useRef, useState, type ChangeEvent, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
@@ -134,7 +135,6 @@ import * as bridge from './bridge';
 import { HINTS_KEY } from './export-options';
 import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, minTicks, projectScenes, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
-import { resizeRotatedBox, rotationFromPointer, type ResizeCorner } from '../components/preview/transform-handles';
 import { probeVideo } from '../components/preview/video';
 import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers } from '../components/text/layers';
 import { clampWeight, fontOption } from '../components/text/fonts';
@@ -213,13 +213,6 @@ export default function App() {
   const [storageConfirm, setStorageConfirm] = useState(false);
   const [storageNote, setStorageNote] = useState<string | null>(null);
   const [mediaBin, setMediaBin] = useState<{ projectId: string; items: Scene[] }>({ projectId: '', items: [] });
-  const [sourcePreview, setSourcePreview] = useState<Scene | null>(null);
-  const previewVideo = useRef<HTMLVideoElement | null>(null);
-  const [previewVideoTime, setPreviewVideoTime] = useState(0);
-  const [previewVideoDuration, setPreviewVideoDuration] = useState(0);
-  const [previewVideoPlaying, setPreviewVideoPlaying] = useState(false);
-  const [previewVolume, setPreviewVolume] = useState(.8);
-  const [previewMuted, setPreviewMuted] = useState(false);
   const customElementInput = useRef<HTMLInputElement>(null);
   const customElementKind = useRef<'image' | 'video'>('image');
   const [exportElapsed, setExportElapsed] = useState(0);
@@ -229,7 +222,7 @@ export default function App() {
   const [exportContainer, setExportContainer] = useState<bridge.ExportContainer>('mp4');
   const [exportSpeed, setExportSpeed] = useState<'fast' | 'medium' | 'slow'>('medium');
   const [hardwareAvailable, setHardwareAvailable] = useState(false);
-  const [sourcePreviewUrl, setSourcePreviewUrl] = useState<string | undefined>(undefined);
+
   const [exportHardware, setExportHardware] = useState(false);
   const [exportAudio, setExportAudio] = useState(true);
   const [saveCredits, setSaveCredits] = useState(true);
@@ -589,11 +582,8 @@ export default function App() {
   const sceneForPreview = resolvedPreviewTarget && framingStaged && previewScene ? { ...resolvedPreviewTarget, imageX: previewScene.imageX, imageY: previewScene.imageY, imageZoom: previewScene.imageZoom, fit: previewScene.fit, framingBackground: previewScene.framingBackground } : resolvedPreviewTarget;
   const resolvedNextScene = previewTransition?.next ? resolveSceneForFormat(previewTransition.next, activeFormat) : undefined;
   const filteredScenes = sourceMedia.filter(s => s.name.toLowerCase().includes(mediaQuery.trim().toLowerCase()));
-  const previewList = useMemo(() => {
-    if (!sourcePreview) return sourceMedia;
-    return filteredScenes.some(item => item.id === sourcePreview.id) ? filteredScenes : sourceMedia;
-  }, [filteredScenes, sourceMedia, sourcePreview]);
-  const previewIndex = sourcePreview ? previewList.findIndex(item => item.id === sourcePreview.id) : -1;
+
+  const { sourcePreview, setSourcePreview, previewVideo, sourcePreviewUrl, previewMuted, setPreviewVideoDuration, setPreviewVideoTime, setPreviewVideoPlaying, previewList, previewIndex, previewVideoPlaying, previewVideoTime, previewVideoDuration, previewVolume, previewMedia, switchPreview, togglePreviewPlayback, seekPreview, changePreviewVolume, togglePreviewMute } = useSourcePreview({ modal, setModal, setPlaying, filteredScenes, sourceMedia });
   const canEdit = ready && !busy;
 
   const refreshLibrary = useCallback(async () => {
@@ -725,15 +715,6 @@ export default function App() {
     registerCustomFonts(project.fonts, () => setFontTick(value => value + 1));
   }, [project.fonts]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const source = sourcePreview?.image;
-    if (!source) { setSourcePreviewUrl(undefined); return; }
-    if (!source.startsWith('pixcut-asset:')) { setSourcePreviewUrl(source); return; }
-    setSourcePreviewUrl(undefined);
-    void resolveMediaSource(source).then(url => { if (!cancelled) setSourcePreviewUrl(url); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [sourcePreview?.image]);
 
   useEffect(() => {
     if (!bridge.native || modal !== 'settings' || settingsTab !== 'general') return;
@@ -1688,68 +1669,7 @@ export default function App() {
     void saveOverlay(element, null); setSelectedElementId(null); overlayDraftRef.current = null; setOverlayDraft(null);
   }
 
-  function beginElementMove(event: ReactPointerEvent<HTMLElement>, element = selectedElement) {
-    if (!element || !canEdit || event.button !== 0) return;
-    event.preventDefault(); event.stopPropagation(); inspectorFlush.current();
-    selectOverlay(element, false);
-    const stage = previewStage.current?.getBoundingClientRect(); if (!stage?.width || !stage.height) return;
-    setPlaying(false); setDraggingOverlay(true);
-    const startX = event.clientX, startY = event.clientY;
-    const visibleOthers = allOverlays.filter(other => other.id !== element.id
-      && position >= ticksToSeconds(other.startTicks, project.timebase)
-      && position < ticksToSeconds(other.startTicks + other.durationTicks, project.timebase));
-    const xGuides = centreGuides(visibleOthers.map(other => other.x));
-    const yGuides = centreGuides(visibleOthers.map(other => other.y));
-    const move = (e: PointerEvent) => {
-      const rawX = Math.max(element.width / 2, Math.min(1 - element.width / 2, element.x + (e.clientX - startX) / stage.width));
-      const rawY = Math.max(element.height / 2, Math.min(1 - element.height / 2, element.y + (e.clientY - startY) / stage.height));
-      const x = snapToTargets(rawX, xGuides);
-      const y = snapToTargets(rawY, yGuides);
-      setSnapGuides({ x: x.guide, y: y.guide });
-      stageElement({ x: x.value, y: y.value }, element);
-    };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); setSnapGuides({ x: null, y: null }); setDraggingOverlay(false); commitElement(); };
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
-  }
-
-  function beginElementResize(event: ReactPointerEvent<HTMLElement>, element = selectedElement, corner: ResizeCorner = 'se') {
-    if (!element || !canEdit || event.button !== 0) return;
-    event.preventDefault(); event.stopPropagation(); inspectorFlush.current();
-    selectOverlay(element, false);
-    const stage = previewStage.current?.getBoundingClientRect(); if (!stage?.width || !stage.height) return;
-    setPlaying(false); setDraggingOverlay(true);
-    const startX = event.clientX, startY = event.clientY;
-    const base = { cx: element.x * stage.width, cy: element.y * stage.height, w: element.width * stage.width, h: element.height * stage.height, rotation: element.rotation };
-    const limits = { minWidth: Math.max(6, .02 * stage.width), minHeight: Math.max(6, .02 * stage.height), maxWidth: stage.width, maxHeight: stage.height };
-    const move = (e: PointerEvent) => {
-      const box = resizeRotatedBox(base, corner, e.clientX - startX, e.clientY - startY, limits, e.shiftKey);
-      stageElement({
-        x: Math.min(1, Math.max(0, box.cx / stage.width)),
-        y: Math.min(1, Math.max(0, box.cy / stage.height)),
-        width: box.w / stage.width,
-        height: box.h / stage.height,
-      }, element);
-    };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); setDraggingOverlay(false); commitElement(); };
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
-  }
-
-  function beginElementRotate(event: ReactPointerEvent<HTMLElement>, element = selectedElement) {
-    if (!element || !canEdit || event.button !== 0) return;
-    event.preventDefault(); event.stopPropagation(); inspectorFlush.current();
-    selectOverlay(element, false);
-    const stage = previewStage.current?.getBoundingClientRect(); if (!stage?.width || !stage.height) return;
-    setPlaying(false); setDraggingOverlay(true);
-    const centre = { x: stage.left + element.x * stage.width, y: stage.top + element.y * stage.height };
-    const angleAt = (clientX: number, clientY: number) => Math.atan2(clientY - centre.y, clientX - centre.x) * 180 / Math.PI;
-    const startAngle = angleAt(event.clientX, event.clientY);
-    const startRotation = element.rotation;
-    const move = (e: PointerEvent) => {
-      stageElement({ rotation: rotationFromPointer(startRotation, startAngle, angleAt(e.clientX, e.clientY), e.shiftKey) }, element);
-    };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); setDraggingOverlay(false); commitElement(); };
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
-  }
+  const { beginElementMove, beginElementResize, beginElementRotate, beginOverlayTiming } = useElementPointer({ canEdit, inspectorFlush, previewStage, selectedElement, selectOverlay, allOverlays, position, project, projectTicks, snapping, setPlaying, setDraggingOverlay, setSnapGuides, setOverlayDraft, overlayDraftRef, stageElement, commitElement });
 
   function addBeatAtPlayhead() {
     if (!canEdit || !projectTicks) return;
@@ -1763,30 +1683,6 @@ export default function App() {
   function removeBeat(tick: number) {
     if (!canEdit) return;
     void run({ type: 'beats', beatTicks: (project.beatTicks ?? []).filter(beat => beat !== tick) });
-  }
-
-  function beginOverlayTiming(event: ReactPointerEvent<HTMLElement>, element: TimelineOverlay, edge: 'move' | 'start' | 'end') {
-    if (!canEdit || event.button !== 0) return;
-    event.preventDefault(); event.stopPropagation(); selectOverlay(element, false);
-    const track = event.currentTarget.closest('.overlay-track')?.getBoundingClientRect(); if (!track?.width) return;
-    const startX = event.clientX; let moved = false;
-    const move = (e: PointerEvent) => {
-      const delta = Math.round((e.clientX - startX) / track.width * projectTicks); moved ||= Math.abs(e.clientX - startX) > 2;
-      let patch: Partial<ElementLayer>;
-      if (edge === 'move') patch = { startTicks: Math.max(0, Math.min(projectTicks - element.durationTicks, element.startTicks + delta)) };
-      else if (edge === 'end') patch = { durationTicks: Math.max(1, element.durationTicks + delta) };
-      else { const start = Math.max(0, Math.min(element.startTicks + element.durationTicks - 1, element.startTicks + delta)); patch = { startTicks: start, durationTicks: element.durationTicks + element.startTicks - start }; }
-      const next = { ...element, ...constrainOverlay(element, projectTicks, patch) };
-      if (next.kind === 'video' && next.sourceDurationSeconds) next.durationTicks = Math.min(next.durationTicks, Math.max(1, secondsToTicks(next.sourceDurationSeconds - (next.sourceInSeconds ?? 0), project.timebase)));
-      if (snapping && project.beatTicks?.length) {
-        const snapped = snapOverlayTiming(edge, next.startTicks, next.durationTicks, project.beatTicks, Math.max(1, Math.round(projectTicks / track.width * 8)));
-        next.startTicks = snapped.startTicks;
-        next.durationTicks = snapped.durationTicks;
-      }
-      overlayDraftRef.current = next; setOverlayDraft(next);
-    };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); if (moved) commitElement(); else selectOverlay(element); };
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
   }
 
   function addTextLayerAtPlayhead(preset: Partial<TextLayer> = {}) {
@@ -2237,92 +2133,6 @@ export default function App() {
     setMediaBin({ projectId: project.id, items }); setScreen('editor'); setTab('media');
     setSourcePreview(added[0] ?? null); if (added.length) setModal('source');
   }
-
-  function previewMedia(scene: Scene) {
-    setPlaying(false);
-    setSourcePreview(scene);
-    setPreviewVideoTime(0);
-    setPreviewVideoDuration(0);
-    setPreviewVideoPlaying(false);
-    setModal('source');
-  }
-
-  function switchPreview(delta: number) {
-    if (!sourcePreview || previewList.length < 2) return;
-    const index = previewIndex < 0 ? 0 : previewIndex;
-    const next = previewList[(index + delta + previewList.length) % previewList.length];
-    if (!next || next.id === sourcePreview.id) return;
-    setSourcePreview(next);
-    setPreviewVideoTime(0);
-    setPreviewVideoDuration(0);
-    setPreviewVideoPlaying(false);
-  }
-
-  function togglePreviewPlayback() {
-    const video = previewVideo.current;
-    if (!video) return;
-    if (video.paused) void video.play().catch(() => setPreviewVideoPlaying(false));
-    else video.pause();
-  }
-
-  function seekPreview(seconds: number) {
-    const video = previewVideo.current;
-    if (!video || !Number.isFinite(seconds)) return;
-    video.currentTime = Math.max(0, Math.min(video.duration || previewVideoDuration, seconds));
-    setPreviewVideoTime(video.currentTime);
-  }
-
-  function changePreviewVolume(value: number) {
-    const volume = Math.max(0, Math.min(1, value));
-    setPreviewVolume(volume);
-    setPreviewMuted(volume === 0);
-    const video = previewVideo.current;
-    if (video) { video.volume = volume; video.muted = volume === 0; }
-  }
-
-  function togglePreviewMute() {
-    const muted = !previewMuted;
-    setPreviewMuted(muted);
-    if (previewVideo.current) previewVideo.current.muted = muted;
-  }
-
-  useEffect(() => {
-    setPreviewVideoTime(0);
-    setPreviewVideoDuration(0);
-    setPreviewVideoPlaying(false);
-  }, [sourcePreview?.id]);
-
-  useEffect(() => {
-    const video = previewVideo.current;
-    if (!video) return;
-    video.volume = previewVolume;
-    video.muted = previewMuted;
-  }, [previewVolume, previewMuted, sourcePreview?.id]);
-
-  useEffect(() => {
-    if (modal !== 'source' || !sourcePreview) return;
-    const key = (event: KeyboardEvent) => {
-      if (event.isComposing || event.target instanceof HTMLInputElement || isTextEntryTarget(event.target)) return;
-      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        event.preventDefault();
-        switchPreview(event.key === 'ArrowLeft' ? -1 : 1);
-        return;
-      }
-      if (!sourcePreview.mediaKind || sourcePreview.image.startsWith('pixcut-asset:')) return;
-      if (event.key === ' ') {
-        event.preventDefault();
-        togglePreviewPlayback();
-      } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-        event.preventDefault();
-        changePreviewVolume(previewVolume + (event.key === 'ArrowUp' ? .05 : -.05));
-      } else if (event.key.toLowerCase() === 'm') {
-        event.preventDefault();
-        togglePreviewMute();
-      }
-    };
-    window.addEventListener('keydown', key);
-    return () => window.removeEventListener('keydown', key);
-  }, [modal, sourcePreview, previewList, previewVolume, previewMuted, previewVideoPlaying]);
 
   function beginMediaDrag(event: ReactDragEvent<HTMLElement>, source: Scene) {
     if (!canEdit || !hasMedia(source.image)) { event.preventDefault(); return; }
