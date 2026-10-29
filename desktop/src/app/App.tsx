@@ -1,10 +1,7 @@
-import { findSavedTrack, loadSavedTracks, storeSavedTracks, withSavedTrack, withoutSavedTrack, type SavedTrack } from '../stores/online-downloads';
-import { onlineLicenseLabel } from '../stores/online-music';
-import { DOWNLOAD_CANCELLED, downloadOnlineTrack, type OnlineTrack } from '../stores/online-music';
-import { MUSIC_TRACKS, musicTrackData, musicTrackPreviewUrl, musicTrackCredit, musicTrackClipName, creditForClipName, releaseMusicPreviewUrls, type MusicTrack } from '../stores/music-library';
-import { SOUND_EFFECTS, soundEffectData, type SoundEffectId } from '../components/elements/sound-effects';
-import { createRecordedSoundClip, creditForRecordedClip, loadRecordedSounds, recordedSoundData, type RecordedSound } from '../stores/sound-library';
-import { createSoundClip, groupedSounds, type SoundId } from '../components/elements/sound-catalog';
+import { creditForClipName } from '../stores/music-library';
+import { SOUND_EFFECTS, type SoundEffectId } from '../components/elements/sound-effects';
+import { creditForRecordedClip, loadRecordedSounds, type RecordedSound } from '../stores/sound-library';
+import { groupedSounds } from '../components/elements/sound-catalog';
 import { ElementTextField } from '../components/elements/ElementTextField';
 import { inspectorKind } from './inspector';
 import { presetSize } from '../components/elements/designer';
@@ -16,7 +13,6 @@ import { exportOutputFormat } from './export-progress';
 import { registerCustomFonts } from '../components/text/fonts';
 import { subsetCharacters } from '../components/text/subset-chars';
 import { subsetFontBytes } from '../components/text/subset';
-import { splitAudioClip } from '../components/timeline/audio-split';
 import { sourceSecondsAt, sourceSpan, speedAt, speedCurve } from '../components/preview/speed';
 import { textLayersAsCaptions, toSrt } from '../components/text/captions-export';
 import { applyTextMotion } from '../components/animation/keyframes';
@@ -45,13 +41,15 @@ import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
 import { useUpdates } from './hooks/useUpdates';
 import { useFormats } from './hooks/useFormats';
+import { useSceneCommands } from './hooks/useSceneCommands';
+import { useLibraryAudio } from './hooks/useLibraryAudio';
 import { useStagePointer } from './hooks/useStagePointer';
 import { usePanelLayout } from './hooks/usePanelLayout';
 import { useElementPointer } from './hooks/useElementPointer';
 import { useSourcePreview } from './hooks/useSourcePreview';
 import { useProjectLibrary } from './hooks/useProjectLibrary';
 import { ELEMENT_LABEL_DEFAULTS } from '../components/elements/symbols';
-import { useCallback, useMemo, useEffect, useRef, useState, type ChangeEvent, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useMemo, useEffect, useRef, useState, type ChangeEvent, type DragEvent as ReactDragEvent } from 'react';
 import {
   AudioLines, 
   AlertTriangle,
@@ -133,7 +131,7 @@ import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import * as bridge from './bridge';
 import { HINTS_KEY } from './export-options';
-import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, minTicks, projectScenes, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
+import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, minTicks, projectScenes, sceneAt, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
 import { probeVideo } from '../components/preview/video';
 import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers } from '../components/text/layers';
@@ -353,7 +351,6 @@ export default function App() {
   const selectionAnchor = useRef<string | null>(null), reorderRef = useRef<string | null>(null);
   const mediaDragRef = useRef<Scene | null>(null);
   const mediaDropAt = useRef(0);
-  const soundPreviewRef = useRef<HTMLAudioElement | null>(null);
   const [soundEffect, setSoundEffect] = useState<SoundEffectId>('click');
   const [audioLibraryTab,setAudioLibraryTab]=useState<'project'|'music'|'sounds'>('project');
   const [musicMood,setMusicMood]=useState('All');
@@ -365,8 +362,6 @@ export default function App() {
   const [hoverEntrance,setHoverEntrance]=useState<string|null>(null);
   const [audioDisplay,setAudioDisplay]=useState<'spectrogram'|'waveform'>('spectrogram');
   const [hoveredMedia,setHoveredMedia]=useState<string|null>(null);
-  const [previewingAudio,setPreviewingAudio]=useState<string|null>(null);
-  const libraryAudio=useRef<HTMLAudioElement|null>(null),libraryAudioToken=useRef(0),libraryAudioTimer=useRef<number|undefined>(undefined);
 
   useEffect(() => { if (!exporting) return; const start = performance.now(); const timer = setInterval(() => setExportElapsed((performance.now() - start) / 1000), 500); return () => clearInterval(timer); }, [exporting]);
   const project = session.project, duration = totalDuration(project);
@@ -1196,279 +1191,6 @@ export default function App() {
     return `${label} · ${shortcutText(id)}${state.disabled && state.reason ? ` — ${state.reason}` : ''}`;
   }
 
-  function togglePlayback() {
-    if (!duration) return;
-    if (playing) { setPlaying(false); return; }
-    if (position >= duration - frameSeconds) setPosition(0);
-    setPreviewScene(null);
-    setPlayDirection(1);
-    setPlaying(true);
-  }
-
-  function playForward() {
-    if (!duration) return;
-    if (position >= duration - frameSeconds) setPosition(0);
-    setPreviewScene(null);
-    setPlayDirection(1);
-    setPlaying(true);
-  }
-
-  function playReverse() {
-    if (!duration) return;
-    if (position <= frameSeconds) setPosition(Math.max(0, duration - frameSeconds));
-    setPreviewScene(null);
-    setPlayDirection(-1);
-    setPlaying(true);
-  }
-
-  function stepFrame(direction: 1 | -1) {
-    if (!duration) return;
-    setPlaying(false);
-    setPosition(value => Math.min(Math.max(0, value + direction * frameSeconds), Math.max(0, duration - frameSeconds)));
-  }
-
-  function snapTime(value: number) {
-    const limit = Math.max(0, duration - frameSeconds);
-    const clamped = Math.min(Math.max(0, value), limit);
-    if (!snapping) return clamped;
-    const cuts = [0];
-    for (const scene of scenes) {
-      cuts.push(Math.min(ticksToSeconds(scene.startTicks, project.timebase), limit));
-      cuts.push(Math.min(ticksToSeconds(scene.startTicks + scene.durationTicks, project.timebase), limit));
-    }
-    let best = clamped, distance = 0.12;
-    for (const cut of cuts) {
-      const gap = Math.abs(cut - clamped);
-      if (gap <= distance) { distance = gap; best = cut; }
-    }
-    return best;
-  }
-
-  function scrubTo(value: number) {
-    setPlaying(false);
-    setPosition(snapTime(value));
-  }
-
-  function focusScene(scene: Scene) {
-    setPlaying(false);
-    setPosition(ticksToSeconds(scene.startTicks, project.timebase));
-  }
-
-  function selectScene(scene: Scene, event?: ReactMouseEvent, seek = true) {
-    commitElement();
-    // A linked audio strip selects its scene without seeking; keep the
-    // playhead exactly where it was if anything else tries to move it.
-    const anchor = positionRef.current;
-    const wasPlaying = playing;
-    if (!seek) queueMicrotask(() => {
-      if (!wasPlaying && positionRef.current !== anchor) { positionRef.current = anchor; setPosition(anchor); }
-    });
-    editTargetRef.current = 'scene';
-    audioTargetRef.current = null;
-    setSelectedElementId(null); setOverlayDraft(null); overlayDraftRef.current = null;
-    setEditingText(false); setSelectedTextLayerId(null); setSelectedGlobalTextId(null); setGlobalTextDraft(null);
-    setSelectedPipId(null); setPipDraft(null); pipDraftRef.current = null;
-    setSelectedAudioId(null);
-    setEditTarget('scene');
-    const toggle = Boolean(event?.metaKey || event?.ctrlKey);
-    const range = Boolean(event?.shiftKey);
-    if (toggle) {
-      if (selectedIds.includes(scene.id)) {
-        const next = selectedIds.filter(id => id !== scene.id);
-        setSelectedIds(next);
-        if (primarySelected === scene.id) setPrimarySelected(next.at(-1) ?? null);
-        selectionAnchor.current = scene.id;
-      } else {
-        setSelectedIds([...selectedIds, scene.id]);
-        setPrimarySelected(scene.id);
-        selectionAnchor.current = scene.id;
-        if (seek) focusScene(scene);
-      }
-      return;
-    }
-    if (range && selectionAnchor.current) {
-      const ids = scenes.map(item => item.id);
-      const from = ids.indexOf(selectionAnchor.current), to = ids.indexOf(scene.id);
-      if (from >= 0 && to >= 0) {
-        setSelectedIds(ids.slice(Math.min(from, to), Math.max(from, to) + 1));
-        setPrimarySelected(scene.id);
-        if (seek) focusScene(scene);
-        return;
-      }
-    }
-    setSelectedIds([scene.id]);
-    setPrimarySelected(scene.id);
-    selectionAnchor.current = scene.id;
-    if (seek) focusScene(scene);
-  }
-
-  function updateSelection(next: Scene, force: ScenePatchKey[] = []): Promise<boolean> {
-    if (selectedGlobalText) {
-      const layers = next.textLayers ?? [];
-      return run({ type: 'globalText', layers }).finally(() => setGlobalTextDraft(null));
-    }
-    const targets = selectedScenes;
-    if (!targets.length) return Promise.resolve(false);
-    const base = targets.find(scene => scene.id === next.id) ?? targets[0];
-    const patch = scenePatch(base, next);
-    for (const key of force) {
-      const value = (next as unknown as Record<string, unknown>)[key];
-      if (value !== undefined) (patch as Record<string, unknown>)[key] = value;
-    }
-    if (!Object.keys(patch).length) return Promise.resolve(true);
-    const ids = targets.map(scene => scene.id);
-    const framingKeys = ['imageX', 'imageY', 'imageZoom', 'fit', 'framingBackground'] as const;
-    const framePatch: SceneFormatOverride = {};
-    const existingFraming = activeFormat?.overrides[base.id];
-    let frameChanged = false;
-    for (const key of framingKeys) {
-      if (!(key in patch)) continue;
-      const value = (patch as Record<string, unknown>)[key];
-      if (value !== undefined) {
-        (framePatch as Record<string, unknown>)[key] = value;
-        if ((existingFraming as Record<string, unknown> | undefined)?.[key] !== value) frameChanged = true;
-      }
-      delete (patch as Record<string, unknown>)[key];
-    }
-    let formatsTask: Promise<boolean> | null = null;
-    if (frameChanged && activeFormat) {
-      const nextFormats = project.formats.map(format => format.id === activeFormat.id
-        ? { ...format, overrides: { ...format.overrides, ...Object.fromEntries(ids.map(id => [id, { ...format.overrides[id], ...framePatch }])) } }
-        : format);
-      formatsTask = run({ type: 'formats', formats: nextFormats });
-    }
-    const applyPatch = (): Promise<boolean> => {
-      const latest = projectScenes(latestProject.current);
-      const currentTargets = ids.map(id => latest.find(scene => scene.id === id)).filter((scene): scene is Scene => Boolean(scene));
-      if (!currentTargets.length) return Promise.resolve(false);
-      if (currentTargets.length === 1) {
-        return run({ type: 'update', scene: { ...currentTargets[0], ...patch } });
-      }
-      const scenes = currentTargets.map(scene => {
-        const merged: Scene = { ...scene, ...patch };
-        if (patch.speed !== undefined) {
-          const source = sceneSeconds(scene, project.timebase) * (scene.speed ?? 1);
-          const duration = Math.min(30, Math.max(0.5, source / patch.speed));
-          const resized = setSceneSeconds(scene, duration, project.timebase);
-          merged.durationTicks = resized.durationTicks;
-          merged.speed = patch.speed;
-        } else if (patch.durationTicks !== undefined) {
-          merged.durationTicks = setSceneSeconds(merged, ticksToSeconds(patch.durationTicks, project.timebase), project.timebase).durationTicks;
-        }
-        const seconds = sceneSeconds(merged, project.timebase);
-        merged.fadeIn = Math.min(merged.fadeIn ?? 0, seconds);
-        merged.fadeOut = Math.min(merged.fadeOut ?? 0, seconds);
-        return merged;
-      });
-      return run({ type: 'updateMany', scenes });
-    };
-    const commonTask = Object.keys(patch).length ? (operation.current ? pending.current.then(applyPatch) : Promise.resolve(applyPatch())) : null;
-    const task = formatsTask ?? commonTask ?? Promise.resolve(true);
-    return task.finally(() => setPreviewScene(null));
-  }
-
-  function splitAtPlayhead() {
-    if (editTargetRef.current === 'audio') {
-      splitAudioAtPlayhead(audio.find(item => item.id === audioTargetRef.current) ?? selectedAudio);
-      return;
-    }
-    if (selectedScenes.length !== 1) {
-      setNotice('Select one clip to split at the playhead.');
-      return;
-    }
-    const scene = selectedScenes[0];
-    const index = scenes.findIndex(item => item.id === scene.id);
-    if (index < 0) return;
-    const atTicks = secondsToTicks(position, project.timebase) - scene.startTicks;
-    const splitMinimum = minTicks(project.timebase);
-    if (atTicks < splitMinimum || scene.durationTicks - atTicks < splitMinimum) {
-      setNotice('Place the playhead at least half a second inside the selected clip.');
-      return;
-    }
-    const newId = crypto.randomUUID();
-    void run({ type: 'split', id: scene.id, atTicks, newId }).then(ok => {
-      if (ok) {
-        setSelectedIds([newId]);
-        setPrimarySelected(newId);
-        selectionAnchor.current = newId;
-        setNotice(scene.mediaKind === 'video' ? 'Video split at the playhead, with its sound. Undo restores one clip.' : 'Clip split at the playhead. Undo restores one clip.');
-      }
-    });
-  }
-
-  /**
-   * Audio clips are not in the visual track's split command, so splitting one
-   * replaces it with two clips that share the same source and lane. Selecting
-   * audio and pressing Split used to split the active video instead, because
-   * the visual selection falls back to whatever sits under the playhead.
-   */
-  function splitAudioAtPlayhead(clip: AudioClip | null) {
-    if (!clip) { setNotice('Select an audio clip to split at the playhead.'); return; }
-    const atTicks = secondsToTicks(position, project.timebase) - clip.startTicks;
-    const splitMinimum = minTicks(project.timebase);
-    if (atTicks < splitMinimum || clip.durationTicks - atTicks < splitMinimum) {
-      setNotice('Place the playhead at least half a second inside the selected audio clip.');
-      return;
-    }
-    const parts = splitAudioClip(clip, atTicks, crypto.randomUUID(), project.timebase);
-    if (!parts) { setNotice('Place the playhead inside the selected audio clip.'); return; }
-    const audio = project.audio.flatMap(item => item.id === clip.id ? [parts.left, parts.right] : [item]);
-    void run({ type: 'audio', audio }).then(ok => {
-      if (ok) { setEditTarget('audio'); setSelectedAudioId(parts.right.id); setNotice('Audio split at the playhead. Undo restores one clip.'); }
-    });
-  }
-
-  function duplicateSelected() {
-    const targets = selectedScenes;
-    if (!targets.length) return;
-    const items = targets.map(scene => ({ id: scene.id, newId: crypto.randomUUID() }));
-    void run({ type: 'duplicateMany', items }).then(ok => {
-      if (ok) {
-        const newIds = items.map(item => item.newId);
-        setSelectedIds(newIds);
-        setPrimarySelected(newIds.at(-1) ?? null);
-        selectionAnchor.current = newIds.at(-1) ?? null;
-        setNotice(`${items.length} clip${items.length === 1 ? '' : 's'} duplicated${items.length === 1 ? '' : ' together'}.`);
-      }
-    });
-  }
-
-  function deleteSelected() {
-    if (editTargetRef.current === 'audio') { const id = audioTargetRef.current ?? selectedAudioId; if (id) removeAudio(id); return; }
-    if (editTarget === 'element') { if (selectedElement) removeElement(selectedElement.id); return; }
-    if (selectedPip) { removePip(selectedPip.id); return; }
-    if (editTarget === 'text' && selectedGlobalText) {
-      const layers = (project.globalText ?? []).filter(layer => layer.id !== selectedGlobalText.id);
-      void run({ type: 'globalText', layers });
-      setSelectedGlobalTextId(null); return;
-    }
-    if (editTarget === 'text' && selectedScene && selectedTextLayerId) {
-      const layers = sceneTextLayers(selectedScene).filter(layer => layer.id !== selectedTextLayerId);
-      void updateSelection(replaceSceneTextLayers(selectedScene, layers));
-      setSelectedTextLayerId(null); return;
-    }
-    if (editTarget === 'text') return;
-    if (!hasSceneSelection) {
-      if (selectedAudioId) {
-        const clip = audio.find(item => item.id === selectedAudioId);
-        if (clip) { removeAudio(clip.id); return; }
-      }
-      setNotice('Select a clip to delete.');
-      return;
-    }
-    const targets = selectedScenes;
-    if (!targets.length) return;
-    const ids = targets.map(scene => scene.id);
-    void run({ type: 'removeMany', ids }).then(ok => {
-      if (ok) {
-        setSelectedIds([]);
-        setPrimarySelected(null);
-        selectionAnchor.current = null;
-        setNotice(`${ids.length} clip${ids.length === 1 ? '' : 's'} deleted. Undo restores ${ids.length === 1 ? 'it' : 'them'}.`);
-      }
-    });
-  }
-
   function applyShortcuts(next: ShortcutSettingsData) {
     try { saveShortcutSettings(next); } catch (e) { setError(`Shortcuts could not be saved. ${messageFor(e)}`); return false; }
     setShortcuts(next);
@@ -1750,7 +1472,6 @@ export default function App() {
   const fadeScene = previewScene && previewScene.id === active?.id ? previewScene : active;
   const fadeAmount = fadeScene ? 1 - fadeOpacity(fadeScene, position - activeStart, project.timebase) : 0;
 
-  const { beginImagePan, beginTextMove, beginTextResize, beginFadeDrag, beginSceneTrim, beginPlayheadDrag } = useStagePointer({ canEdit, inspectorFlush, previewStage, inspectorScene, selectedScene, selectedIds, selectedTextLayer, textBox, project, latestProject, projectTicks, duration, activeSize, pending, run, updateSelection, optimisticScene, replaceSceneTextLayers, scrubTo, selectionAnchor, setSession, setPreviewScene, setPlaying, setEditingText, setFadeDrag, setSnapGuides, setSelectedIds, setPrimarySelected, setDraggingOverlay });
 
   function requestCloseModal() {
     if (modal === 'settings' && settingsTab === 'shortcuts' && shortcutDirty) {
@@ -1931,130 +1652,7 @@ export default function App() {
     setDropTarget(null); setFileDragActive(false);
     if (source) void appendMedia(source); return true;
   }
-  function stopLibraryPreview() {
-    libraryAudioToken.current++;window.clearTimeout(libraryAudioTimer.current);
-    if(libraryAudio.current){libraryAudio.current.pause();libraryAudio.current.removeAttribute('src');libraryAudio.current.load();libraryAudio.current=null;}
-    setPreviewingAudio(null);
-  }
-  function hoverLibraryAudio(id:string,source:string|(()=>Promise<string>),start=0,length=30,explicit=false) {
-    stopLibraryPreview();if(playing || modal)return;
-    const token=libraryAudioToken.current;
-    const play=(url:string|undefined)=>{
-      if(!url||token!==libraryAudioToken.current)return;
-      const player=new Audio(url);libraryAudio.current=player;player.volume=.5;
-      player.onloadedmetadata=()=>{player.currentTime=Math.min(start,Math.max(0,player.duration-.01));};
-      player.ontimeupdate=()=>{if(player.currentTime>=start+length)stopLibraryPreview();};
-      player.onended=()=>stopLibraryPreview();
-      void player.play().then(()=>{if(token===libraryAudioToken.current)setPreviewingAudio(id);else player.pause();}).catch(()=>{if(token===libraryAudioToken.current){setPreviewingAudio(null);if(explicit)setNotice('Audio preview could not start. Check the app audio permissions and try Listen again.');}});
-    };
-    const resolve=()=>{
-      // Bundled music is read from the app bundle first: the desktop shell
-      // cannot stream audio from its own scheme, so the file becomes a blob URL.
-      if(typeof source==='function'){void source().then(play,error=>{if(token===libraryAudioToken.current&&explicit)setError(messageFor(error));});return;}
-      // Keep direct Listen clicks inside the browser's user-activation event.
-      if(explicit&&!isAssetRef(source)){play(source);return;}
-      void resolveMediaSource(source).then(play);
-    };
-    if(explicit)resolve();else libraryAudioTimer.current=window.setTimeout(resolve,100);
-  }
-
-  useEffect(()=>{stopLibraryPreview();setHoveredMedia(null);setHoveredElement(null);},[tab,audioLibraryTab,playing,modal,project.id]);
-  // Read the bundled tracks as soon as the Music tab opens, so Listen starts
-  // from memory instead of waiting on the file the user just clicked.
-  useEffect(()=>{
-    if(tab!=='audio'||audioLibraryTab!=='music')return;
-    for(const track of MUSIC_TRACKS)void musicTrackPreviewUrl(track).catch(()=>{});
-  },[tab,audioLibraryTab]);
-  useEffect(()=>()=>{libraryAudioToken.current++;window.clearTimeout(libraryAudioTimer.current);libraryAudio.current?.pause();releaseMusicPreviewUrls();},[]);
-  useEffect(()=>{
-    const stop=()=>{stopLibraryPreview();setHoveredMedia(null);setHoveredElement(null);};
-    const visibility=()=>{if(document.hidden)stop();};
-    window.addEventListener('blur',stop);document.addEventListener('visibilitychange',visibility);
-    return()=>{window.removeEventListener('blur',stop);document.removeEventListener('visibilitychange',visibility);};
-  },[]);
-
-  async function copyMusicCredit(track:MusicTrack) {
-    try { await navigator.clipboard.writeText(musicTrackCredit(track)); setNotice(`Credit for ${track.title} copied. Paste it into your video description.`); }
-    catch { setError('Could not copy the credit. It is listed under the music licence in the Music panel.'); }
-  }
-  async function copyMusicCredits() {
-    const credits = MUSIC_TRACKS.map(track => musicTrackCredit(track)).join('\n');
-    try { await navigator.clipboard.writeText(`Music (CC BY 4.0):\n${credits}`); setNotice('All music credits copied.'); }
-    catch { setError('Could not copy the credits. They are listed under the music licence in the Music panel.'); }
-  }
-  async function addMusic(track:MusicTrack) {
-    if(!canEdit||!projectTicks)return;
-    stopLibraryPreview();setBusy(true);
-    try{
-      const data=await musicTrackData(track),snapshot=latestProject.current,total=totalTicks(snapshot);
-      const startTicks=Math.min(total-1,Math.max(0,secondsToTicks(position,project.timebase)));
-      const durationTicks=Math.min(total-startTicks,Math.max(1,secondsToTicks(track.seconds,snapshot.timebase)));
-      const lane=Array.from({length:8},(_,i)=>i).find(i=>!snapshot.audio.some(c=>(c.lane??0)===i&&c.startTicks<startTicks+durationTicks&&c.startTicks+c.durationTicks>startTicks));
-      const clip:AudioClip={id:crypto.randomUUID(),name:musicTrackClipName(track),data,lane:lane??7,startTicks,durationTicks,sourceInSeconds:0,sourceDurationSeconds:track.seconds,volume:.55,fadeIn:.15,fadeOut:Math.min(.6,ticksToSeconds(durationTicks,snapshot.timebase)/3)};
-      if(await run({type:'audio',audio:[...snapshot.audio,clip]}))setNotice(`${track.title} added at the playhead. Credit ${track.author} when you publish — the line is in the Audio panel.`);
-    }catch(error){setError(messageFor(error));}finally{setBusy(false);}
-  }
-
-  const [savedTracks, setSavedTracks] = useState<SavedTrack[]>(() => loadSavedTracks());
-  const savedTracksRef = useRef(savedTracks);
-  function updateSavedTracks(update: (list: SavedTrack[]) => SavedTrack[]) {
-    const next = update(savedTracksRef.current);
-    savedTracksRef.current = next; setSavedTracks(next); storeSavedTracks(next);
-  }
-  function removeSavedTrack(key: string) { updateSavedTracks(list => withoutSavedTrack(list, key)); }
-  /** Adds a track that is already on this device. No network is used. */
-  async function addSavedTrack(saved: SavedTrack) {
-    if (!canEdit || !projectTicks) return;
-    stopLibraryPreview(); setBusy(true);
-    try {
-      const snapshot = latestProject.current, total = totalTicks(snapshot);
-      const startTicks = Math.min(total - 1, Math.max(0, secondsToTicks(position, project.timebase)));
-      const durationTicks = Math.min(total - startTicks, Math.max(1, secondsToTicks(saved.seconds, snapshot.timebase)));
-      const lane = Array.from({ length: 8 }, (_, i) => i).find(i => !snapshot.audio.some(c => (c.lane ?? 0) === i && c.startTicks < startTicks + durationTicks && c.startTicks + c.durationTicks > startTicks));
-      const music = saved.kind === 'music';
-      const clip: AudioClip = { id: crypto.randomUUID(), name: saved.name, data: saved.reference, lane: lane ?? 7, startTicks, durationTicks, sourceInSeconds: 0, sourceDurationSeconds: saved.seconds, volume: music ? .55 : .7, fadeIn: music ? .15 : 0, fadeOut: Math.min(music ? .6 : .03, ticksToSeconds(durationTicks, snapshot.timebase) / 3), ...(saved.credit ? { credit: saved.credit } : {}) };
-      if (await run({ type: 'audio', audio: [...snapshot.audio, clip] })) setNotice(`${saved.title} added at the playhead from your downloads.`);
-    } catch (error) { setError(messageFor(error)); } finally { setBusy(false); }
-  }
-
-  async function addOnlineMusic(track: OnlineTrack, kind: 'music' | 'sound_effect' = 'music') {
-    if (!canEdit || !projectTicks) return;
-    stopLibraryPreview();
-    // The download can take a while; the editor stays usable meanwhile, and the row in the list shows the progress.
-    try {
-      const existing = findSavedTrack(savedTracksRef.current, track);
-      const downloaded = existing ? { reference: existing.reference, name: existing.name, bytes: 0 } : await downloadOnlineTrack(track);
-      if (!existing) updateSavedTracks(list => withSavedTrack(list, track, downloaded, kind, onlineLicenseLabel(track)));
-      const snapshot = latestProject.current, total = totalTicks(snapshot);
-      const startTicks = Math.min(total - 1, Math.max(0, secondsToTicks(position, project.timebase)));
-      const durationTicks = Math.min(total - startTicks, Math.max(1, secondsToTicks(track.seconds, snapshot.timebase)));
-      const lane = Array.from({ length: 8 }, (_, i) => i).find(i => !snapshot.audio.some(c => (c.lane ?? 0) === i && c.startTicks < startTicks + durationTicks && c.startTicks + c.durationTicks > startTicks));
-      const clip: AudioClip = { id: crypto.randomUUID(), name: downloaded.name, data: downloaded.reference, lane: lane ?? 7, startTicks, durationTicks, sourceInSeconds: 0, sourceDurationSeconds: track.seconds, volume: kind === 'music' ? .55 : .7, fadeIn: kind === 'music' ? .15 : 0, fadeOut: Math.min(kind === 'music' ? .6 : .03, ticksToSeconds(durationTicks, snapshot.timebase) / 3), credit: track.credit };
-      if (await run({ type: 'audio', audio: [...snapshot.audio, clip] })) setNotice(`${track.title} added at the playhead. The credit line is saved with the clip and shows in the Audio panel.`);
-    } catch (error) {
-      // Cancelling is the user's own choice, so it gets a quiet notice instead of the error banner.
-      if (messageFor(error) === DOWNLOAD_CANCELLED) setNotice('Download cancelled.');
-      else setError(messageFor(error));
-    }
-  }
-
-  function previewSound(id: SoundEffectId) {
-    soundPreviewRef.current?.pause();
-    const player = new Audio(soundEffectData(id)); soundPreviewRef.current = player;
-    player.volume = .65; void player.play().catch(error => setError(messageFor(error)));
-  }
-  async function addRecordedSound(sound: RecordedSound, startTicks: number) {
-    if (!canEdit) return;
-    try {
-      const clip = createRecordedSoundClip(latestProject.current, sound, await recordedSoundData(sound), startTicks);
-      if (clip && await run({ type: 'audio', audio: [...latestProject.current.audio, clip] })) setNotice(creditForRecordedClip(clip.name, [sound]) ? `${sound.label} added. Credit ${sound.author} when you publish — the line is in the Audio panel.` : `${sound.label} added to the audio timeline. Drag it to adjust timing.`);
-    } catch (error) { setError(messageFor(error)); }
-  }
-  async function addSound(id: SoundId, startTicks: number) {
-    if (!canEdit) return;
-    const clip = createSoundClip(latestProject.current, id, startTicks);
-    if (clip && await run({ type: 'audio', audio: [...latestProject.current.audio, clip] })) setNotice(`${clip.name} added to the audio timeline. Drag it to adjust timing.`);
-  }
+  const { previewingAudio, savedTracks, stopLibraryPreview, hoverLibraryAudio, copyMusicCredit, copyMusicCredits, addMusic, removeSavedTrack, addSavedTrack, addOnlineMusic, previewSound, addRecordedSound, addSound } = useLibraryAudio({ canEdit, projectTicks, position, project, latestProject, run, setBusy, setNotice, setError, tab, audioLibraryTab, playing, modal, setHoveredMedia, setHoveredElement });
 
   async function appendMedia(scene: Scene) {
     const next = { ...structuredClone(scene), id: crypto.randomUUID(), startTicks: 0, elements: [], textLayers: [], title: '', subtitle: '', transition: null };
@@ -2175,6 +1773,10 @@ export default function App() {
   }
 
   const { removeAudio, importFiles, stopVoiceover, startVoiceover, stageAudio, commitAudio, detectAudioBeats, snapCutsToBeat, importAudio, chooseAudio, focusAudio, setVideoAudioLevel, commitMix, stageVideoVolume, commitVideoVolume, toggleLaneMute, setLaneMix, beginAudioMove, beginAudioTrim } = useAudioActions({ canEdit, setError, audioInput, projectTicks, setNotice, position, project, audioLaneRef, run, setEditTarget, setSelectedAudioId, setTab, operation, setPlaying, setBusy, scenes, preferences, stageImportedMedia, mediaInput, recordChunks, recorderRef, setRecording, setRecordSeconds, recordTimer, latestProject, positionRef, audioDraftRef, setAudioDraft, setPreviewAudio, selectedAudio, mixDraftRef, setMixDraft, videoVolumeDraftRef, setVideoVolumeDraft, playing, setPosition, editTargetRef, audioTargetRef, setSelectedIds, setPrimarySelected, setSelectedElementId, setSelectedGlobalTextId, setBeatBusy, setBeatTempo, beatTempo });
+
+  const { togglePlayback, playForward, playReverse, stepFrame, scrubTo, selectScene, updateSelection, splitAtPlayhead, duplicateSelected, deleteSelected } = useSceneCommands({ activeFormat, audio, audioTargetRef, commitElement, duration, editTarget, editTargetRef, frameSeconds, hasSceneSelection, latestProject, operation, overlayDraftRef, pending, pipDraftRef, playing, position, positionRef, primarySelected, project, removeAudio, removeElement, removePip, replaceSceneTextLayers, run, scenes, selectedAudio, selectedAudioId, selectedElement, selectedGlobalText, selectedIds, selectedPip, selectedScene, selectedScenes, selectedTextLayerId, selectionAnchor, setEditTarget, setEditingText, setGlobalTextDraft, setNotice, setOverlayDraft, setPipDraft, setPlayDirection, setPlaying, setPosition, setPreviewScene, setPrimarySelected, setSelectedAudioId, setSelectedElementId, setSelectedGlobalTextId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId, snapping });
+
+  const { beginImagePan, beginTextMove, beginTextResize, beginFadeDrag, beginSceneTrim, beginPlayheadDrag } = useStagePointer({ canEdit, inspectorFlush, previewStage, inspectorScene, selectedScene, selectedIds, selectedTextLayer, textBox, project, latestProject, projectTicks, duration, activeSize, pending, run, updateSelection, optimisticScene, replaceSceneTextLayers, scrubTo, selectionAnchor, setSession, setPreviewScene, setPlaying, setEditingText, setFadeDrag, setSnapGuides, setSelectedIds, setPrimarySelected, setDraggingOverlay });
 
   const { replaceSceneWithAsset, replaceSceneMedia, requestReplaceImage, beginReorder, endReorder, dragOverScene, dropScene } = useSceneReplacement({ canEdit, setReplacingSceneId, inspectorFlush, pending, latestProject, project, optimisticScene, run, setNotice, setSession, setError, selectedCount, selectedScene, replaceTargetId, replaceInput, reorderRef, setReorderId, setDropTarget, setFileDragActive, dragOverTarget, dropLibraryMedia, scenes });
 
@@ -2524,7 +2126,7 @@ export default function App() {
 
       {screen === 'home' ? <>
         <HomeSidebar storageLabel={storageLabel} projects={projects} openProject={openLibraryProject} setHomeSection={setHomeSection} homeSection={homeSection} setModal={setModal} updateState={updateState} setSettingsTab={setSettingsTab} updateProgress={updateProgress} updateInfo={updateInfo} appVersion={appVersion} />
-<HomeMain libraryReady={libraryReady} shortcutText={shortcutText} openProject={openLibraryProject} activeProjectId={project.id} homeSection={homeSection} open={open} canEdit={canEdit} ready={ready} setModal={setModal} chooseImages={chooseImages} projects={projects} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} librarySort={librarySort} setLibrarySort={setLibrarySort} favoriteOnly={favoriteOnly} setFavoriteOnly={setFavoriteOnly} groupFilter={groupFilter} setGroupFilter={setGroupFilter} projectGroupsList={projectGroupsList} openGroupManager={openGroupManager} matchingProjects={matchingProjects} renderProjectCard={renderProjectCard} visibleProjects={visibleProjects} chooseTemplate={chooseTemplate} templateImage={templateImage} />
+<HomeMain libraryReady={libraryReady} shortcutText={shortcutText} openProject={openLibraryProject} homeSection={homeSection} open={open} canEdit={canEdit} ready={ready} setModal={setModal} chooseImages={chooseImages} projects={projects} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} librarySort={librarySort} setLibrarySort={setLibrarySort} favoriteOnly={favoriteOnly} setFavoriteOnly={setFavoriteOnly} groupFilter={groupFilter} setGroupFilter={setGroupFilter} projectGroupsList={projectGroupsList} openGroupManager={openGroupManager} matchingProjects={matchingProjects} renderProjectCard={renderProjectCard} visibleProjects={visibleProjects} chooseTemplate={chooseTemplate} templateImage={templateImage} />
       </> : <>
         <EditorHeader goHome={goHome} name={name} canEdit={canEdit} setName={setName} project={project} run={run} status={status} tip={tip} runCommandId={runCommandId} session={session} ready={ready} save={save} scenes={scenes} exporting={exporting} openExportModal={openExportModal} />
 

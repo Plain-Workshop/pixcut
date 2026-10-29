@@ -5,11 +5,10 @@ import { type ProjectSummary } from '../../stores/library';
 import { TEMPLATES, type TemplateDefinition } from '../../templates/catalog';
 import type { Dispatch, SetStateAction, ReactElement } from 'react';
 
-export function HomeMain({ libraryReady, shortcutText, openProject, activeProjectId, homeSection, open, canEdit, ready, setModal, chooseImages, projects, libraryQuery, setLibraryQuery, librarySort, setLibrarySort, favoriteOnly, setFavoriteOnly, groupFilter, setGroupFilter, projectGroupsList, openGroupManager, matchingProjects, renderProjectCard, visibleProjects, chooseTemplate, templateImage }: {
+export function HomeMain({ libraryReady, shortcutText, openProject, homeSection, open, canEdit, ready, setModal, chooseImages, projects, libraryQuery, setLibraryQuery, librarySort, setLibrarySort, favoriteOnly, setFavoriteOnly, groupFilter, setGroupFilter, projectGroupsList, openGroupManager, matchingProjects, renderProjectCard, visibleProjects, chooseTemplate, templateImage }: {
   libraryReady: boolean;
   shortcutText: (id: string) => string;
   openProject: (entry: ProjectSummary) => Promise<void> | void;
-  activeProjectId: string;
   homeSection: "home" | "projects";
   open: () => Promise<void>;
   canEdit: boolean;

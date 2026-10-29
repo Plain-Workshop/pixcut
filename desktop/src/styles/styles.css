@@ -1240,7 +1240,7 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 
 @media (max-width: 1200px) {
   .app.home { grid-template-columns: 226px minmax(0, 1fr); }
-  .home-main { padding: 42px 34px 36px; }
+  .home-main { padding: 24px 34px 36px; }
   .project-grid, .thumb-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .home-perks { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 14px; }
   .inspector { padding: 17px 13px; }
@@ -2201,3 +2201,35 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .online-progress { display: block; margin-top: 4px; }
 .online-progress em { display: block; font-size: 10px; font-style: normal; color: #9DA4C4; margin-bottom: 3px; }
 .online-progress progress { display: block; width: 100%; height: 4px; border: 0; border-radius: 2px; background: #2A3052; accent-color: #7655F6; }
+
+
+/* Home: shortcut hints, resume, drop target, skeletons, sidebar extras */
+.button-key { margin-left: 6px; padding: 1px 5px; border-radius: 5px; font: 600 10px/1.4 inherit; opacity: .6; background: rgba(120, 120, 150, .16); }
+.resume-button .resume-name { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-actions { flex-wrap: wrap; justify-content: flex-end; }
+.home-drop { position: fixed; inset: 14px; z-index: 40; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed #7A55FF; border-radius: 22px; background: rgba(110, 76, 255, .14); backdrop-filter: blur(6px); color: var(--ink-1, #191B35); pointer-events: none; }
+.home-drop strong { font-size: 18px; }
+.home-drop small { opacity: .7; font-size: 11px; }
+.app.home.file-drag .home-drop { display: flex; }
+.project-missing { position: absolute; left: 10px; bottom: 10px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border-radius: 999px; font-size: 9px; font-weight: 700; background: rgba(245, 158, 11, .92); color: #2b1b00; }
+.project-card.skeleton { padding: 12px; pointer-events: none; }
+.skeleton-thumb, .skeleton-line { border-radius: 10px; background: linear-gradient(100deg, rgba(130, 130, 160, .14) 30%, rgba(130, 130, 160, .26) 50%, rgba(130, 130, 160, .14) 70%); background-size: 200% 100%; animation: home-shimmer 1.3s linear infinite; }
+.skeleton-thumb { aspect-ratio: 16 / 9; margin-bottom: 12px; }
+.skeleton-line { height: 10px; margin-top: 8px; }
+.skeleton-line.short { width: 55%; }
+@keyframes home-shimmer { to { background-position: -200% 0; } }
+.app.reduce-motion .skeleton-thumb, .app.reduce-motion .skeleton-line { animation: none; }
+.template-filter { margin: 4px 0 12px; }
+.thumb-card .thumb-art img { transition: transform .5s ease; }
+.thumb-card:hover .thumb-art img { transform: scale(1.08); }
+.app.reduce-motion .thumb-card:hover .thumb-art img { transform: none; }
+.sidebar-recent { display: grid; gap: 2px; margin: 4px 0 12px; }
+.sidebar-heading { font-size: 9px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ink-3); padding: 0 12px 4px; }
+.sidebar-recent button { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 9px; font-size: 12px; text-align: left; color: var(--ink-2); }
+.sidebar-recent button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-recent button:hover { background: rgba(124, 92, 255, .1); }
+.sidebar-storage { display: flex; align-items: center; gap: 5px; margin-top: 8px; font-size: 10px; opacity: .75; }
+@media (max-width: 1200px) { .project-grid.home-grid > .project-card:nth-child(n+5) { display: none; } }
+.sidebar-recent button { color: #6a6d8c; }
+.app.theme-dark .sidebar-recent button { color: #b4b4bc; }
+.app.theme-dark .sidebar-recent button:hover { background: #2e2e31; color: #f1efff; }

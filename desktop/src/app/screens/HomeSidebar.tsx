@@ -1,11 +1,23 @@
 import { t } from '../../i18n';
 import { showUpdateNotice } from '../updates';
-import { Keyboard, ArrowUpRight, Download, FolderOpen, Home, Info, LayoutTemplate, Settings2 } from 'lucide-react';
+import { Keyboard, ArrowUpRight, Clapperboard, Download, FolderOpen, HardDrive, Home, Info, LayoutTemplate, Settings2 } from 'lucide-react';
+import type { ProjectSummary } from '../../stores/library';
 import { Brand } from '../../components/BrandLogo';
 import type { Dispatch, SetStateAction } from 'react';
 import * as bridge from "../bridge";
 
-export function HomeSidebar({ setHomeSection, homeSection, setModal, updateState, setSettingsTab, updateProgress, updateInfo, appVersion }: {
+const TIPS = [
+  'Press ⌘/Ctrl + 1–6 on Home to open a recent project.',
+  'Drop photos anywhere on Home to start a photo movie.',
+  'Star a project to keep it first on Home.',
+  'Everything stays on this device. No account, no cloud.',
+  'Use arrow keys to move through your projects, Enter to open.',
+];
+
+export function HomeSidebar({ storageLabel, projects, openProject, setHomeSection, homeSection, setModal, updateState, setSettingsTab, updateProgress, updateInfo, appVersion }: {
+  storageLabel: string;
+  projects: ProjectSummary[];
+  openProject: (entry: ProjectSummary) => Promise<void> | void;
   setHomeSection: Dispatch<SetStateAction<"home" | "projects">>;
   homeSection: "home" | "projects";
   setModal: Dispatch<SetStateAction<"source" | "templates" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null>>;
@@ -15,6 +27,8 @@ export function HomeSidebar({ setHomeSection, homeSection, setModal, updateState
   updateInfo: bridge.UpdateInfo | null;
   appVersion: string;
 }) {
+  const tip = TIPS[Math.floor(Date.now() / 86_400_000) % TIPS.length];
+  const recent = [...projects].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3);
   return (
     <>
       <aside className="home-sidebar">
@@ -25,9 +39,14 @@ export function HomeSidebar({ setHomeSection, homeSection, setModal, updateState
           <button onClick={() => setModal('templates')}><LayoutTemplate size={18} /><span>{t('Templates')}</span></button>
           <button onClick={() => setModal('settings')}><Settings2 size={18} /><span>{t('Settings')}</span></button>
         </nav>
+        {recent.length > 0 && <div className="sidebar-recent" aria-label="Recent projects">
+          <span className="sidebar-heading">{t('Recent')}</span>
+          {recent.map(entry => <button key={entry.id} onClick={() => void openProject(entry)} title={entry.name}><Clapperboard size={13} /><span>{entry.name}</span></button>)}
+        </div>}
         <div className="sidebar-card">
-          <strong>{t('Your media stays with you.')}</strong>
-          <p>{t('No account. No cloud. Just your stories.')}</p>
+          <strong>{t('Tip')}</strong>
+          <p>{t(tip)}</p>
+          <span className="sidebar-storage"><HardDrive size={12} /> {storageLabel}</span>
         </div>
         <div className="sidebar-bottom">
           {showUpdateNotice(updateState) && <button className={`sidebar-update ${updateState}`} onClick={() => { setSettingsTab('updates'); setModal('settings'); }} aria-label="Open application updates">
