@@ -1699,3 +1699,49 @@ fn real_transition_frames_all_reach_the_output() {
     assert!(pixels[0].0 > 200 && pixels[0].1 < 60, "starts red: {:?}", pixels[0]);
     assert!(pixels[expected - 1].1 > 200 && pixels[expected - 1].0 < 60, "ends blue: {:?}", pixels[expected - 1]);
 }
+
+#[test]
+#[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+fn real_every_plan_tick_becomes_one_output_frame() {
+    let binary = ffmpeg().expect("FFmpeg is installed");
+    assert!(encoder_available(&binary, ExportCodec::H264));
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source.mp4");
+    let status = Process::new(&binary)
+        .args(["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc=s=320x240:r=30:d=2", "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+        .arg(&source).status().unwrap();
+    assert!(status.success());
+    let video = format!("data:video/mp4;base64,{}", STANDARD.encode(fs::read(&source).unwrap()));
+    let (project, frames) = fixture_project();
+    // (kind, ticks, speed, reverse). The fixture project is 30 ticks, so each shape adds up to 30.
+    let shapes: Vec<(&str, Vec<(&str, u64, Option<f64>, bool)>)> = vec![
+        ("long stills", vec![("image", 5, None, false); 6]),
+        ("one-tick stills between long ones", [vec![("image", 1, None, false); 10], vec![("image", 10, None, false)], vec![("image", 1, None, false); 10]].concat()),
+        ("alternating still and video", (0..5).flat_map(|_| [("image", 1, None, false), ("video", 5, None, false)]).collect()),
+        ("sped-up and reversed video then stills", [vec![("video", 10, Some(2.0), false), ("video", 10, None, true)], vec![("image", 1, None, false); 10]].concat()),
+        ("video then a run of one-tick stills", [vec![("video", 20, None, false)], vec![("image", 1, None, false); 10]].concat()),
+    ];
+    for (name, shape) in shapes {
+        let total: u64 = shape.iter().map(|segment| segment.1).sum();
+        assert_eq!(total, 30, "{name}: shape must match the fixture project");
+        let segments: Vec<PlanSegment> = shape.iter().enumerate().map(|(index, (kind, ticks, speed, reverse))| PlanSegment {
+            kind: (*kind).into(),
+            png: (*kind == "image").then(|| frames[index % frames.len()].clone()),
+            video: (*kind == "video").then(|| video.clone()),
+            source_in_seconds: (*kind == "video").then_some(0.0),
+            fit: Some("cover".into()), speed: *speed, speed_end: None, reverse: *reverse, lut: None, fade_in: 0.0, fade_out: 0.0,
+            video_volume: None, include_audio: false, audio_duration_ticks: None, duration_ticks: *ticks, overlays: vec![],
+        }).collect();
+        let mut options = export_options();
+        options.width = 320; options.height = 240; options.speed = EncodeSpeed::Fast;
+        let output = temp.path().join("shape.mp4");
+        let _ = fs::remove_file(&output);
+        encode_plan(&project, ExportPlan { segments, options }, binary.clone(), output.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let probe = Process::new(&binary)
+            .args(["-v", "error", "-i"]).arg(&output)
+            .args(["-vf", "scale=1:1,format=gray", "-f", "rawvideo", "-"])
+            .output().unwrap();
+        assert!(probe.status.success(), "{name}: {}", String::from_utf8_lossy(&probe.stderr));
+        assert_eq!(probe.stdout.len() as u64, total, "{name}: every planned tick must become one output frame");
+    }
+}
