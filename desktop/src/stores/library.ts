@@ -223,6 +223,38 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   return listLocalProjects();
 }
 
+const backfillTried = new Set<string>();
+
+/**
+ * Redraws missing card previews for saved projects (for example ones whose
+ * thumbnail was blocked before native images were read as blobs). Only the
+ * summary changes: the project body and its `updatedAt` stay as they were, so
+ * the Recent order does not move. Each project is tried once per session.
+ * Returns the refreshed summaries, or null when nothing changed.
+ */
+export async function backfillThumbnails(summaries: ProjectSummary[], limit = 12): Promise<ProjectSummary[] | null> {
+  const missing = summaries.filter(item => !item.thumbnail && !backfillTried.has(item.id)).slice(0, limit);
+  if (!missing.length) return null;
+  const updated = new Map<string, ProjectSummary>();
+  for (const item of missing) {
+    backfillTried.add(item.id);
+    try {
+      const project = await getLibraryProject(item.id);
+      if (!project) continue;
+      const thumbnail = await projectThumbnail(project);
+      if (!thumbnail) continue;
+      const next = { ...item, thumbnail };
+      const db = await openDatabase();
+      const write = db.transaction(META, 'readwrite');
+      write.objectStore(META).put(next);
+      await transactionDone(write);
+      await syncIndex(next);
+      updated.set(item.id, next);
+    } catch { /* leave the placeholder; it is retried next session */ }
+  }
+  return updated.size ? summaries.map(item => updated.get(item.id) ?? item) : null;
+}
+
 export async function getLibraryProject(id: string): Promise<Project | null> {
   const db = await openDatabase();
   const transaction = db.transaction(PROJECTS, 'readonly');

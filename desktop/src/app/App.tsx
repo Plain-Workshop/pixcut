@@ -139,7 +139,7 @@ import { clampWeight, fontOption } from '../components/text/fonts';
 import { FORMAT_FILTERS, FORMAT_PRESETS, createCustomFormat, createFormat, filterFormatGroups, formatSlug, formatSize, groupFormatsByOutput, resolveSceneForFormat } from '../stores/formats';
 import { messageFor } from './errors';
 import { captureDragPointer, formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
-import { deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, listProjects, renameProjectGroup, saveLibraryProject, setProjectFavorite, setProjectGroup, type ProjectSummary } from '../stores/library';
+import { backfillThumbnails, deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, listProjects, renameProjectGroup, saveLibraryProject, setProjectFavorite, setProjectGroup, type ProjectSummary } from '../stores/library';
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from '../stores/preferences';
 import { TEMPLATES, buildTemplateProject, templatePreview, type TemplateDefinition } from '../templates/catalog';
 import {
@@ -608,7 +608,11 @@ export default function App() {
   const canEdit = ready && !busy;
 
   const refreshLibrary = useCallback(async () => {
-    try { setProjects(sortProjects(await listProjects())); }
+    try {
+      const listed = await listProjects();
+      setProjects(sortProjects(listed));
+      void backfillThumbnails(listed).then(fixed => { if (fixed) setProjects(current => current.map(item => { const next = fixed.find(entry => entry.id === item.id); return next?.thumbnail && !item.thumbnail ? { ...item, thumbnail: next.thumbnail } : item; })); }).catch(() => {});
+    }
     catch (e) { setError(`Project library could not be read. ${messageFor(e)}`); }
     finally { setLibraryReady(true); }
   }, []);
