@@ -605,7 +605,7 @@ export default function App() {
     bridge.exporterAvailable().then(available => { setExporter(available); setNotice(available ? 'FFmpeg is ready for MP4 export.' : 'FFmpeg was not found on this device.'); }).catch(error => setError(messageFor(error)));
   }
 
-  const { appVersion, updateState, updateInfo, updateProgress, updateMessage, checkForUpdates, downloadUpdate, restartUpdate, copyDownloadLink } = useUpdates({ automaticUpdates: preferences.automaticUpdates, home: screen === 'home', exporting, setNotice });
+  const { appVersion, updateState, updateInfo, updateProgress, updateMessage, checkForUpdates, downloadUpdate, restartUpdate, copyDownloadLink } = useUpdates({ automaticUpdates: preferences.automaticUpdates, home: screen === 'home', exporting, setNotice, saveBeforeUpdate: async () => { if (ready) await persistCurrent(); } });
 
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => {

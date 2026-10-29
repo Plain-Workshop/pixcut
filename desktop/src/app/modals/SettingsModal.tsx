@@ -200,7 +200,7 @@ export function SettingsModal({ settingsTab, shortcutDirty, setNotice, setSettin
                 <span className="settings-row-text"><small>{t('Restart PixCut to finish installing version {version}.', { version: updateInfo?.version ?? '' })}</small></span>
                 <span className="settings-row-control"><button className="button" onClick={restartUpdate}><RefreshCw size={13} /> {t('Restart to update')}</button></span>
               </div>}
-              {updateState === 'error' && <div className="settings-row"><span className="settings-row-text"><small>{t('You can download the latest version manually.')}</small></span><span className="settings-row-control"><button className="button subtle" onClick={copyDownloadLink}><Copy size={13} /> {t('Copy download link')}</button></span></div>}
+              {updateState === 'error' && <div className="settings-row"><span className="settings-row-text"><small>{updateInfo ? t('Try again, or download version {version} manually.', { version: updateInfo.version }) : t('You can download the latest version manually.')}</small></span><span className="settings-row-control settings-row-actions">{bridge.native && updateInfo && <button className="button" onClick={downloadUpdate}><Download size={13} /> {t('Try again')}</button>}<button className="button subtle" onClick={copyDownloadLink}><Copy size={13} /> {t('Copy download link')}</button></span></div>}
             </Group>
             <p className="note">{bridge.native ? t('Updates are signed and verified. Automatic checks wait until you return Home.') : t('Updates are available in the installed desktop app, not the browser preview.')}</p>
             <section className="settings-group">

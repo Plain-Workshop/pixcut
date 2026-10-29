@@ -49,9 +49,9 @@ export function HomeSidebar({ storageLabel, projects, openProject, setHomeSectio
           <span className="sidebar-storage"><HardDrive size={12} /> {storageLabel}</span>
         </div>
         <div className="sidebar-bottom">
-          {showUpdateNotice(updateState) && <button className={`sidebar-update ${updateState}`} onClick={() => { setSettingsTab('updates'); setModal('settings'); }} aria-label="Open application updates">
+          {showUpdateNotice(updateState) && <button className={`sidebar-update ${updateState}`} onClick={() => { setSettingsTab('updates'); setModal('settings'); }} aria-label={t('Open application updates')}>
             <Download size={18} />
-            <span><strong>{updateState === 'ready' ? 'Ready to restart' : updateState === 'downloading' ? `Downloading · ${updateProgress}%` : `PixCut ${updateInfo?.version} available`}</strong><small>{updateState === 'ready' ? 'Restart to finish updating' : updateState === 'downloading' ? 'View progress' : 'View release notes & install'}</small></span>
+            <span><strong>{updateState === 'ready' ? t('Ready to restart') : updateState === 'downloading' ? t('Downloading · {percent}%', { percent: updateProgress }) : t('PixCut {version} available', { version: updateInfo?.version ?? '' })}</strong><small>{updateState === 'ready' ? t('Restart to finish updating') : updateState === 'downloading' ? t('View progress') : t('View release notes & install')}</small></span>
             <ArrowUpRight size={14} />
           </button>}
           <button className="sidebar-link" onClick={() => setModal('shortcuts')}><Keyboard size={16} /><span>{t('Keyboard shortcuts')}</span></button>

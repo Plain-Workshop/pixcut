@@ -121,7 +121,9 @@ export async function appVersion(): Promise<string | null> {
 export async function checkForUpdate(): Promise<UpdateInfo | null> {
   if (!native) throw new Error('Updates are available in the desktop app.');
   const { check } = await import('@tauri-apps/plugin-updater');
+  const previous = pendingUpdate;
   pendingUpdate = await check();
+  if (previous && previous !== pendingUpdate) void previous.close().catch(() => { /* already released */ });
   if (!pendingUpdate) return null;
   const update = pendingUpdate;
   return { version: update.version, currentVersion: update.currentVersion, notes: update.body ?? '', date: update.date ?? null };
@@ -142,6 +144,7 @@ export async function installUpdate(onProgress: (percent: number) => void): Prom
     else if (event.event === 'Finished') onProgress(100);
   });
   pendingUpdate = null;
+  void update.close().catch(() => { /* already released */ });
 }
 
 export async function restartToUpdate(): Promise<void> {
