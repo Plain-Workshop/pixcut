@@ -10,6 +10,26 @@ pub(crate) struct PlanOverlay {
     pub(crate) duration_ticks: u64,
 }
 
+/// How a video clip sits inside the output frame. The preview paints this on its
+/// canvas; FFmpeg has to reproduce it for imported clips.
+#[derive(Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct VideoFraming {
+    /// Colour behind the picture when it does not fill the frame (`#RRGGBB`).
+    #[serde(default)]
+    pub(crate) background: Option<String>,
+    #[serde(default)]
+    pub(crate) x: f64,
+    #[serde(default)]
+    pub(crate) y: f64,
+    #[serde(default = "default_zoom")]
+    pub(crate) zoom: f64,
+}
+
+fn default_zoom() -> f64 {
+    1.0
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PlanSegment {
@@ -48,6 +68,9 @@ pub(crate) struct PlanSegment {
     pub(crate) audio_duration_ticks: Option<u64>,
     #[serde(default)]
     pub(crate) overlays: Vec<PlanOverlay>,
+    /// Zoom, pan and letterbox colour for a video clip. Missing means centred, unzoomed, black.
+    #[serde(default)]
+    pub(crate) framing: Option<VideoFraming>,
 }
 
 pub(crate) fn default_true() -> bool {

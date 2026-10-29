@@ -1560,4 +1560,8 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
   - `real_video_fades_follow_the_preview_opacity_curve`: every frame of a fade-in/fade-out clip is within 24/255 of `fadeOpacity`.
   - `real_video_speed_ramps_and_reverse_show_the_preview_source_time`: brightness encodes source time, and every frame of constant, ramped (up and down) and reversed clips matches `consumedSeconds`/`sourceSecondsAt` within 10/255.
 - The expected values mirror `fadeOpacity` (preview/render.ts) and `consumedSeconds` (preview/speed.ts); change both sides together.
-- Known gaps found by reading the code, not yet covered by a test: video clips are exported with plain cover/contain only. The plan carries no `framingBackground`, `imageZoom`/`imageX`/`imageY`, and `fit: 'blur'` is encoded as cover, while the preview honours all of them. Photos are unaffected because they are baked from the canvas.
+- Video framing now matches the preview (found as gaps while writing the tests above; each new test failed before the fix):
+  - The export plan carries `framing { background, x, y, zoom }` per video clip, and `fit: 'blur'` is honoured instead of being encoded as cover.
+  - `encode_plan` builds these in FFmpeg only when needed (zoomed, panned, blurred, or a coloured contain backdrop); plain cover/contain keeps the old scale-and-crop path. Zoom is clamped to 1-4, pan to -1..1 and the colour must be `#RRGGBB`, like the preview.
+  - Tests: `real_video_letterbox_uses_the_framing_background`, `real_video_zoom_and_pan_match_the_preview_framing`, `real_video_blur_fit_fills_the_bars_with_a_dimmed_blur`, and `plan_segment_reads_framing_from_the_editor_json`.
+  - The blur backdrop approximates the canvas version (small blurred cover, dimmed by rgba(8,10,16,.42)); it is not pixel-identical.

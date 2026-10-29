@@ -96,7 +96,7 @@ export async function buildVideoPlan(ctx: VideoPlanContext, format: FormatVarian
       segments.push({
         kind: 'video', video: scene.image,
         sourceInSeconds: ticksToSeconds(scene.sourceInTicks, source.timebase),
-        fit: scene.fit, speed: speedCurve(scene).start,
+        fit: scene.fit, framing: { background: scene.framingBackground ?? '#000000', x: scene.imageX ?? 0, y: scene.imageY ?? 0, zoom: scene.imageZoom ?? 1 }, speed: speedCurve(scene).start,
         ...(isRamped(scene) ? { speedEnd: speedCurve(scene).end } : {}),
         ...(scene.reverse ? { reverse: true } : {}),
         lut: gradeLutCube(scene) ?? undefined,

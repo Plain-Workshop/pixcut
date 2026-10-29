@@ -212,8 +212,7 @@ fn real_webm_and_prores_exports_match_their_containers() {
         let plan = ExportPlan {
             segments: frames.into_iter().map(|png| PlanSegment {
                 kind: "image".into(), png: Some(png), video: None, source_in_seconds: None,
-                fit: None, speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
-            }).collect(),
+                fit: None, speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![], framing: None, }).collect(),
             options: options.clone(),
         };
         encode_plan(&project, plan, binary.clone(), output.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
@@ -256,8 +255,7 @@ fn real_compact_deliverables_encode_at_their_own_size() {
                 kind: "image".into(), png: Some(png), video: None, source_in_seconds: None,
                 fit: None, speed: None, speed_end: None, reverse: false, lut: None,
                 fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true,
-                audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
-            }).collect(),
+                audio_duration_ticks: None, duration_ticks: 15, overlays: vec![], framing: None, }).collect(),
             options: options.clone(),
         };
         let plan_output = temp.path().join(format!("plan-{width}x{height}.mp4"));
@@ -287,7 +285,7 @@ fn real_hevc_exports_all_containers_and_both_render_paths() {
         let mut options = export_options(); options.width = 320; options.height = 240; options.codec = ExportCodec::Hevc; options.container = container; options.speed = EncodeSpeed::Fast;
         let output = temp.path().join(format!("photo.{}", container.extension()));
         encode_movie(project.clone(), frames.clone(), vec![15,15], options.clone(), binary.clone(), output.clone(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
-        let plan = ExportPlan { segments: frames.into_iter().map(|png| PlanSegment { kind: "image".into(), png: Some(png), video: None, source_in_seconds: None, fit: None, speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![] }).collect(), options };
+        let plan = ExportPlan { segments: frames.into_iter().map(|png| PlanSegment { kind: "image".into(), png: Some(png), video: None, source_in_seconds: None, fit: None, speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![], framing: None, }).collect(), options };
         let plan_output = temp.path().join(format!("plan.{}", container.extension()));
         encode_plan(&project, plan, binary.clone(), plan_output.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
         for file in [output, plan_output] {
@@ -348,14 +346,12 @@ fn plan_allows_sound_to_outlast_a_shortened_video_segment() {
     let image = |ticks: u64| PlanSegment {
         kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
         fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0,
-        video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: ticks, overlays: vec![],
-    };
+        video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: ticks, overlays: vec![], framing: None, };
     let video = |audio: Option<u64>| PlanSegment {
         kind: "video".into(), png: None, video: Some("data:video/mp4;base64,AA==".into()),
         source_in_seconds: Some(0.0), fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None,
         fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true,
-        audio_duration_ticks: audio, duration_ticks: 16, overlays: vec![],
-    };
+        audio_duration_ticks: audio, duration_ticks: 16, overlays: vec![], framing: None, };
     let with = |first: PlanSegment| ExportPlan {
         segments: std::iter::once(first).chain((0..14).map(|_| image(1))).collect(),
         options: export_options(),
@@ -372,13 +368,11 @@ fn plan_validates_video_speed_and_grade_lut() {
     let (project, frames) = fixture_project();
     let image = || PlanSegment {
         kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
-        fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
-    };
+        fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![], framing: None, };
     let video = |speed: Option<f64>, lut: Option<String>| PlanSegment {
         kind: "video".into(), png: None, video: Some("data:video/mp4;base64,AA==".into()),
         source_in_seconds: Some(0.0), fit: Some("cover".into()), speed, speed_end: None, reverse: false, lut,
-        fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
-    };
+        fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![], framing: None, };
     let plan = |second: PlanSegment| ExportPlan { segments: vec![image(), second], options: export_options() };
     assert!(validate_plan(&project, &plan(video(None, None))).is_ok());
     assert!(validate_plan(&project, &plan(video(Some(2.0), Some("LUT_3D_SIZE 2\n".into())))).is_ok());
@@ -393,8 +387,7 @@ fn plan_rejects_negative_or_non_finite_fades() {
     let (project, frames) = fixture_project();
     let segment = |fade_in: f64, fade_out: f64| PlanSegment {
         kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
-        fit: None, speed: None, speed_end: None, reverse: false, lut: None, fade_in, fade_out, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
-    };
+        fit: None, speed: None, speed_end: None, reverse: false, lut: None, fade_in, fade_out, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![], framing: None, };
     let plan = |first: PlanSegment, second: PlanSegment| ExportPlan { segments: vec![first, second], options: export_options() };
     assert!(validate_plan(&project, &plan(segment(0.25, 0.25), segment(0.25, 0.25))).is_ok());
     assert!(validate_plan(&project, &plan(segment(-0.1, 0.0), segment(0.0, 0.0))).is_err());
@@ -470,13 +463,11 @@ fn plan_export_keeps_imported_video_audio() {
             PlanSegment {
                 kind: "video".into(), png: None, video: Some(video.clone()), source_in_seconds: Some(0.0),
                 fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio,
-                duration_ticks: 15, audio_duration_ticks: None, overlays: vec![],
-            },
+                duration_ticks: 15, audio_duration_ticks: None, overlays: vec![], framing: None, },
             PlanSegment {
                 kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
                 fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio,
-                duration_ticks: 15, audio_duration_ticks: None, overlays: vec![],
-            },
+                duration_ticks: 15, audio_duration_ticks: None, overlays: vec![], framing: None, },
         ],
         options: export_options(),
     };
@@ -556,8 +547,7 @@ fn export_applies_audio_lane_gain_and_mute() {
             kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
             fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None,
             fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true,
-            duration_ticks: 30, audio_duration_ticks: None, overlays: vec![],
-        }],
+            duration_ticks: 30, audio_duration_ticks: None, overlays: vec![], framing: None, }],
         options: export_options(),
     };
     let mut level = |name: &str, mix: Option<pixcut_project::AudioMix>| {
@@ -610,8 +600,7 @@ fn real_video_export_applies_grade_fade_and_speed() {
         segments: vec![PlanSegment {
             kind: "video".into(), png: None, video: Some(video), source_in_seconds: Some(0.0),
             fit: Some("cover".into()), speed: Some(2.0), speed_end: None, reverse: false, lut: Some(lut),
-            fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
-        }],
+            fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![], framing: None, }],
         options,
     };
     let output = temp.path().join("graded.mp4");
@@ -656,15 +645,13 @@ fn real_video_transition_keeps_duration_and_sound() {
         kind: "video".into(), png: None, video: Some(video), source_in_seconds: Some(0.0),
         fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0,
         video_volume: None, include_audio: true, audio_duration_ticks: Some(30),
-        duration_ticks: 16, overlays: vec![],
-    }];
+        duration_ticks: 16, overlays: vec![], framing: None, }];
     for _ in 0..14 {
         segments.push(PlanSegment {
             kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
             fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0,
             video_volume: None, include_audio: true, audio_duration_ticks: None,
-            duration_ticks: 1, overlays: vec![],
-        });
+            duration_ticks: 1, overlays: vec![], framing: None, });
     }
     let output = temp.path().join("transition.mp4");
     encode_plan(&project, ExportPlan { segments, options }, binary.clone(), output.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
@@ -721,8 +708,7 @@ fn real_reverse_and_ramp_video_export() {
             kind: "video".into(), png: None, video: Some(video), source_in_seconds: Some(0.0),
             fit: Some("cover".into()), speed: None, speed_end: None, reverse: true, lut: None,
             fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true,
-            audio_duration_ticks: None, duration_ticks: 30, overlays: vec![],
-        }],
+            audio_duration_ticks: None, duration_ticks: 30, overlays: vec![], framing: None, }],
         options: options.clone(),
     };
     let reversed = temp.path().join("reversed.mp4");
@@ -745,8 +731,7 @@ fn real_reverse_and_ramp_video_export() {
             kind: "video".into(), png: None, video: Some(ramp_video), source_in_seconds: Some(0.0),
             fit: Some("cover".into()), speed: Some(1.0), speed_end: Some(2.0), reverse: false, lut: None,
             fade_in: 0.0, fade_out: 0.0, video_volume: None, include_audio: true,
-            audio_duration_ticks: None, duration_ticks: 30, overlays: vec![],
-        }],
+            audio_duration_ticks: None, duration_ticks: 30, overlays: vec![], framing: None, }],
         options: options.clone(),
     };
     let ramped = temp.path().join("ramped.mp4");
@@ -1023,13 +1008,11 @@ fn plan_export_reads_streamed_video_assets() {
             PlanSegment {
                 kind: "video".into(), png: None, video: Some(format!("pixcut-asset:{id}")), source_in_seconds: Some(0.0),
                 fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None,
-                include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
-            },
+                include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![], framing: None, },
             PlanSegment {
                 kind: "image".into(), png: Some(frames[0].clone()), video: None, source_in_seconds: None,
                 fit: Some("cover".into()), speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None,
-                include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![],
-            },
+                include_audio: true, audio_duration_ticks: None, duration_ticks: 15, overlays: vec![], framing: None, },
         ],
         options: export_options(),
     };
@@ -1194,8 +1177,7 @@ fn plan_export_encodes_video_and_image_segments() {
                 include_audio: true,
                 audio_duration_ticks: None,
                 duration_ticks: 15,
-                overlays: vec![],
-            },
+                overlays: vec![], framing: None, },
             PlanSegment {
                 kind: "video".into(),
                 png: None,
@@ -1210,8 +1192,7 @@ fn plan_export_encodes_video_and_image_segments() {
                 include_audio: true,
                 audio_duration_ticks: None,
                 duration_ticks: 15,
-                overlays: vec![PlanOverlay { png: overlay.clone(), frames: (0..15).map(|index| if index < 7 { overlay.clone() } else { red_overlay.clone() }).collect(), start_ticks: 15, duration_ticks: 15 }],
-            },
+                overlays: vec![PlanOverlay { png: overlay.clone(), frames: (0..15).map(|index| if index < 7 { overlay.clone() } else { red_overlay.clone() }).collect(), start_ticks: 15, duration_ticks: 15 }], framing: None, },
         ],
         options: export_options(),
     };
@@ -1672,8 +1653,7 @@ fn real_transition_frames_all_reach_the_output() {
     let segment = |kind: &str, png: Option<String>, video: Option<String>, ticks: u64| PlanSegment {
         kind: kind.into(), png, video, source_in_seconds: video_source(kind), fit: Some("cover".into()),
         speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0,
-        video_volume: None, include_audio: false, audio_duration_ticks: None, duration_ticks: ticks, overlays: vec![],
-    };
+        video_volume: None, include_audio: false, audio_duration_ticks: None, duration_ticks: ticks, overlays: vec![], framing: None, };
     fn video_source(kind: &str) -> Option<f64> { (kind == "video").then_some(0.0) }
     let mut segments = vec![segment("video", None, Some(clip("red.mp4", "red")), HOLD)];
     for index in 0..STILLS { segments.push(segment("image", Some(still(index)), None, 1)); }
@@ -1731,8 +1711,7 @@ fn real_every_plan_tick_becomes_one_output_frame() {
             video: (*kind == "video").then(|| video.clone()),
             source_in_seconds: (*kind == "video").then_some(0.0),
             fit: Some("cover".into()), speed: *speed, speed_end: None, reverse: *reverse, lut: None, fade_in: 0.0, fade_out: 0.0,
-            video_volume: None, include_audio: false, audio_duration_ticks: None, duration_ticks: *ticks, overlays: vec![],
-        }).collect();
+            video_volume: None, include_audio: false, audio_duration_ticks: None, duration_ticks: *ticks, overlays: vec![], framing: None, }).collect();
         let mut options = export_options();
         options.width = 320; options.height = 240; options.speed = EncodeSpeed::Fast;
         let output = temp.path().join("shape.mp4");
@@ -1774,7 +1753,7 @@ fn video_plan_segment(video: String, ticks: u64, fit: &str, speed: Option<f64>, 
     PlanSegment {
         kind: "video".into(), png: None, video: Some(video), source_in_seconds: Some(0.0), fit: Some(fit.into()),
         speed, speed_end, reverse, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None,
-        include_audio: false, audio_duration_ticks: None, duration_ticks: ticks, overlays: vec![],
+        include_audio: false, audio_duration_ticks: None, duration_ticks: ticks, overlays: vec![], framing: None,
     }
 }
 
@@ -1905,4 +1884,89 @@ fn real_video_speed_ramps_and_reverse_show_the_preview_source_time() {
             assert!((actual - expected).abs() <= 10, "{name}: frame {index} should show source t={source_time:.3}s (gray {expected}), got {actual}");
         }
     }
+}
+
+fn with_framing(mut segment: PlanSegment, background: Option<&str>, x: f64, y: f64, zoom: f64) -> PlanSegment {
+    segment.framing = Some(VideoFraming { background: background.map(str::to_string), x, y, zoom });
+    segment
+}
+
+const STRIPES: &str = "color=c=0xFF0000:s=214x360:r=30:d=1[a];color=c=0x00FF00:s=214x360:r=30:d=1[b];color=c=0x0000FF:s=214x360:r=30:d=1[c];[a][b][c]hstack=inputs=3";
+
+#[test]
+#[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+fn real_video_letterbox_uses_the_framing_background() {
+    let binary = ffmpeg().expect("FFmpeg is installed");
+    assert!(encoder_available(&binary, ExportCodec::H264));
+    let temp = tempfile::tempdir().unwrap();
+    let video = lavfi_video(&binary, temp.path(), "stripes.mp4", STRIPES);
+    let project = parity_project(&video, 5);
+    let segment = with_framing(video_plan_segment(video, 5, "contain", None, None, false), Some("#00FF00"), 0.0, 0.0, 1.0);
+    let output = export_video_clip(&binary, temp.path(), &project, segment, 360, 360);
+    let frame = &rgb_frames(&binary, &output, 360, 360)[2];
+    assert!(near(px(frame, 360, 180, 4), [0, 255, 0], 40), "top bar should use the framing background: {:?}", px(frame, 360, 180, 4));
+    assert!(near(px(frame, 360, 180, 355), [0, 255, 0], 40), "bottom bar: {:?}", px(frame, 360, 180, 355));
+    assert!(near(px(frame, 360, 10, 180), [255, 0, 0], 40), "picture stays red on the left: {:?}", px(frame, 360, 10, 180));
+}
+
+#[test]
+#[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+fn real_video_zoom_and_pan_match_the_preview_framing() {
+    let binary = ffmpeg().expect("FFmpeg is installed");
+    assert!(encoder_available(&binary, ExportCodec::H264));
+    let temp = tempfile::tempdir().unwrap();
+    let video = lavfi_video(&binary, temp.path(), "stripes.mp4", STRIPES);
+    let project = parity_project(&video, 5);
+    let (red, green, blue) = ([255, 0, 0], [0, 255, 0], [0, 0, 255]);
+    let sample = |x: f64, zoom: f64| {
+        let segment = with_framing(video_plan_segment(video.clone(), 5, "cover", None, None, false), None, x, 0.0, zoom);
+        let output = export_video_clip(&binary, temp.path(), &project, segment, 360, 360);
+        rgb_frames(&binary, &output, 360, 360)[2].clone()
+    };
+    // Unzoomed cover on a square shows the middle 360 px of the 642 px source: red, green and blue bands.
+    let plain = sample(0.0, 1.0);
+    assert!(near(px(&plain, 360, 5, 180), red, 40) && near(px(&plain, 360, 355, 180), blue, 40), "zoom 1 shows all three bands");
+    // Zoom 2 keeps only the middle of the source, which is all green.
+    let zoomed = sample(0.0, 2.0);
+    assert!(near(px(&zoomed, 360, 5, 180), green, 40), "zoom 2 left edge: {:?}", px(&zoomed, 360, 5, 180));
+    assert!(near(px(&zoomed, 360, 355, 180), green, 40), "zoom 2 right edge: {:?}", px(&zoomed, 360, 355, 180));
+    // Panning to the right edge of the zoomed picture reveals the blue band; the left edge reveals red.
+    let right = sample(1.0, 2.0);
+    assert!(near(px(&right, 360, 5, 180), blue, 40) && near(px(&right, 360, 355, 180), blue, 40), "pan x=1: {:?}", px(&right, 360, 5, 180));
+    let left = sample(-1.0, 2.0);
+    assert!(near(px(&left, 360, 5, 180), red, 40) && near(px(&left, 360, 355, 180), red, 40), "pan x=-1: {:?}", px(&left, 360, 5, 180));
+}
+
+#[test]
+#[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+fn real_video_blur_fit_fills_the_bars_with_a_dimmed_blur() {
+    let binary = ffmpeg().expect("FFmpeg is installed");
+    assert!(encoder_available(&binary, ExportCodec::H264));
+    let temp = tempfile::tempdir().unwrap();
+    let video = lavfi_video(&binary, temp.path(), "red.mp4", "color=c=red:s=640x360:r=30:d=1");
+    let project = parity_project(&video, 5);
+    let output = export_video_clip(&binary, temp.path(), &project, video_plan_segment(video, 5, "blur", None, None, false), 360, 360);
+    let frame = &rgb_frames(&binary, &output, 360, 360)[2];
+    // The preview paints a blurred cover of the clip, then darkens it with rgba(8, 10, 16, .42):
+    // red 255 becomes about 255 * .58 + 8 * .42 = 151.
+    assert!(near(px(frame, 360, 180, 4), [151, 4, 7], 30), "top bar should be a dimmed blur of the picture: {:?}", px(frame, 360, 180, 4));
+    assert!(near(px(frame, 360, 180, 355), [151, 4, 7], 30), "bottom bar: {:?}", px(frame, 360, 180, 355));
+    assert!(near(px(frame, 360, 180, 180), [255, 0, 0], 30), "the picture itself stays sharp and bright: {:?}", px(frame, 360, 180, 180));
+}
+
+#[test]
+fn plan_segment_reads_framing_from_the_editor_json() {
+    let json = r##"{"kind":"video","video":"data:video/mp4;base64,AA==","fit":"blur","durationTicks":30,"overlays":[],
+        "framing":{"background":"#ff00aa","x":3,"y":-0.5,"zoom":9}}"##;
+    let segment: PlanSegment = serde_json::from_str(json).unwrap();
+    let framing = crate::encode::video_framing_for(&segment);
+    assert_eq!(framing.background, "FF00AA");
+    assert_eq!((framing.x, framing.y, framing.zoom), (1.0, -0.5, 4.0), "pan and zoom are clamped like the preview");
+    assert!(framing.is_custom("blur") && framing.is_custom("cover"));
+
+    let plain: PlanSegment = serde_json::from_str(r#"{"kind":"video","durationTicks":30}"#).unwrap();
+    let framing = crate::encode::video_framing_for(&plain);
+    assert!(!framing.is_custom("cover") && !framing.is_custom("contain"), "missing framing keeps the plain scale-and-crop path");
+    let bad: PlanSegment = serde_json::from_str(r##"{"kind":"video","durationTicks":30,"framing":{"background":"red; drawbox"}}"##).unwrap();
+    assert_eq!(crate::encode::video_framing_for(&bad).background, "000000", "an unsafe colour falls back to black");
 }
