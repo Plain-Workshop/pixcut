@@ -326,7 +326,7 @@ export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOn
               {recordedGroups.map(group => {
                 const key = `rec-${group.category}`, open = Boolean(soundQuery.trim()) || openSoundGroup === key;
                 return <section className="sound-group" key={key}>
-                  <button className="sound-group-head" aria-expanded={open} onClick={() => setOpenSoundGroup(openSoundGroup === key ? null : key)}><span>{group.category}</span><small>{group.sounds.length}</small><ChevronDown size={14} /></button>
+                  <button className="sound-group-head" aria-expanded={open} onClick={() => setOpenSoundGroup(openSoundGroup === key ? null : key)}><span>{t(group.category)} · {t('recorded')}</span><small>{group.sounds.length}</small><ChevronDown size={14} /></button>
                   {open && <div className="sound-effect-list">{group.sounds.map(effect => <div key={effect.id} className={previewingAudio === `rec-${effect.id}` ? 'previewing' : ''}>
                     <button className="icon-button" aria-label={`${previewingAudio === `rec-${effect.id}` ? 'Pause' : 'Play'} ${effect.label}`} aria-pressed={previewingAudio === `rec-${effect.id}`} onClick={() => previewingAudio === `rec-${effect.id}` ? stopLibraryPreview() : hoverLibraryAudio(`rec-${effect.id}`, () => recordedSoundData(effect), 0, effect.seconds, true)}>{previewingAudio === `rec-${effect.id}` ? <Pause size={13} /> : <Play size={13} />}</button>
                     <span>{effect.label}{creditForRecordedClip(recordedSoundClipName(effect), [effect]) && <small> · credit {effect.author}</small>}</span>

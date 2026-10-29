@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, ExternalLink, Loader2, Pause, Play, Plus, Search, Star, X } from 'lucide-react';
-import { FALLBACK_AFTER_MS, cancelOnlineDownload, catalogueDown, downloadPercent, formatDownloadProgress, subscribeDownloadProgress, type DownloadProgress, ONLINE_GENRES, ONLINE_SOUND_TOPICS, ONLINE_PROVIDERS, buildOnlineQuery, onlineHasMore, onlineLicenseLabel, searchOnlineFill, type OnlineKind, type OnlineSearchPage, type OnlineSource, type OnlineTrack } from '../../stores/online-music';
+import { FALLBACK_AFTER_MS, cancelOnlineDownload, catalogueDown, fallbackOrder, downloadPercent, formatDownloadProgress, subscribeDownloadProgress, type DownloadProgress, ONLINE_GENRES, ONLINE_SOUND_TOPICS, ONLINE_PROVIDERS, buildOnlineQuery, onlineHasMore, onlineLicenseLabel, searchOnlineFill, type OnlineKind, type OnlineSearchPage, type OnlineSource, type OnlineTrack } from '../../stores/online-music';
 import { messageFor } from '../../app/errors';
 import { loadFavorites, saveFavorites, toggleFavorite, type OnlineFavorite } from '../../stores/online-favorites';
 
@@ -24,6 +24,8 @@ export function OnlineMusic({ canEdit, onAdd, onStopOther, kind = 'music', isDow
   const [query, setQuery] = useState('');
   const sounds = kind === 'sound_effect', topics = sounds ? ONLINE_SOUND_TOPICS : ONLINE_GENRES, noun = sounds ? 'sound' : 'track';
   const [genre, setGenre] = useState<string>(opened[kind]?.genre ?? 'All');
+  // The starter search picks a genre to show something on open; only a chip the user clicked narrows typed searches.
+  const [genreChosen, setGenreChosen] = useState(false);
   const [source, setSource] = useState<OnlineSource>('auto');
   const [result, setResult] = useState<OnlineSearchPage | null>(opened[kind]?.result ?? null);
   const [tracks, setTracks] = useState<OnlineTrack[]>(opened[kind]?.tracks ?? []);
@@ -111,13 +113,14 @@ export function OnlineMusic({ canEdit, onAdd, onStopOther, kind = 'music', isDow
   }
 
   const searched = result !== null;
-  const nameOf = (id: OnlineSource) => id === 'auto' ? 'Openverse and Wikimedia Commons' : ONLINE_PROVIDERS.find(item => item.id === id)?.label ?? 'the catalogue';
+  const nameOf = (id: OnlineSource) => id === 'auto' ? 'Openverse' : ONLINE_PROVIDERS.find(item => item.id === id)?.label ?? 'the catalogue';
+  const backupName = nameOf(fallbackOrder(kind)[0]);
   const fresh = pending && !pending.append ? pending : null;
   const statusText = !fresh ? '' : fresh.source === 'auto'
-    ? (slow ? 'Openverse is slow to answer. Using Wikimedia Commons…' : `Searching ${nameOf('auto')}…`)
+    ? (catalogueDown('openverse') ? `Openverse is down. Searching ${backupName}…` : slow ? `Openverse is slow to answer. Using ${backupName}…` : `Searching ${nameOf('auto')}…`)
     : (slow ? `Still waiting for ${nameOf(fresh.source)}…` : `Searching ${nameOf(fresh.source)}…`);
   return <div className="online-music">
-    <form className="online-music-search" role="search" onSubmit={event => { event.preventDefault(); void search(genre); }}>
+    <form className="online-music-search" role="search" onSubmit={event => { event.preventDefault(); const narrowed = genreChosen || !query.trim() ? genre : 'All'; if (narrowed !== genre) setGenre(narrowed); void search(narrowed); }}>
       <label className="search-field"><Search size={14} /><input aria-label={sounds ? 'Search online sound effects' : 'Search online music'} placeholder={sounds ? 'Search applause, laughter, whoosh…' : 'Search songs, moods, artists…'} value={query} onChange={event => setQuery(event.target.value)} /></label>
       <button className="button primary" type="submit" disabled={loading}>{loading ? <Loader2 size={14} className="spin" /> : 'Search'}</button>
     </form>
@@ -126,7 +129,7 @@ export function OnlineMusic({ canEdit, onAdd, onStopOther, kind = 'music', isDow
       <button type="button" className={showSaved ? 'active' : ''} aria-pressed={showSaved} onClick={() => { stop(); setShowSaved(true); }}><Star size={10} /> Saved ({saved.length})</button>
     </div>
     <div className="online-genres" role="group" aria-label={sounds ? 'Topic' : 'Genre'}>
-      {['All', ...topics].map(item => <button key={item} type="button" className={genre === item ? 'active' : ''} aria-pressed={genre === item} onClick={() => { setGenre(item); void search(item); }}>{item}</button>)}
+      {['All', ...topics].map(item => <button key={item} type="button" className={genre === item ? 'active' : ''} aria-pressed={genre === item} onClick={() => { setGenre(item); setGenreChosen(item !== 'All'); void search(item); }}>{item}</button>)}
     </div>
     <div className="online-genres online-sources" role="group" aria-label="Catalogue">
       {([{ id: 'auto', label: 'Auto' }, ...ONLINE_PROVIDERS.filter(provider => provider.kinds.includes(kind))] as { id: OnlineSource; label: string }[]).map(item => <button key={item.id} type="button" className={source === item.id ? 'active' : ''} aria-pressed={source === item.id} title={item.id !== 'auto' && catalogueDown(item.id as never) ? `${item.label} did not answer recently` : undefined} onClick={() => { setSource(item.id); void search(genre, false, item.id); }}>{item.label}{item.id !== 'auto' && catalogueDown(item.id as never) && <span className="online-down" aria-label="not answering"> ·&nbsp;down</span>}</button>)}

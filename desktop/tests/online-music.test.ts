@@ -57,7 +57,7 @@ describe('online music', () => {
 });
 
 import { afterEach, beforeEach, vi } from 'vitest';
-import { commonsLicense, commonsPlayableUrl, commonsSearchUrl, parseCommonsSearch, searchOnline } from '../src/stores/online-music';
+import { commonsLicense, commonsPlayableUrl, commonsSearchUrl, fallbackOrder, parseCommonsSearch, searchOnline } from '../src/stores/online-music';
 
 const commonsPage = (over: Record<string, unknown> = {}, meta: Record<string, string> = {}) => ({
   pageid: 7, title: 'File:Clapping hurray.oga',
@@ -111,7 +111,8 @@ describe('Wikimedia Commons catalogue', () => {
 
   it('pages with an offset and asks only for audio', () => {
     const url = commonsSearchUrl('rain & wind', 3);
-    expect(url).toContain('gsroffset=40');
+    expect(url).toContain('gsroffset=100');
+    expect(url).toContain('gsrlimit=50');
     expect(decodeURIComponent(url)).toContain('rain & wind filetype:audio');
     expect(url.startsWith('https://commons.wikimedia.org/')).toBe(true);
   });
@@ -420,5 +421,53 @@ describe('FLAC and Opus when FFmpeg can convert them', () => {
     expect(parseCommonsSearch({ query: { pages: [midi] } }, 1, 'sound_effect').tracks).toEqual([]);
     expect(importableUrl('https://x.test/a.opus')).toBe(true);
     expect(importableUrl('https://x.test/a.mid')).toBe(false);
+  });
+});
+
+describe('auto search backups', () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); resetCatalogueHealth(); });
+  const archiveSearch = { response: { numFound: 1, docs: [{ identifier: 'fma-item', title: 'Album', creator: 'Artist', licenseurl: 'http://creativecommons.org/licenses/by/4.0/' }] } };
+  const archiveMeta = { files: [{ name: 'Artist_-_01_-_Song.mp3', format: 'VBR MP3', title: 'Song', length: '120.5' }], metadata: { title: 'Album', creator: 'Artist', licenseurl: 'http://creativecommons.org/licenses/by/4.0/' } };
+  const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
+
+  it('tries the Free Music Archive first for music when Openverse fails', async () => {
+    const hosts: string[] = [];
+    vi.stubGlobal('fetch', (url: string) => {
+      hosts.push(new URL(url).host + new URL(url).pathname.split('/').slice(0, 2).join('/'));
+      if (url.includes('openverse')) return json({}, 500);
+      if (url.includes('advancedsearch')) return json(archiveSearch);
+      if (url.includes('archive.org/metadata')) return json(archiveMeta);
+      return json({ query: { pages: [] } });
+    });
+    const page = await searchOnline('piano', 1, 'music');
+    expect(page.provider).toBe('archive');
+    expect(page.fellBack).toBe(true);
+    expect(page.tracks.length).toBeGreaterThan(0);
+    expect(fallbackOrder('music')).toEqual(['archive', 'commons']);
+    expect(fallbackOrder('sound_effect')).toEqual(['commons']);
+  });
+
+  it('moves on to Commons when the first backup has nothing', async () => {
+    vi.stubGlobal('fetch', (url: string) => {
+      if (url.includes('openverse')) return json({}, 500);
+      if (url.includes('archive.org')) return json({ response: { numFound: 0, docs: [] } });
+      return json({ query: { pages: [commonsPage()] } });
+    });
+    const page = await searchOnline('piano', 1, 'music');
+    expect(page.provider).toBe('commons');
+    expect(page.fellBack).toBe(true);
+  });
+
+  it('skips Openverse entirely while it is marked down, so searches do not wait for it', async () => {
+    vi.stubGlobal('fetch', (url: string) => url.includes('openverse') ? json({}, 500) : json({ query: { pages: [commonsPage()] } }));
+    await searchOnline('rain', 1, 'sound_effect');
+    expect(catalogueDown('openverse')).toBe(true);
+    const hosts: string[] = [];
+    vi.stubGlobal('fetch', (url: string) => { hosts.push(new URL(url).host); return url.includes('openverse') ? new Promise(() => {}) : json({ query: { pages: [commonsPage()] } }); });
+    const started = Date.now();
+    const page = await searchOnline('rain', 1, 'sound_effect');
+    expect(page.provider).toBe('commons');
+    expect(hosts).not.toContain('api.openverse.org');
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 });

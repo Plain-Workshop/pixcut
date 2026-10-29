@@ -9,7 +9,7 @@ import { AudioLines, ArrowLeft, ArrowRight, ChevronDown, Clock3, Film, FoldVerti
 import { IconButton } from '../../components/IconButton';
 import { TRANSITION_OPTIONS } from '../../components/inspector/SceneForm';
 import { MAX_AUDIO_LANES, audioLaneMix, frameRate, sceneSeconds, ticksToSeconds, type AudioClip, type AudioMix, type AudioLaneMix, type Command, type Project, type Scene, type TextLayer } from '../../stores/model';
-import { Waveform } from '../../components/timeline/Waveform';
+import { NoSoundBadge, Waveform } from '../../components/timeline/Waveform';
 import { sceneTextLayers } from '../../components/text/layers';
 import type { Dispatch, SetStateAction, RefObject } from 'react';
 import { elementDisplayName } from '../../components/elements/catalog';
@@ -338,8 +338,8 @@ export function TimelinePanel({ timelineControls, collapsedLanes, toggleLane, se
                   <span className="audio-trim left" title="Drag to trim the start" onPointerDown={event => beginSceneTrim(event, scene, 'left')} onClick={event => event.stopPropagation()} />
                   {audioDisplay === 'spectrogram'
                     ? <Spectrogram data={display.image} sourceInSeconds={sourceIn} durationSeconds={sourceSpanSeconds} sourceDurationSeconds={sourceDuration} showStatus={false} />
-                    : <Waveform clipId={display.id} data={display.image} sourceInSeconds={sourceIn} durationSeconds={sourceSpanSeconds} sourceDurationSeconds={sourceDuration} />}
-                  <Film size={10} /><span className="audio-name">{scene.name}</span><small>{level}%</small>
+                    : <Waveform data={display.image} sourceInSeconds={sourceIn} durationSeconds={sourceSpanSeconds} sourceDurationSeconds={sourceDuration} />}
+                  <Film size={10} /><span className="audio-name">{scene.name}</span><NoSoundBadge data={display.image} sourceDurationSeconds={sourceDuration} /><small>{level}%</small>
                   {active && <span className="clip-volume" onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
                     <Volume2 size={9} />
                     <input aria-label={`${scene.name} sound level`} type="range" min="0" max="100" step="1" value={videoVolumeDraft?.id === scene.id ? videoVolumeDraft.value : level} onChange={event => stageVideoVolume(scene, Number(event.target.value))} onPointerUp={event => { commitVideoVolume(scene, Number(event.currentTarget.value)); }} onKeyUp={event => commitVideoVolume(scene, Number(event.currentTarget.value))} onBlur={event => commitVideoVolume(scene, Number(event.currentTarget.value))} />
@@ -402,7 +402,6 @@ export function TimelinePanel({ timelineControls, collapsedLanes, toggleLane, se
                   />
                   </> : <>
                   <Waveform
-                    clipId={clip.id}
                     data={clip.data}
                     sourceInSeconds={clip.sourceInSeconds}
                     durationSeconds={ticksToSeconds(clip.durationTicks, project.timebase)}

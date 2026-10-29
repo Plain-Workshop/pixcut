@@ -43,7 +43,7 @@ export async function waveformBars(element: ElementLayer, seconds: number, audio
     if (element.behavior?.audioId && element.behavior.audioId !== clip.id) continue;
     const gain = audioGain(clip, seconds, timebase);
     if (gain <= 0) continue;
-    const peaks = await decodeWaveform(clip.id, clip.data, 4096);
+    const peaks = (await decodeWaveform(clip.data, 4096))?.peaks;
     if (!peaks) continue;
     const buckets = peaks.length / 2;
     const local = seconds - ticksToSeconds(clip.startTicks, timebase) + clip.sourceInSeconds;

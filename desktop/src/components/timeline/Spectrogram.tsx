@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { resolveMediaSource } from '../preview/media-url';
-import { spectrogramRange, type SpectrogramData } from './spectrogram-data';
+import { spectrogramRange, spectrogramVisibleBins, type SpectrogramData } from './spectrogram-data';
+import { decodableSource } from './waveform-data';
 const cache=new Map<string,Promise<SpectrogramData|null>>();
 let queue:Promise<unknown>=Promise.resolve();
 export function decodeSpectrogram(source:string):Promise<SpectrogramData|null>{
   const hit=cache.get(source);if(hit)return hit;
-  if(!globalThis.OfflineAudioContext||!globalThis.Worker||(!source.startsWith('data:audio/')&&!source.startsWith('data:video/')&&!source.startsWith('pixcut-asset:')))return Promise.resolve(null);
+  if(!globalThis.OfflineAudioContext||!globalThis.Worker||!decodableSource(source))return Promise.resolve(null);
   const task=queue.then(async()=>{
     try{
       const url=await resolveMediaSource(source);if(!url)return null;
@@ -26,7 +27,10 @@ export function decodeSpectrogram(source:string):Promise<SpectrogramData|null>{
   while(cache.size>8)cache.delete(cache.keys().next().value!);
   return task;
 }
+// One colour texture per analysis: trimming redraws a window of it instead of rebuilding it.
+const textures=new WeakMap<SpectrogramData,HTMLCanvasElement>();
 function texture(data:SpectrogramData){
+  const hit=textures.get(data);if(hit)return hit;
   const canvas=document.createElement('canvas');canvas.width=data.columns;canvas.height=data.bins;
   const ctx=canvas.getContext('2d');if(!ctx)return canvas;
   const image=ctx.createImageData(data.columns,data.bins);
@@ -35,7 +39,7 @@ function texture(data:SpectrogramData){
     const value=data.values[x*data.bins+y]/255*(stops.length-1),low=Math.floor(value),high=Math.min(stops.length-1,low+1),amount=value-low,index=((data.bins-1-y)*data.columns+x)*4;
     for(let c=0;c<3;c++)image.data[index+c]=Math.round(stops[low][c]*(1-amount)+stops[high][c]*amount);image.data[index+3]=255;
   }
-  ctx.putImageData(image,0,0);return canvas;
+  ctx.putImageData(image,0,0);textures.set(data,canvas);return canvas;
 }
 export function Spectrogram({data,sourceInSeconds,durationSeconds,sourceDurationSeconds,showStatus=true}:{data:string;sourceInSeconds:number;durationSeconds:number;sourceDurationSeconds:number;showStatus?:boolean}){
   const ref=useRef<HTMLCanvasElement>(null),[analysis,setAnalysis]=useState<SpectrogramData|null>(null),[failed,setFailed]=useState(false);
@@ -48,8 +52,8 @@ export function Spectrogram({data,sourceInSeconds,durationSeconds,sourceDuration
     const canvas=ref.current;if(!canvas)return;
     const ctx=canvas.getContext('2d');if(!ctx)return;
     if(!analysis){ctx.clearRect(0,0,canvas.width,canvas.height);return;}
-    const source=texture(analysis),range=spectrogramRange(analysis,sourceInSeconds,durationSeconds);
-    const draw=()=>{canvas.width=Math.max(1,Math.min(2048,Math.round(canvas.clientWidth*devicePixelRatio)));canvas.height=128;ctx.clearRect(0,0,canvas.width,canvas.height);if(range.end>range.start)ctx.drawImage(source,range.start,0,range.end-range.start,source.height,0,0,canvas.width,canvas.height);};
+    const source=texture(analysis),range=spectrogramRange(analysis,sourceInSeconds,durationSeconds),shown=spectrogramVisibleBins(analysis);
+    const draw=()=>{canvas.width=Math.max(1,Math.min(2048,Math.round(canvas.clientWidth*devicePixelRatio)));canvas.height=128;ctx.clearRect(0,0,canvas.width,canvas.height);if(range.end>range.start)ctx.drawImage(source,range.start,source.height-shown,range.end-range.start,shown,0,0,canvas.width,canvas.height);};
     draw();const observer=new ResizeObserver(draw);observer.observe(canvas);return()=>observer.disconnect();
   },[analysis,sourceInSeconds,durationSeconds]);
   return <><canvas ref={ref} className="audio-spectrogram" width={512} height={128} data-ready={Boolean(analysis)} data-columns={analysis?.columns??0} aria-hidden="true"/>{failed&&showStatus&&<span className="spectrogram-status">Spectrogram unavailable</span>}</>;

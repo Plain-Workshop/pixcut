@@ -708,7 +708,7 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .audio-clip:hover:not(:disabled) { filter: brightness(1.12); }
 .audio-clip.selected { border-color: #C4B2FF; box-shadow: 0 0 0 1px rgba(196, 178, 255, .55); z-index: 2; }
 .audio-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.audio-waveform { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 4px; opacity: .46; pointer-events: none; }
+.audio-waveform { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 4px; opacity: .85; pointer-events: none; }
 .audio-clip > svg, .audio-clip > .audio-name, .audio-clip > small { position: relative; z-index: 1; }
 .audio-clip > small { color: #A8B2E8; font-size: 8px; flex-shrink: 0; }
 .audio-trim { position: absolute; top: 0; bottom: 0; width: 9px; background: rgba(255, 255, 255, .42); opacity: .55; cursor: ew-resize; transition: opacity .12s ease, background .12s ease; }
@@ -737,7 +737,7 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .video-audio-clip:hover { filter: brightness(1.12); }
 .video-audio-clip.selected { border-color: #8CD8F5; box-shadow: 0 0 0 1px rgba(140, 216, 245, .5); z-index: 2; }
 .video-audio-clip > svg, .video-audio-clip > .audio-name, .video-audio-clip > small { position: relative; z-index: 1; }
-.video-audio-clip .audio-spectrogram, .video-audio-clip .audio-waveform { opacity: .5; }
+.video-audio-clip .audio-spectrogram, .video-audio-clip .audio-waveform { opacity: .75; }
 .video-audio-row.spectrogram .video-audio-clip { align-items: flex-start; padding-top: 5px; }
 .video-audio-row.spectrogram .video-audio-clip > .audio-name, .video-audio-row.spectrogram .video-audio-clip > small { background: #0d2230d9; border-radius: 3px; padding: 1px 3px; }
 .video-audio-clip > small { color: #9CC9DD; font-size: 8px; flex-shrink: 0; }
@@ -2397,3 +2397,38 @@ img.inspector-heading-thumb { object-fit: cover; }
 .inspector-replace { flex-shrink: 0; height: 28px; padding: 0 9px; font-size: 11px; }
 .app.theme-light .inspector-tool-head > span { color: #292532; }
 .app.theme-light .tab-changed-dot { box-shadow: 0 0 0 2px #F0EEF5; }
+
+.audio-no-sound { position: relative; z-index: 1; padding: 1px 6px; border-radius: 4px; background: rgba(255, 255, 255, .08); color: #9aa3c4; font-size: 9px; white-space: nowrap; }
+.audio-row.waveform .audio-name, .audio-row.waveform .audio-clip > small, .video-audio-row.waveform .video-audio-clip > .audio-name, .video-audio-row.waveform .video-audio-clip > small { background: #10101bd9; border-radius: 3px; padding: 1px 3px; }
+
+/* Audio clips: the name sits in a strip above the waveform or spectrogram, never on top of it */
+.audio-row .audio-track { height: 54px; }
+.audio-row.spectrogram .audio-track { height: 66px; }
+.video-audio-track { height: 44px; }
+.audio-clip, .video-audio-clip, .audio-row.spectrogram .audio-clip, .video-audio-row.spectrogram .video-audio-clip { align-items: flex-start; padding: 0 10px; }
+.audio-clip::before, .video-audio-clip::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 16px; z-index: 0; background: rgba(6, 6, 14, .5); border-bottom: 1px solid rgba(255, 255, 255, .06); pointer-events: none; }
+.audio-clip > svg, .video-audio-clip > svg { margin-top: 3px; flex-shrink: 0; }
+.audio-clip > .audio-name, .audio-clip > small, .video-audio-clip > .audio-name, .video-audio-clip > small, .audio-no-sound, .clip-volume { margin-top: 2px; height: 12px; line-height: 12px; }
+.audio-row .audio-name, .audio-row .audio-clip > small, .video-audio-row .video-audio-clip > .audio-name, .video-audio-row .video-audio-clip > small { background: none; padding: 0; border-radius: 0; }
+.audio-no-sound { padding: 0 5px; line-height: 12px; }
+.audio-clip > .audio-spectrogram, .audio-clip > .audio-waveform, .video-audio-clip > .audio-spectrogram, .video-audio-clip > .audio-waveform { top: 16px; bottom: 0; height: auto; border-radius: 0 0 4px 4px; }
+.audio-trim { z-index: 2; }
+.timeline-row.collapsed .audio-clip::before, .timeline-row.collapsed .video-audio-clip::before { display: none; }
+.timeline-row.collapsed .audio-clip > *, .timeline-row.collapsed .video-audio-clip > * { margin-top: 0; }
+
+/* Compact timeline header: slimmer toolbar, and the ruler is the only scrub strip.
+   The range input stays for keyboard and screen readers but is not drawn: its thumb
+   travels a different track than the playhead, which showed a second, offset knob. */
+.timeline-toolbar { height: 36px; padding: 0 16px; }
+.timeline-toolbar .icon-button { width: 28px; height: 28px; }
+.timeline-toolbar select { height: 26px; padding-top: 0; padding-bottom: 0; }
+.timeline-sticky { padding-top: 0; }
+.timeline-ruler-row { height: 20px; }
+.timeline-scrub-row { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.timeline-sticky:focus-within .timeline-ruler-row { box-shadow: inset 0 0 0 2px #A48CFF; border-radius: 4px; }
+.timeline-playhead-handle { top: 2px; }
+/* Every vertical mark is centred on its time: the 2 px playhead, 1 px ticks and the 1 px snap guide. */
+.timeline-playhead { margin-left: -1px; }
+.ruler-tick, .timeline-snap-guide { margin-left: -.5px; }
+/* The handle rides the sticky ruler: it stays on screen however far the lanes are scrolled down. */
+.timeline-playhead-handle { position: sticky; top: 4px; left: auto; display: block; margin-left: -5px; transform: rotate(45deg); }
