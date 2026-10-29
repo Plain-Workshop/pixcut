@@ -16,6 +16,7 @@ import { elementDisplayName } from '../../components/elements/catalog';
 import { anchoredScroll, clampZoom, formatRulerTime, MIN_TIMELINE_ZOOM, rulerTicks, secondsAt, timelineMaxZoom, TRACK_CHROME_PX, TRACK_LABEL_PX, TRACK_TAIL_PX } from '../../components/timeline/ruler';
 import { SNAP_LABELS, useSnapGuide } from '../../components/timeline/timeline-snap';
 import { inRange } from '../../components/timeline/clip-edit';
+import { useSelection } from '../selection-store';
 
 /** Zoom commands the editor's shortcuts call; the panel owns the scroll position they anchor to. */
 export type TimelineControls = { zoomBy: (factor: number) => void; fit: () => void };
@@ -30,7 +31,7 @@ function LaneToggle({ id, label, collapsed, toggle, locked, toggleLock }: { id: 
   </span>;
 }
 
-export function TimelinePanel({ timelineControls, collapsedLanes, toggleLane, setCollapsedLanes, lockedLanes, toggleLaneLock, onLockedEdit, timelineHeight, scenes, selectedCount, selectedScene, canEdit, run, snapping, tip, runCommandId, addBeatAtPlayhead, timelineZoom, changeTimelineZoom, audioDisplay, setAudioDisplay, duration, fileDragActive, timelineScroll, mediaDragRef, dropLibraryMedia, timelineRatio, beginPlayheadDrag, project, projectTicks, removeBeat, frameSeconds, position, scrubTo, hasMediaOverlays, isSelected, selectScene, setTab, setTextFocus, selectedTextLayer, setEditTarget, setSelectedElementId, setSelectedTextLayerId, setPosition, addTextLayerAtPlayhead, orderedLayers, overlayDraft, selectedElementId, selectOverlay, beginOverlayTiming: rawBeginOverlayTiming, layerNumbers, previewScene, active, dropTarget, reorderId, replacingSceneId, beginReorder: rawBeginReorder, endReorder, dragOverScene, setDropTarget, dropScene, selectedIds, setSelectedIds, setPrimarySelected, selectionAnchor, setPlaying, setContextMenu, beginFadeDrag: rawBeginFadeDrag, beginSceneTrim: rawBeginSceneTrim, fadeDrag, chooseImages, videoScenes, audioMix, setVideoAudioLevel, commitMix, editTarget, videoVolumeDraft, stageVideoVolume, commitVideoVolume, renderPipScenes, selectedPipId, selectPip, beginPipTiming: rawBeginPipTiming, audioLanes, toggleLaneMute, setLaneMix, audio, selectedAudio, focusAudio, beginAudioMove: rawBeginAudioMove, beginAudioTrim: rawBeginAudioTrim, stageAudio, commitAudio, audioLaneRef, chooseAudio, shortcutText }: {
+export function TimelinePanel({ timelineControls, collapsedLanes, toggleLane, setCollapsedLanes, lockedLanes, toggleLaneLock, onLockedEdit, timelineHeight, scenes, selectedCount, selectedScene, canEdit, run, snapping, tip, runCommandId, addBeatAtPlayhead, timelineZoom, changeTimelineZoom, audioDisplay, setAudioDisplay, duration, fileDragActive, timelineScroll, mediaDragRef, dropLibraryMedia, timelineRatio, beginPlayheadDrag, project, projectTicks, removeBeat, frameSeconds, position, scrubTo, hasMediaOverlays, isSelected, selectScene, setTab, setTextFocus, selectedTextLayer, setPosition, addTextLayerAtPlayhead, orderedLayers, overlayDraft, selectOverlay, beginOverlayTiming: rawBeginOverlayTiming, layerNumbers, previewScene, active, dropTarget, reorderId, replacingSceneId, beginReorder: rawBeginReorder, endReorder, dragOverScene, setDropTarget, dropScene, selectionAnchor, setPlaying, setContextMenu, beginFadeDrag: rawBeginFadeDrag, beginSceneTrim: rawBeginSceneTrim, fadeDrag, chooseImages, videoScenes, audioMix, setVideoAudioLevel, commitMix, videoVolumeDraft, stageVideoVolume, commitVideoVolume, renderPipScenes, selectPip, beginPipTiming: rawBeginPipTiming, audioLanes, toggleLaneMute, setLaneMix, audio, selectedAudio, focusAudio, beginAudioMove: rawBeginAudioMove, beginAudioTrim: rawBeginAudioTrim, stageAudio, commitAudio, audioLaneRef, chooseAudio, shortcutText }: {
   timelineControls: RefObject<TimelineControls | null>;
   collapsedLanes: string[];
   toggleLane: (id: string) => void;
@@ -72,14 +73,10 @@ export function TimelinePanel({ timelineControls, collapsedLanes, toggleLane, se
   setTab: Dispatch<SetStateAction<"text" | "audio" | "media" | "elements" | "templates">>;
   setTextFocus: Dispatch<SetStateAction<number>>;
   selectedTextLayer: TextLayer;
-  setEditTarget: Dispatch<SetStateAction<"text" | "audio" | "scene" | "element">>;
-  setSelectedElementId: Dispatch<SetStateAction<string | null>>;
-  setSelectedTextLayerId: Dispatch<SetStateAction<string | null>>;
   setPosition: Dispatch<SetStateAction<number>>;
   addTextLayerAtPlayhead: (preset?: Partial<TextLayer>) => void;
   orderedLayers: TimelineOverlay[];
   overlayDraft: TimelineOverlay | null;
-  selectedElementId: string | null;
   selectOverlay: (element: TimelineOverlay, seek?: boolean) => void;
   beginOverlayTiming: (event: ReactPointerEvent<HTMLElement>, element: TimelineOverlay, edge: "move" | "start" | "end") => void;
   layerNumbers: Map<string, number>;
@@ -93,9 +90,6 @@ export function TimelinePanel({ timelineControls, collapsedLanes, toggleLane, se
   dragOverScene: (event: ReactDragEvent<HTMLElement>, id: string) => void;
   setDropTarget: Dispatch<SetStateAction<string | null>>;
   dropScene: (event: ReactDragEvent<HTMLElement>, target: Scene) => void;
-  selectedIds: string[];
-  setSelectedIds: Dispatch<SetStateAction<string[]>>;
-  setPrimarySelected: Dispatch<SetStateAction<string | null>>;
   selectionAnchor: RefObject<string | null>;
   setPlaying: Dispatch<SetStateAction<boolean>>;
   setContextMenu: Dispatch<SetStateAction<{ x: number; y: number; } | null>>;
@@ -107,12 +101,10 @@ export function TimelinePanel({ timelineControls, collapsedLanes, toggleLane, se
   audioMix: AudioMix;
   setVideoAudioLevel: (volume: number) => void;
   commitMix: () => void;
-  editTarget: "text" | "audio" | "scene" | "element";
   videoVolumeDraft: { id: string; value: number; } | null;
   stageVideoVolume: (scene: Scene, value: number) => void;
   commitVideoVolume: (scene: Scene, value: number) => void;
   renderPipScenes: Scene[];
-  selectedPipId: string | null;
   selectPip: (clip: Scene) => void;
   beginPipTiming: (event: ReactPointerEvent<HTMLElement>, clip: Scene, edge: "move" | "start" | "end") => void;
   audioLanes: number[];
@@ -129,6 +121,7 @@ export function TimelinePanel({ timelineControls, collapsedLanes, toggleLane, se
   chooseAudio: () => Promise<void>;
   shortcutText: (id: string) => string;
 }) {
+  const { selectedIds, setSelectedIds, setPrimarySelected, selectedElementId, setSelectedElementId, setSelectedTextLayerId, editTarget, setEditTarget, selectedPipId } = useSelection();
   const isLocked = (id: string) => lockedLanes.includes(id);
   /** Wraps a drag so a locked lane refuses it with a notice instead of starting. */
   function guard<E extends { preventDefault(): void; stopPropagation(): void }, A extends unknown[]>(lane: (event: E, ...args: A) => string, handler: (event: E, ...args: A) => void) {

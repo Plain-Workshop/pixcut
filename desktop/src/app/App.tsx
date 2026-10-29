@@ -40,6 +40,7 @@ import { applyClipEq } from '../components/preview/eq';
 import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
 import { useUpdates } from './hooks/useUpdates';
+import { SelectionProvider, useCreateSelectionStore, useSelection } from './selection-store';
 import { RangeField } from '../components/inspector/NumberField';
 import { useClipEditing } from './hooks/useClipEditing';
 import { editPoints, nextEditPoint } from '../components/timeline/ruler';
@@ -203,7 +204,9 @@ export default function App() {
   const [session, setSession] = useState(INITIAL), [screen, setScreen] = useState<'home' | 'editor'>('home');
   const [homeSection, setHomeSection] = useState<'home' | 'projects'>('home');
   const [ready, setReady] = useState(false), [busy, setBusy] = useState(false), [playing, setPlaying] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]), [primarySelected, setPrimarySelected] = useState<string | null>(null), [position, setPosition] = useState(0);
+  const selectionStore = useCreateSelectionStore();
+  const { selectedIds, primarySelected, selectedAudioId, selectedElementId, selectedPipId, selectedTextLayerId, selectedGlobalTextId, editTarget, setSelectedIds, setPrimarySelected, setSelectedAudioId, setSelectedElementId, setSelectedPipId, setSelectedTextLayerId, setSelectedGlobalTextId, setEditTarget } = useSelection(selectionStore);
+  const [position, setPosition] = useState(0);
   const [tab, setTab] = useState<'media' | 'text' | 'elements' | 'audio' | 'templates'>('media'), [modal, setModal] = useState<'source' | 'templates' | 'export' | 'new' | 'shortcuts' | 'palette' | 'settings' | 'delete' | 'rename' | 'group' | 'groups' | 'formats' | 'missing' | null>(null);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [systemDark, setSystemDark] = useState(() => typeof window.matchMedia !== 'function' || window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -258,7 +261,6 @@ export default function App() {
   const [audioDraft, setAudioDraft] = useState<AudioClip | null>(null);
   const [mixDraft, setMixDraft] = useState<AudioMix | null>(null);
   const [videoVolumeDraft, setVideoVolumeDraft] = useState<{ id: string; value: number } | null>(null);
-  const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -280,16 +282,11 @@ export default function App() {
   const formatBrowserGroups = filterFormatGroups('all').filter(group => formatSection === 'social' ? !['Sizes', '4K Master'].includes(group.platform) && (formatPlatform === 'all' || group.platform === formatPlatform) : ['Sizes', '4K Master'].includes(group.platform)).map(group => ({ ...group, presets: group.presets.filter(preset => `${preset.name} ${preset.description} ${preset.platform}`.toLowerCase().includes(formatSearch.trim().toLowerCase())) })).filter(group => group.presets.length);
   const [newCustomFormats, setNewCustomFormats] = useState<FormatVariant[]>([]);
   const [newProjectFps, setNewProjectFps] = useState(30);
-  const [editTarget, setEditTarget] = useState<'scene' | 'text' | 'element' | 'audio'>('scene');
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [videoTick, setVideoTick] = useState(0);
   const [pipVideoTick, setPipVideoTick] = useState(0);
   const [name, setName] = useState('Untitled story');
   const [editingText, setEditingText] = useState(false), [safeArea, setSafeArea] = useState(false);
   const [textDraft, setTextDraft] = useState({ title: '', subtitle: '' });
-  const [selectedTextLayerId, setSelectedTextLayerId] = useState<string | null>(null);
-  const [selectedGlobalTextId, setSelectedGlobalTextId] = useState<string | null>(null);
-  const [selectedPipId, setSelectedPipId] = useState<string | null>(null);
   const [pipDraft, setPipDraft] = useState<Scene | null>(null);
   const pipDraftRef = useRef<Scene | null>(null);
   const [globalTextDraft, setGlobalTextDraft] = useState<TextLayer[] | null>(null);
@@ -2222,6 +2219,7 @@ export default function App() {
               </div>;
 
   return (
+    <SelectionProvider store={selectionStore}>
     <div className={`app ${screen} theme-${resolveTheme(preferences.theme, systemDark)} ${preferences.compact ? 'compact' : ''} ${preferences.reduceMotion ? 'reduce-motion' : ''} ${fileDragActive ? 'file-drag' : ''}`}>
       <input ref={customElementInput} type="file" hidden onChange={event => void importCustomElement(event.target.files)} />
       <input ref={mediaInput} type="file" hidden multiple accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" onChange={e => void importFiles(e.target.files)} />
@@ -2257,7 +2255,7 @@ export default function App() {
 
         <div className="splitter horizontal" onPointerDown={e => beginResize('timeline', timelineHeight, e.clientY)} />
 
-        <TimelinePanel lockedLanes={lockedLanes} toggleLaneLock={toggleLaneLock} onLockedEdit={() => setNotice(t('This lane is locked. Unlock it to edit.'))} timelineControls={timelineControls} collapsedLanes={collapsedLanes} toggleLane={toggleLane} setCollapsedLanes={setCollapsedLanes} timelineHeight={timelineHeight} scenes={scenes} selectedCount={selectedCount} selectedScene={selectedScene} canEdit={canEdit} run={run} snapping={snapping} tip={tip} runCommandId={runCommandId} addBeatAtPlayhead={addBeatAtPlayhead} timelineZoom={timelineZoom} changeTimelineZoom={changeTimelineZoom} audioDisplay={audioDisplay} setAudioDisplay={setAudioDisplay} duration={duration} fileDragActive={fileDragActive} timelineScroll={timelineScroll} mediaDragRef={mediaDragRef} dropLibraryMedia={dropLibraryMedia} timelineRatio={timelineRatio} beginPlayheadDrag={beginPlayheadDrag} project={project} projectTicks={projectTicks} removeBeat={removeBeat} frameSeconds={frameSeconds} position={position} scrubTo={scrubTo} hasMediaOverlays={hasMediaOverlays} isSelected={isSelected} selectScene={selectScene} setTab={setTab} setTextFocus={setTextFocus} selectedTextLayer={selectedTextLayer} setEditTarget={setEditTarget} setSelectedElementId={setSelectedElementId} setSelectedTextLayerId={setSelectedTextLayerId} setPosition={setPosition} addTextLayerAtPlayhead={addTextLayerAtPlayhead} orderedLayers={orderedLayers} overlayDraft={overlayDraft} selectedElementId={selectedElementId} selectOverlay={selectOverlay} beginOverlayTiming={beginOverlayTiming} layerNumbers={layerNumbers} previewScene={previewScene} active={active} dropTarget={dropTarget} reorderId={reorderId} replacingSceneId={replacingSceneId} beginReorder={beginReorder} endReorder={endReorder} dragOverScene={dragOverScene} setDropTarget={setDropTarget} dropScene={dropScene} selectedIds={selectedIds} setSelectedIds={setSelectedIds} setPrimarySelected={setPrimarySelected} selectionAnchor={selectionAnchor} setPlaying={setPlaying} setContextMenu={setContextMenu} beginFadeDrag={beginFadeDrag} beginSceneTrim={beginSceneTrim} fadeDrag={fadeDrag} chooseImages={chooseImages} videoScenes={videoScenes} audioMix={audioMix} setVideoAudioLevel={setVideoAudioLevel} commitMix={commitMix} editTarget={editTarget} videoVolumeDraft={videoVolumeDraft} stageVideoVolume={stageVideoVolume} commitVideoVolume={commitVideoVolume} renderPipScenes={renderPipScenes} selectedPipId={selectedPipId} selectPip={selectPip} beginPipTiming={beginPipTiming} audioLanes={audioLanes} toggleLaneMute={toggleLaneMute} setLaneMix={setLaneMix} audio={audio} selectedAudio={selectedAudio} focusAudio={focusAudio} beginAudioMove={beginAudioMove} beginAudioTrim={beginAudioTrim} stageAudio={stageAudio} commitAudio={commitAudio} audioLaneRef={audioLaneRef} chooseAudio={chooseAudio} shortcutText={shortcutText} />
+        <TimelinePanel lockedLanes={lockedLanes} toggleLaneLock={toggleLaneLock} onLockedEdit={() => setNotice(t('This lane is locked. Unlock it to edit.'))} timelineControls={timelineControls} collapsedLanes={collapsedLanes} toggleLane={toggleLane} setCollapsedLanes={setCollapsedLanes} timelineHeight={timelineHeight} scenes={scenes} selectedCount={selectedCount} selectedScene={selectedScene} canEdit={canEdit} run={run} snapping={snapping} tip={tip} runCommandId={runCommandId} addBeatAtPlayhead={addBeatAtPlayhead} timelineZoom={timelineZoom} changeTimelineZoom={changeTimelineZoom} audioDisplay={audioDisplay} setAudioDisplay={setAudioDisplay} duration={duration} fileDragActive={fileDragActive} timelineScroll={timelineScroll} mediaDragRef={mediaDragRef} dropLibraryMedia={dropLibraryMedia} timelineRatio={timelineRatio} beginPlayheadDrag={beginPlayheadDrag} project={project} projectTicks={projectTicks} removeBeat={removeBeat} frameSeconds={frameSeconds} position={position} scrubTo={scrubTo} hasMediaOverlays={hasMediaOverlays} isSelected={isSelected} selectScene={selectScene} setTab={setTab} setTextFocus={setTextFocus} selectedTextLayer={selectedTextLayer} setPosition={setPosition} addTextLayerAtPlayhead={addTextLayerAtPlayhead} orderedLayers={orderedLayers} overlayDraft={overlayDraft} selectOverlay={selectOverlay} beginOverlayTiming={beginOverlayTiming} layerNumbers={layerNumbers} previewScene={previewScene} active={active} dropTarget={dropTarget} reorderId={reorderId} replacingSceneId={replacingSceneId} beginReorder={beginReorder} endReorder={endReorder} dragOverScene={dragOverScene} setDropTarget={setDropTarget} dropScene={dropScene} selectionAnchor={selectionAnchor} setPlaying={setPlaying} setContextMenu={setContextMenu} beginFadeDrag={beginFadeDrag} beginSceneTrim={beginSceneTrim} fadeDrag={fadeDrag} chooseImages={chooseImages} videoScenes={videoScenes} audioMix={audioMix} setVideoAudioLevel={setVideoAudioLevel} commitMix={commitMix} videoVolumeDraft={videoVolumeDraft} stageVideoVolume={stageVideoVolume} commitVideoVolume={commitVideoVolume} renderPipScenes={renderPipScenes} selectPip={selectPip} beginPipTiming={beginPipTiming} audioLanes={audioLanes} toggleLaneMute={toggleLaneMute} setLaneMix={setLaneMix} audio={audio} selectedAudio={selectedAudio} focusAudio={focusAudio} beginAudioMove={beginAudioMove} beginAudioTrim={beginAudioTrim} stageAudio={stageAudio} commitAudio={commitAudio} audioLaneRef={audioLaneRef} chooseAudio={chooseAudio} shortcutText={shortcutText} />
       </>}
 
       {contextMenu && <ClipContextMenu
@@ -2307,5 +2305,6 @@ export default function App() {
         </>}
       </section></div>}
     </div>
+    </SelectionProvider>
   );
 }

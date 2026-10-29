@@ -1613,3 +1613,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - Checked in the app with real key presses: in German the toolbar, timeline labels, tooltips, the copy notice and the trim message were translated, with variables filled in ("Textebene 1 in …: … 0.00 bis 2.00 Sekunden"). In Polish the copy notice read "1 klip", "2 klipy", "3 klipy"; "5 klipów" is covered by a unit test.
 - Found by the new checks: about 30 slider labels, 92 strings from earlier this session, and `t(safeArea ? 'on' : 'off')`, which hid two keys.
 - Tests: 535 TypeScript. The translations are mine, not a native speaker's review; a proofread by native speakers is advisable before release.
+
+## Selection store (Phase 4, step 1) (2026-10-29)
+
+- Replaced eight selection `useState` calls in `App.tsx` with `src/app/selection-store.tsx`; `TimelinePanel` reads it directly. `tests/selection-store.test.ts` (8 tests): setter shape, no-op on equal values, stable setter identity, subscribe/unsubscribe, reset, store isolation, provider.
+- Checked in the browser preview: click and shift-click range, select all, Escape, audio and element selection (inspector switches), marquee, delete then undo (select all → 0 scenes → undo → 3). An early run appeared to fail because the undo shortcut was pressed while the delete was still pending and was refused; repeating with waits worked.
+- Tests: 543 TypeScript.

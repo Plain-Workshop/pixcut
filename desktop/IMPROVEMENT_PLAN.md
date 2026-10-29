@@ -127,14 +127,19 @@ Still English, on purpose or not yet reached:
 - Multi-line JSX text and `label=` props on components other than `IconButton` and `RangeField`.
 - The native menu already has its own translations in Rust; not re-checked.
 
-### Phase 4 — split the editor state (L, incremental)
+### Phase 4 — split the editor state (L, incremental) — step 1 done 2026-10-29
 
-1. Move editor state out of `App.tsx` into focused stores (selection, playback, layout, project/commands) behind a small context or `useSyncExternalStore`, as `timeline-snap.ts` already does for the snap guide.
-2. Let `TimelinePanel`, `EditorBody` and the inspector read from those stores instead of taking 90–180 props.
-3. Wrap the formatter-hostile one-liners while touching each file.
-4. Replace `Dispatch<any>` and the remaining `any`s with real types.
+Done: **selection** (`src/app/selection-store.tsx`). Eight `useState` calls in `App.tsx` (clip ids, primary clip, audio, element, picture-in-picture, text layer, project text, edit target) became one external store with the same setter shape (value or updater, stable identity), so none of the ~120 call sites changed. `TimelinePanel` now reads selection from the store and lost 9 props.
 
-**Done when:** no component takes more than ~25 props and `App.tsx` is under 800 lines. Do one store per PR; behaviour must not change and the tests must still pass.
+Next, one store per PR, behaviour unchanged and tests passing each time:
+1. **Layout** (`usePanelLayout`: sizes, zoom, collapsed and locked lanes) — already a hook; move it to a store so `TimelinePanel` can read zoom and locks directly (about 8 more props).
+2. **Playback** (`position`, `playing`, `playDirection`): the most re-render-sensitive state; subscribe the preview and timeline selectively.
+3. **Project and commands** (`session`, `run`, undo flags).
+4. Then convert `EditorBody` (about 180 props) the same way, and replace `Dispatch<any>` and the remaining `any`s.
+
+Not yet true: `App.tsx` is still about 2,300 lines and still re-renders on every selection change, because it subscribes to the whole store. The re-render saving only arrives once the big children subscribe selectively; this step only removes props and gives them a place to do that.
+
+**Done when:** no component takes more than ~25 props and `App.tsx` is under 800 lines.
 
 ### Phase 5 — performance (M)
 
