@@ -2432,3 +2432,20 @@ img.inspector-heading-thumb { object-fit: cover; }
 .ruler-tick, .timeline-snap-guide { margin-left: -.5px; }
 /* The handle rides the sticky ruler: it stays on screen however far the lanes are scrolled down. */
 .timeline-playhead-handle { position: sticky; top: 4px; left: auto; display: block; margin-left: -5px; transform: rotate(45deg); }
+
+/* Selected clips: a white ring that no clip fill can match, in both themes. The primary clip of a multi-selection also glows. */
+.timeline-clip.selected, .audio-clip.selected, .video-audio-clip.selected, .element-clip.selected, .text-clip.selected, .text-clip.scene-selected {
+  outline: 2px solid #FFFFFF; outline-offset: -2px; border-color: #FFFFFF; z-index: 3;
+  box-shadow: 0 0 0 1px rgba(124, 92, 255, .9), 0 4px 14px rgba(0, 0, 0, .45);
+}
+.timeline-clip.selected:not(.primary) { outline-style: dashed; outline-color: rgba(255, 255, 255, .85); }
+.timeline-clip.primary { box-shadow: 0 0 0 1px rgba(124, 92, 255, .9), 0 0 16px rgba(164, 140, 255, .65); }
+.app.theme-light .timeline-clip.selected, .app.theme-light .audio-clip.selected, .app.theme-light .video-audio-clip.selected, .app.theme-light .element-clip.selected { outline-color: #1B1740; border-color: #1B1740; }
+/* Lane lock, lane marquee */
+.lane-controls { display: inline-flex; align-items: center; gap: 1px; margin-right: -2px; flex-shrink: 0; }
+.lane-lock.locked { opacity: 1; color: #FFB86B; }
+.timeline-row.locked .tracks { opacity: .62; }
+.timeline-row.locked .tracks * { cursor: not-allowed; }
+.timeline-row.locked .track-label { color: #FFB86B; }
+.timeline-marquee { position: absolute; top: 24px; bottom: 0; z-index: 9; pointer-events: none; border: 1px solid #A48CFF; background: rgba(164, 140, 255, .14); border-radius: 3px; }
+.track-label-head .lane-controls { margin-right: 0; }

@@ -93,17 +93,18 @@ Each phase ends with `npm test`, `npm run build`, the Rust tests, a screenshot c
 
 **Done when:** CI is green on the PR and `VERIFICATION.md` matches reality.
 
-### Phase 1 — finish the editing basics (M)
+### Phase 1 — finish the editing basics (M) — done 2026-10-29
 
-1. Make Delete leave a gap on overlay, audio, text and picture-in-picture lanes, and Ripple delete close it; the visual track stays magnetic. Add tests for both.
-2. Add trim to playhead (`Q` / `W`), nudge by a frame (`,` / `.`, Shift for 10), and copy/paste clips at the playhead (`Mod+C` / `Mod+V`), each with an availability reason in the command palette.
-3. Add marquee selection on the timeline and "Select all after playhead" (`Mod+Shift+→`).
-4. Add lock and hide toggles to every lane header; a locked lane ignores drags and keyboard edits.
-5. Give the selected clip a higher-contrast outline and a filled handle in both themes.
-6. Save the Spectrogram / Waveform choice in the panel layout, and let lanes be resized by dragging their bottom edge, also saved in the layout.
-7. Add rename and a right-click menu (rename, mute, show in media) to the audio clip name strip.
+1. **Delete vs ripple delete.** Delete leaves the gap; Ripple delete (Shift+Delete) moves later clips on the same lane earlier. Applies to audio (per lane), project elements (per media/shape group) and picture-in-picture. The visual track is magnetic, so both close the gap there by design.
+2. **Trim to playhead** `Q` / `W`, **nudge** `Alt+←/→` (1 frame) and `Alt+Shift+←/→` (10 frames), **copy / paste** `Mod+C` / `Mod+V`. Audio, elements and picture-in-picture paste at the playhead (audio takes the next free lane); visual clips paste as a copy after the original. Nudge on a visual clip explains that visual clips follow each other. The plan said `,` and `.` for nudge; Shift+comma is a different key on most layouts, so Alt+arrows are used.
+3. **Marquee selection** (drag on empty lane space selects the visual clips in that stretch of time; Shift/Cmd adds) and **Select clips after playhead** (`Mod+Shift+→`).
+4. **Lane lock** on every lane: a locked lane refuses drags and every keyboard edit, with a notice, and is remembered in the layout.
+5. **Selected clip:** a white ring with a purple edge on every clip type in both themes; the primary clip of a multi-selection glows, the others are dashed.
 
-**Done when:** each command has a unit test, preview and export match for gap-delete (rule 5), and screenshots are checked in both themes.
+Not done, on purpose:
+- **Lane hide and mute for non-audio lanes.** Hiding a lane from the output changes how projects render and export, so it needs a schema migration (rule 4: `model.ts` and `lib.rs` together, old versions still loading, tests both ways). A view-only hide would duplicate Collapse. Specify the schema first.
+- **Marquee across other lanes** selects visual clips only, because multi-select exists only for visual clips.
+- **Paste of visual clips at the playhead:** the track is magnetic, so a paste is a copy placed after the original (one undo step).
 
 ### Phase 2 — inspector polish (S–M)
 

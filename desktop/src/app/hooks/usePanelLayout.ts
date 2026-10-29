@@ -9,6 +9,7 @@ export function usePanelLayout() {
   const [layout, setLayout] = useState(() => { try { return JSON.parse(localStorage.getItem('pixcut-layout') || '{}'); } catch { return {}; } });
   const libraryWidth = layout.libraryWidth ?? 280, inspectorWidth = layout.inspectorWidth ?? 288, timelineHeight = layout.timelineHeight ?? 340;
   const timelineZoom = Math.min(STORED_ZOOM_LIMIT, Math.max(MIN_TIMELINE_ZOOM, Number(layout.timelineZoom) || 1));
+  const lockedLanes: string[] = Array.isArray(layout.lockedLanes) ? layout.lockedLanes.filter((id: unknown): id is string => typeof id === 'string') : [];
   const collapsedLanes: string[] = Array.isArray(layout.collapsedLanes) ? layout.collapsedLanes.filter((id: unknown): id is string => typeof id === 'string') : [];
 
   function beginResize(kind: 'library' | 'inspector' | 'timeline', start: number, coord: number) {
@@ -44,9 +45,13 @@ export function usePanelLayout() {
     persist({ collapsedLanes: [...new Set(ids)] });
   }
 
+  function toggleLaneLock(id: string) {
+    persist({ lockedLanes: lockedLanes.includes(id) ? lockedLanes.filter(lane => lane !== id) : [...lockedLanes, id] });
+  }
+
   function toggleLane(id: string) {
     setCollapsedLanes(collapsedLanes.includes(id) ? collapsedLanes.filter(lane => lane !== id) : [...collapsedLanes, id]);
   }
 
-  return { setLayout, libraryWidth, inspectorWidth, timelineHeight, timelineZoom, beginResize, changeTimelineZoom, collapsedLanes, toggleLane, setCollapsedLanes };
+  return { setLayout, libraryWidth, inspectorWidth, timelineHeight, timelineZoom, beginResize, changeTimelineZoom, collapsedLanes, toggleLane, setCollapsedLanes, lockedLanes, toggleLaneLock };
 }

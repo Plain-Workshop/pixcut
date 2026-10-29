@@ -1580,3 +1580,16 @@ Verified in the browser preview (Chrome engine, 1440×900) with the Vite dev ser
 - Tests: 50 native (24 ignored FFmpeg tests not run this round), 489 TypeScript. `cargo clippy` is clean for the library; two `field_reassign_with_default` warnings remain in test code.
 
 Not verified: pinch zoom on a real trackpad, an update download/install/restart against a published release, an online download through the Rust path, and clicking through the native window (only the browser preview was driven).
+
+## Editing basics: ripple, trim, nudge, copy/paste, marquee, lane lock (2026-10-29)
+
+Verified in the browser preview on "Motion opener" with real key events, undoing every change afterwards.
+
+- Delete vs ripple delete on three back-to-back audio clips: Delete left 3.5–5.0 in place; Ripple delete moved it to 2.0–3.5; the other lane did not move; both undid cleanly.
+- `Q` / `W` trimmed to 0.50 and 2.00 s and refused a playhead outside the clip with a notice. `Alt+→` moved 0.50 → 0.53 s (one frame), `Alt+Shift+→` ten frames more.
+- Copy and paste: audio landed on the next free lane when its own lane was busy; three pastes made back-to-back clips; visual clip paste added one scene and undid.
+- Lane lock: Backspace, Shift+Backspace, nudge, trim and a pointer drag were all refused on the locked lane with a notice; a different lane still edited; unlocking restored editing.
+- Marquee selected 1 clip mid-drag and all 3 at the end, showed a band and removed it on release; Mod+Shift+→ at 2.0 s selected scenes 2 and 3.
+- Tests: 501 TypeScript (`tests/clip-edit.test.ts` adds 12). Test copies were removed afterwards, leaving the original single audio clip.
+
+Not verified: marquee with a real mouse (events were dispatched), and any of this in the native window.
