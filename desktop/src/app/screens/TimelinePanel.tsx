@@ -17,6 +17,7 @@ import { anchoredScroll, clampZoom, formatRulerTime, MIN_TIMELINE_ZOOM, rulerTic
 import { SNAP_LABELS, useSnapGuide } from '../../components/timeline/timeline-snap';
 import { inRange } from '../../components/timeline/clip-edit';
 import { useSelection } from '../selection-store';
+import { useLayout } from '../layout-store';
 
 /** Zoom commands the editor's shortcuts call; the panel owns the scroll position they anchor to. */
 export type TimelineControls = { zoomBy: (factor: number) => void; fit: () => void };
@@ -31,16 +32,10 @@ function LaneToggle({ id, label, collapsed, toggle, locked, toggleLock }: { id: 
   </span>;
 }
 
-export function TimelinePanel({ timelineControls, collapsedLanes, toggleLane, setCollapsedLanes, lockedLanes, toggleLaneLock, onLockedEdit, timelineHeight, scenes, selectedCount, selectedScene, canEdit, run, snapping, tip, runCommandId, addBeatAtPlayhead, timelineZoom, changeTimelineZoom, audioDisplay, setAudioDisplay, duration, fileDragActive, timelineScroll, mediaDragRef, dropLibraryMedia, timelineRatio, beginPlayheadDrag, project, projectTicks, removeBeat, frameSeconds, position, scrubTo, hasMediaOverlays, isSelected, selectScene, setTab, setTextFocus, selectedTextLayer, setPosition, addTextLayerAtPlayhead, orderedLayers, overlayDraft, selectOverlay, beginOverlayTiming: rawBeginOverlayTiming, layerNumbers, previewScene, active, dropTarget, reorderId, replacingSceneId, beginReorder: rawBeginReorder, endReorder, dragOverScene, setDropTarget, dropScene, selectionAnchor, setPlaying, setContextMenu, beginFadeDrag: rawBeginFadeDrag, beginSceneTrim: rawBeginSceneTrim, fadeDrag, chooseImages, videoScenes, audioMix, setVideoAudioLevel, commitMix, videoVolumeDraft, stageVideoVolume, commitVideoVolume, renderPipScenes, selectPip, beginPipTiming: rawBeginPipTiming, audioLanes, toggleLaneMute, setLaneMix, audio, selectedAudio, focusAudio, beginAudioMove: rawBeginAudioMove, beginAudioTrim: rawBeginAudioTrim, stageAudio, commitAudio, audioLaneRef, chooseAudio, shortcutText }: {
+export function TimelinePanel({ timelineControls, onLockedEdit, scenes, selectedCount, selectedScene, canEdit, run, snapping, tip, runCommandId, addBeatAtPlayhead, audioDisplay, setAudioDisplay, duration, fileDragActive, timelineScroll, mediaDragRef, dropLibraryMedia, timelineRatio, beginPlayheadDrag, project, projectTicks, removeBeat, frameSeconds, position, scrubTo, hasMediaOverlays, isSelected, selectScene, setTab, setTextFocus, selectedTextLayer, setPosition, addTextLayerAtPlayhead, orderedLayers, overlayDraft, selectOverlay, beginOverlayTiming: rawBeginOverlayTiming, layerNumbers, previewScene, active, dropTarget, reorderId, replacingSceneId, beginReorder: rawBeginReorder, endReorder, dragOverScene, setDropTarget, dropScene, selectionAnchor, setPlaying, setContextMenu, beginFadeDrag: rawBeginFadeDrag, beginSceneTrim: rawBeginSceneTrim, fadeDrag, chooseImages, videoScenes, audioMix, setVideoAudioLevel, commitMix, videoVolumeDraft, stageVideoVolume, commitVideoVolume, renderPipScenes, selectPip, beginPipTiming: rawBeginPipTiming, audioLanes, toggleLaneMute, setLaneMix, audio, selectedAudio, focusAudio, beginAudioMove: rawBeginAudioMove, beginAudioTrim: rawBeginAudioTrim, stageAudio, commitAudio, audioLaneRef, chooseAudio, shortcutText }: {
   timelineControls: RefObject<TimelineControls | null>;
-  collapsedLanes: string[];
-  toggleLane: (id: string) => void;
-  setCollapsedLanes: (ids: string[]) => void;
-  lockedLanes: string[];
-  toggleLaneLock: (id: string) => void;
   /** Called when a drag is refused because its lane is locked. */
   onLockedEdit: () => void;
-  timelineHeight: any;
   scenes: Scene[];
   selectedCount: number;
   selectedScene: Scene | undefined;
@@ -50,8 +45,6 @@ export function TimelinePanel({ timelineControls, collapsedLanes, toggleLane, se
   tip: (id: string, label: string) => string;
   runCommandId: (id: string) => void;
   addBeatAtPlayhead: () => void;
-  timelineZoom: number;
-  changeTimelineZoom: (value: number) => void;
   audioDisplay: "spectrogram" | "waveform";
   setAudioDisplay: Dispatch<SetStateAction<"spectrogram" | "waveform">>;
   duration: number;
@@ -121,6 +114,7 @@ export function TimelinePanel({ timelineControls, collapsedLanes, toggleLane, se
   chooseAudio: () => Promise<void>;
   shortcutText: (id: string) => string;
 }) {
+  const { collapsedLanes, toggleLane, setCollapsedLanes, lockedLanes, toggleLaneLock, timelineHeight, timelineZoom, setTimelineZoom } = useLayout();
   const { selectedIds, setSelectedIds, setPrimarySelected, selectedElementId, setSelectedElementId, setSelectedTextLayerId, editTarget, setEditTarget, selectedPipId } = useSelection();
   const isLocked = (id: string) => lockedLanes.includes(id);
   /** Wraps a drag so a locked lane refuses it with a notice instead of starting. */
@@ -202,7 +196,7 @@ export function TimelinePanel({ timelineControls, collapsedLanes, toggleLane, se
     }
     state.zoom = next;
     state.innerPx = state.base * next;
-    changeTimelineZoom(next);
+    setTimelineZoom(next);
   }
   const zoomRef = useRef(zoomTo);
   zoomRef.current = zoomTo;

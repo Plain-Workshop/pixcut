@@ -131,11 +131,12 @@ Still English, on purpose or not yet reached:
 
 Done: **selection** (`src/app/selection-store.tsx`). Eight `useState` calls in `App.tsx` (clip ids, primary clip, audio, element, picture-in-picture, text layer, project text, edit target) became one external store with the same setter shape (value or updater, stable identity), so none of the ~120 call sites changed. `TimelinePanel` now reads selection from the store and lost 9 props.
 
-Next, one store per PR, behaviour unchanged and tests passing each time:
-1. **Layout** (`usePanelLayout`: sizes, zoom, collapsed and locked lanes) — already a hook; move it to a store so `TimelinePanel` can read zoom and locks directly (about 8 more props).
-2. **Playback** (`position`, `playing`, `playDirection`): the most re-render-sensitive state; subscribe the preview and timeline selectively.
-3. **Project and commands** (`session`, `run`, undo flags).
-4. Then convert `EditorBody` (about 180 props) the same way, and replace `Dispatch<any>` and the remaining `any`s.
+Step 2 done: **layout** (`src/app/layout-store.tsx`). Panel sizes, timeline zoom, collapsed and locked lanes moved from `usePanelLayout` into a store with validated, clamped state and one `reset()` (Settings no longer clears `localStorage` itself). `TimelinePanel` lost 8 more props (93 → 79 in total) and `EditorBody` 3 (180 → 177); `Dispatch<any>` for the layout is gone.
+
+Next, one store per commit, behaviour unchanged and tests passing each time:
+1. **Playback** (`position`, `playing`, `playDirection`): the most re-render-sensitive state; subscribe the preview and timeline selectively.
+2. **Project and commands** (`session`, `run`, undo flags).
+3. Then convert `EditorBody` (about 180 props) the same way, and replace `Dispatch<any>` and the remaining `any`s.
 
 Not yet true: `App.tsx` is still about 2,300 lines and still re-renders on every selection change, because it subscribes to the whole store. The re-render saving only arrives once the big children subscribe selectively; this step only removes props and gives them a place to do that.
 

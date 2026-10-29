@@ -38,7 +38,7 @@ function Switch({ checked, onChange }: { checked: boolean; onChange: (next: bool
   return <input type="checkbox" role="switch" className="settings-switch" checked={checked} onChange={event => onChange(event.target.checked)} />;
 }
 
-export function SettingsModal({ settingsTab, shortcutDirty, setNotice, setSettingsTab, preferences, updatePreferences, storageUsage, refreshAssetUsage, storageBusy, cleanStorage, storageConfirm, storageNote, language, setLanguage, resetPreferences, showHints, setShowHints, setSnapping, setLayout, shortcuts, platform, applyShortcuts, setShortcutDirty, closeShortcutSettings, appVersion, updateState, updateInfo, updateMessage, checkForUpdates, downloadUpdate, updateProgress, restartUpdate, copyDownloadLink, exporter, diagnostics, copyDiagnostics, recheckExporter, storageLabel, refreshStorage }: {
+export function SettingsModal({ settingsTab, shortcutDirty, setNotice, setSettingsTab, preferences, updatePreferences, storageUsage, refreshAssetUsage, storageBusy, cleanStorage, storageConfirm, storageNote, language, setLanguage, resetPreferences, showHints, setShowHints, setSnapping, resetLayout, shortcuts, platform, applyShortcuts, setShortcutDirty, closeShortcutSettings, appVersion, updateState, updateInfo, updateMessage, checkForUpdates, downloadUpdate, updateProgress, restartUpdate, copyDownloadLink, exporter, diagnostics, copyDiagnostics, recheckExporter, storageLabel, refreshStorage }: {
   settingsTab: SettingsTab;
   shortcutDirty: boolean;
   setNotice: Dispatch<SetStateAction<string>>;
@@ -57,7 +57,7 @@ export function SettingsModal({ settingsTab, shortcutDirty, setNotice, setSettin
   showHints: boolean;
   setShowHints: Dispatch<SetStateAction<boolean>>;
   setSnapping: Dispatch<SetStateAction<boolean>>;
-  setLayout: Dispatch<any>;
+  resetLayout: () => void;
   shortcuts: ShortcutSettingsData;
   platform: ShortcutPlatform;
   applyShortcuts: (next: ShortcutSettingsData) => boolean;
@@ -158,7 +158,7 @@ export function SettingsModal({ settingsTab, shortcutDirty, setNotice, setSettin
               <Row title={t('Snap timeline by default')} description={t('New sessions start with snapping enabled.')}><Switch checked={preferences.snapping} onChange={snapping => { setSnapping(snapping); updatePreferences({ snapping }); }} /></Row>
               <div className="settings-row">
                 <span className="settings-row-text"><strong>{t('Panel layout')}</strong><small>{t('Restore the default panel sizes and positions.')}</small></span>
-                <span className="settings-row-control"><button className="button subtle" onClick={() => { setLayout({}); try { localStorage.removeItem('pixcut-layout'); } catch { /* optional */ } setNotice(t('Editor layout reset.')); }}><RefreshCw size={13} /> {t('Reset panel layout')}</button></span>
+                <span className="settings-row-control"><button className="button subtle" onClick={() => { resetLayout(); setNotice(t('Editor layout reset.')); }}><RefreshCw size={13} /> {t('Reset panel layout')}</button></span>
               </div>
             </Group>
             <p className="note">{t('Undo history is session-only and keeps up to 30 edits. Duration, speed, text, and audio edits commit as undo steps.')}</p>

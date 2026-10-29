@@ -1619,3 +1619,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - Replaced eight selection `useState` calls in `App.tsx` with `src/app/selection-store.tsx`; `TimelinePanel` reads it directly. `tests/selection-store.test.ts` (8 tests): setter shape, no-op on equal values, stable setter identity, subscribe/unsubscribe, reset, store isolation, provider.
 - Checked in the browser preview: click and shift-click range, select all, Escape, audio and element selection (inspector switches), marquee, delete then undo (select all → 0 scenes → undo → 3). An early run appeared to fail because the undo shortcut was pressed while the delete was still pending and was refused; repeating with waits worked.
 - Tests: 543 TypeScript.
+
+## Layout store (Phase 4, step 2) (2026-10-29)
+
+- `src/app/layout-store.tsx` replaces `usePanelLayout`: validated and clamped state, persistence to `pixcut-layout`, and `reset()`. `tests/layout-store.test.ts` (6): normalising garbage and old layouts, limits, load/corrupt storage, save and notify per change, reset, splitter drags (clamped, written to storage only when the drag ends).
+- Checked in the browser preview: all three splitters (library 280→340, inspector 288→340, timeline 340→400), saved on release; zoom 150%, one collapsed and one locked lane and the library width survived a reload; Settings → Editing → Reset panel layout restored defaults and cleared storage.
+- Props: `TimelinePanel` 93 → 79, `EditorBody` 180 → 177. Tests: 549 TypeScript.

@@ -52,7 +52,7 @@ describe('settings dialog', () => {
   const render = (settingsTab: 'general' | 'appearance' = 'general') => renderToStaticMarkup(createElement(SettingsModal, {
     settingsTab, shortcutDirty: false, setNotice: noop, setSettingsTab: noop, preferences: { ...DEFAULT_PREFERENCES, theme: 'system' }, updatePreferences: noop,
     storageUsage: null, refreshAssetUsage: async () => {}, storageBusy: false, cleanStorage: async () => {}, storageConfirm: false, storageNote: null,
-    language: 'en', setLanguage: noop, resetPreferences: noop, showHints: true, setShowHints: noop, setSnapping: noop, setLayout: noop,
+    language: 'en', setLanguage: noop, resetPreferences: noop, showHints: true, setShowHints: noop, setSnapping: noop, resetLayout: noop,
     shortcuts: { version: 1, preset: 'pixcut', overrides: {} } as never, platform: 'macos', applyShortcuts: () => true, setShortcutDirty: noop, closeShortcutSettings: noop,
     appVersion: '0.0.0', updateState: 'idle', updateInfo: null, updateMessage: '', checkForUpdates: noop, downloadUpdate: noop, updateProgress: 0, restartUpdate: noop, copyDownloadLink: noop,
     exporter: false, diagnostics: () => '', copyDiagnostics: noop, recheckExporter: noop, storageLabel: '', refreshStorage: noop,
