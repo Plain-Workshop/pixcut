@@ -27,6 +27,8 @@ export const ko: Record<string, string> = {
   'Recent projects': '최근 프로젝트',
   'Your projects': '내 프로젝트',
   'Pick up where you left off.': '멈춘 곳에서 이어서 하세요.',
+  'Pick up where you left off, or start something new.': '이어서 작업하거나 새로 시작하세요.',
+  'Continue editing': '계속 편집',
   'Stored locally, recovered automatically.': '로컬에 저장되고 자동으로 복구됩니다.',
   'Nothing yet': '아직 없음',
   'Video Editor': '동영상 편집기',

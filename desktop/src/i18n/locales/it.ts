@@ -27,6 +27,8 @@ export const it: Record<string, string> = {
   'Recent projects': 'Progetti recenti',
   'Your projects': 'I tuoi progetti',
   'Pick up where you left off.': 'Riprendi da dove eri rimasto.',
+  'Pick up where you left off, or start something new.': 'Riprendi da dove avevi lasciato o inizia qualcosa di nuovo.',
+  'Continue editing': 'Continua a modificare',
   'Stored locally, recovered automatically.': 'Salvato localmente, recuperato automaticamente.',
   'Nothing yet': 'Ancora niente',
   'Video Editor': 'Editor video',

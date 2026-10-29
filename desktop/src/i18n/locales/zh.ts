@@ -27,6 +27,8 @@ export const zh: Record<string, string> = {
   'Recent projects': '最近项目',
   'Your projects': '你的项目',
   'Pick up where you left off.': '从上次停下的地方继续。',
+  'Pick up where you left off, or start something new.': '从上次中断的地方继续，或开始新的创作。',
+  'Continue editing': '继续编辑',
   'Stored locally, recovered automatically.': '本地保存，自动恢复。',
   'Nothing yet': '还没有内容',
   'Video Editor': '视频编辑器',

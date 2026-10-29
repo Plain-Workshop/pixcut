@@ -27,6 +27,8 @@ export const ja: Record<string, string> = {
   'Recent projects': '最近のプロジェクト',
   'Your projects': 'あなたのプロジェクト',
   'Pick up where you left off.': '前回の続きから。',
+  'Pick up where you left off, or start something new.': '続きから再開するか、新しく始めましょう。',
+  'Continue editing': '編集を続ける',
   'Stored locally, recovered automatically.': 'ローカルに保存され、自動で復元されます。',
   'Nothing yet': 'まだありません',
   'Video Editor': '動画エディター',

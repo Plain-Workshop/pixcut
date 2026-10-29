@@ -28,23 +28,8 @@ export function HomeMain({ homeSection, open, canEdit, ready, setModal, chooseIm
   chooseTemplate: (template: TemplateDefinition) => void;
   templateImage: (template: TemplateDefinition) => string;
 }) {
-  return (
-    <>
-      
-      <main className="home-main">
-        <header className="home-topbar">
-          <div className="home-heading">
-            <div className="eyebrow"><span /><>{t(homeSection === 'home' ? 'A LITTLE MOMENT. A GREAT STORY.' : 'YOUR LOCAL LIBRARY')}</></div>
-            <h1>{homeSection === 'home' ? <>{t('What would you like')}<br /><em>{t('to create?')}</em></> : <>{t('Your stories,')}<br /><em>{t('kept close.')}</em></>}</h1>
-            <p className="home-intro">{homeSection === 'home' ? <>{t('Your photos, your pace, your point of view.')}<br />{t('Bring them together in a place that’s entirely yours.')}</> : <>{t('Everything lives on this device. Open a recent story or start a new one whenever inspiration arrives.')}</>}</p>
-          </div>
-          <div className="home-actions">
-            <button className="button subtle" onClick={() => void open()} disabled={!canEdit}><FolderOpen size={16} /> {t('Open project')}</button>
-            <button className="button primary" disabled={!ready} onClick={() => setModal('new')}><Plus size={16} /> {t('New project')}</button>
-          </div>
-        </header>
-      
-        {homeSection === 'home' && <section className="create-grid" aria-label="Create something new">
+  const returning = homeSection === 'home' && projects.length > 0;
+  const createGrid = <section className={`create-grid ${returning ? 'compact' : ''}`} aria-label="Create something new">
           <button className="create-card new-video" disabled={!ready} onClick={() => setModal('new')}>
             <span className="create-icon"><Plus size={25} /></span>
             <span className="create-copy"><strong>{t('New Video')}</strong><small>{t('Start with an empty timeline.')}</small></span>
@@ -60,12 +45,30 @@ export function HomeMain({ homeSection, open, canEdit, ready, setModal, chooseIm
             <span className="create-copy"><strong>{t('Templates')}</strong><small>{t('Start with a ready-made design.')}</small></span>
             <span className="create-arrow"><ArrowUpRight size={19} /></span>
           </button>
-        </section>}
+        </section>;
+  const homeProjects = returning ? visibleProjects.slice(0, 6) : visibleProjects;
+  return (
+    <>
       
+      <main className="home-main">
+        <header className="home-topbar">
+          <div className={`home-heading ${returning ? 'returning' : ''}`}>
+            <div className="eyebrow"><span /><>{t(homeSection === 'home' ? 'A LITTLE MOMENT. A GREAT STORY.' : 'YOUR LOCAL LIBRARY')}</></div>
+            <h1>{homeSection === 'home' ? <>{t('What would you like')}<br /><em>{t('to create?')}</em></> : <>{t('Your stories,')}<br /><em>{t('kept close.')}</em></>}</h1>
+            <p className="home-intro">{homeSection === 'home' ? (returning ? t('Pick up where you left off, or start something new.') : <>{t('Your photos, your pace, your point of view.')}<br />{t('Bring them together in a place that’s entirely yours.')}</>) : <>{t('Everything lives on this device. Open a recent story or start a new one whenever inspiration arrives.')}</>}</p>
+          </div>
+          <div className="home-actions">
+            <button className="button subtle" onClick={() => void open()} disabled={!canEdit}><FolderOpen size={16} /> {t('Open project')}</button>
+            <button className="button primary" disabled={!ready} onClick={() => setModal('new')}><Plus size={16} /> {t('New project')}</button>
+          </div>
+        </header>
+      
+        {homeSection === 'home' && !returning && createGrid}
+
         <section className="recent-section">
           <div className="section-title">
-            <div><h2>{t(homeSection === 'home' ? 'Recent projects' : 'Your projects')}</h2><p>{t(homeSection === 'home' ? 'Pick up where you left off.' : 'Stored locally, recovered automatically.')}</p></div>
-            <span className="count-label">{projects.length ? projectCount(projects.length) : t('Nothing yet')}</span>
+            <div><h2>{t(homeSection === 'home' ? (returning ? 'Continue editing' : 'Recent projects') : 'Your projects')}</h2><p>{t(homeSection === 'home' ? 'Pick up where you left off.' : 'Stored locally, recovered automatically.')}</p></div>
+            <span className="count-label">{projects.length ? (returning && visibleProjects.length > homeProjects.length ? `${homeProjects.length} of ${projectCount(projects.length)}` : projectCount(projects.length)) : t('Nothing yet')}</span>
           </div>
           {projects.length ? <>
             {homeSection === 'projects' && <div className="library-controls">
@@ -96,12 +99,12 @@ export function HomeMain({ homeSection, open, canEdit, ready, setModal, chooseIm
                 </button>
               </div></div>
             </> : <div className="project-grid">
-              {visibleProjects.map(renderProjectCard)}
+              {homeProjects.map(renderProjectCard)}
               {!visibleProjects.length && <div className="library-empty compact group-empty"><FolderOpen size={28} /><strong>{t('No projects in this group yet.')}</strong><p>{t('Use a project’s ••• menu to move it here.')}</p></div>}
-              <button className="project-card ghost" onClick={() => setModal('new')} disabled={!canEdit}>
+              {homeSection === 'projects' && <button className="project-card ghost" onClick={() => setModal('new')} disabled={!canEdit}>
                 <span className="ghost-art"><span><Plus size={24} /></span><small>{t('Blank canvas')}</small></span>
                 <div className="project-meta"><strong>{t('Start something new')}</strong><small>{t('A fresh story, ready for your photos.')}</small></div>
-              </button>
+              </button>}
             </div>}
           </> : <div className="empty-projects">
             <div className="empty-projects-icon"><Clapperboard size={28} /></div>
@@ -109,13 +112,15 @@ export function HomeMain({ homeSection, open, canEdit, ready, setModal, chooseIm
             <button className="button subtle" onClick={() => void chooseImages()} disabled={!canEdit}><Upload size={15} /> {t('Import photos')}</button>
           </div>}
         </section>
-      
+
+        {returning && createGrid}
+
         {homeSection === 'home' && <section className="thumb-strip" aria-label="Template inspiration">
           <div className="section-title"><div><h2>{t('Skip the blank page')}</h2><p>{t('Start from a sample and make it yours.')}</p></div><button className="text-button" onClick={() => setModal('templates')}>{t('Browse templates')} <ArrowRight size={14} /></button></div>
           <div className="thumb-grid">{TEMPLATES.slice(0, 3).map(template => <button key={template.id} className="thumb-card" onClick={() => chooseTemplate(template)}><span className="thumb-art"><img src={templateImage(template)} alt="" /></span><span><strong>{t(template.name)}</strong><small>{sceneCount(template.sceneCount)} · {template.duration.toFixed(1)} s</small></span></button>)}</div>
         </section>}
       
-        {homeSection === 'home' && <section className="home-perks">
+        {homeSection === 'home' && !returning && <section className="home-perks">
           <div><span className="perk-icon violet"><Zap size={17} /></span><strong>{t('Simple')}</strong><small>{t('Start creating in minutes')}</small></div>
           <div><span className="perk-icon blue"><Layers size={17} /></span><strong>{t('Powerful')}</strong><small>{t('Timing, titles, and color')}</small></div>
           <div><span className="perk-icon pink"><WifiOff size={17} /></span><strong>{t('On this device')}</strong><small>{t('Edit without internet or account')}</small></div>
