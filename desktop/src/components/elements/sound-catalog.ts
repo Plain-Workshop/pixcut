@@ -1,14 +1,14 @@
 import { secondsToTicks, ticksToSeconds, totalTicks, type AudioClip, type Project } from '../../stores/model';
 
 /**
- * A curated, grouped sound-effect library rendered locally as PCM. PixCut ships
- * no downloads and no third-party recordings: every effect is synthesized on
- * demand from a compact spec, so preview and FFmpeg receive identical WAV data.
+ * A curated, grouped sound-effect library rendered locally as PCM. Every effect
+ * here is synthesized on demand from a compact spec, so preview and FFmpeg receive identical WAV data.
  *
  * The catalog is deliberately built from distinct archetypes (transients,
  * strings, FM bells, vowels, swept noise, ambience beds) instead of stacking
  * small parameter changes, and `tests/sound-catalog.test.ts` measures every
- * pair to keep near-duplicates out.
+ * pair to keep near-duplicates out. Real recordings (CC0 / CC BY only) live in
+ * `stores/sound-library.ts` and `public/sounds/`.
  */
 export type SoundEngine = 'tone' | 'chime' | 'fm' | 'pluck' | 'formant' | 'noise' | 'whoosh' | 'impact' | 'sweep' | 'arp' | 'ambience' | 'click';
 export type SoundCategoryId = 'ui' | 'chime' | 'whoosh' | 'impact' | 'cartoon' | 'alert' | 'nature' | 'scifi' | 'music' | 'foley';

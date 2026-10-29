@@ -1,3 +1,4 @@
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { t } from '../i18n';
 import { resolveMediaSource } from '../components/preview/media-url';
 import { MAX_AUDIO_FILE_BYTES } from '../stores/model';
@@ -96,4 +97,15 @@ export function mediaSource(value: string | undefined) {
 /** True when a source is a data URL or a streamed asset reference. */
 export function hasMedia(value: string | undefined) {
   return Boolean(value) && (value!.startsWith('pixcut-asset:') || Boolean(mediaSource(value)));
+}
+
+/** Keep a drag's pointerup inside the webview when the cursor leaves the window. */
+export function captureDragPointer(event: ReactPointerEvent<HTMLElement>) {
+  try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* pointer already released */ }
+}
+
+/** The text saved beside an exported video: one credit per line, ready to paste. */
+export function creditsFileText(projectName: string, credits: string[]): string {
+  const lines = [...new Set(credits.map(credit => credit.trim()).filter(Boolean))];
+  return `Music credits for “${projectName.trim() || 'Untitled'}”\n\n${lines.join('\n')}\n\nPaste these lines into the video description where you publish it.\n`;
 }

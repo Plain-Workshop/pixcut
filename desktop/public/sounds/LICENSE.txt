@@ -1,0 +1,16 @@
+Bundled recorded sound effects.
+
+Only files whose licence allows commercial use AND redistribution are accepted:
+  CC0 1.0     public domain dedication, no credit needed
+  CC BY 4.0   free for commercial videos, the author must be credited
+
+Every file is listed in manifest.json with its author, original page and licence.
+PixCut shows the credit line for CC BY sounds and adds it to the export credits.
+Files are trimmed, loudness-normalised and re-encoded to mono AAC; the source
+recordings are otherwise unchanged. Add sounds with scripts/import-sounds.mjs.
+
+Sites whose licence forbids redistributing the raw file (Pixabay, Mixkit,
+Zapsplat, Sonniss) and any NC or ND licence are not used.
+
+Sources in this folder
+  Kenney (kenney.nl), UI Audio pack — CC0 1.0, no credit required. 9 interface sounds.

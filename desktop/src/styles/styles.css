@@ -2109,6 +2109,20 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .audio-library-tabs button[aria-selected="true"] { background: #483565; border-color: #9474cd; color: #fff; }
 .music-mood { flex-direction: row; align-items: center; justify-content: space-between; margin: 0 0 10px; }
 .music-mood select { width: 120px; }
+/* Online music search */
+.music-source-switch { display: flex; gap: 4px; margin-bottom: 10px; }
+.music-source-switch button { flex: 1; padding: 6px 5px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 11.5px; }
+.music-source-switch button[aria-selected="true"] { background: #483565; border-color: #9474cd; color: #fff; }
+.online-music-search { display: flex; gap: 6px; align-items: flex-start; }
+.online-music-search .search-field { flex: 1; margin-bottom: 8px; }
+.online-music-search .button { padding: 8px 12px; font-size: 11px; }
+.online-genres { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.online-genres button { padding: 5px 10px; border-radius: 999px; border: 1px solid #2A3052; background: #171C37; color: #9DA4C4; font-size: 10px; }
+.online-genres button:hover:not(:disabled) { border-color: #5648A8; color: #DCD8FF; filter: none; }
+.online-genres button.active { background: linear-gradient(135deg, #7655F6, #5F43DE); border-color: transparent; color: #fff; }
+.online-music-error { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid #6b3340; background: #2c1a22; color: #ffb4c0; font-size: 11px; }
+.online-music-list .free-music-track a.icon-button { display: grid; place-items: center; color: inherit; }
+.online-more { width: 100%; margin: 10px 0 4px; }
 .free-music-list { display: flex; flex-direction: column; gap: 7px; }
 .free-music-track { display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: #28282f; }
 .free-music-track.previewing, .audio-list-select.previewing { border-color: #b49bff; background: #342b45; }
@@ -2163,3 +2177,21 @@ h1 em { font-style: normal; background: linear-gradient(100deg, #7A55FF 12%, #C4
 .curve-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; font-size: 10px; color: #8E8A9E; }
 .curve-footer > div { display: flex; gap: 8px; }
 .curve-footer .text-button { padding: 0; font-size: 10px; }
+.online-status { min-height: 0; margin: 0 0 8px; font-size: 11px; color: #9DA4C4; display: flex; align-items: center; gap: 6px; }
+.online-status:empty { display: none; }
+.online-skeleton .free-music-track { opacity: .9; }
+.skeleton-dot { width: 26px; height: 26px; border-radius: 50%; background: #2A3052; flex: none; animation: online-pulse 1.2s ease-in-out infinite; }
+.skeleton-line { display: block; height: 9px; border-radius: 4px; background: #2A3052; margin: 4px 0; animation: online-pulse 1.2s ease-in-out infinite; }
+.skeleton-line.short { width: 40%; height: 7px; }
+.online-skeleton .free-music-track > span { flex: 1; }
+@keyframes online-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .skeleton-dot, .skeleton-line { animation: none; } }
+.online-down { color: #ffb4c0; }
+.online-views { margin-bottom: 6px; }
+.online-views button { display: inline-flex; align-items: center; gap: 4px; }
+.free-music-track .icon-button.star.on { color: #f5c542; }
+.downloaded-note { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; color: var(--muted); font-size: 10.5px; }
+.online-downloaded { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 6px; border-radius: 999px; border: 1px solid #2f6b4f; background: #16291f; color: #8fe0b4; font-size: 9.5px; font-style: normal; font-weight: 600; vertical-align: middle; }
+.online-progress { display: block; margin-top: 4px; }
+.online-progress em { display: block; font-size: 10px; font-style: normal; color: #9DA4C4; margin-bottom: 3px; }
+.online-progress progress { display: block; width: 100%; height: 4px; border: 0; border-radius: 2px; background: #2A3052; accent-color: #7655F6; }

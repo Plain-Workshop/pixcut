@@ -1461,3 +1461,87 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - `sound-effects.ts` stays the short inspector list (bell, click, pop, whoosh, success, shutter) and delegates to the catalog, so element sounds and the sidebar share one engine. `addSound` accepts any catalog id through `createSoundClip`, which keeps the existing lane/trim rules.
 - Browser check `tests/browser/sound-library.js` (Chromium): ten groups summing to 300 sounds, search for "whoosh" narrowed to one group, Listen used a `data:audio/wav` source that started, Add produced one "Click" clip on the audio timeline, and no console errors. Reviewed `output/playwright/sound-library-chromium.png`, `sound-library-groups-chromium.png` and `sound-library-search-chromium.png`.
 - Tests: `tests/sound-catalog.test.ts` checks the 300-item catalog and even group sizes, unique ids, exact WAV lengths, audible peaks, click-free tails, 300 distinct renders, the pairwise fingerprint distance, group/search ordering, and model round-trip. Full suite 357 tests in 54 files; `npm run build` passes and the desktop app runs against the dev server.
+
+## Recorded sound library pipeline
+
+- Added `public/sounds/manifest.json` (empty until the first import), `src/stores/sound-library.ts`, and `scripts/import-sounds.mjs`. The Sounds tab lists recorded sounds in their own categories below the 300 synthesized effects and shows nothing extra while the manifest is empty.
+- Only CC0 1.0 and CC BY 4.0 are accepted, because PixCut redistributes the files. The import script and `tests/sound-library.test.ts` reject NC/ND licences and site licences that forbid redistribution (Pixabay, Mixkit, Zapsplat, Sonniss).
+- CC BY sounds name the author in the clip and surface the credit line with the music credits; CC0 sounds need none.
+- Checked in the browser preview with two temporary imported sounds (a CC0 one and a CC BY one), then removed them.
+
+## Online sound effects
+
+- The Sounds tab now has Bundled / Online, mirroring the Music panel. Online searches Openverse `sound_effect` audio (CC0, CC BY, public domain only) and lets the user listen and add in the app. The Rust command takes a whitelisted category (`music` or `sound_effect`); anything else falls back to music.
+- Requests happen only when the user searches, listens or adds. The CC BY credit line is saved with the clip.
+- Tests: `tests/online-music.test.ts` (sound-effect duration limits and license filtering) and `online_music::tests` (category whitelist).
+- Not verified live: the Openverse API did not answer from this environment (timeout), so only the error state was checked in the browser preview, not real results.
+
+## Online catalogues and fallback
+
+- Online music and sound effects search Openverse and Wikimedia Commons. In Auto mode both start together; if Openverse errors, hangs for 6 s or returns nothing, the Commons results are shown with a note. The user can also pin one catalogue.
+- Commons results are accepted only as CC0, plain CC BY or public domain (share-alike, NC and ND are rejected). Ogg files use Commons' MP3 transcode first and fall back to the original file.
+- Rust: `online_audio_get` fetches only from an allow-list of catalogue hosts (https, no user-info, exact host match).
+- Tests: Commons parsing, license mapping, transcode URL, paging, and fallback on error and on a hung request (`tests/online-music.test.ts`); host allow-list (`online_music::tests`).
+- Checked in the browser preview while Openverse was down: Auto fell back to Commons, results listed, Listen played, Add placed the clip with its credit.
+- Not covered: Rust-side network calls (the sandbox cannot reach the catalogues); the desktop path uses the same URLs and parsers.
+
+## Free Music Archive source
+
+- Added a music-only "Free Music Archive" catalogue: the Internet Archive's `collection:freemusicarchive` mirror, filtered to CC BY 2.0–4.0 and CC0 licence URLs. All of archive.org is deliberately not searched, because its licence field is uploader-asserted. Each item's MP3 files come from `archive.org/metadata/<id>`, up to 4 per item.
+- `online_audio_get` allow-list now includes `archive.org` (exact host, https only).
+- Checked live in the browser preview: a search returned CC BY 3.0 tracks with durations, and the download URL answered 200 audio/mpeg.
+- Jamendo (needs a user-supplied key) is not added; it waits on a product decision.
+
+## Results on open
+
+- Opening Online (music or sounds) now runs one starter search ("Lo-fi" music, "Whoosh" sounds) so the list is never empty; the result is remembered per kind, so switching tabs does not refetch. This is a user-initiated browse, not a background request; nothing runs while editing or exporting.
+- Checked in the browser preview: opening Sounds → Online listed Commons results for Whoosh with no typing.
+
+## Load more fix
+
+- Paging no longer stops a playing preview. Each load now fetches up to 5 pages until about 10 new tracks are found (licence and length filters can empty a page), follows Commons' own `continue.gsroffset` cursor, drops duplicates, and shows "No more results" when the catalogue is exhausted.
+- Checked live in the browser preview (Applause): 12 → 32 tracks on Load more with the preview still playing.
+
+## Online search loading state
+
+- A new search shows a status line naming the catalogue being searched ("Searching Openverse and Wikimedia Commons…", or the pinned one) and replaces the old list with skeleton rows. After 6 s in Auto it says Openverse is slow and Commons is being used; pinned searches say "Still waiting for …". Load more shows "Loading more…" under the list. Both lines are `role="status"` / `aria-live="polite"`; the search button keeps its spinner; chips stay enabled and a newer search cancels the older one.
+- Checked in the browser preview (screenshot): status text and skeleton rows while a pinned Openverse search was pending, real list afterwards. The 6-second wording was not observed live because Commons answered first.
+
+## "All" browses instead of doing nothing
+
+- Choosing the "All" chip (or a catalogue chip) with nothing typed used to skip the search, so the list stayed empty. It now searches a broad starter word ("music" or "sound") and shows results.
+- Checked in the browser preview: music All returned 31 tracks from Free Music Archive and 13 from Commons (Auto fell back to Commons with its note); Openverse itself was still down at the time.
+
+## Favorites, catalogue health, more topics
+
+- Sound topics now include Rimshot, Heartbeat, Drum roll, Record scratch, Explosion and Notification.
+- Star a result to save it; the "Saved" view lists starred tracks per kind (music or sound effects). Favorites are catalogue entries (links, licence, credit) in local storage, validated on load (https only, CC0 / CC BY / public domain, capped at 100); playing or adding one still contacts its host.
+- Catalogue chips show "· down" for ten minutes after a catalogue failed or timed out.
+- Browser-preview downloads are labelled by file extension (`application/ogg` → `audio/ogg`) so export accepts them. Desktop downloads go through the asset store and straight to FFmpeg.
+- Checked in the browser preview: 17 topic chips, the Openverse "down" badge, star → Saved (2) → stored in local storage.
+
+## Download throttling (HTTP 429)
+
+- All catalogue requests send `PixCut/<version> (https://github.com/Plain-Workshop/pixcut; free offline photo-movie editor)` as the User-Agent, as Wikimedia's robot policy asks.
+- Desktop requests retry on 429/502/503/504: first after 2 s, then `Retry-After` capped at 10 s, at most twice. The browser preview retries once after 2 s.
+- Errors name the host and status ("upload.wikimedia.org is busy right now (HTTP 429)…") and suggest another track or catalogue. If a Commons MP3 transcode fails for any reason, the original file is tried; the track list stays on screen.
+- Tests: Rust `retry_delay` and error-text tests; TypeScript retry, fallback and final-error tests. Not reproduced against the real 429: it depends on the user's IP and the running desktop app must be rebuilt (tauri dev does this on Rust changes).
+
+## Download progress and cancel
+
+- Rust `online_music_download` copies in 64 KiB chunks (50 MB cap kept) and emits `online-download-progress` `{ url, received, total, retryIn }` at most about 10 times a second; `online_download_cancel` stops the copy or a retry wait with "Download cancelled.". One download runs at a time, so a single flag is used.
+- The Add button on a row becomes Cancel (X) while that track downloads, with "Downloading 1.2 / 4.8 MB" and a `<progress>` bar (indeterminate when the size is unknown) in a polite live region; "Busy host, retrying in 2 s…" shows during a 429 backoff. The browser preview streams the response and reports the same progress; cancelling aborts it.
+- A cancelled download never tries the fallback file and gets no "try another track" hint.
+- Tests: Rust chunked copy (progress, cap, cancel); TypeScript formatting, percent, streaming progress, unsubscribe and cancel. Checked in the browser preview with a throttled download: progress advanced 0.0 → 0.1 / 1.2 MB, Cancel worked.
+
+## Converting FLAC / Opus downloads
+
+- Online search lists only files PixCut can use: MP3, WAV, M4A, AAC, Ogg, WebM, plus FLAC, Opus, WMA, AIFF and MKA when FFmpeg is installed (asked once through `exporter_available`). MIDI is never listed. Without FFmpeg, or in the browser preview, the convertible formats are hidden so Add cannot fail on the format.
+- On the desktop, a downloaded convertible file is converted by FFmpeg to AAC in M4A (192 kbps) before it goes into the asset store; cancel also stops the conversion. Commons keeps the MP3 transcode for preview and as the first download, with the original (converted) as the fallback.
+- Tests: `convertible_extension` cases, an FFmpeg-gated conversion test (`cargo test -- --ignored`: FLAC → M4A, cancel, broken input) which passes here, and TypeScript listing rules with the converter on and off.
+
+## Timeline mute and volume lost in the desktop app
+
+- Cause: the Rust `Project` serialized `audio_mix`, `global_text` and `beat_ticks` in snake_case while the editor reads `audioMix`, `globalText` and `beatTicks`. In the desktop app every Rust answer therefore dropped the mixer levels (and global text and beat markers), so the track mute and volume controls reverted and changed nothing; exports ignored the mixer for the same reason. The browser preview never touches Rust, so it worked.
+- Fix: those three fields are now written in camelCase and still read the old snake_case keys, so projects and recovery files saved by earlier builds load. The editor's project validation also accepts the old keys.
+- Tests: JSON round trip of the `audioMix` command through a session, camelCase output with snake_case input accepted, and a TypeScript load of an old-key project.
