@@ -1644,3 +1644,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - `src/app/editor-actions.tsx`: 62 callbacks as one typed context. `tests/editor-actions.test.ts` (2). `EditorBody` 150 → 88 props.
 - Browser preview, each undone afterwards: duplicate clip (3 → 4 → 3), add element (1 → 2 → 1), add bundled sound (1 → 2 → 1), add text with `T` (9 → 10 → 9); no console errors. The project ended in its starting state.
 - Tests: 561 TypeScript.
+
+## EditorBody split (Phase 4, step 6) (2026-10-29)
+
+- `EditorBody` replaced by `LibraryPanel`, `PreviewPanel` and `InspectorPanel`, generated mechanically from the existing JSX; `App` renders them directly. DOM structure unchanged.
+- Browser preview: all five library tabs, Music → Online/Bundled (15 tracks), Sounds groups (11), safe-area toggle, inspector heading, no console errors. Play toggles Play/Pause; the timecode does not advance in this pane, and the previous commit behaves identically (stashed and re-tested), so it is a limitation of the hidden preview pane.
+- Tests: 561 TypeScript (unchanged; the panels have no unit tests of their own yet).

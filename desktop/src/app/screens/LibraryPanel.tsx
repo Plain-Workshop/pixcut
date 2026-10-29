@@ -7,37 +7,31 @@ import { searchRecordedSounds, recordedSoundData, creditForRecordedClip, recorde
 import { SOUND_CATALOG, soundData } from '../../components/elements/sound-catalog';
 import { ElementGlyph } from '../../components/elements/ElementGlyph';
 import { ELEMENT_CATALOG, ELEMENT_CATEGORIES, ELEMENT_COLLECTIONS } from '../../components/elements/catalog';
-import { elementTransform } from '../../components/elements/transform';
-import { constrainPipTiming, freePipStart } from '../../components/timeline/pip';
-import { applyElementMotion } from '../../components/animation/keyframes';
 import { AssetImage } from '../../components/preview/AssetImage';
 import { type TimelineOverlay } from '../../components/elements/overlays';
 import { fontCount, sceneCount, t } from '../../i18n';
 import { useState } from 'react';
-import { Captions, ArrowRight, Camera, Check, ChevronDown, Clapperboard, Copy, Download, Film, ImagePlus, Layers, LayoutTemplate, Maximize2, Music, Pause, Play, Plus, RefreshCw, Repeat, Search, Settings2, Shapes, SkipBack, Trash2, Type } from 'lucide-react';
+import { Captions, ChevronDown, Clapperboard, Copy, Download, Film, ImagePlus, Layers, LayoutTemplate, Music, Pause, Play, Plus, RefreshCw, Search, Shapes, Trash2, Type } from 'lucide-react';
 import { ElementPreview } from '../../components/elements/ElementPreview';
 import { IconButton } from '../../components/IconButton';
-import { SceneForm } from '../../components/inspector/SceneForm';
-import { RangeField } from '../../components/inspector/NumberField';
 import { useLayout } from '../layout-store';
 import { useEditorActions } from '../editor-actions';
 import { useEditorModel } from '../editor-model';
 import { useEditorView } from '../editor-view';
 import { useSelection } from '../selection-store';
-import { MAX_PROJECT_FONTS, minTicks, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, type AudioClip, type Scene, type ScenePatchKey, type TextLayer, type FormatVariant, type ElementLayer } from '../../stores/model';
-import { sceneTextLayers, sceneTextTitle } from '../../components/text/layers';
+import { MAX_PROJECT_FONTS, sceneSeconds, secondsToTicks, ticksToSeconds, type AudioClip, type Scene } from '../../stores/model';
+import { sceneTextLayers } from '../../components/text/layers';
 import { fontOption } from '../../components/text/fonts';
 import { messageFor } from '../errors';
 import { formatBytes, hasMedia } from '../helpers';
-import { SAMPLE_TEMPLATE, TEMPLATES } from '../../templates/catalog';
-import type { Dispatch, SetStateAction, ReactElement, RefObject } from 'react';
+import { TEMPLATES } from '../../templates/catalog';
+import type { Dispatch, SetStateAction, RefObject } from 'react';
 import type { SoundCategoryId, SoundSpec } from '../../components/elements/sound-catalog';
-import type { InspectorKind } from '../inspector';
 import type { ElementPreset } from '../../components/elements/catalog';
 import { TITLE_PRESETS } from '../title-presets';
 import { elementDisplayName } from '../../components/elements/catalog';
 
-export function EditorBody({ savedTracks, tab, setTab, tabTitles, audioLaneRef, selectedAudio, setModal, mediaQuery, setMediaQuery, filteredScenes, mediaDragRef, setDropTarget, setHoveredMedia, hoveredMedia, playing, modal, sourceMedia, setSelectedGlobalTextId, captionInput, fontTargetId, fontInput, audioLibraryTab, setAudioLibraryTab, previewingAudio, musicMood, setMusicMood, soundQuery, setSoundQuery, soundGroups, openSoundGroup, setOpenSoundGroup, recordedSounds, position, elementSearch, setElementSearch, setElementLimit, elementCollection, setElementCollection, setElementCategory, elementCategory, allOverlays, filteredElements, elementLimit, setHoveredElement, hoveredElement, safeArea, activeFormat, setActiveFormatId, previewArea, previewStage, previewSize, preview, sceneVideo, setVideoTick, pipVideoElements, setPipVideoTick, snapGuides, framingMode, textBox, selectedTextVisible, selectedElement, editingText, setTextDraft, setEditingText, overlayDraft, sceneLayerRank, textDraft, fadeAmount, setPosition, setPlaying, loop, setLoop, propertyKind, setSelectedIds, setPrimarySelected, selectionAnchor, audioInspector, elementInspector, inspectorScene, setGlobalTextDraft, setPreviewScene, propertyClipboard, textStartTicks, textLayerLocal, previewLocalSeconds, textFocus, setFramingMode, renderOverlays }: {
+export function LibraryPanel({ tab, setTab, tabTitles, audioLaneRef, selectedAudio, setModal, mediaQuery, setMediaQuery, filteredScenes, mediaDragRef, setDropTarget, setHoveredMedia, hoveredMedia, playing, modal, sourceMedia, setSelectedGlobalTextId, captionInput, fontTargetId, fontInput, audioLibraryTab, setAudioLibraryTab, previewingAudio, musicMood, setMusicMood, savedTracks, soundQuery, setSoundQuery, soundGroups, openSoundGroup, setOpenSoundGroup, recordedSounds, position, elementSearch, setElementSearch, setElementLimit, elementCollection, setElementCollection, setElementCategory, elementCategory, allOverlays, filteredElements, elementLimit, setHoveredElement, hoveredElement }: {
   tab: "media" | "text" | "elements" | "audio" | "templates";
   setTab: Dispatch<SetStateAction<"media" | "text" | "elements" | "audio" | "templates">>;
   tabTitles: { readonly media: "Your media"; readonly text: "Titles"; readonly elements: "Elements"; readonly transitions: "Transitions"; readonly effects: "Effects"; readonly audio: "Audio"; readonly templates: "Templates"; };
@@ -83,61 +77,17 @@ export function EditorBody({ savedTracks, tab, setTab, tabTitles, audioLaneRef, 
   elementLimit: number;
   setHoveredElement: Dispatch<SetStateAction<string | null>>;
   hoveredElement: string | null;
-  safeArea: boolean;
-  activeFormat: FormatVariant;
-  setActiveFormatId: Dispatch<SetStateAction<string | null>>;
-  previewArea: RefObject<HTMLDivElement | null>;
-  previewStage: RefObject<HTMLDivElement | null>;
-  previewSize: { width: number; height: number; } | null;
-  preview: RefObject<HTMLCanvasElement | null>;
-  sceneVideo: RefObject<HTMLVideoElement | null>;
-  setVideoTick: Dispatch<SetStateAction<number>>;
-  pipVideoElements: RefObject<Map<string, HTMLVideoElement>>;
-  setPipVideoTick: Dispatch<SetStateAction<number>>;
-  snapGuides: { x: number | null; y: number | null; };
-  framingMode: boolean;
-  textBox: { hasText: boolean; leftPct: number; topPct: number; widthPct: number; heightPct: number; rotation: number; } | null;
-  selectedTextVisible: boolean;
-  selectedElement: TimelineOverlay | null;
-  editingText: boolean;
-  setTextDraft: Dispatch<SetStateAction<{ title: string; subtitle: string; }>>;
-  setEditingText: Dispatch<SetStateAction<boolean>>;
-  overlayDraft: TimelineOverlay | null;
-  sceneLayerRank: Map<string, number>;
-  textDraft: { title: string; subtitle: string; };
-  fadeAmount: number;
-  setPosition: Dispatch<SetStateAction<number>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  loop: boolean;
-  setLoop: Dispatch<SetStateAction<boolean>>;
-  propertyKind: InspectorKind;
-  setSelectedIds: Dispatch<SetStateAction<string[]>>;
-  setPrimarySelected: Dispatch<SetStateAction<string | null>>;
-  selectionAnchor: RefObject<string | null>;
-  audioInspector: ReactElement;
-  elementInspector: ReactElement | null;
-  inspectorScene: Scene | null;
-  setGlobalTextDraft: Dispatch<SetStateAction<TextLayer[] | null>>;
-  setPreviewScene: Dispatch<SetStateAction<Scene | null>>;
-  propertyClipboard: Partial<Scene> | null;
-  textStartTicks: number;
-  textLayerLocal: number;
-  previewLocalSeconds: number;
-  textFocus: number;
-  setFramingMode: Dispatch<SetStateAction<boolean>>;
-  renderOverlays: ElementLayer[];
 }) {
-  const { canEdit, projectTicks, project, setError, run, scenes, audio, setNotice, preferences, activeSize, duration, frameSeconds } = useEditorModel();
-  const { selectedScene, previewTarget, pipVideoScenes, selectedTextLayer, selectedGlobalText, selectedPip, selectedCount, activePip, pipScenes, selectedTextScene, hasSceneSelection } = useEditorView();
+  const { canEdit, projectTicks, project, setError, run, scenes, audio, setNotice, preferences } = useEditorModel();
+  const { selectedScene } = useEditorView();
   const { selectedGlobalTextId, selectedTextLayerId, editTarget, selectedElementId } = useSelection();
-  const { chooseImages, chooseVideo, chooseCustomElement, chooseAudio, dragOverTarget, dropIntoMedia, beginMediaDrag, previewMedia, appendMedia, addMediaPip, selectGlobalText, addProjectText, selectTextLayer, exportCaptions, removeFont, addTextLayerAtPlayhead, hoverLibraryAudio, stopLibraryPreview, focusAudio, copyMusicCredit, addMusic, addSavedTrack, removeSavedTrack, addOnlineMusic, copyMusicCredits, addSound, addRecordedSound, chooseTemplate, templateImage, selectOverlay, addElement, tip, runCommandId, saveStillFrame, togglePreviewFullscreen, beginImagePan, beginTextMove, beginTextResize, beginElementMove, beginElementRotate, beginElementResize, previewInlineText, blurInlineText, cancelInlineText, commitInlineText, shortcutText, scrubTo, togglePlayback, removePip, stagePip, commitPip, stagePipStyle, removeAudio, updateSelection, copySceneProperties, notifyPasted, inspectorFlush, requestReplaceImage, applyFramingToAllFormats, reorderLayer, deleteSelected, duplicateSelected } = useEditorActions();
-  const { libraryWidth, inspectorWidth, beginResize } = useLayout();
+  const { chooseImages, chooseVideo, chooseCustomElement, chooseAudio, dragOverTarget, dropIntoMedia, beginMediaDrag, previewMedia, appendMedia, addMediaPip, selectGlobalText, addProjectText, selectTextLayer, exportCaptions, removeFont, addTextLayerAtPlayhead, hoverLibraryAudio, stopLibraryPreview, focusAudio, copyMusicCredit, addMusic, addSavedTrack, removeSavedTrack, addOnlineMusic, copyMusicCredits, addSound, addRecordedSound, chooseTemplate, templateImage, selectOverlay, addElement } = useEditorActions();
+  const { libraryWidth, beginResize } = useLayout();
   const recordedGroups = searchRecordedSounds(recordedSounds, soundQuery);
   const [musicSource, setMusicSource] = useState<'bundled' | 'online' | 'saved'>('bundled');
   const [soundSource, setSoundSource] = useState<'bundled' | 'online' | 'saved'>('bundled');
   return (
     <>
-      <div className="editor-body">
         <aside className="library" style={{ width: libraryWidth }}>
         <nav className="tool-rail" aria-label={t('Editor tools')}>
           <button aria-label={t('Media')} title={t('Media')} className={tab === 'media' ? 'active' : ''} onClick={() => setTab('media')}><Clapperboard size={20} /><span>{t('Media')}</span></button>
@@ -281,128 +231,6 @@ export function EditorBody({ savedTracks, tab, setTab, tabTitles, audioLaneRef, 
         </aside>
       
         <div className="splitter vertical" onPointerDown={e => beginResize('library', libraryWidth, e.clientX)} />
-      
-        <main className="preview-panel">
-          <div className="preview-heading">
-            <span>{t('PREVIEW')}</span>
-            <div>
-              <span className="offline"><span />{t('Local only')}</span>
-              <button className="text-button" title={tip('view.safe_area', `Safe area ${safeArea ? 'on' : 'off'}`)} onClick={() => runCommandId('view.safe_area')}>{t('Safe area')} {safeArea ? t('on') : t('off')}</button>
-              <select aria-label={t('Output format')} value={activeFormat?.id ?? ''} disabled={!canEdit} onChange={event => setActiveFormatId(event.target.value)}>{project.formats.map(format => <option key={format.id} value={format.id}>{format.name} · {format.aspect}</option>)}</select>
-              <button className="format-manage-button" onClick={() => setModal('formats')}><Layers size={13} /> {t('Formats')} <span>{project.formats.length}</span></button>
-              {previewTarget && <IconButton label={t('Save still frame · {width} × {height} PNG', { width: activeSize.width, height: activeSize.height })} onClick={() => void saveStillFrame()}><Camera size={15} /></IconButton>}
-              <IconButton label="Fullscreen preview" onClick={togglePreviewFullscreen}><Maximize2 size={15} /></IconButton>
-            </div>
-          </div>
-          <div className="preview-area" ref={previewArea}>
-            {previewTarget ? <div className="preview-stage" data-dialog-open={Boolean(modal)} inert={Boolean(modal)} ref={previewStage} style={previewSize ? { width: previewSize.width, height: previewSize.height } : undefined}>
-              <canvas ref={preview} className="preview-canvas" aria-label={t('Preview: {name}', { name: sceneTextTitle(previewTarget) || previewTarget.name })} />
-              <video ref={sceneVideo} className="scene-video" playsInline preload="auto" aria-hidden="true" onLoadedData={() => setVideoTick(value => value + 1)} onSeeked={() => setVideoTick(value => value + 1)} />
-              {pipVideoScenes.map(clip => <video
-                key={clip.id}
-                ref={node => { if (node) pipVideoElements.current.set(clip.id, node); else pipVideoElements.current.delete(clip.id); }}
-                className="scene-video"
-                playsInline
-                preload="auto"
-                muted
-                aria-hidden="true"
-                onLoadedData={() => setPipVideoTick(value => value + 1)}
-                onSeeked={() => setPipVideoTick(value => value + 1)}
-              />)}
-              {snapGuides.x !== null && <span className="snap-guide vertical" style={{ left: `${snapGuides.x * 100}%` }} aria-hidden="true" />}
-              {snapGuides.y !== null && <span className="snap-guide horizontal" style={{ top: `${snapGuides.y * 100}%` }} aria-hidden="true" />}
-              {selectedScene && framingMode && canEdit && <div className="image-framing-overlay" onPointerDown={beginImagePan} title={t('Drag to choose the visible part of the image')}>
-                <span className="framing-grid" aria-hidden="true" />
-                <span className="framing-hint">{t('Drag to reposition · adjust zoom and letterbox in the inspector')}</span>
-              </div>}
-              {selectedScene && selectedTextLayer && !selectedGlobalText && textBox?.hasText && selectedTextVisible && !selectedElement && canEdit && !editingText && !framingMode && <div
-                className="text-box"
-                style={{ left: `${textBox.leftPct}%`, top: `${Math.max(0, textBox.topPct - .7)}%`, width: `${textBox.widthPct}%`, height: `${Math.max(7, textBox.heightPct + 1.4)}%`, transform: `rotate(${textBox.rotation}deg)` }}
-                title={t('Drag to move · drag the edge handles to resize · double-click to edit')}
-                onPointerDown={beginTextMove}
-                onDoubleClick={event => { event.stopPropagation(); setTextDraft({ title: selectedTextLayer.title, subtitle: selectedTextLayer.subtitle }); setEditingText(true); }}
-              >
-                <span className="text-box-handle left" onPointerDown={event => beginTextResize(event, 'left')} />
-                <span className="text-box-handle right" onPointerDown={event => beginTextResize(event, 'right')} />
-                <span className="text-box-label">{t('TEXT')}</span>
-              </div>}
-              {canEdit && !framingMode && !editingText && allOverlays.map((saved, index) => {
-                const draft = overlayDraft?.id === saved.id ? overlayDraft : saved;
-                const local = position - ticksToSeconds(draft.startTicks, project.timebase);
-                if (local < 0 || local >= ticksToSeconds(draft.durationTicks, project.timebase)) return null;
-                const element = draft;
-                const shown = element.keyframes?.length ? applyElementMotion(element, local) : element;
-                const motion = elementTransform(shown, local, project.timebase);
-                const selected = selectedElementId === element.id;
-                const rank = sceneLayerRank.get(element.legacySceneId ? `element:${element.legacyId}` : `overlay:${element.id}`) ?? index;
-                return <div key={element.id} role="button" tabIndex={0} aria-label={t('Select overlay {element}', { element: elementDisplayName(element) })} aria-pressed={selected} className={`overlay-hitbox ${selected ? 'element-box' : ''}`} style={{ left: `${(shown.x + motion.x - shown.width / 2) * 100}%`, top: `${(shown.y + motion.y - shown.height / 2) * 100}%`, width: `${shown.width * 100}%`, height: `${shown.height * 100}%`, transform: `rotate(${shown.rotation + motion.rotation}deg) scale(${motion.scale})`, zIndex: (element.legacySceneId ? 4 : 100) + rank, pointerEvents: playing ? 'none' : undefined }} title={t('Drag to move {element}', { element: elementDisplayName(element) })} onClick={event => { if (event.detail === 0) selectOverlay(element, false); }} onPointerDown={event => beginElementMove(event, element)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectOverlay(element, false); } }}>{selected && <>
-                  <span className="element-box-label">{element.kind === 'image' || element.kind === 'video' ? 'OVERLAY' : 'ELEMENT'}</span>
-                  <span className="element-rotate-stem" aria-hidden="true" />
-                  <span className="element-rotate-handle" title={t('Drag to rotate · hold Shift to snap to 15°')} onPointerDown={event => beginElementRotate(event, element)} />
-                  {(['nw', 'ne', 'sw', 'se'] as const).map(corner => <span key={corner} className={`element-handle ${corner}`} title={t('Drag to resize · hold Shift to keep proportions')} onPointerDown={event => beginElementResize(event, element, corner)} />)}
-                </>}</div>;
-              })}
-              {editingText && selectedScene && selectedTextLayer && !selectedGlobalText && textBox?.hasText && <div
-                className="text-edit-overlay"
-                style={{ left: `${Math.min(textBox.leftPct, 56)}%`, top: `${Math.min(textBox.topPct, 42)}%`, width: 'min(340px, 74%)' }}
-              >
-                <div className="text-edit-head"><span><Type size={12} /> Edit text</span><small>{selectedTextLayer.title ? 'Title and subtitle' : 'Add a title'}</small></div>
-                <label className="inline-edit-field"><span>{t('Title')}</span><textarea aria-label={t('Edit title in preview')} rows={2} maxLength={120} value={textDraft.title} onChange={event => previewInlineText({ ...textDraft, title: event.target.value })} onBlur={blurInlineText} onKeyDown={event => { if (event.key === 'Escape') cancelInlineText(); }} autoFocus /></label>
-                <label className="inline-edit-field"><span>Subtitle <em>optional</em></span><input aria-label={t('Edit subtitle in preview')} maxLength={200} value={textDraft.subtitle} onChange={event => previewInlineText({ ...textDraft, subtitle: event.target.value })} onBlur={blurInlineText} onKeyDown={event => { if (event.key === 'Escape') cancelInlineText(); if (event.key === 'Enter') { event.preventDefault(); commitInlineText(); } }} /></label>
-                <div className="text-edit-actions"><button className="text-button" onClick={cancelInlineText}>{t('Cancel')}</button><button className="button primary" onClick={commitInlineText}><Check size={13} /> Done</button></div>
-              </div>}
-              {fadeAmount > 0.001 && <div className="preview-fade" style={{ opacity: fadeAmount }} aria-hidden="true" />}
-              {safeArea && <div className="safe-area-overlay" aria-hidden="true" />}
-            </div> : <div className="empty-preview">
-              <Film size={40} /><h2>{t('Every story starts somewhere.')}</h2><p>{t('Add a few photos. Make them your own.')}</p>
-              <button className="button primary" disabled={!canEdit} onClick={() => void chooseImages()}><Plus size={16} /> {t('Add your first images')}</button>
-              <button className="text-button" disabled={!canEdit} onClick={() => chooseTemplate(SAMPLE_TEMPLATE)}>{t('Or explore a sample story')} <ArrowRight size={14} /></button>
-            </div>}
-          </div>
-          <div className="preview-scrub"><input aria-label={t('Preview playhead')} title={t('Preview playhead · {previous} / {next} to step frames', { previous: shortcutText('timeline.prev_frame'), next: shortcutText('timeline.next_frame') })} type="range" min="0" max={Math.max(duration - frameSeconds, 0)} step={frameSeconds} value={position} disabled={!duration} onChange={e => scrubTo(Number(e.target.value))} /></div>
-          <div className="preview-controls">
-            <span className="timecode">{timecode(position, project.timebase)} <span>/ {timecode(duration, project.timebase)}</span></span>
-            <div className="transport"><IconButton label="Return to start" onClick={() => { setPosition(0); setPlaying(false); }}><SkipBack size={17} /></IconButton><button className="play-button" disabled={!duration || !canEdit} title={tip('playback.toggle', playing ? 'Pause' : 'Play')} aria-label={playing ? 'Pause' : 'Play'} onClick={togglePlayback}>{playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}</button><IconButton className={loop ? 'active' : ''} label={loop ? t('Loop playback on') : t('Loop playback off')} onClick={() => setLoop(value => !value)}><Repeat size={16} /></IconButton></div>
-            <span className="preview-quality">{([activeSize.width, activeSize.height] as [number, number]).join(' × ')} <Maximize2 size={13} /></span>
-          </div>
-        </main>
-      
-        <div className="splitter vertical" onPointerDown={e => beginResize('inspector', inspectorWidth, e.clientX)} />
-      
-        <aside className="inspector" aria-label={t('Selected item properties')} style={{ width: inspectorWidth }}>
-          <div className="inspector-heading">
-            {propertyKind === 'scene' && selectedScene && !selectedPip && selectedCount === 1
-              ? <AssetImage className="inspector-heading-thumb" source={selectedScene.mediaKind === 'video' ? (selectedScene.videoPoster ?? selectedScene.image) : selectedScene.image} alt="" fallback={<span className="inspector-heading-thumb missing" />} />
-              : <span className="inspector-heading-icon"><Settings2 size={15} /></span>}
-            <div className="inspector-heading-text">
-              {propertyKind === 'scene' && selectedScene && !selectedPip && selectedCount === 1
-                ? <><h2 title={selectedScene.name}>{selectedScene.name || t('Untitled clip')}</h2><small>{selectedScene.mediaKind === 'video' ? t('Video') : t('Photo')} {String(scenes.findIndex(scene => scene.id === selectedScene.id) + 1).padStart(2, '0')} · {sceneSeconds(selectedScene, project.timebase).toFixed(1)} s</small></>
-                : <><h2>{selectedPip ? t('Picture in picture') : t(({scene: selectedScene?.mediaKind === 'video' ? 'Video properties' : 'Scene properties', text:'Text properties', element:'Element properties', audio:'Audio properties', none:'Properties'})[propertyKind])}</h2>
-                  {propertyKind === 'scene' && selectedCount > 1 && <small>{t('{count} clips selected', { count: selectedCount })}</small>}</>}
-            </div>
-            {propertyKind === 'scene' && selectedScene && !selectedPip && selectedCount === 1 && !selectedGlobalText && <button type="button" className="button subtle inspector-replace" disabled={!canEdit} aria-label={t('Replace selected scene media')} title={t('Replace media…')} onClick={() => requestReplaceImage()}><ImagePlus size={14} /> {t('Replace')}</button>}
-          </div>
-          {propertyKind === 'scene' && selectedCount > 1 && <div className="multi-select-banner"><span><Layers size={13} /> {t('Editing {count} clips', { count: selectedCount })}</span><button className="text-button" onClick={() => { if(selectedScene){setSelectedIds([selectedScene.id]);setPrimarySelected(selectedScene.id);selectionAnchor.current=selectedScene.id;} }}>{t('Edit only this clip')}</button></div>}
-          {selectedPip && activePip && activePip.pip ? <fieldset disabled={!canEdit} className="inspector-fields">
-            <div className="inspector-item-actions"><strong>{activePip.name}</strong><button className="icon-button danger" aria-label={t('Delete picture in picture')} onClick={() => removePip(activePip.id)}><Trash2 size={15} /></button></div>
-            <p className="note">Its own visual track over the base story. It never extends the timeline and its own audio is muted.</p>
-            <RangeField label="Start" sliderLabel="Picture-in-picture start" unit="s" min={0} max={Math.max(0, ticksToSeconds(projectTicks - activePip.durationTicks, project.timebase))} step={secondsPerTick(project.timebase)} value={ticksToSeconds(activePip.startTicks, project.timebase)} onChange={v => { const desired = secondsToTicks(v, project.timebase); const start = freePipStart(pipScenes.filter(clip => clip.id !== activePip.id), desired, activePip.durationTicks, projectTicks); if (start !== null) stagePip({ startTicks: start }); }} onCommit={commitPip} />
-            <RangeField label="Duration" sliderLabel="Picture-in-picture duration" unit="s" min={Math.max(secondsPerTick(project.timebase), ticksToSeconds(minTicks(project.timebase), project.timebase))} max={Math.max(secondsPerTick(project.timebase), Math.min(ticksToSeconds(projectTicks - activePip.startTicks, project.timebase), activePip.sourceDurationSeconds ?? 600))} step={secondsPerTick(project.timebase)} value={ticksToSeconds(activePip.durationTicks, project.timebase)} onChange={v => { const wanted = secondsToTicks(v, project.timebase); stagePip(constrainPipTiming(activePip, 'end', wanted - activePip.durationTicks, pipScenes, projectTicks, project.timebase, minTicks(project.timebase))); }} onCommit={commitPip} />
-            <RangeField label="Width" sliderLabel="Picture-in-picture width" unit="%" min={5} max={100} step={1} value={Math.round(activePip.pip.width * 100)} onChange={v => stagePipStyle('width', v / 100)} onCommit={commitPip} />
-            <RangeField label="Height" sliderLabel="Picture-in-picture height" unit="%" min={5} max={100} step={1} value={Math.round(activePip.pip.height * 100)} onChange={v => stagePipStyle('height', v / 100)} onCommit={commitPip} />
-            <RangeField label="Horizontal" sliderLabel="Picture-in-picture horizontal" unit="%" min={0} max={100} step={1} value={Math.round(activePip.pip.x * 100)} onChange={v => stagePipStyle('x', v / 100)} onCommit={commitPip} />
-            <RangeField label="Vertical" sliderLabel="Picture-in-picture vertical" unit="%" min={0} max={100} step={1} value={Math.round(activePip.pip.y * 100)} onChange={v => stagePipStyle('y', v / 100)} onCommit={commitPip} />
-            <RangeField label="Corner radius" sliderLabel="Picture-in-picture corner radius" unit="%" min={0} max={50} step={1} value={Math.round(activePip.pip.radius * 100)} onChange={v => stagePipStyle('radius', v / 100)} onCommit={commitPip} />
-            <RangeField label="Shadow" sliderLabel="Picture-in-picture shadow" unit="%" min={0} max={100} step={1} value={Math.round(activePip.pip.shadow)} onChange={v => stagePipStyle('shadow', v)} onCommit={commitPip} />
-            <label className="field">{t('Fill')}<select aria-label={t('Picture-in-picture fill')} value={activePip.fit} onChange={event => { stagePip({ fit: event.target.value as Scene['fit'] }); window.setTimeout(commitPip, 0); }}><option value="cover">{t('Fill frame')}</option><option value="contain">{t('Fit whole image')}</option><option value="blur">{t('Blur fill')}</option></select></label>
-          </fieldset> : propertyKind === 'audio' && selectedAudio ? <fieldset disabled={!canEdit} className="inspector-fields"><div className="inspector-item-actions"><strong>{selectedAudio.name}</strong><button className="icon-button danger" aria-label={t('Delete selected audio')} onClick={() => removeAudio(selectedAudio.id)}><Trash2 size={15} /></button></div>{audioInspector}</fieldset> : propertyKind === 'element' ? <fieldset disabled={!canEdit} className="inspector-fields">{elementInspector}</fieldset> : (propertyKind === 'scene' || propertyKind === 'text') && selectedScene ? <fieldset disabled={!canEdit} className="inspector-fields">
-            <SceneForm reduceMotion={preferences.reduceMotion} mode={propertyKind === 'text' ? 'text' : 'scene'} hasNextScene={Boolean(selectedScene && scenes.findIndex(scene => scene.id === selectedScene.id) < scenes.length - 1)} scene={selectedGlobalText && selectedTextScene ? selectedTextScene : inspectorScene!} timebase={project.timebase} update={updateSelection} onPreview={selectedGlobalText ? (next: Scene | null) => setGlobalTextDraft(next?.textLayers ?? null) : setPreviewScene} onCopyProperties={copySceneProperties} propertyClipboard={propertyClipboard} onPasteProperties={notifyPasted} flushRef={inspectorFlush} sceneCount={scenes.length} onApplyToAll={selectedGlobalText ? undefined : (next: Scene, keys: ScenePatchKey[]) => updateSelection(next, keys, 'all')} textLayerId={selectedGlobalText ? selectedGlobalText.id : selectedTextLayerId} onSelectTextLayer={selectTextLayer} textStartTicks={textStartTicks} playheadSeconds={selectedGlobalText ? Math.max(0, textLayerLocal) : previewLocalSeconds} focusText={textFocus} framingActive={framingMode} onToggleFraming={() => { setFramingMode(value => !value); setEditingText(false); }} formatName={activeFormat?.name ?? 'Original'} formatCount={project.formats.length} onApplyFramingToAll={applyFramingToAllFormats} overlays={renderOverlays} onReorderLayer={reorderLayer} />
-            {propertyKind === 'text' && <div className="inspector-item-actions"><button className="button danger" aria-label={t('Delete selected text layer')} onClick={deleteSelected}><Trash2 size={14} /> Delete text layer</button></div>}
-            {propertyKind === 'scene' && hasSceneSelection && <div className="scene-actions compact-scene-actions"><IconButton label={tip('clip.duplicate', 'Duplicate clip')} onClick={duplicateSelected}><Copy size={16} /></IconButton><IconButton label={tip('clip.delete', 'Delete selected scene')} onClick={deleteSelected}><Trash2 size={16} /></IconButton></div>}
-          </fieldset> : <div className="inspector-empty"><Settings2 size={26} /><p>{t('Select a scene, text layer, element or audio clip to edit its properties.')}</p></div>}
-      
-        </aside>
-      </div>
     </>
   );
 }

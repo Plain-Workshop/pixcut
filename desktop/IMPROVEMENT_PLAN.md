@@ -147,11 +147,13 @@ Step 5 done: **editor actions** (`src/app/editor-actions.tsx`). The 62 callbacks
 
 Honest note: `App` still builds and passes the object, so `App.tsx` itself did not shrink (2,300 lines). What changed is that `EditorBody` can now be split into sub-components (library panel, preview, inspector) that each call `useEditorActions()` without threading props.
 
+Step 6 done: **`EditorBody` split.** It is gone, replaced by `LibraryPanel` (236 lines, 45 props), `PreviewPanel` (143 lines, 32 props) and `InspectorPanel` (83 lines, 20 props), generated from the existing JSX so behaviour is unchanged; the DOM is identical (library, splitter, preview, splitter, inspector). Each pulls what it needs from the model, view, selection, layout and actions contexts, and the library now owns its own music and sound source state and recorded sound groups. `App` renders the three directly. (Correction: `EditorBody` was 408 very wide lines, not the 1,000+ I wrote earlier.) Playback was checked against the previous commit with the same test, since the timecode did not advance in this hidden preview pane; it behaves identically there, so it is the pane, not the split.
+
 Remaining:
-1. **Split `EditorBody`** (1,000+ lines, 88 props left) into library, preview and inspector components that read the contexts; the remaining props are mostly state setters and refs.
+1. **Shrink the three panels' props further.** 97 props in total across them (88 distinct), mostly UI state and refs that `App` owns because other hooks use them. A `LibraryState` store (media query, sound/music filters, hover state) would cut `LibraryPanel` to about 20.
 2. **Drafts.** Drag drafts (`previewScene`, `overlayDraft`, `pipDraft`, `audioDraft`) are still `useState` in `App`; move them next to the stores.
-3. **Project and commands** (`session`, `run`, undo flags) into a store, then move the hook calls that build `editorActions` out of `App`.
-4. Replace the remaining `any`s in prop types.
+3. **Project and commands** (`session`, `run`, undo flags) into a store, then move the hook calls that build `editorActions` out of `App` (about 2,300 lines now).
+4. Apply the same split to `TimelinePanel` (65 props) and replace the remaining `any`s.
 
 **Done when:** no component takes more than ~25 props and `App.tsx` is under 800 lines.
 
