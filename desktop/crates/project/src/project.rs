@@ -170,7 +170,7 @@ pub struct Project {
     #[serde(default)]
     pub audio: Vec<AudioClip>,
     /// Lane and video-audio levels. Missing means everything plays fully.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "audioMix", alias = "audio_mix")]
     pub audio_mix: Option<AudioMix>,
     #[serde(default)]
     pub overlays: Vec<ElementLayer>,
@@ -179,10 +179,10 @@ pub struct Project {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fonts: Vec<ProjectFont>,
     /// Text that spans scenes. Times are absolute project ticks.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "globalText", alias = "global_text")]
     pub global_text: Vec<TextLayer>,
     /// Manual beat markers, in project ticks, sorted.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "beatTicks", alias = "beat_ticks")]
     pub beat_ticks: Vec<u64>,
     /// How much music is lowered while a video clip is audible (0–100).
     #[serde(default, skip_serializing_if = "Option::is_none")]

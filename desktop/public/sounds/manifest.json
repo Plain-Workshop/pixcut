@@ -1,0 +1,135 @@
+[
+  {
+    "id": "kenney-click-1",
+    "label": "Click crisp",
+    "category": "Interface",
+    "seconds": 0.09,
+    "file": "sounds/kenney-click-1.m4a",
+    "license": "CC0 1.0",
+    "author": "Kenney",
+    "source": "https://kenney.nl/assets/ui-audio",
+    "tags": [
+      "click",
+      "button",
+      "ui"
+    ]
+  },
+  {
+    "id": "kenney-click-2",
+    "label": "Click soft",
+    "category": "Interface",
+    "seconds": 0.04,
+    "file": "sounds/kenney-click-2.m4a",
+    "license": "CC0 1.0",
+    "author": "Kenney",
+    "source": "https://kenney.nl/assets/ui-audio",
+    "tags": [
+      "click",
+      "button",
+      "ui"
+    ]
+  },
+  {
+    "id": "kenney-mouse-click",
+    "label": "Mouse click",
+    "category": "Interface",
+    "seconds": 0.06,
+    "file": "sounds/kenney-mouse-click.m4a",
+    "license": "CC0 1.0",
+    "author": "Kenney",
+    "source": "https://kenney.nl/assets/ui-audio",
+    "tags": [
+      "mouse",
+      "click",
+      "computer"
+    ]
+  },
+  {
+    "id": "kenney-mouse-release",
+    "label": "Mouse release",
+    "category": "Interface",
+    "seconds": 0.07,
+    "file": "sounds/kenney-mouse-release.m4a",
+    "license": "CC0 1.0",
+    "author": "Kenney",
+    "source": "https://kenney.nl/assets/ui-audio",
+    "tags": [
+      "mouse",
+      "click",
+      "computer"
+    ]
+  },
+  {
+    "id": "kenney-rollover",
+    "label": "Rollover",
+    "category": "Interface",
+    "seconds": 0.23,
+    "file": "sounds/kenney-rollover.m4a",
+    "license": "CC0 1.0",
+    "author": "Kenney",
+    "source": "https://kenney.nl/assets/ui-audio",
+    "tags": [
+      "hover",
+      "ui"
+    ]
+  },
+  {
+    "id": "kenney-rollover-soft",
+    "label": "Rollover soft",
+    "category": "Interface",
+    "seconds": 0.11,
+    "file": "sounds/kenney-rollover-soft.m4a",
+    "license": "CC0 1.0",
+    "author": "Kenney",
+    "source": "https://kenney.nl/assets/ui-audio",
+    "tags": [
+      "hover",
+      "ui"
+    ]
+  },
+  {
+    "id": "kenney-switch-2",
+    "label": "Switch deep",
+    "category": "Interface",
+    "seconds": 0.36,
+    "file": "sounds/kenney-switch-2.m4a",
+    "license": "CC0 1.0",
+    "author": "Kenney",
+    "source": "https://kenney.nl/assets/ui-audio",
+    "tags": [
+      "switch",
+      "toggle",
+      "ui"
+    ]
+  },
+  {
+    "id": "kenney-switch-3",
+    "label": "Switch light",
+    "category": "Interface",
+    "seconds": 0.46,
+    "file": "sounds/kenney-switch-3.m4a",
+    "license": "CC0 1.0",
+    "author": "Kenney",
+    "source": "https://kenney.nl/assets/ui-audio",
+    "tags": [
+      "switch",
+      "toggle",
+      "ui"
+    ]
+  },
+  {
+    "id": "kenney-switch-1",
+    "label": "Switch snap",
+    "category": "Interface",
+    "seconds": 0.3,
+    "file": "sounds/kenney-switch-1.m4a",
+    "license": "CC0 1.0",
+    "author": "Kenney",
+    "source": "https://kenney.nl/assets/ui-audio",
+    "tags": [
+      "switch",
+      "toggle",
+      "ui"
+    ]
+  }
+]

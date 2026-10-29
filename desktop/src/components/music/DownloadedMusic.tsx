@@ -8,7 +8,8 @@ import type { SavedTrack } from '../../stores/online-downloads';
  * Tracks downloaded from the Online tab. They sit in the local asset store, so
  * they play and can be added to a project with no internet connection.
  */
-export function DownloadedMusic({ tracks, canEdit, onAdd, onRemove, onStopOther }: {
+export function DownloadedMusic({ tracks, canEdit, onAdd, onRemove, onStopOther, kind = 'music' }: {
+  kind?: SavedTrack['kind'];
   tracks: SavedTrack[];
   canEdit: boolean;
   onAdd: (track: SavedTrack) => Promise<void>;
@@ -44,8 +45,8 @@ export function DownloadedMusic({ tracks, canEdit, onAdd, onRemove, onStopOther 
 
   if (!tracks.length) return <div className="library-empty music-empty">
     <WifiOff size={30} />
-    <strong>No downloaded tracks yet.</strong>
-    <p>Tracks you add from the Online tab are kept on this device. They show up here and work without internet.</p>
+    <strong>{kind === 'sound_effect' ? 'No downloaded sounds yet.' : 'No downloaded tracks yet.'}</strong>
+    <p>{kind === 'sound_effect' ? 'Sounds' : 'Tracks'} you add from the Online tab are kept on this device. They show up here and work without internet.</p>
   </div>;
 
   return <div className="downloaded-music">
@@ -54,7 +55,7 @@ export function DownloadedMusic({ tracks, canEdit, onAdd, onRemove, onStopOther 
     <div className="free-music-list online-music-list">
       {tracks.map(track => <div key={track.key} className={`free-music-track ${playing === track.key ? 'previewing' : ''}`}>
         <button className="music-listen" aria-label={`${playing === track.key ? 'Pause' : 'Play'} ${track.title}`} aria-pressed={playing === track.key} onClick={() => void listen(track)}>{playing === track.key ? <Pause size={13} /> : <Play size={13} />}</button>
-        <span><strong>{track.title}</strong><small>{[track.artist, track.license, `${Math.floor(track.seconds / 60)}:${String(Math.round(track.seconds % 60)).padStart(2, '0')}`].filter(Boolean).join(' · ')}</small></span>
+        <span><strong>{track.title}</strong><small>{[track.artist, track.license, (kind === 'sound_effect' ? `${track.seconds.toFixed(track.seconds < 10 ? 1 : 0)}s` : `${Math.floor(track.seconds / 60)}:${String(Math.round(track.seconds % 60)).padStart(2, '0')}`)].filter(Boolean).join(' · ')}</small></span>
         {track.landingUrl && <a className="icon-button" href={track.landingUrl} target="_blank" rel="noreferrer noopener" aria-label={`Open ${track.title} on its source page`} title="Open the source page"><ExternalLink size={14} /></a>}
         <button className="icon-button" aria-label={`Remove ${track.title} from downloads`} title="Remove from this list. Run Clean storage in Settings to free the space." onClick={() => { if (playing === track.key) stop(); onRemove(track.key); }}><Trash2 size={14} /></button>
         <button className="icon-button" aria-label={`Add ${track.title} to the project`} disabled={!canEdit || adding !== null} onClick={() => void add(track)}><Plus size={16} /></button>

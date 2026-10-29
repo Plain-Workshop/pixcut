@@ -27,3 +27,12 @@ it('keeps playback monotonic when UI renders lag or frames are skipped', () => {
   expect(samples).toEqual([2, 2.016, 2.033, 2.6, 3.8, 3.816, 5.6, 9]);
   expect(playbackPosition(10, 100, 4100, -1)).toBe(6);
 });
+
+import { validateProject as validateWithOldKeys, emptyProject as emptyWithOldKeys } from '../src/stores/model';
+describe('projects saved by earlier native builds', () => {
+  it('still load their snake_case mixer key', () => {
+    const raw = { ...emptyWithOldKeys(), audio_mix: { video: 0.5, lanes: [{ lane: 2, volume: 1, muted: true }] } } as unknown as Parameters<typeof validateWithOldKeys>[0];
+    const project = validateWithOldKeys(raw);
+    expect(project.audioMix).toEqual({ video: 0.5, lanes: [{ lane: 2, volume: 1, muted: true }] });
+  });
+});

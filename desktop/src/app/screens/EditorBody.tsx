@@ -1,9 +1,10 @@
 import { DownloadedMusic } from '../../components/music/DownloadedMusic';
-import type { SavedTrack } from '../../stores/online-downloads';
+import { findSavedTrack, type SavedTrack } from '../../stores/online-downloads';
 import { OnlineMusic } from '../../components/music/OnlineMusic';
 import type { OnlineTrack } from '../../stores/online-music';
 import { HoverVideo } from '../../components/preview/HoverVideo';
 import { MUSIC_TRACKS, MUSIC_LICENSE, MUSIC_MOODS, musicTrackPreviewUrl, musicTrackCredit, type MusicTrack } from '../../stores/music-library';
+import { searchRecordedSounds, recordedSoundData, creditForRecordedClip, recordedSoundClipName, type RecordedSound } from '../../stores/sound-library';
 import { SOUND_CATALOG, soundData, type SoundId } from '../../components/elements/sound-catalog';
 import { ElementGlyph } from '../../components/elements/ElementGlyph';
 import { ELEMENT_CATALOG, ELEMENT_CATEGORIES, ELEMENT_COLLECTIONS } from '../../components/elements/catalog';
@@ -33,7 +34,7 @@ import type { ElementPreset } from '../../components/elements/catalog';
 import { TITLE_PRESETS } from '../title-presets';
 import { elementDisplayName } from '../../components/elements/catalog';
 
-export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOnlineMusic, libraryWidth, tab, setTab, tabTitles, canEdit, chooseImages, chooseVideo, selectedScene, chooseCustomElement, projectTicks, audioLaneRef, selectedAudio, chooseAudio, setModal, mediaQuery, setMediaQuery, dragOverTarget, dropIntoMedia, filteredScenes, beginMediaDrag, mediaDragRef, setDropTarget, setHoveredMedia, previewMedia, hoveredMedia, playing, modal, project, appendMedia, addMediaPip, setError, sourceMedia, editTarget, selectedGlobalTextId, selectGlobalText, run, setSelectedGlobalTextId, addProjectText, selectedTextLayerId, selectTextLayer, scenes, captionInput, exportCaptions, fontTargetId, fontInput, removeFont, addTextLayerAtPlayhead, audioLibraryTab, setAudioLibraryTab, audio, previewingAudio, hoverLibraryAudio, stopLibraryPreview, focusAudio, musicMood, setMusicMood, copyMusicCredit, addMusic, copyMusicCredits, setNotice, soundQuery, setSoundQuery, soundGroups, openSoundGroup, setOpenSoundGroup, addSound, position, chooseTemplate, templateImage, elementSearch, setElementSearch, setElementLimit, elementCollection, setElementCollection, setElementCategory, elementCategory, allOverlays, selectedElementId, selectOverlay, filteredElements, elementLimit, setHoveredElement, addElement, hoveredElement, preferences, beginResize, tip, safeArea, runCommandId, activeFormat, setActiveFormatId, previewTarget, activeSize, saveStillFrame, togglePreviewFullscreen, previewArea, previewStage, previewSize, preview, sceneVideo, setVideoTick, pipVideoScenes, pipVideoElements, setPipVideoTick, snapGuides, framingMode, beginImagePan, selectedTextLayer, selectedGlobalText, textBox, selectedTextVisible, selectedElement, editingText, beginTextMove, setTextDraft, setEditingText, beginTextResize, overlayDraft, sceneLayerRank, beginElementMove, beginElementRotate, beginElementResize, textDraft, previewInlineText, blurInlineText, cancelInlineText, commitInlineText, fadeAmount, shortcutText, duration, frameSeconds, scrubTo, setPosition, setPlaying, togglePlayback, loop, setLoop, inspectorWidth, selectedPip, propertyKind, selectedCount, setSelectedIds, setPrimarySelected, selectionAnchor, activePip, removePip, pipScenes, stagePip, commitPip, stagePipStyle, removeAudio, audioInspector, elementInspector, selectedTextScene, inspectorScene, updateSelection, setGlobalTextDraft, setPreviewScene, copySceneProperties, propertyClipboard, notifyPasted, inspectorFlush, requestReplaceImage, textStartTicks, textLayerLocal, previewLocalSeconds, textFocus, setFramingMode, applyFramingToAllFormats, renderOverlays, reorderLayer, deleteSelected, hasSceneSelection, duplicateSelected }: {
+export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOnlineMusic, libraryWidth, tab, setTab, tabTitles, canEdit, chooseImages, chooseVideo, selectedScene, chooseCustomElement, projectTicks, audioLaneRef, selectedAudio, chooseAudio, setModal, mediaQuery, setMediaQuery, dragOverTarget, dropIntoMedia, filteredScenes, beginMediaDrag, mediaDragRef, setDropTarget, setHoveredMedia, previewMedia, hoveredMedia, playing, modal, project, appendMedia, addMediaPip, setError, sourceMedia, editTarget, selectedGlobalTextId, selectGlobalText, run, setSelectedGlobalTextId, addProjectText, selectedTextLayerId, selectTextLayer, scenes, captionInput, exportCaptions, fontTargetId, fontInput, removeFont, addTextLayerAtPlayhead, audioLibraryTab, setAudioLibraryTab, audio, previewingAudio, hoverLibraryAudio, stopLibraryPreview, focusAudio, musicMood, setMusicMood, copyMusicCredit, addMusic, copyMusicCredits, setNotice, soundQuery, setSoundQuery, soundGroups, openSoundGroup, setOpenSoundGroup, addSound, recordedSounds, addRecordedSound, position, chooseTemplate, templateImage, elementSearch, setElementSearch, setElementLimit, elementCollection, setElementCollection, setElementCategory, elementCategory, allOverlays, selectedElementId, selectOverlay, filteredElements, elementLimit, setHoveredElement, addElement, hoveredElement, preferences, beginResize, tip, safeArea, runCommandId, activeFormat, setActiveFormatId, previewTarget, activeSize, saveStillFrame, togglePreviewFullscreen, previewArea, previewStage, previewSize, preview, sceneVideo, setVideoTick, pipVideoScenes, pipVideoElements, setPipVideoTick, snapGuides, framingMode, beginImagePan, selectedTextLayer, selectedGlobalText, textBox, selectedTextVisible, selectedElement, editingText, beginTextMove, setTextDraft, setEditingText, beginTextResize, overlayDraft, sceneLayerRank, beginElementMove, beginElementRotate, beginElementResize, textDraft, previewInlineText, blurInlineText, cancelInlineText, commitInlineText, fadeAmount, shortcutText, duration, frameSeconds, scrubTo, setPosition, setPlaying, togglePlayback, loop, setLoop, inspectorWidth, selectedPip, propertyKind, selectedCount, setSelectedIds, setPrimarySelected, selectionAnchor, activePip, removePip, pipScenes, stagePip, commitPip, stagePipStyle, removeAudio, audioInspector, elementInspector, selectedTextScene, inspectorScene, updateSelection, setGlobalTextDraft, setPreviewScene, copySceneProperties, propertyClipboard, notifyPasted, inspectorFlush, requestReplaceImage, textStartTicks, textLayerLocal, previewLocalSeconds, textFocus, setFramingMode, applyFramingToAllFormats, renderOverlays, reorderLayer, deleteSelected, hasSceneSelection, duplicateSelected }: {
   libraryWidth: any;
   tab: "media" | "text" | "elements" | "audio" | "templates";
   setTab: Dispatch<SetStateAction<"media" | "text" | "elements" | "audio" | "templates">>;
@@ -95,7 +96,7 @@ export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOn
   savedTracks: SavedTrack[];
   addSavedTrack: (track: SavedTrack) => Promise<void>;
   removeSavedTrack: (key: string) => void;
-  addOnlineMusic: (track: OnlineTrack) => Promise<void>;
+  addOnlineMusic: (track: OnlineTrack, kind?: 'music' | 'sound_effect') => Promise<void>;
   copyMusicCredits: () => Promise<void>;
   setNotice: Dispatch<SetStateAction<string>>;
   soundQuery: string;
@@ -104,6 +105,8 @@ export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOn
   openSoundGroup: string | null;
   setOpenSoundGroup: Dispatch<SetStateAction<string | null>>;
   addSound: (id: SoundId, startTicks: number) => Promise<void>;
+  recordedSounds: RecordedSound[];
+  addRecordedSound: (sound: RecordedSound, startTicks: number) => Promise<void>;
   position: number;
   chooseTemplate: (template: TemplateDefinition) => void;
   templateImage: (template: TemplateDefinition) => string;
@@ -213,7 +216,9 @@ export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOn
   hasSceneSelection: boolean;
   duplicateSelected: () => void;
 }) {
+  const recordedGroups = searchRecordedSounds(recordedSounds, soundQuery);
   const [musicSource, setMusicSource] = useState<'bundled' | 'online' | 'saved'>('bundled');
+  const [soundSource, setSoundSource] = useState<'bundled' | 'online' | 'saved'>('bundled');
   return (
     <>
       <div className="editor-body">
@@ -293,7 +298,7 @@ export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOn
             </div>}
             </> : audioLibraryTab === 'music' ? <div className="free-music-library">
               <div className="music-source-switch" role="tablist" aria-label="Music source">{([['bundled', 'Bundled'], ['online', 'Online'], ['saved', `Downloaded${savedTracks.some(track => track.kind === 'music') ? ` (${savedTracks.filter(track => track.kind === 'music').length})` : ''}`]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={musicSource === id} className={musicSource === id ? 'active' : ''} onClick={() => { stopLibraryPreview(); setMusicSource(id); }}>{label}</button>)}</div>
-              {musicSource === 'saved' ? <DownloadedMusic tracks={savedTracks.filter(track => track.kind === 'music')} canEdit={canEdit && Boolean(projectTicks)} onAdd={addSavedTrack} onRemove={removeSavedTrack} onStopOther={stopLibraryPreview} /> : musicSource === 'online' ? <OnlineMusic canEdit={canEdit && Boolean(projectTicks)} onAdd={addOnlineMusic} onStopOther={stopLibraryPreview} /> : <>
+              {musicSource === 'saved' ? <DownloadedMusic tracks={savedTracks.filter(track => track.kind === 'music')} canEdit={canEdit && Boolean(projectTicks)} onAdd={addSavedTrack} onRemove={removeSavedTrack} onStopOther={stopLibraryPreview} /> : musicSource === 'online' ? <OnlineMusic canEdit={canEdit && Boolean(projectTicks)} onAdd={addOnlineMusic} onStopOther={stopLibraryPreview} isDownloaded={track => Boolean(findSavedTrack(savedTracks, track))} /> : <>
               <label className="field music-mood">Mood<select aria-label="Music mood" value={musicMood} onChange={event=>setMusicMood(event.target.value)}>{MUSIC_MOODS.map(mood=><option key={mood}>{mood}</option>)}</select></label>
               <div className="free-music-list">{MUSIC_TRACKS.filter(track=>musicMood==='All'||track.mood===musicMood).map((track,index)=><div key={track.id} className={`free-music-track ${previewingAudio===track.id?'previewing':''}`}>
                 <button className="music-listen" aria-label={`${previewingAudio===track.id?'Pause':'Play'} ${track.title}`} aria-pressed={previewingAudio===track.id} onClick={()=>previewingAudio===track.id?stopLibraryPreview():hoverLibraryAudio(track.id,()=>musicTrackPreviewUrl(track),0,track.seconds,true)}>{previewingAudio===track.id?<Pause size={16}/>:<Play size={16}/>}</button>
@@ -304,6 +309,8 @@ export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOn
               <details className="library-disclosure music-license"><summary>CC BY 4.0 · credit required</summary><p>Real recordings from Scott Buckley and Ketsa, free for commercial videos when the artist is credited.</p><p>Paste the credit line into your video description. Content ID checks can still fire on any music.</p><div className="music-credits">{MUSIC_TRACKS.map(track=><div key={track.id}><strong>{track.title}</strong><span>{musicTrackCredit(track)}</span></div>)}</div><button className="button" onClick={()=>void copyMusicCredits()}>Copy all credits</button><button className="button" onClick={()=>void navigator.clipboard.writeText(MUSIC_LICENSE).then(()=>setNotice('Music licence copied.')).catch(()=>setError('Could not copy the music licence. It is included in the music folder.'))}>Copy licence</button></details>
               </>}
             </div> : <div className="sound-library">
+              <div className="music-source-switch" role="tablist" aria-label="Sound source">{([['bundled', 'Bundled'], ['online', 'Online'], ['saved', `Downloaded${savedTracks.some(track => track.kind === 'sound_effect') ? ` (${savedTracks.filter(track => track.kind === 'sound_effect').length})` : ''}`]] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={soundSource === id} className={soundSource === id ? 'active' : ''} onClick={() => { stopLibraryPreview(); setSoundSource(id); }}>{label}</button>)}</div>
+              {soundSource === 'saved' ? <DownloadedMusic kind="sound_effect" tracks={savedTracks.filter(track => track.kind === 'sound_effect')} canEdit={canEdit && Boolean(projectTicks)} onAdd={addSavedTrack} onRemove={removeSavedTrack} onStopOther={stopLibraryPreview} /> : soundSource === 'online' ? <OnlineMusic kind="sound_effect" canEdit={canEdit && Boolean(projectTicks)} onAdd={track => addOnlineMusic(track, 'sound_effect')} onStopOther={stopLibraryPreview} isDownloaded={track => Boolean(findSavedTrack(savedTracks, track))} /> : <>
               <label className="search-field"><Search size={14} /><input aria-label="Search sound effects" placeholder={`Search ${SOUND_CATALOG.length} sounds…`} value={soundQuery} onChange={event => setSoundQuery(event.target.value)} /></label>
               {soundGroups.map(group => {
                 const open = Boolean(soundQuery.trim()) || openSoundGroup === group.id;
@@ -316,8 +323,20 @@ export function EditorBody({ savedTracks, addSavedTrack, removeSavedTrack, addOn
                   </div>)}</div>}
                 </section>;
               })}
-              {!soundGroups.length && <p className="note">No sound matches that search.</p>}
-              <p className="note sound-library-note">{SOUND_CATALOG.length} sounds · synthesized on this device</p>
+              {recordedGroups.map(group => {
+                const key = `rec-${group.category}`, open = Boolean(soundQuery.trim()) || openSoundGroup === key;
+                return <section className="sound-group" key={key}>
+                  <button className="sound-group-head" aria-expanded={open} onClick={() => setOpenSoundGroup(openSoundGroup === key ? null : key)}><span>{group.category}</span><small>{group.sounds.length}</small><ChevronDown size={14} /></button>
+                  {open && <div className="sound-effect-list">{group.sounds.map(effect => <div key={effect.id} className={previewingAudio === `rec-${effect.id}` ? 'previewing' : ''}>
+                    <button className="icon-button" aria-label={`${previewingAudio === `rec-${effect.id}` ? 'Pause' : 'Play'} ${effect.label}`} aria-pressed={previewingAudio === `rec-${effect.id}`} onClick={() => previewingAudio === `rec-${effect.id}` ? stopLibraryPreview() : hoverLibraryAudio(`rec-${effect.id}`, () => recordedSoundData(effect), 0, effect.seconds, true)}>{previewingAudio === `rec-${effect.id}` ? <Pause size={13} /> : <Play size={13} />}</button>
+                    <span>{effect.label}{creditForRecordedClip(recordedSoundClipName(effect), [effect]) && <small> · credit {effect.author}</small>}</span>
+                    <button className="icon-button" aria-label={`Add ${effect.label} at playhead`} disabled={!canEdit || !projectTicks} onClick={() => void addRecordedSound(effect, secondsToTicks(position, project.timebase))}><Plus size={14} /></button>
+                  </div>)}</div>}
+                </section>;
+              })}
+              {!soundGroups.length && !recordedGroups.length && <p className="note">No sound matches that search.</p>}
+              <p className="note sound-library-note">{SOUND_CATALOG.length} synthesized on this device{recordedSounds.length ? ` · ${recordedSounds.length} recorded (CC0 / CC BY)` : ''}</p>
+              </>}
             </div>}
           </div> : tab === 'templates' ? <div className="template-tab">
             <div className="template-tab-list">{TEMPLATES.map(template => <button key={template.id} className="template-tab-card" disabled={!canEdit} onClick={() => chooseTemplate(template)}>

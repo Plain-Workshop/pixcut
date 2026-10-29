@@ -758,7 +758,7 @@ function readAudio(value: unknown, legacyMusic: unknown, total: number, timebase
 }
 type SceneInput = Omit<Scene, 'durationTicks' | 'startTicks' | 'sourceInTicks'> & { durationTicks?: number; startTicks?: number; sourceInTicks?: number; duration?: number };
 type TrackInput = { id?: unknown; kind?: unknown; name?: unknown; role?: unknown; clips?: SceneInput[]; hidden?: unknown; muted?: unknown; locked?: unknown };
-type ProjectInput = Omit<Project, 'tracks' | 'timebase' | 'schema_version' | 'audio' | 'formats'> & { schema_version?: number; timebase?: Timebase; tracks?: TrackInput[]; scenes?: SceneInput[]; audio?: unknown; music?: unknown; formats?: unknown };
+type ProjectInput = Omit<Project, 'tracks' | 'timebase' | 'schema_version' | 'audio' | 'formats'> & { schema_version?: number; timebase?: Timebase; tracks?: TrackInput[]; scenes?: SceneInput[]; audio?: unknown; music?: unknown; formats?: unknown; /** Keys older native builds wrote in snake_case. */ audio_mix?: unknown; beat_ticks?: unknown; global_text?: unknown };
 function readTimebase(value: unknown): Timebase {
   if (!value || typeof value !== 'object') return { ...DEFAULT_TIMEBASE };
   const timebase = value as Timebase;
@@ -1015,11 +1015,11 @@ export function validateProject(value: unknown): Project {
   if (bytes > 140_000_000) throw new Error('Project media exceeds 100 MB.');
   const audio = readAudio(p.audio, p.music, total, timebase);
   const formats = readFormats(p.formats, p.aspect, clipIds);
-  const beatTicks = readBeats(p.beatTicks, total);
+  const beatTicks = readBeats(p.beatTicks ?? p.beat_ticks, total);
   const ducking = p.ducking === undefined ? undefined : readNumber(p.ducking, 0, 100, 0, 'music ducking');
-  const audioMix = readAudioMix(p.audioMix);
+  const audioMix = readAudioMix(p.audioMix ?? p.audio_mix);
   const fonts = readFonts(p.fonts);
-  const globalText = readGlobalText(p.globalText, total);
+  const globalText = readGlobalText(p.globalText ?? p.global_text, total);
   return { schema_version: 15, id: p.id, name: p.name, aspect: p.aspect, timebase, tracks, audio, ...(audioMix ? { audioMix } : {}), overlays, formats, ...(fonts ? { fonts } : {}), ...(globalText ? { globalText } : {}), ...(beatTicks.length ? { beatTicks } : {}), ...(ducking ? { ducking } : {}), policy: { ...policy } };
 }
 const SCENE_PATCH_FIELDS = [

@@ -128,6 +128,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             online_music::online_music_search,
+            online_music::online_audio_get,
+            online_music::online_download_cancel,
             online_music::online_music_download,
             project_io::initialize,
             project_io::take_pending_project,

@@ -1426,3 +1426,42 @@ fn audio_clips_without_a_credit_still_load_and_stay_compact() {
     assert!(json.contains("\"credit\":\"Credit\""));
     assert_eq!(serde_json::from_str::<AudioClip>(&json).unwrap().credit.as_deref(), Some("Credit"));
 }
+
+#[test]
+fn audio_mix_command_round_trips_through_json_like_the_editor_sends_it() {
+    let command: Command = serde_json::from_str(r#"{"type":"audioMix","mix":{"video":1,"lanes":[{"lane":0,"volume":1,"muted":true},{"lane":2,"volume":0.25,"muted":false}]}}"#).unwrap();
+    let mut s = Session::default();
+    s.apply(command).unwrap();
+    let json = serde_json::to_value(&s.project).unwrap();
+    assert_eq!(json["audioMix"]["lanes"][0]["muted"], true);
+    assert_eq!(json["audioMix"]["lanes"][1]["volume"], 0.25);
+    assert_eq!(s.project.lane_gain(0), 0.0);
+    assert_eq!(s.project.lane_gain(2), 0.25);
+    // Reload: the saved project keeps the mix.
+    let again: Project = serde_json::from_value(json).unwrap();
+    assert_eq!(again.lane_gain(0), 0.0);
+}
+
+#[test]
+fn project_uses_the_editors_camel_case_keys_and_still_reads_the_old_snake_case_ones() {
+    let mut p = Project::default();
+    p.audio_mix = Some(AudioMix { video: 0.5, lanes: vec![AudioLaneMix { lane: 1, volume: 0.5, muted: true }] });
+    p.beat_ticks = vec![3, 9];
+    let json = serde_json::to_value(&p).unwrap();
+    for key in ["audioMix", "beatTicks"] {
+        assert!(json.get(key).is_some(), "{key} missing");
+    }
+    for key in ["audio_mix", "beat_ticks", "global_text"] {
+        assert!(json.get(key).is_none(), "{key} should not be written");
+    }
+    // Projects saved by earlier builds used snake_case keys.
+    let mut old = json.clone();
+    let map = old.as_object_mut().unwrap();
+    let mix = map.remove("audioMix").unwrap();
+    let beats = map.remove("beatTicks").unwrap();
+    map.insert("audio_mix".into(), mix);
+    map.insert("beat_ticks".into(), beats);
+    let loaded: Project = serde_json::from_value(old).unwrap();
+    assert_eq!(loaded.lane_gain(1), 0.0);
+    assert_eq!(loaded.beat_ticks, vec![3, 9]);
+}
