@@ -141,7 +141,7 @@ import { FORMAT_FILTERS, FORMAT_PRESETS, filterFormatGroups, formatSlug, formatS
 import { messageFor } from './errors';
 import { formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
 import { backfillThumbnails, exportState, getLibraryProject, listProjects, saveLibraryProject, type ProjectSummary } from '../stores/library';
-import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from '../stores/preferences';
+import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, resolveTheme, type Preferences } from '../stores/preferences';
 import { TEMPLATES, buildTemplateProject, templatePreview, type TemplateDefinition } from '../templates/catalog';
 import {
   COMMANDS,
@@ -158,7 +158,7 @@ import {
 import '../styles/styles.css';
 import { NewProjectModal } from './modals/NewProjectModal';
 import { ExportModal } from './modals/ExportModal';
-import { SettingsModal } from './modals/SettingsModal';
+import { SettingsModal, type SettingsTab } from './modals/SettingsModal';
 import { MissingMediaModal } from './modals/MissingMediaModal';
 import { DeleteProjectModal } from './modals/DeleteProjectModal';
 import { FormatsModal } from './modals/FormatsModal';
@@ -201,7 +201,8 @@ export default function App() {
   const [ready, setReady] = useState(false), [busy, setBusy] = useState(false), [playing, setPlaying] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]), [primarySelected, setPrimarySelected] = useState<string | null>(null), [position, setPosition] = useState(0);
   const [tab, setTab] = useState<'media' | 'text' | 'elements' | 'audio' | 'templates'>('media'), [modal, setModal] = useState<'source' | 'templates' | 'export' | 'new' | 'shortcuts' | 'palette' | 'settings' | 'delete' | 'rename' | 'group' | 'groups' | 'formats' | 'missing' | null>(null);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'editing' | 'shortcuts' | 'updates' | 'privacy'>('general');
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
+  const [systemDark, setSystemDark] = useState(() => typeof window.matchMedia !== 'function' || window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [language, setLanguage] = useState<Locale>(() => {
     try {
       const stored = localStorage.getItem('pixcut-language');
@@ -607,6 +608,14 @@ export default function App() {
   const { appVersion, updateState, updateInfo, updateProgress, updateMessage, checkForUpdates, downloadUpdate, restartUpdate, copyDownloadLink } = useUpdates({ automaticUpdates: preferences.automaticUpdates, home: screen === 'home', exporting, setNotice });
 
   useEffect(() => { savePreferences(preferences); }, [preferences]);
+  useEffect(() => {
+    if (preferences.theme !== 'system' || typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const sync = () => setSystemDark(media.matches);
+    sync();
+    media.addEventListener?.('change', sync);
+    return () => media.removeEventListener?.('change', sync);
+  }, [preferences.theme]);
   useEffect(() => { document.documentElement.lang = language; }, [language]);
 
   useEffect(() => {
@@ -694,7 +703,7 @@ export default function App() {
 
 
   useEffect(() => {
-    if (!bridge.native || modal !== 'settings' || settingsTab !== 'general') return;
+    if (!bridge.native || modal !== 'settings' || settingsTab !== 'privacy') return;
     void refreshAssetUsage();
   }, [modal, settingsTab]);
 
@@ -1995,7 +2004,7 @@ export default function App() {
   }, [modal, exporting]);
 
   const tabTitles = { media: 'Your media', text: 'Titles', elements: 'Elements', transitions: 'Transitions', effects: 'Effects', audio: 'Audio', templates: 'Templates' } as const;
-  const wideModal = modal === 'shortcuts' || modal === 'palette' || modal === 'templates' || (modal === 'settings' && settingsTab === 'shortcuts');
+  const wideModal = modal === 'shortcuts' || modal === 'palette' || modal === 'templates';
   const mediumModal = modal === 'source' || modal === 'new' || modal === 'formats' || modal === 'missing';
   const modalEyebrow = modal === 'export' ? t('VIDEO EXPORT') : modal === 'shortcuts' ? 'FIND YOUR FLOW' : modal === 'palette' ? 'EVERY ACTION, ONE PLACE' : modal === 'settings' ? 'MAKE PIXCUT YOURS' : modal === 'delete' ? 'REMOVE FROM THIS DEVICE' : modal === 'rename' ? 'PROJECT DETAILS' : modal === 'group' ? 'ORGANIZE YOUR LIBRARY' : modal === 'groups' ? 'ORGANIZE YOUR LIBRARY' : modal === 'formats' ? 'DELIVERABLES' : modal === 'missing' ? 'RESTORE YOUR MEDIA' : 'YOUR NEXT STORY';
   const projectGroupsList = projectGroups();
@@ -2154,7 +2163,7 @@ export default function App() {
               </div>;
 
   return (
-    <div className={`app ${screen} theme-${preferences.theme} ${preferences.compact ? 'compact' : ''} ${preferences.reduceMotion ? 'reduce-motion' : ''} ${fileDragActive ? 'file-drag' : ''}`}>
+    <div className={`app ${screen} theme-${resolveTheme(preferences.theme, systemDark)} ${preferences.compact ? 'compact' : ''} ${preferences.reduceMotion ? 'reduce-motion' : ''} ${fileDragActive ? 'file-drag' : ''}`}>
       <input ref={customElementInput} type="file" hidden onChange={event => void importCustomElement(event.target.files)} />
       <input ref={mediaInput} type="file" hidden multiple accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" onChange={e => void importFiles(e.target.files)} />
       <input ref={videoInput} type="file" hidden multiple accept="video/mp4,video/webm,video/quicktime,video/x-m4v,.mp4,.webm,.mov,.m4v" onChange={e => void importVideos(e.target.files)} />
@@ -2207,7 +2216,7 @@ export default function App() {
       {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
 
       {exporting && <ExportJobCard name={exportJob.name} phase={exportJob.phase} progress={exportProgress} elapsed={exportElapsed} cancelling={cancellingExport} onCancel={cancelExport} />}
-      {modal && <div className="modal-backdrop"><section className={`modal ${modal === 'export' ? 'export-studio' : modal === 'new' ? 'project-setup' : modal === 'formats' ? 'format-studio' : wideModal ? 'wide' : mediumModal ? 'medium' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      {modal && <div className="modal-backdrop"><section className={`modal ${modal === 'export' ? 'export-studio' : modal === 'new' ? 'project-setup' : modal === 'formats' ? 'format-studio' : modal === 'settings' ? 'settings-modal' : wideModal ? 'wide' : mediumModal ? 'medium' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div className="modal-header"><span className="eyebrow">{modalEyebrow}</span><IconButton label="Close dialog" onClick={requestCloseModal}><X size={20} /></IconButton></div>
         {modal === 'source' && sourcePreview ? <>
           <SourceModal sourcePreview={sourcePreview} previewVideo={previewVideo} sourcePreviewUrl={sourcePreviewUrl} previewMuted={previewMuted} setPreviewVideoDuration={setPreviewVideoDuration} setPreviewVideoTime={setPreviewVideoTime} setPreviewVideoPlaying={setPreviewVideoPlaying} previewList={previewList} switchPreview={switchPreview} previewIndex={previewIndex} previewVideoPlaying={previewVideoPlaying} togglePreviewPlayback={togglePreviewPlayback} previewVideoTime={previewVideoTime} previewVideoDuration={previewVideoDuration} seekPreview={seekPreview} togglePreviewMute={togglePreviewMute} previewVolume={previewVolume} changePreviewVolume={changePreviewVolume} appendMedia={appendMedia} selectedScene={selectedScene} addMediaPip={addMediaPip} setError={setError} />

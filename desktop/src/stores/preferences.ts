@@ -10,7 +10,7 @@ export type Preferences = {
   reduceMotion: boolean;
   showHints: boolean;
   automaticUpdates: boolean;
-  theme: 'dark' | 'light';
+  theme: 'dark' | 'light' | 'system';
 };
 
 const KEY = 'pixcut-preferences';
@@ -45,7 +45,7 @@ export function loadPreferences(): Preferences {
       reduceMotion: typeof stored.reduceMotion === 'boolean' ? stored.reduceMotion : DEFAULT_PREFERENCES.reduceMotion,
       showHints: typeof stored.showHints === 'boolean' ? stored.showHints : DEFAULT_PREFERENCES.showHints,
       automaticUpdates: typeof stored.automaticUpdates === 'boolean' ? stored.automaticUpdates : true,
-      theme: stored.theme === 'light' ? 'light' : 'dark',
+      theme: stored.theme === 'light' || stored.theme === 'system' ? stored.theme : 'dark',
     };
   } catch {
     return { ...DEFAULT_PREFERENCES };
@@ -54,4 +54,10 @@ export function loadPreferences(): Preferences {
 
 export function savePreferences(preferences: Preferences) {
   try { localStorage.setItem(KEY, JSON.stringify(preferences)); } catch { /* preferences are optional */ }
+}
+
+/** The theme class to render: `system` follows the operating system's light or dark appearance. */
+export function resolveTheme(theme: Preferences['theme'], systemPrefersDark: boolean): 'dark' | 'light' {
+  if (theme === 'system') return systemPrefersDark ? 'dark' : 'light';
+  return theme;
 }
