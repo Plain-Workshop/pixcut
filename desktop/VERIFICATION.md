@@ -1565,3 +1565,18 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
   - `encode_plan` builds these in FFmpeg only when needed (zoomed, panned, blurred, or a coloured contain backdrop); plain cover/contain keeps the old scale-and-crop path. Zoom is clamped to 1-4, pan to -1..1 and the colour must be `#RRGGBB`, like the preview.
   - Tests: `real_video_letterbox_uses_the_framing_background`, `real_video_zoom_and_pan_match_the_preview_framing`, `real_video_blur_fit_fills_the_bars_with_a_dimmed_blur`, and `plan_segment_reads_framing_from_the_editor_json`.
   - The blur backdrop approximates the canvas version (small blurred cover, dimmed by rgba(8,10,16,.42)); it is not pixel-identical.
+
+## Settings, updates, timeline, inspector, audio lanes and music search (2026-10-29)
+
+Verified in the browser preview (Chrome engine, 1440×900) with the Vite dev server; native-only paths are listed at the end.
+
+- **Settings:** two-pane dialog; the System theme follows the OS and switches live (checked light and dark emulation). `tests/preferences.test.ts`.
+- **Updates:** a failed quiet check retries after an hour, a new version is announced once, the project is saved and exports block before install or restart, failed downloads can be retried. `tests/updates.test.ts`.
+- **Timeline:** ruler ticks and timecodes, cursor-anchored zoom (a point stayed at 2.262 s across zoom steps), 16 px per frame at full zoom, navigation shortcuts, collapsible lanes, labelled snap guide, 36 px toolbar and 20 px ruler, playhead line centred on its handle (665.58 px for line, handle and tick). `tests/timeline-ruler.test.ts`, `tests/timeline-snap.test.ts`.
+- **Inspector:** labelled tabs with changed dots, per-tab reset, apply to all clips as one undo step (verified by undoing three steps). `tests/scene-tabs.test.ts`.
+- **Audio lanes:** spectrogram uses a 2048-point FFT with interpolated low bands; the old code was confirmed to paint runs of up to 7 identical bands. Waveform uses a decibel scale and a one-sided envelope; names sit in a strip above the graph; silent video clips say "No sound". `tests/spectrogram.test.ts`, `tests/waveform.test.ts`.
+- **Music search:** Openverse's search API did not answer at the time (its stats endpoint did); Auto now skips it while marked down and falls back to the Free Music Archive, then Commons. "piano" returned 19 results and Add downloaded and placed a clip.
+- **Startup:** a failed Tauri start now shows an error dialog and exits instead of panicking.
+- Tests: 50 native (24 ignored FFmpeg tests not run this round), 489 TypeScript. `cargo clippy` is clean for the library; two `field_reassign_with_default` warnings remain in test code.
+
+Not verified: pinch zoom on a real trackpad, an update download/install/restart against a published release, an online download through the Rust path, and clicking through the native window (only the browser preview was driven).

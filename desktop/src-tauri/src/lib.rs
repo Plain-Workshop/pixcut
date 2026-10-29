@@ -124,7 +124,14 @@ fn open_project_path(app: tauri::AppHandle, path: String) -> Result<(), String> 
     Ok(())
 }
 
-#[allow(clippy::expect_used)] // Tauri cannot recover if the shell fails to start.
+/// Tauri cannot continue without its shell, so a failed start tells the user why and exits.
+fn startup_failed(error: &dyn std::fmt::Display) -> ! {
+    let message = format!("PixCut could not start.\n\n{error}\n\nTry restarting your computer or reinstalling PixCut. Your projects are not affected.");
+    eprintln!("{message}");
+    rfd::MessageDialog::new().set_level(rfd::MessageLevel::Error).set_title("PixCut").set_description(&message).show();
+    std::process::exit(1);
+}
+
 pub fn run() {
     let pending = pixcut_path_from_args(std::env::args_os().skip(1));
     let app = tauri::Builder::default()
@@ -196,7 +203,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("Unable to start PixCut");
+        .unwrap_or_else(|error| startup_failed(&error));
     app.run(|app_handle, event| {
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Opened { urls } = event {
