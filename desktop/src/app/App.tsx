@@ -46,7 +46,8 @@ import { formatCount, isLocale, sceneCount, setLocale, t, type Locale } from '..
 import { applyClipEq } from '../components/preview/eq';
 import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
-import { shouldCheckForUpdates } from './updates';
+import { useUpdates } from './hooks/useUpdates';
+import { useFormats } from './hooks/useFormats';
 import { ELEMENT_LABEL_DEFAULTS } from '../components/elements/symbols';
 import { useCallback, useMemo, useEffect, useRef, useState, type ChangeEvent, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import {
@@ -130,13 +131,13 @@ import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import * as bridge from './bridge';
 import { HINTS_KEY } from './export-options';
-import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, MAX_PROJECT_FORMATS, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, minTicks, projectScenes, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
+import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, minTicks, projectScenes, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
 import { resizeRotatedBox, rotationFromPointer, type ResizeCorner } from '../components/preview/transform-handles';
 import { probeVideo } from '../components/preview/video';
 import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers } from '../components/text/layers';
 import { clampWeight, fontOption } from '../components/text/fonts';
-import { FORMAT_FILTERS, FORMAT_PRESETS, createCustomFormat, createFormat, filterFormatGroups, formatSlug, formatSize, groupFormatsByOutput, resolveSceneForFormat } from '../stores/formats';
+import { FORMAT_FILTERS, FORMAT_PRESETS, filterFormatGroups, formatSlug, formatSize, groupFormatsByOutput, resolveSceneForFormat } from '../stores/formats';
 import { messageFor } from './errors';
 import { captureDragPointer, formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
 import { backfillThumbnails, deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, listProjects, renameProjectGroup, saveLibraryProject, setProjectFavorite, setProjectGroup, type ProjectSummary } from '../stores/library';
@@ -182,7 +183,6 @@ const AVAILABLE: CommandAvailability = { disabled: false };
 
 const RANGE_NAVIGATION_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
 // Codecs use different CRF scales; ProRes maps the value to a 422 profile.
-const RELEASES_URL = 'https://github.com/Plain-Workshop/pixcut/releases/latest';
 const ELEMENTS = ELEMENT_CATALOG;
 const ELEMENT_COLOR_DEFAULTS: Partial<Record<ElementKind, string>> = {
   subscribe: '#FF0033', like: '#0A66C2', bell: '#FFD166', comment: '#FFFFFF',
@@ -201,13 +201,6 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]), [primarySelected, setPrimarySelected] = useState<string | null>(null), [position, setPosition] = useState(0);
   const [tab, setTab] = useState<'media' | 'text' | 'elements' | 'audio' | 'templates'>('media'), [modal, setModal] = useState<'source' | 'templates' | 'export' | 'new' | 'shortcuts' | 'palette' | 'settings' | 'delete' | 'rename' | 'group' | 'groups' | 'formats' | 'missing' | null>(null);
   const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'editing' | 'shortcuts' | 'updates' | 'privacy'>('general');
-  const [appVersion, setAppVersion] = useState(__APP_VERSION__);
-  const lastUpdateCheck = useRef(0);
-  const updateCheckInFlight = useRef(false);
-  const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'>('idle');
-  const [updateInfo, setUpdateInfo] = useState<bridge.UpdateInfo | null>(null);
-  const [updateProgress, setUpdateProgress] = useState(0);
-  const [updateMessage, setUpdateMessage] = useState('');
   const [language, setLanguage] = useState<Locale>(() => {
     try {
       const stored = localStorage.getItem('pixcut-language');
@@ -648,57 +641,7 @@ export default function App() {
     bridge.exporterAvailable().then(available => { setExporter(available); setNotice(available ? 'FFmpeg is ready for MP4 export.' : 'FFmpeg was not found on this device.'); }).catch(error => setError(messageFor(error)));
   }
 
-  function updateErrorText(error: unknown) {
-    const raw = error instanceof Error ? error.message : String(error ?? '');
-    if (/fetch|network|connect|timeout|release json|status code|404|403|500/i.test(raw)) return 'Could not reach the release feed. Check your connection and try again.';
-    if (/signature|public key|verify/i.test(raw)) return 'This update could not be verified, so PixCut did not install it.';
-    return messageFor(error);
-  }
-
-  async function performUpdateCheck(silent: boolean) {
-    if (updateCheckInFlight.current) return;
-    updateCheckInFlight.current = true;
-    lastUpdateCheck.current = Date.now();
-    if (!silent) { setUpdateState('checking'); setUpdateMessage(''); }
-    try {
-      const info = await bridge.checkForUpdate();
-      setUpdateInfo(info);
-      setUpdateState(info ? 'available' : 'idle');
-      if (!silent) setUpdateMessage(info ? '' : 'PixCut is up to date.');
-    } catch (error) {
-      if (!silent) { setUpdateState('error'); setUpdateMessage(updateErrorText(error)); }
-    } finally { updateCheckInFlight.current = false; }
-  }
-
-  function checkForUpdates() { void performUpdateCheck(false); }
-
-  useEffect(() => {
-    const check = () => {
-      if (shouldCheckForUpdates({ native: bridge.native, enabled: preferences.automaticUpdates, home: screen === 'home' && !exporting,
-        visible: document.visibilityState === 'visible', online: navigator.onLine, state: updateState, lastCheck: lastUpdateCheck.current, now: Date.now() })) void performUpdateCheck(true);
-    };
-    const startup = window.setTimeout(check, 15_000);
-    const interval = window.setInterval(check, 60_000);
-    window.addEventListener('online', check);
-    document.addEventListener('visibilitychange', check);
-    return () => { clearTimeout(startup); clearInterval(interval); window.removeEventListener('online', check); document.removeEventListener('visibilitychange', check); };
-  }, [preferences.automaticUpdates, screen, exporting, updateState]);
-
-  function downloadUpdate() {
-    setUpdateState('downloading'); setUpdateProgress(0); setUpdateMessage('');
-    bridge.installUpdate(setUpdateProgress)
-      .then(() => { setUpdateState('ready'); setUpdateMessage(''); setNotice('Update downloaded. Restart PixCut to finish.'); })
-      .catch(error => { setUpdateState('error'); setUpdateMessage(updateErrorText(error)); });
-  }
-
-  function restartUpdate() {
-    bridge.restartToUpdate().catch(error => { setUpdateState('error'); setUpdateMessage(updateErrorText(error)); });
-  }
-
-  function copyDownloadLink() {
-    if (!navigator.clipboard) { setNotice(`Download the latest release from ${RELEASES_URL}`); return; }
-    navigator.clipboard.writeText(RELEASES_URL).then(() => setNotice('Download link copied.')).catch(() => setNotice(`Download the latest release from ${RELEASES_URL}`));
-  }
+  const { appVersion, updateState, updateInfo, updateProgress, updateMessage, checkForUpdates, downloadUpdate, restartUpdate, copyDownloadLink } = useUpdates({ automaticUpdates: preferences.automaticUpdates, home: screen === 'home', exporting, setNotice });
 
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => { document.documentElement.lang = language; }, [language]);
@@ -742,7 +685,7 @@ export default function App() {
     } catch { /* recovery remains the source of truth if a thumbnail cannot be drawn */ }
   }, []);
 
-  useEffect(() => { bridge.initialize().then(s => { setSession(s); latestProject.current = s.project; setName(s.project.name); }).catch(e => setError(`Recovery could not be loaded. ${messageFor(e)}`)).finally(() => setReady(true)); bridge.exporterAvailable().then(setExporter).catch(() => setExporter(false)); bridge.appVersion().then(version => { if (version) setAppVersion(version); }).catch(() => { /* browser preview */ }); }, []);
+  useEffect(() => { bridge.initialize().then(s => { setSession(s); latestProject.current = s.project; setName(s.project.name); }).catch(e => setError(`Recovery could not be loaded. ${messageFor(e)}`)).finally(() => setReady(true)); bridge.exporterAvailable().then(setExporter).catch(() => setExporter(false)); }, []);
   useEffect(() => { const listener = bridge.onExportProgress(percent => { setExportJob(job => ({ ...job, phase: 'Encoding video' })); setExportProgress(current => Math.max(current, 72 + Math.round(Math.min(99, percent) * .27))); }); return () => { void listener?.then(unlisten => unlisten()); }; }, []);
   useEffect(() => {
     if (!bridge.native) return;
@@ -2284,68 +2227,7 @@ export default function App() {
     await launchProject(next);
   }
 
-  async function addFormat(presetId: string) {
-    if (project.formats.length >= MAX_PROJECT_FORMATS) { setNotice(`A project supports up to ${MAX_PROJECT_FORMATS} output formats.`); return; }
-    const format = createFormat(presetId, project.formats);
-    if (await run({ type: 'formats', formats: [...project.formats, format] })) {
-      setActiveFormatId(format.id);
-      setNotice(`${format.name} added. Framing is saved separately for this format.`);
-    }
-  }
-
-  async function toggleFormatPreset(presetId: string) {
-    const existing = project.formats.find(format => format.presetId === presetId);
-    if (existing) await removeFormat(existing.id);
-    else await addFormat(presetId);
-  }
-
-  function addNewCustomFormat() {
-    if (newFormatSelection.length >= MAX_PROJECT_FORMATS) { setNotice(`A project supports up to ${MAX_PROJECT_FORMATS} output formats.`); return; }
-    const width = Math.round(customFormatDraft.width / 2) * 2;
-    const height = Math.round(customFormatDraft.height / 2) * 2;
-    if (width < 160 || height < 160 || width > 3840 || height > 3840) { setError('Custom size must be between 160 and 3840 pixels.'); return; }
-    setNewCustomFormats(current => [...current, createCustomFormat(customFormatDraft.name, width, height, customFormatDraft.fps, customFormatDraft.quality, current)]);
-    setCustomFormatDraft({ name: '', width: 1080, height: 1080, fps: 30, quality: 'standard' });
-  }
-
-  async function addCustomFormat() {
-    if (project.formats.length >= MAX_PROJECT_FORMATS) { setNotice(`A project supports up to ${MAX_PROJECT_FORMATS} output formats.`); return; }
-    const width = Math.round(customFormatDraft.width / 2) * 2;
-    const height = Math.round(customFormatDraft.height / 2) * 2;
-    if (width < 160 || height < 160 || width > 3840 || height > 3840) { setError('Custom size must be between 160 and 3840 pixels.'); return; }
-    const format = createCustomFormat(customFormatDraft.name, width, height, customFormatDraft.fps, customFormatDraft.quality, project.formats);
-    if (await run({ type: 'formats', formats: [...project.formats, format] })) {
-      setActiveFormatId(format.id);
-      setCustomFormatDraft({ name: '', width: 1080, height: 1080, fps: 30, quality: 'standard' });
-      setNotice(`${format.name} added.`);
-    }
-  }
-
-  async function updateFormatSettings(format: FormatVariant, patch: Partial<FormatVariant>) {
-    const width = Math.round((patch.width ?? format.width) / 2) * 2;
-    const height = Math.round((patch.height ?? format.height) / 2) * 2;
-    if (width < 160 || height < 160 || width > 3840 || height > 3840) { setError('Format size must be between 160 and 3840 pixels.'); return; }
-    const next = project.formats.map(item => item.id === format.id ? { ...item, ...patch, width, height, name: (patch.name ?? item.name).trim() || item.name } : item);
-    await run({ type: 'formats', formats: next });
-  }
-
-  async function removeFormat(formatId: string) {
-    if (project.formats.length <= 1) { setNotice('Keep at least one output format.'); return; }
-    const formats = project.formats.filter(format => format.id !== formatId);
-    if (await run({ type: 'formats', formats })) {
-      if (activeFormat?.id === formatId) setActiveFormatId(formats[0]?.id ?? null);
-      setNotice('Output format removed.');
-    }
-  }
-
-  async function applyFramingToAllFormats() {
-    const scene = selectedScene;
-    if (!scene || !activeFormat) return;
-    const resolved = resolveSceneForFormat(scene, activeFormat);
-    const override = { imageX: resolved.imageX ?? 0, imageY: resolved.imageY ?? 0, imageZoom: resolved.imageZoom ?? 1, fit: resolved.fit, framingBackground: resolved.framingBackground ?? '#000000' };
-    const formats = project.formats.map(format => ({ ...format, overrides: { ...format.overrides, [scene.id]: { ...format.overrides[scene.id], ...override } } }));
-    if (await run({ type: 'formats', formats })) setNotice('Current framing copied to every output format.');
-  }
+  const { toggleFormatPreset, addNewCustomFormat, addCustomFormat, updateFormatSettings, removeFormat, applyFramingToAllFormats } = useFormats({ project, run, setNotice, setError, activeFormat, setActiveFormatId, selectedScene, newFormatCount: newFormatSelection.length, setNewCustomFormats, customFormatDraft, setCustomFormatDraft });
 
   async function startTemplate(template: TemplateDefinition) {
     // A template is a fresh story: always use its bundled photography, never
