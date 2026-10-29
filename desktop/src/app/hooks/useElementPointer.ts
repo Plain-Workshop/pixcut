@@ -1,6 +1,6 @@
 import { type Dispatch, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from 'react';
 import { centreGuides, snapToTargets } from '../../components/preview/snapping';
-import { snapOverlayTiming } from '../../components/timeline/beats';
+import { landedOn, setSnapGuide, snapEdges, snapThreshold, timelineSnapPoints } from '../../components/timeline/timeline-snap';
 import { resizeRotatedBox, rotationFromPointer, type ResizeCorner } from '../../components/preview/transform-handles';
 import { constrainOverlay, type TimelineOverlay } from '../../components/elements/overlays';
 import { secondsToTicks, ticksToSeconds, type ElementLayer, type Project } from '../../stores/model';
@@ -93,22 +93,23 @@ export function useElementPointer({ canEdit, inspectorFlush, previewStage, selec
     event.preventDefault(); event.stopPropagation(); selectOverlay(element, false);
     const track = event.currentTarget.closest('.overlay-track')?.getBoundingClientRect(); if (!track?.width) return;
     const startX = event.clientX; let moved = false;
+    const points = snapping ? timelineSnapPoints(project, secondsToTicks(position, project.timebase), element.id) : [];
+    const threshold = snapThreshold(projectTicks, track.width);
     const move = (e: PointerEvent) => {
       const delta = Math.round((e.clientX - startX) / track.width * projectTicks); moved ||= Math.abs(e.clientX - startX) > 2;
       let patch: Partial<ElementLayer>;
-      if (edge === 'move') patch = { startTicks: Math.max(0, Math.min(projectTicks - element.durationTicks, element.startTicks + delta)) };
+      if (edge === 'move') patch = { startTicks: element.startTicks + delta };
       else if (edge === 'end') patch = { durationTicks: Math.max(1, element.durationTicks + delta) };
-      else { const start = Math.max(0, Math.min(element.startTicks + element.durationTicks - 1, element.startTicks + delta)); patch = { startTicks: start, durationTicks: element.durationTicks + element.startTicks - start }; }
+      else { const start = Math.min(element.startTicks + element.durationTicks - 1, element.startTicks + delta); patch = { startTicks: start, durationTicks: element.durationTicks + element.startTicks - start }; }
+      const snapped = snapEdges(edge, patch.startTicks ?? element.startTicks, patch.durationTicks ?? element.durationTicks, points, threshold);
+      if (snapped.guide) patch = { startTicks: snapped.startTicks, durationTicks: snapped.durationTicks };
+      if (edge === 'move') patch.startTicks = Math.max(0, Math.min(projectTicks - element.durationTicks, patch.startTicks ?? element.startTicks));
       const next = { ...element, ...constrainOverlay(element, projectTicks, patch) };
       if (next.kind === 'video' && next.sourceDurationSeconds) next.durationTicks = Math.min(next.durationTicks, Math.max(1, secondsToTicks(next.sourceDurationSeconds - (next.sourceInSeconds ?? 0), project.timebase)));
-      if (snapping && project.beatTicks?.length) {
-        const snapped = snapOverlayTiming(edge, next.startTicks, next.durationTicks, project.beatTicks, Math.max(1, Math.round(projectTicks / track.width * 8)));
-        next.startTicks = snapped.startTicks;
-        next.durationTicks = snapped.durationTicks;
-      }
+      setSnapGuide(landedOn(snapped.guide, next.startTicks, next.durationTicks));
       overlayDraftRef.current = next; setOverlayDraft(next);
     };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); if (moved) commitElement(); else selectOverlay(element); };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); setSnapGuide(null); if (moved) commitElement(); else selectOverlay(element); };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
   }
 

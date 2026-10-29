@@ -233,6 +233,96 @@ const DEFINITIONS: CommandDefinition[] = [
     defaultOther: 'ArrowRight',
   },
   {
+    id: 'timeline.prev_edit',
+    label: 'Previous edit point',
+    description: 'Jump the playhead to the previous clip boundary on any track.',
+    category: 'Timeline',
+    context: 'timeline',
+    synonyms: ['cut', 'boundary', 'previous clip', 'edge'],
+    defaultMac: 'ArrowUp',
+    defaultOther: 'ArrowUp',
+  },
+  {
+    id: 'timeline.next_edit',
+    label: 'Next edit point',
+    description: 'Jump the playhead to the next clip boundary on any track.',
+    category: 'Timeline',
+    context: 'timeline',
+    synonyms: ['cut', 'boundary', 'next clip', 'edge'],
+    defaultMac: 'ArrowDown',
+    defaultOther: 'ArrowDown',
+  },
+  {
+    id: 'timeline.back_second',
+    label: 'Back one second',
+    description: 'Move the playhead back one second.',
+    category: 'Timeline',
+    context: 'timeline',
+    synonyms: ['rewind', 'jump'],
+    defaultMac: 'Shift+ArrowLeft',
+    defaultOther: 'Shift+ArrowLeft',
+  },
+  {
+    id: 'timeline.forward_second',
+    label: 'Forward one second',
+    description: 'Move the playhead forward one second.',
+    category: 'Timeline',
+    context: 'timeline',
+    synonyms: ['skip', 'jump'],
+    defaultMac: 'Shift+ArrowRight',
+    defaultOther: 'Shift+ArrowRight',
+  },
+  {
+    id: 'timeline.go_start',
+    label: 'Go to start',
+    description: 'Move the playhead to the start of the story.',
+    category: 'Timeline',
+    context: 'timeline',
+    synonyms: ['beginning', 'home', 'first frame'],
+    defaultMac: 'Home',
+    defaultOther: 'Home',
+  },
+  {
+    id: 'timeline.go_end',
+    label: 'Go to end',
+    description: 'Move the playhead to the last frame of the story.',
+    category: 'Timeline',
+    context: 'timeline',
+    synonyms: ['finish', 'last frame'],
+    defaultMac: 'End',
+    defaultOther: 'End',
+  },
+  {
+    id: 'timeline.zoom_in',
+    label: 'Zoom in timeline',
+    description: 'Zoom the timeline in around the playhead.',
+    category: 'Timeline',
+    context: 'timeline',
+    synonyms: ['magnify', 'closer'],
+    defaultMac: '=',
+    defaultOther: '=',
+  },
+  {
+    id: 'timeline.zoom_out',
+    label: 'Zoom out timeline',
+    description: 'Zoom the timeline out around the playhead.',
+    category: 'Timeline',
+    context: 'timeline',
+    synonyms: ['shrink', 'overview'],
+    defaultMac: '-',
+    defaultOther: '-',
+  },
+  {
+    id: 'timeline.zoom_fit',
+    label: 'Fit timeline',
+    description: 'Fit the whole story in the timeline.',
+    category: 'Timeline',
+    context: 'timeline',
+    synonyms: ['overview', 'reset zoom', 'whole'],
+    defaultMac: 'Shift+Z',
+    defaultOther: 'Shift+Z',
+  },
+  {
     id: 'timeline.snapping',
     label: 'Toggle snapping',
     description: 'Snap the playhead to scene boundaries while scrubbing.',
@@ -342,6 +432,10 @@ const KEY_ALIASES: Record<string, string> = {
   tab: 'Tab',
   plus: 'Plus',
   '+': 'Plus',
+  home: 'Home',
+  end: 'End',
+  pageup: 'PageUp',
+  pagedown: 'PageDown',
 };
 const NON_RECORDING_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta', 'CapsLock', 'Dead', 'Unidentified', 'Process']);
 const STORAGE_KEY = 'pixcut-shortcuts';
@@ -580,6 +674,12 @@ export function parseShortcutSettings(value: unknown, platform = detectPlatform(
     if (!canonical) return { error: `${key} contains an unsupported key combination.` };
     if (isReservedBinding(canonical, platform)) return { error: `${formatBinding(canonical, platform)} is reserved by the operating system.` };
     bindings[key] = canonical;
+  }
+  // A command added after these settings were saved (or exported) must not
+  // take a key the user already chose; it starts unassigned instead.
+  for (const conflict of findConflicts(bindings)) {
+    const [added] = [conflict.commandId, conflict.otherId].filter(id => !(id in source));
+    if (added) bindings[added] = '';
   }
   const settings: ShortcutSettings = { schema_version: STORAGE_VERSION, preset, bindings };
   const conflicts = findConflicts(bindings);

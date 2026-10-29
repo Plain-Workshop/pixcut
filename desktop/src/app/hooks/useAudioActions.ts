@@ -1,3 +1,4 @@
+import { landedOn, setSnapGuide, snapEdges, snapThreshold, timelineSnapPoints } from '../../components/timeline/timeline-snap';
 import { resolveAssetUrl } from '../../components/preview/media-url';
 import { assetRef, storeAssetBlob } from '../../stores/assets';
 import { beatMarkerTicks, detectBeats, snapScenesToBeats } from '../../components/timeline/beat-sync';
@@ -10,13 +11,14 @@ import { captureDragPointer, audioDuration, audioFileData } from '../helpers';
 import { type Preferences } from '../../stores/preferences';
 import { type Dispatch, type SetStateAction, type RefObject } from 'react';
 
-export function useAudioActions({ canEdit, setError, audioInput, projectTicks, setNotice, position, project, audioLaneRef, run, setEditTarget, setSelectedAudioId, setTab, operation, setPlaying, setBusy, scenes, preferences, stageImportedMedia, mediaInput, recordChunks, recorderRef, setRecording, setRecordSeconds, recordTimer, latestProject, positionRef, audioDraftRef, setAudioDraft, setPreviewAudio, selectedAudio, mixDraftRef, setMixDraft, videoVolumeDraftRef, setVideoVolumeDraft, playing, setPosition, editTargetRef, audioTargetRef, setSelectedIds, setPrimarySelected, setSelectedElementId, setSelectedGlobalTextId, setBeatBusy, setBeatTempo, beatTempo }: {
+export function useAudioActions({ timelineSnapping, canEdit, setError, audioInput, projectTicks, setNotice, position, project, audioLaneRef, run, setEditTarget, setSelectedAudioId, setTab, operation, setPlaying, setBusy, scenes, preferences, stageImportedMedia, mediaInput, recordChunks, recorderRef, setRecording, setRecordSeconds, recordTimer, latestProject, positionRef, audioDraftRef, setAudioDraft, setPreviewAudio, selectedAudio, mixDraftRef, setMixDraft, videoVolumeDraftRef, setVideoVolumeDraft, playing, setPosition, editTargetRef, audioTargetRef, setSelectedIds, setPrimarySelected, setSelectedElementId, setSelectedGlobalTextId, setBeatBusy, setBeatTempo, beatTempo }: {
   canEdit: boolean;
   setError: Dispatch<SetStateAction<string>>;
   audioInput: RefObject<HTMLInputElement | null>;
   projectTicks: number;
   setNotice: Dispatch<SetStateAction<string>>;
   position: number;
+  timelineSnapping: boolean;
   project: Project;
   audioLaneRef: RefObject<number>;
   run: (command: Command) => Promise<boolean>;
@@ -434,10 +436,15 @@ export function useAudioActions({ canEdit, setError, audioInput, projectTicks, s
     const initialStart = clip.startTicks;
     let latest = project.audio;
     let moved = false;
+    const points = timelineSnapping ? timelineSnapPoints(project, secondsToTicks(position, project.timebase), clip.id) : [];
+    const threshold = snapThreshold(projectTicks, width);
+    const place = (start: number) => Math.min(Math.max(0, start), Math.max(0, projectTicks - clip.durationTicks));
     const move = (moveEvent: PointerEvent) => {
       const delta = Math.round(((moveEvent.clientX - startX) / width) * projectTicks);
       if (delta !== 0) moved = true;
-      const startTicks = Math.min(Math.max(0, initialStart + delta), Math.max(0, projectTicks - clip.durationTicks));
+      const snapped = snapEdges('move', place(initialStart + delta), clip.durationTicks, points, threshold);
+      const startTicks = place(snapped.guide ? snapped.startTicks : initialStart + delta);
+      setSnapGuide(landedOn(snapped.guide, startTicks, clip.durationTicks));
       latest = project.audio.map(item => item.id === clip.id ? { ...item, startTicks } : item);
       setPreviewAudio(latest);
     };
@@ -445,6 +452,7 @@ export function useAudioActions({ canEdit, setError, audioInput, projectTicks, s
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
+      setSnapGuide(null);
       setPreviewAudio(null);
       if (moved) void run({ type: 'audio', audio: latest });
     };
@@ -452,6 +460,7 @@ export function useAudioActions({ canEdit, setError, audioInput, projectTicks, s
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
+      setSnapGuide(null);
       setPreviewAudio(null);
     };
     window.addEventListener('pointermove', move);
@@ -473,8 +482,9 @@ export function useAudioActions({ canEdit, setError, audioInput, projectTicks, s
     const initialStart = clip.startTicks, initialDuration = clip.durationTicks, initialIn = clip.sourceInSeconds;
     let latest = project.audio;
     let moved = false;
-    const move = (moveEvent: PointerEvent) => {
-      const delta = Math.round(((moveEvent.clientX - startX) / width) * projectTicks);
+    const points = timelineSnapping ? timelineSnapPoints(project, secondsToTicks(position, project.timebase), clip.id) : [];
+    const threshold = snapThreshold(projectTicks, width);
+    const trim = (delta: number) => {
       let startTicks = initialStart, durationTicks = initialDuration, sourceIn = initialIn;
       if (side === 'left') {
         let shift = Math.min(initialDuration - 1, Math.max(delta, -initialStart));
@@ -486,6 +496,14 @@ export function useAudioActions({ canEdit, setError, audioInput, projectTicks, s
         const maxDuration = Math.min(projectTicks - initialStart, secondsToTicks(clip.sourceDurationSeconds - initialIn, project.timebase));
         durationTicks = Math.min(Math.max(1, initialDuration + delta), Math.max(1, maxDuration));
       }
+      return { startTicks, durationTicks, sourceIn };
+    };
+    const move = (moveEvent: PointerEvent) => {
+      const delta = Math.round(((moveEvent.clientX - startX) / width) * projectTicks);
+      const raw = trim(delta);
+      const snapped = snapEdges(side === 'left' ? 'start' : 'end', raw.startTicks, raw.durationTicks, points, threshold);
+      const { startTicks, durationTicks, sourceIn } = snapped.guide ? trim(side === 'left' ? snapped.startTicks - initialStart : snapped.startTicks + snapped.durationTicks - initialStart - initialDuration) : raw;
+      setSnapGuide(landedOn(snapped.guide, startTicks, durationTicks));
       if (startTicks !== initialStart || durationTicks !== initialDuration || sourceIn !== initialIn) moved = true;
       latest = project.audio.map(item => item.id === clip.id ? { ...item, startTicks, durationTicks, sourceInSeconds: sourceIn } : item);
       setPreviewAudio(latest);
@@ -494,6 +512,7 @@ export function useAudioActions({ canEdit, setError, audioInput, projectTicks, s
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
+      setSnapGuide(null);
       setPreviewAudio(null);
       if (moved) void run({ type: 'audio', audio: latest });
     };
@@ -501,6 +520,7 @@ export function useAudioActions({ canEdit, setError, audioInput, projectTicks, s
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
+      setSnapGuide(null);
       setPreviewAudio(null);
     };
     window.addEventListener('pointermove', move);

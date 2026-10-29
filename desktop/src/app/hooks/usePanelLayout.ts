@@ -1,10 +1,15 @@
 import { useState } from 'react';
+import { clampZoom, MIN_TIMELINE_ZOOM } from '../../components/timeline/ruler';
 
-/** Persisted panel sizes and timeline zoom, plus the splitter drag that resizes the panels. */
+/** Hard ceiling for stored zoom; the panel narrows it to one frame per 16 px for the open story. */
+const STORED_ZOOM_LIMIT = 5000;
+
+/** Persisted panel sizes, timeline zoom and collapsed lanes, plus the splitter drag that resizes the panels. */
 export function usePanelLayout() {
   const [layout, setLayout] = useState(() => { try { return JSON.parse(localStorage.getItem('pixcut-layout') || '{}'); } catch { return {}; } });
   const libraryWidth = layout.libraryWidth ?? 280, inspectorWidth = layout.inspectorWidth ?? 288, timelineHeight = layout.timelineHeight ?? 340;
-  const timelineZoom = Math.min(6, Math.max(.5, Number(layout.timelineZoom) || 1));
+  const timelineZoom = Math.min(STORED_ZOOM_LIMIT, Math.max(MIN_TIMELINE_ZOOM, Number(layout.timelineZoom) || 1));
+  const collapsedLanes: string[] = Array.isArray(layout.collapsedLanes) ? layout.collapsedLanes.filter((id: unknown): id is string => typeof id === 'string') : [];
 
   function beginResize(kind: 'library' | 'inspector' | 'timeline', start: number, coord: number) {
     const onMove = (e: PointerEvent) => {
@@ -23,14 +28,25 @@ export function usePanelLayout() {
     window.addEventListener('pointerup', onUp);
   }
 
-  function changeTimelineZoom(value: number) {
-    const next = Math.min(6, Math.max(.5, Math.round(value * 4) / 4));
+  function persist(patch: Record<string, unknown>) {
     setLayout((current: any) => {
-      const updated = { ...current, timelineZoom: next };
+      const updated = { ...current, ...patch };
       try { localStorage.setItem('pixcut-layout', JSON.stringify(updated)); } catch { /* optional */ }
       return updated;
     });
   }
 
-  return { setLayout, libraryWidth, inspectorWidth, timelineHeight, timelineZoom, beginResize, changeTimelineZoom };
+  function changeTimelineZoom(value: number) {
+    persist({ timelineZoom: clampZoom(value, STORED_ZOOM_LIMIT) });
+  }
+
+  function setCollapsedLanes(ids: string[]) {
+    persist({ collapsedLanes: [...new Set(ids)] });
+  }
+
+  function toggleLane(id: string) {
+    setCollapsedLanes(collapsedLanes.includes(id) ? collapsedLanes.filter(lane => lane !== id) : [...collapsedLanes, id]);
+  }
+
+  return { setLayout, libraryWidth, inspectorWidth, timelineHeight, timelineZoom, beginResize, changeTimelineZoom, collapsedLanes, toggleLane, setCollapsedLanes };
 }

@@ -1,13 +1,14 @@
+import { landedOn, setSnapGuide, snapEdges, snapThreshold, timelineSnapPoints } from '../../components/timeline/timeline-snap';
 import { type Dispatch, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from 'react';
 import { framingTravel } from '../../components/preview/framing';
 import { edgeGuides, snapToTargets } from '../../components/preview/snapping';
 import { loadImage, textBoxLayout } from '../../components/preview/render';
 import { sceneTextLayers } from '../../components/text/layers';
-import { projectScenes, sceneSeconds, ticksToSeconds, trimSceneWindow, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer } from '../../stores/model';
+import { projectScenes, sceneSeconds, secondsToTicks, ticksToSeconds, trimSceneWindow, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer } from '../../stores/model';
 import { captureDragPointer } from '../helpers';
 
 /** Pointer gestures on the preview stage (pan, text move/resize) and the timeline (fades, trims, playhead). */
-export function useStagePointer({ canEdit, inspectorFlush, previewStage, inspectorScene, selectedScene, selectedIds, selectedTextLayer, textBox, project, latestProject, projectTicks, duration, activeSize, pending, run, updateSelection, optimisticScene, replaceSceneTextLayers, scrubTo, selectionAnchor, setSession, setPreviewScene, setPlaying, setEditingText, setFadeDrag, setSnapGuides, setSelectedIds, setPrimarySelected, setDraggingOverlay }: {
+export function useStagePointer({ timelineSnapping, playheadSeconds, canEdit, inspectorFlush, previewStage, inspectorScene, selectedScene, selectedIds, selectedTextLayer, textBox, project, latestProject, projectTicks, duration, activeSize, pending, run, updateSelection, optimisticScene, replaceSceneTextLayers, scrubTo, selectionAnchor, setSession, setPreviewScene, setPlaying, setEditingText, setFadeDrag, setSnapGuides, setSelectedIds, setPrimarySelected, setDraggingOverlay }: {
   canEdit: boolean;
   inspectorFlush: RefObject<() => void>;
   previewStage: RefObject<HTMLElement | null>;
@@ -17,6 +18,8 @@ export function useStagePointer({ canEdit, inspectorFlush, previewStage, inspect
   selectedTextLayer: TextLayer | null;
   textBox: ReturnType<typeof textBoxLayout> | null;
   project: Project;
+  timelineSnapping: boolean;
+  playheadSeconds: number;
   latestProject: RefObject<Project>;
   projectTicks: number;
   duration: number;
@@ -230,9 +233,16 @@ export function useStagePointer({ canEdit, inspectorFlush, previewStage, inspect
     let next = scene;
     let frame = 0;
     setPreviewScene(scene);
+    // Later cuts ripple with the trim, so only targets before this clip's end hold still.
+    const points = timelineSnapping && side === 'right' ? timelineSnapPoints(project, secondsToTicks(playheadSeconds, timebase), scene.id).filter(point => point.kind !== 'end' && !(point.kind === 'cut' && point.tick > scene.startTicks)) : [];
+    const threshold = snapThreshold(initialDuration, width);
     const move = (moveEvent: PointerEvent) => {
-      const delta = Math.round(((moveEvent.clientX - startX) / width) * initialDuration);
-      const candidate = trimSceneWindow(scene, delta, side, timebase);
+      let delta = Math.round(((moveEvent.clientX - startX) / width) * initialDuration);
+      const raw = trimSceneWindow(scene, delta, side, timebase);
+      const snapped = snapEdges('end', scene.startTicks, raw.durationTicks, points, threshold);
+      if (snapped.guide) delta = snapped.durationTicks - initialDuration;
+      const candidate = snapped.guide ? trimSceneWindow(scene, delta, side, timebase) : raw;
+      setSnapGuide(landedOn(snapped.guide, scene.startTicks, candidate.durationTicks));
       if (candidate.durationTicks === next.durationTicks && candidate.sourceInTicks === next.sourceInTicks) return;
       next = candidate;
       // Coalesce pointer moves into one paint. The timeline reads this draft
@@ -246,6 +256,7 @@ export function useStagePointer({ canEdit, inspectorFlush, previewStage, inspect
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
+      setSnapGuide(null);
       if (frame) { cancelAnimationFrame(frame); frame = 0; }
       setPreviewScene(null);
       if (!commit) return;

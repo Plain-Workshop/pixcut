@@ -1,3 +1,4 @@
+import { landedOn, setSnapGuide, snapEdges, snapThreshold, timelineSnapPoints } from '../../components/timeline/timeline-snap';
 import { constrainPipTiming, freePipStart, pipSourceRoom } from '../../components/timeline/pip';
 import { resolveMediaSource } from '../../components/preview/media-url';
 import { type PointerEvent as ReactPointerEvent } from 'react';
@@ -8,7 +9,7 @@ import { messageFor } from '../errors';
 import { captureDragPointer } from '../helpers';
 import { type Dispatch, type SetStateAction, type RefObject } from 'react';
 
-export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelected, selectionAnchor, setSelectedTextLayerId, setSelectedGlobalTextId, setSelectedElementId, setEditTarget, setEditingText, setFramingMode, setPlaying, setPosition, project, selectedPip, pipDraftRef, setPipDraft, activePip, setError, run, setNotice, canEdit, projectTicks, selectedScene, position, activeSize }: {
+export function usePipLayers({ timelineSnapping, setSelectedPipId, setSelectedIds, setPrimarySelected, selectionAnchor, setSelectedTextLayerId, setSelectedGlobalTextId, setSelectedElementId, setEditTarget, setEditingText, setFramingMode, setPlaying, setPosition, project, selectedPip, pipDraftRef, setPipDraft, activePip, setError, run, setNotice, canEdit, projectTicks, selectedScene, position, activeSize }: {
   setSelectedPipId: Dispatch<SetStateAction<string | null>>;
   setSelectedIds: Dispatch<SetStateAction<string[]>>;
   setPrimarySelected: Dispatch<SetStateAction<string | null>>;
@@ -33,6 +34,7 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
   projectTicks: number;
   selectedScene: Scene | undefined;
   position: number;
+  timelineSnapping: boolean;
   activeSize: { width: number; height: number; };
 }) {
   function selectPip(clip: Scene) {
@@ -81,10 +83,16 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
     if (!track?.width) return;
     const startX = event.clientX;
     let moved = false;
+    const points = timelineSnapping ? timelineSnapPoints(project, secondsToTicks(position, project.timebase), clip.id) : [];
+    const threshold = snapThreshold(projectTicks, track.width);
+    const constrain = (delta: number) => constrainPipTiming(clip, edge, delta, overlayScenes(project), projectTicks, project.timebase, minTicks(project.timebase));
     const move = (moveEvent: PointerEvent) => {
       const delta = Math.round((moveEvent.clientX - startX) / track.width * projectTicks);
       moved ||= Math.abs(moveEvent.clientX - startX) > 2;
-      const timing = constrainPipTiming(clip, edge, delta, overlayScenes(project), projectTicks, project.timebase, minTicks(project.timebase));
+      const raw = constrain(delta);
+      const snapped = snapEdges(edge, raw.startTicks, raw.durationTicks, points, threshold);
+      const timing = snapped.guide ? constrain(edge === 'end' ? snapped.startTicks + snapped.durationTicks - clip.startTicks - clip.durationTicks : snapped.startTicks - clip.startTicks) : raw;
+      setSnapGuide(landedOn(snapped.guide, timing.startTicks, timing.durationTicks));
       const next = { ...clip, ...timing };
       pipDraftRef.current = next;
       setPipDraft(next);
@@ -93,6 +101,7 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
+      setSnapGuide(null);
       const draft = pipDraftRef.current;
       pipDraftRef.current = null;
       setPipDraft(null);
@@ -102,6 +111,7 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
+      setSnapGuide(null);
       pipDraftRef.current = null;
       setPipDraft(null);
     };
