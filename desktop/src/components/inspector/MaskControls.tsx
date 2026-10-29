@@ -1,3 +1,4 @@
+import { RangeField } from './NumberField';
 import { defaultLayerMask, type LayerMask, type MaskShape } from '../../stores/model';
 import { t } from '../../i18n';
 
@@ -19,10 +20,7 @@ function ShapeSlider({ label, value, min, max, step, unit, disabled, onChange, o
   onChange: (value: number) => void;
   onCommit: () => void;
 }) {
-  return <label className="mask-slider">
-    <span>{label}<b>{Math.round(value * 100) / 100}{unit}</b></span>
-    <input type="range" aria-label={`Mask ${label.toLowerCase()}`} min={min} max={max} step={step} value={value} disabled={disabled} onChange={event => onChange(Number(event.target.value))} onPointerUp={onCommit} onKeyUp={onCommit} onBlur={onCommit} />
-  </label>;
+  return <RangeField label={label} sliderLabel={`Mask ${label.toLowerCase()}`} unit={unit.trim()} min={min} max={max} step={step} value={value} disabled={disabled} onChange={onChange} onCommit={onCommit} />;
 }
 
 /**

@@ -1593,3 +1593,16 @@ Verified in the browser preview on "Motion opener" with real key events, undoing
 - Tests: 501 TypeScript (`tests/clip-edit.test.ts` adds 12). Test copies were removed afterwards, leaving the original single audio clip.
 
 Not verified: marquee with a real mouse (events were dispatched), and any of this in the native window.
+
+## Inspector polish: shared number field, camera movement, colour and speed tabs (2026-10-29)
+
+Verified in the browser preview on "Birthday reel" (photos) and "Motion opener" (video), undoing every edit.
+
+- Typed value: typing 150 into Zoom moved the slider to 150; Shift+↑ made it 160; typing 900 clamped to 400; three undos returned it to 100. Typing 30 into the audio Volume set the slider and the clip badge to 30% and undo restored 62%.
+- All 9 audio sliders keep their old accessible names ("Audio volume", "Audio low EQ", …) and now have a typed value.
+- Camera movement is open for photo clips with 8 cards; it is hidden for video clips. The cards' keyframes were confirmed by forcing the animation on (scale 1.2 → 1.0 for Zoom out at 20%).
+- Found and fixed while testing: an `animation:` shorthand on the hover/active rule reset `animation-name`, so no card animated.
+- Colour: groups Light and Colour, 12 sliders each with a typed value, split toning collapsed. Speed: groups Speed, Direction, Sound.
+- Tests: 507 TypeScript (`tests/number-field.test.ts` adds 6).
+
+Not verified: the card animation as a user sees it. The preview pane reports `prefers-reduced-motion: reduce`, which PixCut honours by stopping all animation, so cards stay still there by design. Also not checked: chroma key and mask sliders (they need an image overlay selected), and the native window.

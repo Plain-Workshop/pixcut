@@ -1,3 +1,4 @@
+import { RangeField } from './NumberField';
 import { defaultChromaKey, type ChromaKey } from '../../stores/model';
 
 function ChromaSlider({ label, value, disabled, onChange, onCommit }: {
@@ -7,10 +8,7 @@ function ChromaSlider({ label, value, disabled, onChange, onCommit }: {
   onChange: (value: number) => void;
   onCommit: () => void;
 }) {
-  return <label className="mask-slider">
-    <span>{label}<b>{Math.round(value)}%</b></span>
-    <input type="range" aria-label={`Chroma ${label.toLowerCase()}`} min="0" max="100" step="1" value={value} disabled={disabled} onChange={event => onChange(Number(event.target.value))} onPointerUp={onCommit} onKeyUp={onCommit} onBlur={onCommit} />
-  </label>;
+  return <RangeField label={label} sliderLabel={`Chroma ${label.toLowerCase()}`} unit="%" min={0} max={100} step={1} value={value} disabled={disabled} onChange={onChange} onCommit={onCommit} />;
 }
 
 /** Green-screen/colour-distance key for image and video overlays. */

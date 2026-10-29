@@ -106,11 +106,13 @@ Not done, on purpose:
 - **Marquee across other lanes** selects visual clips only, because multi-select exists only for visual clips.
 - **Paste of visual clips at the playhead:** the track is magnetic, so a paste is a copy placed after the original (one undo step).
 
-### Phase 2 — inspector polish (S–M)
+### Phase 2 — inspector polish (S–M) — done 2026-10-29
 
-1. Add a shared `NumberField` (slider, typed value, arrow keys, Shift ×10) and use it for every numeric control.
-2. Promote Camera movement to an open section for photos, with a live preview thumbnail.
-3. Clean up the colour and speed tab layout to match the new tab header; remove inline styles.
+1. **One number control.** `RangeField` and `NumericField` live in `components/inspector/NumberField.tsx`. A typed value sits beside every slider; Enter or blur commits, arrows step, Shift+arrow steps ten times as far, Alt+arrow a tenth, and typed values clamp to the range. The 38 controls that already used it are unchanged; about 24 raw sliders now use it too (Zoom, the whole audio panel, element opacity/rotation/size, picture-in-picture timing and layout, chroma key, mask). Each keeps its previous slider accessible name. Not converted, on purpose: the timeline's inline volume sliders and the preview/scrub bars, which are controls, not form fields.
+2. **Camera movement** is open by default for photos, placed right under Zoom and Reposition (it was below Position, keyframes and the mask). The dropdown became eight cards that show the clip's own image and animate the move while hovered or chosen; the animation follows the Amount slider and stops when reduced motion is on.
+3. **Colour tab:** Light and Colour groups, split toning collapsed unless it is in use, copy/paste labelled "Copy colour" / "Paste colour", and the duplicate Reset button removed (the tab header resets). **Speed tab:** Speed, Direction and Sound groups, with the status line merged into one caption. New strings translated in all ten languages.
+
+Not done: other tabs (Fades, Looks, Text) still use their older layout; the group component is ready for them.
 
 ### Phase 3 — internationalisation sweep (M)
 

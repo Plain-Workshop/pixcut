@@ -2449,3 +2449,39 @@ img.inspector-heading-thumb { object-fit: cover; }
 .timeline-row.locked .track-label { color: #FFB86B; }
 .timeline-marquee { position: absolute; top: 24px; bottom: 0; z-index: 9; pointer-events: none; border: 1px solid #A48CFF; background: rgba(164, 140, 255, .14); border-radius: 3px; }
 .track-label-head .lane-controls { margin-right: 0; }
+
+/* Camera movement choices: each card previews its move on the clip's own image while hovered or chosen */
+.motion-choices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 8px 0 4px; }
+.motion-choice { display: flex; flex-direction: column; gap: 4px; padding: 4px; border: 1px solid #3a3a40; border-radius: 8px; background: #2b2b30; color: #c9c9d1; font-size: 10px; text-align: center; cursor: pointer; }
+.motion-choice:hover { border-color: #6d55e8; }
+.motion-choice.active { border-color: #A48CFF; box-shadow: 0 0 0 1px #A48CFF; color: #fff; }
+.motion-frame { display: block; height: 34px; overflow: hidden; border-radius: 5px; background: #111; }
+.motion-thumb { display: block; width: 100%; height: 100%; object-fit: cover; transform-origin: 50% 50%; }
+.motion-choice:hover .motion-thumb, .motion-choice.active .motion-thumb { animation-duration: 2.4s; animation-timing-function: ease-in-out; animation-iteration-count: infinite; animation-direction: alternate; }
+.motion-frame.still .motion-thumb { animation: none !important; }
+.motion-thumb.zoom-in { animation-name: motion-zoom-in; } .motion-thumb.zoom-out { animation-name: motion-zoom-out; } .motion-thumb.ken-burns { animation-name: motion-ken; }
+.motion-thumb.pan-left { animation-name: motion-pan-left; } .motion-thumb.pan-right { animation-name: motion-pan-right; }
+.motion-thumb.pan-up { animation-name: motion-pan-up; } .motion-thumb.pan-down { animation-name: motion-pan-down; }
+@keyframes motion-zoom-in { from { transform: scale(1); } to { transform: scale(calc(1 + var(--motion-amount, .2))); } }
+@keyframes motion-zoom-out { from { transform: scale(calc(1 + var(--motion-amount, .2))); } to { transform: scale(1); } }
+@keyframes motion-ken { from { transform: scale(1) translate(0, 0); } to { transform: scale(calc(1 + var(--motion-amount, .2))) translate(-4%, -3%); } }
+@keyframes motion-pan-left { from { transform: scale(calc(1 + var(--motion-amount, .2))) translateX(4%); } to { transform: scale(calc(1 + var(--motion-amount, .2))) translateX(-4%); } }
+@keyframes motion-pan-right { from { transform: scale(calc(1 + var(--motion-amount, .2))) translateX(-4%); } to { transform: scale(calc(1 + var(--motion-amount, .2))) translateX(4%); } }
+@keyframes motion-pan-up { from { transform: scale(calc(1 + var(--motion-amount, .2))) translateY(4%); } to { transform: scale(calc(1 + var(--motion-amount, .2))) translateY(-4%); } }
+@keyframes motion-pan-down { from { transform: scale(calc(1 + var(--motion-amount, .2))) translateY(-4%); } to { transform: scale(calc(1 + var(--motion-amount, .2))) translateY(4%); } }
+.mask-grid .range-field { margin: 0; }
+.app.theme-light .motion-choice { background: #f3f1f8; border-color: #d6d2de; color: #34303f; }
+.app.theme-light .motion-choice.active { color: #1b1740; }
+
+/* Inspector groups: titled sections inside long tabs */
+.inspector-group { display: flex; flex-direction: column; gap: 2px; margin: 18px 0 6px; padding-top: 14px; border-top: 1px solid #3a3a40; }
+.inspector-group:first-of-type { margin-top: 8px; padding-top: 0; border-top: 0; }
+.inspector-group > header { display: flex; flex-direction: column; gap: 2px; margin-bottom: 2px; }
+.inspector-group > header h4 { margin: 0; color: #9c9ca5; font-size: 10px; font-weight: 650; letter-spacing: .9px; text-transform: uppercase; }
+.inspector-group > header small { color: #8a8a93; font-size: 11px; line-height: 1.4; }
+.inspector-group .range-field { margin: 10px 0 4px; }
+.inspector-group .speed-presets { margin-bottom: 4px; }
+.inspector .split-tone { margin: 16px 0 6px; padding: 0; border: 0; background: none; }
+.inspector .split-tone > summary small { margin-left: 6px; color: #8a8a93; font-weight: 400; }
+.inspector .property-actions { margin-top: 14px; }
+.app.theme-light .inspector-group { border-top-color: #d6d2de; }

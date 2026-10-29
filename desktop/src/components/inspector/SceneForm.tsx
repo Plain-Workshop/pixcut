@@ -1,4 +1,6 @@
 import { APPLY_ALL_KEYS, applyAllValues, TAB_DEFAULTS, TAB_RESET_KEYS, tabChanged, type SceneTab } from './scene-tabs';
+import { RangeField } from './NumberField';
+import { AssetImage } from '../preview/AssetImage';
 import { LookPreview } from '../preview/LookPreview';
 import { TransitionPreview } from '../preview/TransitionPreview';
 import { ElementPreview } from '../elements/ElementPreview';
@@ -32,8 +34,18 @@ const COLOR_CONTROLS: { key: ColorKey; label: string; min: number; max: number; 
   { key: 'vibrance', label: 'Vibrance', min: -100, max: 100, step: 1 },
 ];
 
-const COLOR_DEFAULTS: Partial<Scene> = { brightness: 1, contrast: 1, saturation: 1, exposure: 0, highlights: 0, shadows: 0, temperature: 0, tint: 0, hue: 0, vibrance: 0, shadowTintColor: '#000000', shadowTintAmount: 0, highlightTintColor: '#000000', highlightTintAmount: 0, curves: undefined };
-const COLOR_KEYS: ScenePatchKey[] = [...COLOR_CONTROLS.map(control => control.key), 'curves'];
+const LIGHT_KEYS: ColorKey[] = ['exposure', 'brightness', 'contrast', 'highlights', 'shadows'];
+
+/** A titled group inside an inspector tab, so long tabs read as a few sections instead of one column of sliders. */
+function InspectorGroup({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return <section className="inspector-group"><header><h4>{t(title)}</h4>{hint && <small>{t(hint)}</small>}</header>{children}</section>;
+}
+
+const MOTION_CHOICES: { id: NonNullable<Scene['motion']>; label: string }[] = [
+  { id: 'none', label: 'None' }, { id: 'zoom-in', label: 'Zoom in' }, { id: 'zoom-out', label: 'Zoom out' }, { id: 'ken-burns', label: 'Ken Burns' },
+  { id: 'pan-left', label: 'Pan left' }, { id: 'pan-right', label: 'Pan right' }, { id: 'pan-up', label: 'Pan up' }, { id: 'pan-down', label: 'Pan down' },
+];
+
 const TEXT_STYLE_DEFAULTS: Partial<TextLayer> = { ...TEXT_LAYER_STYLE_DEFAULTS };
 const LEGIBLE_TEXT: Partial<TextLayer> = {
   ...TEXT_STYLE_DEFAULTS,
@@ -144,10 +156,6 @@ function TemplateCard({ kind, preset, active, onApply }: { kind: 'backdrop' | 'o
   </button>;
 }
 
-function formatNumber(value: number) {
-  return String(Number(value.toFixed(2)));
-}
-
 function comparable(scene: Scene) {
   return JSON.stringify({
     durationTicks: scene.durationTicks,
@@ -212,103 +220,6 @@ function comparable(scene: Scene) {
   });
 }
 
-function NumericField({
-  label,
-  value,
-  min,
-  max,
-  step,
-  unit,
-  disabled,
-  onChange,
-  onCommit,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  unit?: string;
-  disabled?: boolean;
-  onChange: (value: number) => void;
-  onCommit: () => void;
-}) {
-  const [text, setText] = useState(formatNumber(value));
-  const focused = useRef(false);
-  useEffect(() => { if (!focused.current) setText(formatNumber(value)); }, [value]);
-  function change(raw: string) {
-    setText(raw);
-    if (raw.trim() === '' || raw === '-') return;
-    const parsed = Number(raw);
-    if (Number.isFinite(parsed)) onChange(clamp(parsed, min, max));
-  }
-  function commit() {
-    const parsed = text.trim() === '' || text === '-' ? Number.NaN : Number(text);
-    const next = Number.isFinite(parsed) ? clamp(parsed, min, max) : value;
-    setText(formatNumber(next));
-    if (next !== value) onChange(next);
-    onCommit();
-  }
-  return <span className="range-number-wrap">
-    <input
-      className="range-number"
-      type="number"
-      aria-label={label}
-      min={min}
-      max={max}
-      step={step}
-      value={text}
-      disabled={disabled}
-      onFocus={() => { focused.current = true; }}
-      onChange={event => change(event.target.value)}
-      onBlur={() => { focused.current = false; commit(); }}
-      onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } }}
-    />
-    {unit && <span className="range-unit">{unit}</span>}
-  </span>;
-}
-
-function RangeField({
-  label,
-  value,
-  min,
-  max,
-  step,
-  unit,
-  disabled,
-  onChange,
-  onCommit,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  unit?: string;
-  disabled?: boolean;
-  onChange: (value: number) => void;
-  onCommit: () => void;
-}) {
-  return <div className={`range-field ${disabled ? 'disabled' : ''}`}>
-    <div className="range-head">
-      <span>{t(label)}</span>
-      <NumericField label={label} value={value} min={min} max={max} step={step} unit={unit} disabled={disabled} onChange={onChange} onCommit={onCommit} />
-    </div>
-    <input
-      type="range"
-      aria-label={`${t(label)} slider`}
-      min={min}
-      max={max}
-      step={step}
-      value={value}
-      disabled={disabled}
-      onChange={event => onChange(Number(event.target.value))}
-      onPointerUp={onCommit}
-      onKeyUp={onCommit}
-      onBlur={onCommit}
-    />
-  </div>;
-}
 
 export function SceneForm({
   mode = 'scene', hasNextScene = true, reduceMotion = false,
@@ -673,13 +584,22 @@ export function SceneForm({
     {displayTab === 'video' && <>
       <RangeField label="Duration" value={duration} min={0.5} max={draft.mediaKind === 'video' && draft.sourceDurationSeconds ? Math.max(duration, (draft.sourceDurationSeconds - ticksToSeconds(draft.sourceInTicks, timebase)) / speed) : Math.max(duration, draft.mediaKind === 'video' ? 600 : 30)} step={0.1} unit="s" onChange={stageDuration} onCommit={() => commit()} />
       <div className="framing-modes" role="group" aria-label="Image framing">{([['cover', 'Fill', Crop], ['contain', 'Fit', Maximize2], ['blur', 'Blur fill', Blend]] as const).map(([fit, label, Icon]) => <button key={fit} aria-pressed={draft.fit === fit} className={draft.fit === fit ? 'active' : ''} onClick={() => apply({ fit }, ['fit'])}><Icon size={16} />{t(label)}</button>)}</div>
-      <div className="range-field"><div className="range-head"><span>Zoom</span><span className="range-value">{Math.round((draft.imageZoom ?? 1) * 100)}%</span></div><input aria-label="Image zoom" type="range" min="100" max="400" step="1" value={Math.round((draft.imageZoom ?? 1) * 100)} onChange={event => preview(stage({ imageZoom: Number(event.target.value) / 100 }))} onPointerUp={() => commit()} onKeyUp={() => commit()} /></div>
+      <RangeField label="Zoom" sliderLabel="Image zoom" unit="%" min={100} max={400} step={1} value={Math.round((draft.imageZoom ?? 1) * 100)} onChange={v => preview(stage({ imageZoom: v / 100 }))} onCommit={() => commit()} />
       <div className="framing-actions">
         <button className={`button ${framingActive ? 'active' : ''}`} aria-pressed={framingActive} onClick={onToggleFraming}><Move size={15} /> {t('Reposition')}</button>
         <button className="icon-button" title="Center image" aria-label="Center image" onClick={() => apply({ imageX: 0, imageY: 0 })}><Maximize2 size={16} /></button>
         <button className="icon-button" title="Reset framing" aria-label="Reset framing" onClick={() => apply({ imageX: 0, imageY: 0, imageZoom: 1, framingBackground: '#000000' })}><RotateCcw size={16} /></button>
       </div>
       {draft.fit === 'contain' && <label className="field color-field">Background<input aria-label="Image background color" type="color" value={draft.framingBackground ?? '#000000'} onChange={event => preview(stage({ framingBackground: event.target.value }))} onBlur={() => commit()} /></label>}
+      {draft.mediaKind !== 'video' && <details className="inspector-disclosure camera-movement" open><summary>{t('Camera movement')} <small>{draft.motion && draft.motion !== 'none' ? t(MOTION_CHOICES.find(choice => choice.id === draft.motion)?.label ?? 'None') : t('None')}</small></summary>
+        <div className="motion-choices" role="radiogroup" aria-label={t('Camera movement')}>
+          {MOTION_CHOICES.map(choice => <button key={choice.id} type="button" role="radio" aria-checked={(draft.motion ?? 'none') === choice.id} className={`motion-choice ${(draft.motion ?? 'none') === choice.id ? 'active' : ''}`} onClick={() => apply({ motion: choice.id })}>
+            <span className={`motion-frame ${reduceMotion ? 'still' : ''}`} style={{ ['--motion-amount' as string]: String(draft.motionAmount ?? .2) }}><AssetImage className={`motion-thumb ${choice.id}`} source={draft.mediaKind === 'video' ? (draft.videoPoster ?? draft.image) : draft.image} alt="" /></span>
+            <span>{t(choice.label)}</span>
+          </button>)}
+        </div>
+        {(draft.motion ?? 'none') !== 'none' && <RangeField label="Amount" value={(draft.motionAmount ?? .2) * 100} min={5} max={60} step={1} unit="%" onChange={value => preview(stage({ motionAmount: value / 100 }))} onCommit={() => commit()} />}
+      </details>}
       <details className="inspector-disclosure"><summary>{t('Position')}</summary>
         <RangeField label="Horizontal" value={Math.round((draft.imageX ?? 0) * 100)} min={-100} max={100} step={1} onChange={value => preview(stage({ imageX: value / 100 }))} onCommit={() => commit()} />
         <RangeField label="Vertical" value={Math.round((draft.imageY ?? 0) * 100)} min={-100} max={100} step={1} onChange={value => preview(stage({ imageY: value / 100 }))} onCommit={() => commit()} />
@@ -697,10 +617,6 @@ export function SceneForm({
         onCommit={commit}
         onApply={mask => apply({ mask }, ['mask'])}
       />}
-      {draft.mediaKind !== 'video' && <details className="inspector-disclosure"><summary>{t('Camera movement')} <small>{draft.motion && draft.motion !== 'none' ? draft.motion.replaceAll('-', ' ') : 'None'}</small></summary>
-        <label className="field">Motion<select value={draft.motion ?? 'none'} onChange={event => apply({ motion: event.target.value as Scene['motion'] })}><option value="none">None</option><option value="zoom-in">Zoom in</option><option value="zoom-out">Zoom out</option><option value="pan-left">Pan left</option><option value="pan-right">Pan right</option><option value="pan-up">Pan up</option><option value="pan-down">Pan down</option><option value="ken-burns">Ken Burns</option></select></label>
-        {(draft.motion ?? 'none') !== 'none' && <RangeField label="Amount" value={(draft.motionAmount ?? .2) * 100} min={5} max={60} step={1} unit="%" onChange={value => preview(stage({ motionAmount: value / 100 }))} onCommit={() => commit()} />}
-      </details>}
       {formatCount > 1 && <button className="text-button format-apply" onClick={onApplyFramingToAll}>Apply framing to all formats</button>}
     </>}
 
@@ -820,43 +736,49 @@ export function SceneForm({
 
     {displayTab === 'color' && <>
       <div className="color-summary">
-        <span>{activeFilter === 'none' ? 'Original look' : `Look: ${FILTERS.find(filter => filter.id === activeFilter)?.label} · ${Math.round(filterIntensity)}%`}</span>
-        <span className="tiny-label">Non-destructive</span>
+        <span>{activeFilter === 'none' ? t('Original look') : `${t('Look')}: ${FILTERS.find(filter => filter.id === activeFilter)?.label} · ${Math.round(filterIntensity)}%`}</span>
+        <span className="tiny-label">{t('Non-destructive')}</span>
       </div>
-      {COLOR_CONTROLS.map(control => <RangeField
-        key={control.key}
-        label={control.label}
-        value={draft[control.key] ?? (control.key === 'brightness' || control.key === 'contrast' || control.key === 'saturation' ? 1 : 0)}
-        min={control.min}
-        max={control.max}
-        step={control.step}
-        onChange={value => stageColor(control.key, value)}
-        onCommit={() => commit()}
-      />)}
-      <div className="split-tone">
-        <div className="split-tone-head"><strong>Split toning</strong><span>Shadows and highlights</span></div>
-        <label className="field color-field">Shadow tint<input aria-label="Shadow tint color" type="color" value={draft.shadowTintColor ?? '#000000'} onChange={event => preview(stage({ shadowTintColor: event.target.value }))} onBlur={() => commit()} /><span>{(draft.shadowTintColor ?? '#000000').toUpperCase()}</span></label>
+      {([['Light', LIGHT_KEYS], ['Colour', COLOR_CONTROLS.map(control => control.key).filter(key => !LIGHT_KEYS.includes(key))]] as const).map(([title, keys]) => <InspectorGroup key={title} title={title}>
+        {COLOR_CONTROLS.filter(control => keys.includes(control.key)).map(control => <RangeField
+          key={control.key}
+          label={control.label}
+          value={draft[control.key] ?? (control.key === 'brightness' || control.key === 'contrast' || control.key === 'saturation' ? 1 : 0)}
+          min={control.min}
+          max={control.max}
+          step={control.step}
+          onChange={value => stageColor(control.key, value)}
+          onCommit={() => commit()}
+        />)}
+      </InspectorGroup>)}
+      <details className="inspector-disclosure split-tone" open={Boolean(draft.shadowTintAmount || draft.highlightTintAmount)}>
+        <summary>{t('Split toning')} <small>{t('Shadows and highlights')}</small></summary>
+        <label className="field color-field">{t('Shadow tint')}<input aria-label="Shadow tint color" type="color" value={draft.shadowTintColor ?? '#000000'} onChange={event => preview(stage({ shadowTintColor: event.target.value }))} onBlur={() => commit()} /><span>{(draft.shadowTintColor ?? '#000000').toUpperCase()}</span></label>
         <RangeField label="Shadow strength" value={draft.shadowTintAmount ?? 0} min={0} max={100} step={1} unit="%" onChange={value => preview(stage({ shadowTintAmount: value }))} onCommit={() => commit()} />
-        <label className="field color-field">Highlight tint<input aria-label="Highlight tint color" type="color" value={draft.highlightTintColor ?? '#000000'} onChange={event => preview(stage({ highlightTintColor: event.target.value }))} onBlur={() => commit()} /><span>{(draft.highlightTintColor ?? '#000000').toUpperCase()}</span></label>
+        <label className="field color-field">{t('Highlight tint')}<input aria-label="Highlight tint color" type="color" value={draft.highlightTintColor ?? '#000000'} onChange={event => preview(stage({ highlightTintColor: event.target.value }))} onBlur={() => commit()} /><span>{(draft.highlightTintColor ?? '#000000').toUpperCase()}</span></label>
         <RangeField label="Highlight strength" value={draft.highlightTintAmount ?? 0} min={0} max={100} step={1} unit="%" onChange={value => preview(stage({ highlightTintAmount: value }))} onCommit={() => commit()} />
-      </div>
+      </details>
       <CurveControls curves={draft.curves} onStage={curves => preview(stage({ curves }))} onCommit={() => commit()} onApply={curves => apply({ curves }, ['curves'])} />
       <div className="property-actions">
-        <button className="button" onClick={() => apply(COLOR_DEFAULTS, COLOR_KEYS)}><RotateCcw size={13} /> Reset color</button>
-        <button className="button" onClick={() => onCopyProperties(draftRef.current)}><Copy size={13} /> Copy</button>
-        <button className="button" onClick={() => { if (propertyClipboard) { apply(propertyClipboard, Object.keys(propertyClipboard) as ScenePatchKey[]); onPasteProperties(); } }} disabled={!propertyClipboard}><ClipboardPaste size={13} /> Paste</button>
+        <button className="button" title={t('Copy this clip\'s colour settings')} onClick={() => onCopyProperties(draftRef.current)}><Copy size={13} /> {t('Copy colour')}</button>
+        <button className="button" title={t('Paste copied colour settings onto this clip')} onClick={() => { if (propertyClipboard) { apply(propertyClipboard, Object.keys(propertyClipboard) as ScenePatchKey[]); onPasteProperties(); } }} disabled={!propertyClipboard}><ClipboardPaste size={13} /> {t('Paste colour')}</button>
       </div>
     </>}
 
     {displayTab === 'speed' && draft.mediaKind === 'video' && <>
-      <div className="speed-presets">{SPEED_PRESETS.map(value => <button key={value} className={`button ${Math.abs(speed - value) < 0.01 ? 'active' : ''}`} onClick={() => applySpeed(value)}>{value}×</button>)}</div>
-      <RangeField label="Speed" value={speed} min={0.25} max={4} step={0.05} unit="×" onChange={stageSpeed} onCommit={() => applySpeed(draftRef.current.speed ?? 1)} />
-      <RangeField label="End speed" value={draft.speedEnd ?? speed} min={0.25} max={4} step={0.05} unit="×" onChange={value => preview(stage(rampPatch(value)))} onCommit={() => apply(rampPatch(draftRef.current.speedEnd ?? speed), ['speedEnd'])} />
-      <p className="inspector-inline-status">{Math.abs((draft.speedEnd ?? speed) - speed) < 0.01 ? `Constant ${speed}×` : `Ramps ${speed}× → ${draft.speedEnd ?? speed}×`}</p>
-      <label className="checkbox-field"><input type="checkbox" checked={Boolean(draft.reverse)} onChange={event => apply({ reverse: event.target.checked }, ['reverse'])} /> Play this clip backwards (picture only)</label>
-      <RangeField label="Clip sound" value={draft.videoVolume ?? 100} min={0} max={100} step={1} unit="%" onChange={value => stage({ videoVolume: value })} onCommit={() => commit()} />
-      <label className="checkbox-field"><input type="checkbox" checked={(draft.videoVolume ?? 100) > 0} onChange={event => apply({ videoVolume: event.target.checked ? 100 : 0 }, ['videoVolume'])} /> Play the clip's own audio</label>
-      <p className="inspector-inline-status">Duration · {duration.toFixed(1)} s</p>
+      <InspectorGroup title="Speed" hint="Pick a preset or ramp from one speed to another.">
+        <div className="speed-presets">{SPEED_PRESETS.map(value => <button key={value} className={`button ${Math.abs(speed - value) < 0.01 ? 'active' : ''}`} onClick={() => applySpeed(value)}>{value}×</button>)}</div>
+        <RangeField label="Speed" value={speed} min={0.25} max={4} step={0.05} unit="×" onChange={stageSpeed} onCommit={() => applySpeed(draftRef.current.speed ?? 1)} />
+        <RangeField label="End speed" value={draft.speedEnd ?? speed} min={0.25} max={4} step={0.05} unit="×" onChange={value => preview(stage(rampPatch(value)))} onCommit={() => apply(rampPatch(draftRef.current.speedEnd ?? speed), ['speedEnd'])} />
+        <p className="inspector-inline-status">{Math.abs((draft.speedEnd ?? speed) - speed) < 0.01 ? `${t('Constant')} ${speed}×` : `${t('Ramps')} ${speed}× → ${draft.speedEnd ?? speed}×`} · {t('Duration')} {duration.toFixed(1)} s</p>
+      </InspectorGroup>
+      <InspectorGroup title="Direction">
+        <label className="checkbox-field"><input type="checkbox" checked={Boolean(draft.reverse)} onChange={event => apply({ reverse: event.target.checked }, ['reverse'])} /> {t('Play this clip backwards (picture only)')}</label>
+      </InspectorGroup>
+      <InspectorGroup title="Sound">
+        <label className="checkbox-field"><input type="checkbox" checked={(draft.videoVolume ?? 100) > 0} onChange={event => apply({ videoVolume: event.target.checked ? 100 : 0 }, ['videoVolume'])} /> {t('Play the clip\'s own audio')}</label>
+        <RangeField label="Clip sound" value={draft.videoVolume ?? 100} min={0} max={100} step={1} unit="%" onChange={value => stage({ videoVolume: value })} onCommit={() => commit()} />
+      </InspectorGroup>
     </>}
 
     {displayTab === 'fade' && <>
