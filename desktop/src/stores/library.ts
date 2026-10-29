@@ -1,3 +1,5 @@
+import { isTrashExpired } from './trash';
+import { projectFingerprint } from './fingerprint';
 import { DEFAULT_TIMEBASE, normalizeStarts, overlayScenes, projectScenes, sceneSeconds, ticksToSeconds, totalDuration, validateProject, type Project, type Timebase } from './model';
 import { hydrateProjectAssets, persistProjectAssets } from './assets';
 import { drawPipClips, drawProjectText, drawScene } from '../components/preview/render';
@@ -24,6 +26,11 @@ export type ProjectSummary = {
   formats?: { name: string; width: number; height: number; aspect: string }[];
   /** When a video of this project was last exported on this device. */
   exportedAt?: number;
+  /** Fingerprints of the project as last saved and as last exported; equal means no edits since the export. */
+  /** Set while the project sits in Recently deleted. Its body and media are kept until it expires. */
+  deletedAt?: number;
+  contentHash?: string;
+  exportedHash?: string;
   /** Small scene previews for hover scrubbing, drawn on first hover and cleared whenever the project is saved. */
   frames?: string[];
 };
@@ -90,7 +97,7 @@ async function sceneThumbnail(project: Project, scene: ReturnType<typeof project
 }
 
 const FRAME_COUNT = 6;
-const pendingExports = new Map<string, number>();
+const pendingExports = new Map<string, { at: number; hash: string }>();
 
 /** Up to six scenes spread across the project, as small previews. */
 export async function projectFrames(project: Project, count = FRAME_COUNT): Promise<string[]> {
@@ -124,11 +131,11 @@ export async function loadProjectFrames(id: string): Promise<string[]> {
 }
 
 /** Records that a video of the project was exported. Held until the first save if the project is not in the library yet. */
-export async function markProjectExported(id: string) {
+export async function markProjectExported(id: string, hash: string) {
   const at = Date.now();
   const summary = await readSummary(id);
-  if (!summary) { pendingExports.set(id, at); return; }
-  const next = { ...summary, exportedAt: at };
+  if (!summary) { pendingExports.set(id, { at, hash }); return; }
+  const next = { ...summary, exportedAt: at, exportedHash: hash };
   const db = await openDatabase();
   const write = db.transaction(META, 'readwrite');
   write.objectStore(META).put(next);
@@ -136,7 +143,7 @@ export async function markProjectExported(id: string) {
   await syncIndex(next);
 }
 
-function summaryFrom(project: Project, createdAt: number, thumbnail: string, group?: string, favorite?: boolean, exportedAt?: number): ProjectSummary {
+function summaryFrom(project: Project, createdAt: number, thumbnail: string, group?: string, favorite?: boolean, exportedAt?: number, exportedHash?: string): ProjectSummary {
   return {
     id: project.id,
     name: project.name,
@@ -152,7 +159,9 @@ function summaryFrom(project: Project, createdAt: number, thumbnail: string, gro
     formats: (project.formats ?? []).map(format => ({ name: format.name, width: format.width, height: format.height, aspect: format.aspect })),
     ...(group ? { group } : {}),
     ...(favorite ? { favorite } : {}),
+    contentHash: projectFingerprint(project),
     ...(exportedAt ? { exportedAt } : {}),
+    ...(exportedHash ? { exportedHash } : {}),
   };
 }
 
@@ -260,13 +269,47 @@ async function listLocalProjects(): Promise<ProjectSummary[]> {
   const db = await openDatabase();
   const transaction = db.transaction(META, 'readonly');
   const rows = await requestResult(transaction.objectStore(META).getAll()) as ProjectSummary[];
-  return rows.sort((a, b) => b.updatedAt - a.updatedAt);
+  return rows.filter(row => !row.deletedAt).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 async function countLocalProjects(): Promise<number> {
   const db = await openDatabase();
-  const transaction = db.transaction(PROJECTS, 'readonly');
-  return requestResult(transaction.objectStore(PROJECTS).count());
+  const transaction = db.transaction(META, 'readonly');
+  const rows = await requestResult(transaction.objectStore(META).getAll()) as ProjectSummary[];
+  return rows.filter(row => !row.deletedAt).length;
+}
+
+/** Projects in Recently deleted, newest deletion first. Expired ones are removed for good as they are found. */
+export async function listDeletedProjects(): Promise<ProjectSummary[]> {
+  const db = await openDatabase();
+  const transaction = db.transaction(META, 'readonly');
+  const rows = await requestResult(transaction.objectStore(META).getAll()) as ProjectSummary[];
+  const deleted = rows.filter(row => row.deletedAt);
+  const expired = deleted.filter(row => isTrashExpired(row.deletedAt ?? 0));
+  for (const row of expired) await deleteLibraryProject(row.id).catch(() => {});
+  return deleted.filter(row => !expired.includes(row)).sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0)).map(row => ({ ...row, frames: undefined }));
+}
+
+/** Moves a project to Recently deleted. Nothing is erased, so it can still be restored. */
+export async function trashLibraryProject(id: string) {
+  const summary = await readSummary(id);
+  if (!summary) return;
+  const db = await openDatabase();
+  const write = db.transaction(META, 'readwrite');
+  write.objectStore(META).put({ ...summary, deletedAt: Date.now() });
+  await transactionDone(write);
+  await removeFromIndex(id);
+}
+
+export async function restoreLibraryProject(id: string) {
+  const summary = await readSummary(id);
+  if (!summary) return;
+  const { deletedAt: _deletedAt, ...restored } = summary;
+  const db = await openDatabase();
+  const write = db.transaction(META, 'readwrite');
+  write.objectStore(META).put(restored);
+  await transactionDone(write);
+  await syncIndex(restored);
 }
 
 export async function listProjects(): Promise<ProjectSummary[]> {
@@ -347,7 +390,7 @@ export async function saveLibraryProject(project: Project): Promise<ProjectSumma
   const persisted = await persistProjectAssets(hydrated);
   const previous = await readSummary(project.id);
   const thumbnail = await projectThumbnail(hydrated).catch(() => '');
-  const summary = summaryFrom(hydrated, previous?.createdAt ?? Date.now(), thumbnail, previous?.group, previous?.favorite, previous?.exportedAt ?? pendingExports.get(project.id));
+  const summary = summaryFrom(hydrated, previous?.createdAt ?? Date.now(), thumbnail, previous?.group, previous?.favorite, previous?.exportedAt ?? pendingExports.get(project.id)?.at, previous?.exportedHash ?? pendingExports.get(project.id)?.hash);
   pendingExports.delete(project.id);
   const db = await openDatabase();
   const transaction = db.transaction([PROJECTS, META], 'readwrite');
@@ -394,4 +437,12 @@ export async function libraryAssetRefs(): Promise<string[]> {
     for (const ref of projectAssetRefs(row.project)) refs.add(ref);
   }
   return [...refs];
+}
+
+/** Whether a card should say the project changed after its last export. */
+export function exportState(summary: Pick<ProjectSummary, 'exportedAt' | 'contentHash' | 'exportedHash'>): 'never' | 'current' | 'changed' {
+  if (!summary.exportedAt) return 'never';
+  // Exports recorded before fingerprints existed cannot be compared, so they read as current.
+  if (!summary.exportedHash || !summary.contentHash) return 'current';
+  return summary.exportedHash === summary.contentHash ? 'current' : 'changed';
 }

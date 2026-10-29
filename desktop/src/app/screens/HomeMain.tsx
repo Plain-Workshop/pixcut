@@ -4,11 +4,14 @@ import { ArrowRight, ArrowUpRight, Ban, Check, Clapperboard, FolderOpen, Images,
 import { DATE_BUCKETS, dateBucket, homeProjectOrder, resumeProject } from '../home-order';
 import { BatchBar, type BatchControls } from '../parts/BatchBar';
 import { HomeHealth } from '../parts/HomeHealth';
+import { RecentlyDeleted, type DeletedControls } from '../parts/RecentlyDeleted';
 import { type ProjectSummary } from '../../stores/library';
 import { TEMPLATES, type TemplateDefinition } from '../../templates/catalog';
 import type { Dispatch, SetStateAction, ReactElement } from 'react';
 
-export function HomeMain({ batch, openSettings, libraryReady, shortcutText, openProject, homeSection, open, canEdit, ready, setModal, chooseImages, projects, libraryQuery, setLibraryQuery, librarySort, setLibrarySort, favoriteOnly, setFavoriteOnly, groupFilter, setGroupFilter, projectGroupsList, openGroupManager, matchingProjects, renderProjectCard, visibleProjects, chooseTemplate, templateImage }: {
+export function HomeMain({ deleted, goProjects, batch, openSettings, libraryReady, shortcutText, openProject, homeSection, open, canEdit, ready, setModal, chooseImages, projects, libraryQuery, setLibraryQuery, librarySort, setLibrarySort, favoriteOnly, setFavoriteOnly, groupFilter, setGroupFilter, projectGroupsList, openGroupManager, matchingProjects, renderProjectCard, visibleProjects, chooseTemplate, templateImage }: {
+  deleted: DeletedControls;
+  goProjects: () => void;
   batch: BatchControls;
   openSettings: () => void;
   libraryReady: boolean;
@@ -116,6 +119,10 @@ export function HomeMain({ batch, openSettings, libraryReady, shortcutText, open
             <div><h2>{t(homeSection === 'home' ? (returning ? 'Continue editing' : 'Recent projects') : 'Your projects')}</h2><p>{t(homeSection === 'home' ? 'Pick up where you left off.' : 'Stored locally, recovered automatically.')}</p></div>
             <span className="count-label">{projects.length ? (returning && visibleProjects.length > homeProjects.length ? `${homeProjects.length} of ${projectCount(projects.length)}` : projectCount(projects.length)) : t('Nothing yet')}</span>
           </div>
+          {returning && (projectGroupsList.length > 0 || projects.some(entry => entry.favorite)) && <div className="group-filter home-shortcuts" role="group" aria-label="Jump to favorites and groups">
+            {projects.some(entry => entry.favorite) && <button className="group-chip" onClick={() => { setFavoriteOnly(true); setGroupFilter('all'); goProjects(); }}><Star size={11} fill="currentColor" />{t('Favorites')} <span>{projects.filter(entry => entry.favorite).length}</span></button>}
+            {projectGroupsList.map(group => <button key={group} className="group-chip" onClick={() => { setFavoriteOnly(false); setGroupFilter(group); goProjects(); }}><FolderOpen size={11} />{group} <span>{projects.filter(entry => entry.group === group).length}</span></button>)}
+          </div>}
           {loading ? <div className="project-grid home-skeletons" aria-busy="true" aria-label="Loading projects">{[0, 1, 2].map(index => <div className="project-card skeleton" key={index}><div className="skeleton-thumb" /><div className="skeleton-line" /><div className="skeleton-line short" /></div>)}</div> : projects.length ? <>
             {homeSection === 'projects' && <div className="library-controls">
               <label className="search-field"><Search size={14} /><input aria-label="Search projects" placeholder={t('Search projects or groups…')} value={libraryQuery} onChange={event => setLibraryQuery(event.target.value)} /></label>
@@ -173,6 +180,8 @@ export function HomeMain({ batch, openSettings, libraryReady, shortcutText, open
             <div className="empty-templates">{TEMPLATES.slice(0, 3).map(template => <button key={template.id} className="empty-template" onClick={() => chooseTemplate(template)} title={t(template.name)}><img src={templateImage(template)} alt="" /><span>{t(template.name)}</span></button>)}</div>
           </div>}
         </section>
+
+        {homeSection === 'projects' && <RecentlyDeleted deleted={deleted} />}
 
         {returning && createGrid}
 

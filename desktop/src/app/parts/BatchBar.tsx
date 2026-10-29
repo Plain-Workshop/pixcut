@@ -24,7 +24,7 @@ export function BatchBar({ batch, groups, selectedCount }: { batch: BatchControl
     <button className="button subtle" disabled={none} onClick={() => void batch.favorite(true)}><Star size={13} /> {t('Favorite')}</button>
     <button className="button subtle" disabled={none} onClick={() => void batch.favorite(false)}>{t('Unfavorite')}</button>
     <button className="button subtle" disabled={none} aria-expanded={moving} onClick={() => { setMoving(value => !value); setConfirming(false); }}><FolderOpen size={13} /> {t('Move to group…')}</button>
-    <button className={`button ${confirming ? 'danger' : 'subtle'}`} disabled={none} onClick={() => { if (confirming) { setConfirming(false); void batch.remove(); } else { setConfirming(true); setMoving(false); } }}><Trash2 size={13} /> {confirming ? t('Confirm delete from device') : t('Delete')}</button>
+    <button className={`button ${confirming ? 'danger' : 'subtle'}`} disabled={none} onClick={() => { if (confirming) { setConfirming(false); void batch.remove(); } else { setConfirming(true); setMoving(false); } }}><Trash2 size={13} /> {confirming ? t('Confirm: move to Recently deleted') : t('Delete')}</button>
     <button className="button subtle batch-done" onClick={batch.end}><X size={13} /> {t('Done')}</button>
     {moving && !none && <div className="batch-move">
       <input autoFocus maxLength={60} aria-label="Group name" placeholder={t('Group name')} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && draft.trim()) void batch.move(draft); }} />

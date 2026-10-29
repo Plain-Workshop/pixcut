@@ -1745,3 +1745,163 @@ fn real_every_plan_tick_becomes_one_output_frame() {
         assert_eq!(probe.stdout.len() as u64, total, "{name}: every planned tick must become one output frame");
     }
 }
+
+// ---- Pixel parity: exported video clips against the preview model ----
+// `fade_opacity` and `consumed_seconds` mirror `fadeOpacity` (preview/render.ts) and
+// `consumedSeconds` (preview/speed.ts); if those change, change these too.
+
+fn lavfi_video(binary: &Path, dir: &Path, name: &str, input: &str) -> String {
+    let path = dir.join(name);
+    let status = Process::new(binary)
+        .args(["-y", "-v", "error", "-f", "lavfi", "-i", input, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "12"])
+        .arg(&path).status().unwrap();
+    assert!(status.success());
+    format!("data:video/mp4;base64,{}", STANDARD.encode(fs::read(&path).unwrap()))
+}
+
+/// Every frame of `file` as raw RGB at its full size.
+fn rgb_frames(binary: &Path, file: &Path, width: usize, height: usize) -> Vec<Vec<u8>> {
+    let out = Process::new(binary)
+        .args(["-v", "error", "-i"]).arg(file)
+        .args(["-vf", "format=rgb24", "-f", "rawvideo", "-"])
+        .output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    out.stdout.chunks(width * height * 3).map(|frame| frame.to_vec()).collect()
+}
+
+fn video_plan_segment(video: String, ticks: u64, fit: &str, speed: Option<f64>, speed_end: Option<f64>, reverse: bool) -> PlanSegment {
+    PlanSegment {
+        kind: "video".into(), png: None, video: Some(video), source_in_seconds: Some(0.0), fit: Some(fit.into()),
+        speed, speed_end, reverse, lut: None, fade_in: 0.0, fade_out: 0.0, video_volume: None,
+        include_audio: false, audio_duration_ticks: None, duration_ticks: ticks, overlays: vec![],
+    }
+}
+
+fn export_video_clip(binary: &Path, dir: &Path, project: &Project, segment: PlanSegment, width: u32, height: u32) -> PathBuf {
+    let mut options = export_options();
+    options.width = width; options.height = height; options.speed = EncodeSpeed::Fast;
+    let output = dir.join("parity.mp4");
+    let _ = fs::remove_file(&output);
+    encode_plan(project, ExportPlan { segments: vec![segment], options }, binary.to_path_buf(), output.clone(), dir, Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+    output
+}
+
+fn parity_project(video: &str, ticks: u64) -> Project {
+    let (mut project, _) = fixture_project();
+    project.tracks[0].clips.truncate(1);
+    project.tracks[0].clips[0].media_kind = Some("video".into());
+    project.tracks[0].clips[0].image = video.to_string().into();
+    project.tracks[0].clips[0].duration_ticks = ticks;
+    project
+}
+
+fn px(frame: &[u8], width: usize, x: usize, y: usize) -> [u8; 3] {
+    let at = (y * width + x) * 3;
+    [frame[at], frame[at + 1], frame[at + 2]]
+}
+
+fn near(actual: [u8; 3], expected: [u8; 3], tolerance: i32) -> bool {
+    actual.iter().zip(expected).all(|(a, e)| (*a as i32 - e as i32).abs() <= tolerance)
+}
+
+#[test]
+#[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+fn real_video_cover_and_contain_match_the_preview_framing() {
+    let binary = ffmpeg().expect("FFmpeg is installed");
+    assert!(encoder_available(&binary, ExportCodec::H264));
+    let temp = tempfile::tempdir().unwrap();
+    // 16:9 source, left half red and right half blue, shown in a square frame.
+    let video = lavfi_video(&binary, temp.path(), "split.mp4",
+        "color=c=red:s=320x360:r=30:d=1[l];color=c=blue:s=320x360:r=30:d=1[r];[l][r]hstack");
+    let project = parity_project(&video, 5);
+    let red = [255, 0, 0];
+    let blue = [0, 0, 255];
+    let black = [0, 0, 0];
+
+    // cover: the picture fills the frame and the sides are cropped, so no bar appears anywhere.
+    let cover = export_video_clip(&binary, temp.path(), &project, video_plan_segment(video.clone(), 5, "cover", None, None, false), 360, 360);
+    let frame = &rgb_frames(&binary, &cover, 360, 360)[2];
+    assert!(near(px(frame, 360, 5, 5), red, 40), "cover top-left: {:?}", px(frame, 360, 5, 5));
+    assert!(near(px(frame, 360, 354, 354), blue, 40), "cover bottom-right: {:?}", px(frame, 360, 354, 354));
+    assert!(near(px(frame, 360, 180, 2), red, 90) || near(px(frame, 360, 180, 2), blue, 90), "cover must not letterbox");
+
+    // contain: the whole picture is visible, with bars above and below in the framing background.
+    let contain = export_video_clip(&binary, temp.path(), &project, video_plan_segment(video, 5, "contain", None, None, false), 360, 360);
+    let frame = &rgb_frames(&binary, &contain, 360, 360)[2];
+    assert!(near(px(frame, 360, 180, 4), black, 25), "contain top bar: {:?}", px(frame, 360, 180, 4));
+    assert!(near(px(frame, 360, 180, 355), black, 25), "contain bottom bar: {:?}", px(frame, 360, 180, 355));
+    assert!(near(px(frame, 360, 10, 180), red, 40), "contain left of the picture: {:?}", px(frame, 360, 10, 180));
+    assert!(near(px(frame, 360, 350, 180), blue, 40), "contain right of the picture: {:?}", px(frame, 360, 350, 180));
+}
+
+fn fade_opacity(time: f64, duration: f64, fade_in: f64, fade_out: f64) -> f64 {
+    let in_alpha = if fade_in > 0.0 { (time / fade_in).clamp(0.0, 1.0) } else { 1.0 };
+    let out_alpha = if fade_out > 0.0 { ((duration - time) / fade_out).clamp(0.0, 1.0) } else { 1.0 };
+    in_alpha.min(out_alpha)
+}
+
+#[test]
+#[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+fn real_video_fades_follow_the_preview_opacity_curve() {
+    let binary = ffmpeg().expect("FFmpeg is installed");
+    assert!(encoder_available(&binary, ExportCodec::H264));
+    let temp = tempfile::tempdir().unwrap();
+    let video = lavfi_video(&binary, temp.path(), "white.mp4", "color=c=white:s=160x120:r=30:d=2");
+    let mut project = parity_project(&video, 60);
+    project.tracks[0].clips[0].fade_in = 0.5;
+    project.tracks[0].clips[0].fade_out = 0.5;
+    let output = export_video_clip(&binary, temp.path(), &project, video_plan_segment(video, 60, "cover", None, None, false), 160, 120);
+    let frames = rgb_frames(&binary, &output, 160, 120);
+    assert_eq!(frames.len(), 60);
+    for (index, frame) in frames.iter().enumerate() {
+        let expected = (fade_opacity(index as f64 / 30.0, 2.0, 0.5, 0.5) * 255.0).round() as i32;
+        let actual = px(frame, 160, 80, 60)[1] as i32;
+        assert!((actual - expected).abs() <= 24, "frame {index} (t={:.3}s): preview opacity gives {expected}, export gave {actual}", index as f64 / 30.0);
+    }
+}
+
+fn consumed_seconds(start: f64, end: f64, local: f64, duration: f64) -> f64 {
+    if (end - start).abs() <= 1e-6 { start * local } else { start * local + (end - start) * local * local / (2.0 * duration) }
+}
+
+#[test]
+#[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+fn real_video_speed_ramps_and_reverse_show_the_preview_source_time() {
+    let binary = ffmpeg().expect("FFmpeg is installed");
+    assert!(encoder_available(&binary, ExportCodec::H264));
+    let temp = tempfile::tempdir().unwrap();
+    // Brightness encodes source time: black at 0 s up to white at 2 s.
+    let video = lavfi_video(&binary, temp.path(), "ramp.mp4",
+        "color=c=black:s=64x64:r=30:d=2,geq=lum='clip(255*T/2,0,255)':cb=128:cr=128");
+    // (name, ticks, speed, speed end, reverse); every case uses a 1 s clip.
+    let cases = [
+        ("constant 1.5x", 30u64, 1.5, None, false),
+        ("ramp 1x to 3x", 30, 1.0, Some(3.0), false),
+        ("ramp 2x down to 0.5x", 30, 2.0, Some(0.5), false),
+        ("reverse 1x", 30, 1.0, None, true),
+        ("reverse ramp 1x to 2x", 30, 1.0, Some(2.0), true),
+    ];
+    for (name, ticks, speed, speed_end, reverse) in cases {
+        let mut project = parity_project(&video, ticks);
+        project.tracks[0].clips[0].speed = speed;
+        project.tracks[0].clips[0].speed_end = speed_end;
+        project.tracks[0].clips[0].reverse = reverse;
+        let segment = video_plan_segment(video.clone(), ticks, "cover", Some(speed), speed_end, reverse);
+        let output = export_video_clip(&binary, temp.path(), &project, segment, 64, 64);
+        let frames = rgb_frames(&binary, &output, 64, 64);
+        assert_eq!(frames.len() as u64, ticks, "{name}: frame count");
+        let end = speed_end.unwrap_or(speed);
+        let duration = ticks as f64 / 30.0;
+        let span = duration * (speed + end) / 2.0;
+        for (index, frame) in frames.iter().enumerate() {
+            let local = index as f64 / 30.0;
+            let consumed = consumed_seconds(speed, end, local, duration);
+            let source_time = if reverse { span - consumed } else { consumed };
+            // Luma is written straight into the Y plane, and the decoder expands limited range back to RGB.
+            let luma = 255.0 * source_time / 2.0;
+            let expected = ((luma - 16.0) * 255.0 / 219.0).round().clamp(0.0, 255.0) as i32;
+            let actual = px(frame, 64, 32, 32)[1] as i32;
+            assert!((actual - expected).abs() <= 10, "{name}: frame {index} should show source t={source_time:.3}s (gray {expected}), got {actual}");
+        }
+    }
+}

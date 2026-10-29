@@ -2,7 +2,7 @@ import { useEffect, useState, type Dispatch, type RefObject, type SetStateAction
 import * as bridge from '../bridge';
 import { messageFor } from '../errors';
 import { emptyProject, type Command, type Project } from '../../stores/model';
-import { deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, renameProjectGroup, saveLibraryProject, setProjectFavorite, setProjectGroup, type ProjectSummary } from '../../stores/library';
+import { deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, listDeletedProjects, renameProjectGroup, restoreLibraryProject, saveLibraryProject, setProjectFavorite, setProjectGroup, trashLibraryProject, type ProjectSummary } from '../../stores/library';
 
 export function useProjectLibrary({ projects, setProjects, project, latestProject, canEdit, launchProject, refreshLibrary, persistCurrent, run, setScreen, setModal, setNotice, setError, setSelectedIds, setPrimarySelected, selectionAnchor, setPosition }: {
   projects: ProjectSummary[];
@@ -28,6 +28,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
   const [groupTarget, setGroupTarget] = useState<ProjectSummary | null>(null), [groupDraft, setGroupDraft] = useState('');
   const [groupDrafts, setGroupDrafts] = useState<Record<string, string>>({});
   const [groupFilter, setGroupFilter] = useState<string>('all');
+  const [deletedProjects, setDeletedProjects] = useState<ProjectSummary[]>([]);
   const [batchMode, setBatchMode] = useState(false), [batchIds, setBatchIds] = useState<string[]>([]);
 
   useEffect(() => {
@@ -148,8 +149,9 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
     setModal(null);
     setDeleteTarget(null);
     try {
-      await deleteLibraryProject(target.id);
+      await trashLibraryProject(target.id);
       setProjects(list => list.filter(item => item.id !== target.id));
+      void refreshDeleted();
       if (target.id === latestProject.current.id) {
         await run({ type: 'replace', project: emptyProject() });
         setSelectedIds([]);
@@ -158,10 +160,31 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
         setPosition(0);
         setScreen('home');
       }
-      setNotice(`“${target.name}” deleted from this device.`);
+      setNotice(`“${target.name}” moved to Recently deleted. It is removed for good after 30 days.`);
     } catch (e) { setError(messageFor(e)); }
   }
 
+
+  async function refreshDeleted() {
+    try { setDeletedProjects(await listDeletedProjects()); } catch { setDeletedProjects([]); }
+  }
+
+  async function restoreProject(entry: ProjectSummary) {
+    try {
+      await restoreLibraryProject(entry.id);
+      await refreshLibrary();
+      await refreshDeleted();
+      setNotice(`“${entry.name}” restored.`);
+    } catch (e) { setError(messageFor(e)); }
+  }
+
+  async function purgeProject(entry: ProjectSummary) {
+    try {
+      await deleteLibraryProject(entry.id);
+      await refreshDeleted();
+      setNotice(`“${entry.name}” deleted from this device for good.`);
+    } catch (e) { setError(messageFor(e)); }
+  }
 
   function toggleBatch(id: string) { setBatchIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]); }
   function endBatch() { setBatchMode(false); setBatchIds([]); }
@@ -191,13 +214,14 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
   async function batchDelete() {
     const targets = batchTargets();
     try {
-      for (const entry of targets) await deleteLibraryProject(entry.id);
+      for (const entry of targets) await trashLibraryProject(entry.id);
       setProjects(items => items.filter(item => !batchIds.includes(item.id)));
       if (targets.some(entry => entry.id === latestProject.current.id)) {
         await run({ type: 'replace', project: emptyProject() });
         setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null; setPosition(0); setScreen('home');
       }
-      setNotice(`${targets.length} project${targets.length === 1 ? '' : 's'} deleted from this device.`);
+      setNotice(`${targets.length} project${targets.length === 1 ? '' : 's'} moved to Recently deleted.`);
+      void refreshDeleted();
       endBatch();
     } catch (e) { setError(messageFor(e)); await refreshLibrary(); }
   }
@@ -231,5 +255,5 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
     } catch (e) { setError(messageFor(e)); }
   }
 
-  return { batchMode, setBatchMode, batchIds, toggleBatch, endBatch, batchFavorite, batchMove, batchDelete, projectMenu, setProjectMenu, deleteTarget, setDeleteTarget, setRenameTarget, renameDraft, setRenameDraft, groupTarget, setGroupTarget, groupDraft, setGroupDraft, groupDrafts, setGroupDrafts, groupFilter, setGroupFilter, openLibraryProject, duplicateProject, askDeleteProject, askRenameProject, askGroupProject, confirmGroupProject, projectGroups, openGroupManager, saveGroupRename, removeGroup, toggleProjectFavorite, confirmDeleteProject, renameProject, exportLibraryProject };
+  return { deletedProjects, refreshDeleted, restoreProject, purgeProject, batchMode, setBatchMode, batchIds, toggleBatch, endBatch, batchFavorite, batchMove, batchDelete, projectMenu, setProjectMenu, deleteTarget, setDeleteTarget, setRenameTarget, renameDraft, setRenameDraft, groupTarget, setGroupTarget, groupDraft, setGroupDraft, groupDrafts, setGroupDrafts, groupFilter, setGroupFilter, openLibraryProject, duplicateProject, askDeleteProject, askRenameProject, askGroupProject, confirmGroupProject, projectGroups, openGroupManager, saveGroupRename, removeGroup, toggleProjectFavorite, confirmDeleteProject, renameProject, exportLibraryProject };
 }

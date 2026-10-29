@@ -140,7 +140,7 @@ import { clampWeight, fontOption } from '../components/text/fonts';
 import { FORMAT_FILTERS, FORMAT_PRESETS, filterFormatGroups, formatSlug, formatSize, groupFormatsByOutput, resolveSceneForFormat } from '../stores/formats';
 import { messageFor } from './errors';
 import { formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
-import { backfillThumbnails, getLibraryProject, listProjects, saveLibraryProject, type ProjectSummary } from '../stores/library';
+import { backfillThumbnails, exportState, getLibraryProject, listProjects, saveLibraryProject, type ProjectSummary } from '../stores/library';
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from '../stores/preferences';
 import { TEMPLATES, buildTemplateProject, templatePreview, type TemplateDefinition } from '../templates/catalog';
 import {
@@ -704,6 +704,28 @@ export default function App() {
   }, [language]);
   useEffect(() => { if (screen === 'home') { void refreshLibrary(); refreshStorage(); } }, [screen, refreshLibrary]);
   useEffect(() => { if (screen !== 'home' || homeSection !== 'projects') endBatch(); }, [screen, homeSection]);
+  useEffect(() => { if (screen === 'home' && libraryReady) void refreshDeleted(); }, [screen, libraryReady]);
+  // Browser preview: files dropped on Home open a project or start a photo movie, like the native window does.
+  useEffect(() => {
+    if (bridge.native || screen !== 'home') return;
+    const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes('Files');
+    const over = (event: DragEvent) => { if (hasFiles(event)) event.preventDefault(); };
+    const drop = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      const projectFile = files.find(file => /\.pixcut$/i.test(file.name));
+      if (projectFile) { void openProjectFile(projectFile); return; }
+      const images = files.filter(file => /^image\//.test(file.type));
+      const videos = files.filter(file => /^video\//.test(file.type));
+      if (images.length) { const transfer = new DataTransfer(); images.forEach(file => transfer.items.add(file)); void importFiles(transfer.files); }
+      else if (videos.length) { const transfer = new DataTransfer(); videos.forEach(file => transfer.items.add(file)); void importVideos(transfer.files); }
+      else setError('Drop photos, videos or a .pixcut project file.');
+    };
+    window.addEventListener('dragover', over);
+    window.addEventListener('drop', drop);
+    return () => { window.removeEventListener('dragover', over); window.removeEventListener('drop', drop); };
+  }, [screen, canEdit, project.id]);
   const [missingCounts, setMissingCounts] = useState<Record<string, number>>({});
   useEffect(() => {
     if (screen !== 'home' || !libraryReady) return;
@@ -1634,7 +1656,7 @@ export default function App() {
     void startTemplate(template);
   }
 
-  const { batchMode, setBatchMode, batchIds, toggleBatch, endBatch, batchFavorite, batchMove, batchDelete, projectMenu, setProjectMenu, deleteTarget, setDeleteTarget, setRenameTarget, renameDraft, setRenameDraft, groupTarget, setGroupTarget, groupDraft, setGroupDraft, groupDrafts, setGroupDrafts, groupFilter, setGroupFilter, openLibraryProject, duplicateProject, askDeleteProject, askRenameProject, askGroupProject, confirmGroupProject, projectGroups, openGroupManager, saveGroupRename, removeGroup, toggleProjectFavorite, confirmDeleteProject, renameProject, exportLibraryProject } = useProjectLibrary({ projects, setProjects, project, latestProject, canEdit, launchProject, refreshLibrary, persistCurrent, run, setScreen, setModal, setNotice, setError, setSelectedIds, setPrimarySelected, selectionAnchor, setPosition });
+  const { deletedProjects, refreshDeleted, restoreProject, purgeProject, batchMode, setBatchMode, batchIds, toggleBatch, endBatch, batchFavorite, batchMove, batchDelete, projectMenu, setProjectMenu, deleteTarget, setDeleteTarget, setRenameTarget, renameDraft, setRenameDraft, groupTarget, setGroupTarget, groupDraft, setGroupDraft, groupDrafts, setGroupDrafts, groupFilter, setGroupFilter, openLibraryProject, duplicateProject, askDeleteProject, askRenameProject, askGroupProject, confirmGroupProject, projectGroups, openGroupManager, saveGroupRename, removeGroup, toggleProjectFavorite, confirmDeleteProject, renameProject, exportLibraryProject } = useProjectLibrary({ projects, setProjects, project, latestProject, canEdit, launchProject, refreshLibrary, persistCurrent, run, setScreen, setModal, setNotice, setError, setSelectedIds, setPrimarySelected, selectionAnchor, setPosition });
 
   async function stageImportedMedia(added: Scene[]) {
     const items = [...importedMedia, ...added.filter(item => !importedMedia.some(old => old.image === item.image))];
@@ -1862,6 +1884,12 @@ export default function App() {
   async function openBrowserProject(e: ChangeEvent<HTMLInputElement>) {
     try {
       const file = e.target.files?.[0]; if (!file) return;
+      await openProjectFile(file);
+    } catch (e) { setError(messageFor(e)); } finally { e.target.value = ''; }
+  }
+
+  async function openProjectFile(file: File) {
+    try {
       if (file.size > 2 * 1024 * 1024 * 1024) throw new Error('Project file exceeds the 2 GB browser limit.');
       const bytes = new Uint8Array(await file.arrayBuffer());
       const p = bytes[0] === 0x50 && bytes[1] === 0x4b
@@ -1869,7 +1897,7 @@ export default function App() {
         : validateProject(JSON.parse(new TextDecoder().decode(bytes)));
       await persistCurrent();
       if (await run({ type: 'replace', project: p })) { setScreen('editor'); setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null; setPosition(0); }
-    } catch (e) { setError(messageFor(e)); } finally { e.target.value = ''; }
+    } catch (e) { setError(messageFor(e)); }
   }
 
   function togglePreviewFullscreen() { const element = document.querySelector('.preview-panel'); if (!document.fullscreenElement) void element?.requestFullscreen?.(); else void document.exitFullscreen(); }
@@ -1971,6 +1999,8 @@ export default function App() {
   const mediumModal = modal === 'source' || modal === 'new' || modal === 'formats' || modal === 'missing';
   const modalEyebrow = modal === 'export' ? t('VIDEO EXPORT') : modal === 'shortcuts' ? 'FIND YOUR FLOW' : modal === 'palette' ? 'EVERY ACTION, ONE PLACE' : modal === 'settings' ? 'MAKE PIXCUT YOURS' : modal === 'delete' ? 'REMOVE FROM THIS DEVICE' : modal === 'rename' ? 'PROJECT DETAILS' : modal === 'group' ? 'ORGANIZE YOUR LIBRARY' : modal === 'groups' ? 'ORGANIZE YOUR LIBRARY' : modal === 'formats' ? 'DELIVERABLES' : modal === 'missing' ? 'RESTORE YOUR MEDIA' : 'YOUR NEXT STORY';
   const projectGroupsList = projectGroups();
+  // A filter for a group that no longer exists would show an empty library; fall back to everything.
+  useEffect(() => { if (libraryReady && groupFilter !== 'all' && groupFilter !== 'ungrouped' && !projectGroupsList.includes(groupFilter)) setGroupFilter('all'); }, [libraryReady, groupFilter, projectGroupsList.join('|')]);
   const matchingProjects = projects
     .filter(entry => {
       const query = libraryQuery.trim().toLowerCase();
@@ -2014,7 +2044,7 @@ export default function App() {
             {entry.formats.length > 1 && <span className="project-format-count">{formatCount(entry.formats.length)}</span>}
           </span>}
           <span className="project-status"><span className="status-dot" /> {active ? t('Open now') : t('Edited {time}', { time: relativeTime(entry.updatedAt) })}</span>
-          <span className={`project-export ${entry.exportedAt ? 'done' : ''}`}>{entry.exportedAt ? t('Exported {time}', { time: relativeTime(entry.exportedAt) }) : t('Not exported yet')}</span>
+          {(() => { const state = exportState(entry); return <span className={`project-export ${state}`}>{state === 'never' ? t('Not exported yet') : state === 'changed' ? t('Changed since export {time}', { time: relativeTime(entry.exportedAt ?? 0) }) : t('Exported {time}', { time: relativeTime(entry.exportedAt ?? 0) })}</span>; })()}
         </div>
       </button>
       {!batchMode && <div className="project-quick" role="group" aria-label={`Quick actions for ${entry.name}`}>
@@ -2032,7 +2062,7 @@ export default function App() {
         <button role="menuitem" disabled={!canEdit} onClick={() => askGroupProject(entry)}><Layers size={14} /><span>{entry.group ? t('Group: {name}', { name: entry.group }) : t('Move to group…')}</span></button>
         <button role="menuitem" disabled={!canEdit} onClick={() => void duplicateProject(entry)}><Copy size={14} /><span>{t('Duplicate')}</span></button>
         <button role="menuitem" onClick={() => void exportLibraryProject(entry)}><Download size={14} /><span>{t('Export project file')}</span></button>
-        <button role="menuitem" className="danger" onClick={() => askDeleteProject(entry)}><Trash2 size={14} /><span>{t('Delete from device…')}</span></button>
+        <button role="menuitem" className="danger" onClick={() => askDeleteProject(entry)}><Trash2 size={14} /><span>{t('Move to Recently deleted…')}</span></button>
       </div>}
     </div>;
   }
@@ -2137,7 +2167,7 @@ export default function App() {
 
       {screen === 'home' ? <>
         <HomeSidebar storageLabel={storageLabel} projects={projects} openProject={openLibraryProject} setHomeSection={setHomeSection} homeSection={homeSection} setModal={setModal} updateState={updateState} setSettingsTab={setSettingsTab} updateProgress={updateProgress} updateInfo={updateInfo} appVersion={appVersion} />
-<HomeMain batch={{ mode: batchMode, ids: batchIds, begin: () => setBatchMode(true), end: endBatch, favorite: batchFavorite, move: batchMove, remove: batchDelete }} openSettings={() => setModal('settings')} libraryReady={libraryReady} shortcutText={shortcutText} openProject={openLibraryProject} homeSection={homeSection} open={open} canEdit={canEdit} ready={ready} setModal={setModal} chooseImages={chooseImages} projects={projects} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} librarySort={librarySort} setLibrarySort={setLibrarySort} favoriteOnly={favoriteOnly} setFavoriteOnly={setFavoriteOnly} groupFilter={groupFilter} setGroupFilter={setGroupFilter} projectGroupsList={projectGroupsList} openGroupManager={openGroupManager} matchingProjects={matchingProjects} renderProjectCard={renderProjectCard} visibleProjects={visibleProjects} chooseTemplate={chooseTemplate} templateImage={templateImage} />
+<HomeMain deleted={{ items: deletedProjects, restore: restoreProject, purge: purgeProject }} goProjects={() => setHomeSection('projects')} batch={{ mode: batchMode, ids: batchIds, begin: () => setBatchMode(true), end: endBatch, favorite: batchFavorite, move: batchMove, remove: batchDelete }} openSettings={() => setModal('settings')} libraryReady={libraryReady} shortcutText={shortcutText} openProject={openLibraryProject} homeSection={homeSection} open={open} canEdit={canEdit} ready={ready} setModal={setModal} chooseImages={chooseImages} projects={projects} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} librarySort={librarySort} setLibrarySort={setLibrarySort} favoriteOnly={favoriteOnly} setFavoriteOnly={setFavoriteOnly} groupFilter={groupFilter} setGroupFilter={setGroupFilter} projectGroupsList={projectGroupsList} openGroupManager={openGroupManager} matchingProjects={matchingProjects} renderProjectCard={renderProjectCard} visibleProjects={visibleProjects} chooseTemplate={chooseTemplate} templateImage={templateImage} />
       </> : <>
         <EditorHeader goHome={goHome} name={name} canEdit={canEdit} setName={setName} project={project} run={run} status={status} tip={tip} runCommandId={runCommandId} session={session} ready={ready} save={save} scenes={scenes} exporting={exporting} openExportModal={openExportModal} />
 

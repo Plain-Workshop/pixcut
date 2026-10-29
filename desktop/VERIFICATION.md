@@ -1552,3 +1552,12 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - `encode_plan` now renumbers the concatenated stream with `setpts=N/(fps*TB)`; every segment is already constant-rate after `fps`, so this keeps one output frame per tick.
 - New ignored FFmpeg test `real_transition_frames_all_reach_the_output` asserts the exact output frame count and a strictly progressing red-to-blue blend. It fails without the fix (19 of 30 frames) and passes with it.
 - Tests: 49 native (17 ignored FFmpeg tests all pass), 53 project-model, 432 TypeScript.
+
+## Pixel parity for exported video clips (2026-10-29)
+
+- New ignored FFmpeg tests compare exported pixels with the preview model:
+  - `real_video_cover_and_contain_match_the_preview_framing`: cover fills a square frame from a 16:9 clip (left/right halves keep their colours), contain keeps the whole picture with black bars above and below.
+  - `real_video_fades_follow_the_preview_opacity_curve`: every frame of a fade-in/fade-out clip is within 24/255 of `fadeOpacity`.
+  - `real_video_speed_ramps_and_reverse_show_the_preview_source_time`: brightness encodes source time, and every frame of constant, ramped (up and down) and reversed clips matches `consumedSeconds`/`sourceSecondsAt` within 10/255.
+- The expected values mirror `fadeOpacity` (preview/render.ts) and `consumedSeconds` (preview/speed.ts); change both sides together.
+- Known gaps found by reading the code, not yet covered by a test: video clips are exported with plain cover/contain only. The plan carries no `framingBackground`, `imageZoom`/`imageX`/`imageY`, and `fit: 'blur'` is encoded as cover, while the preview honours all of them. Photos are unaffected because they are baked from the canvas.
