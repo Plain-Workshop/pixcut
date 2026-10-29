@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { projectCount, sceneCount, t } from '../../i18n';
-import { ArrowRight, ArrowUpRight, Ban, Clapperboard, FolderOpen, Images, Layers, LayoutTemplate, Play, Plus, Search, Settings2, Star, Upload, WifiOff, Zap } from 'lucide-react';
-import { homeProjectOrder, resumeProject } from '../home-order';
+import { ArrowRight, ArrowUpRight, Ban, Check, Clapperboard, FolderOpen, Images, Layers, LayoutTemplate, Play, Plus, Search, Settings2, Star, Upload, WifiOff, Zap } from 'lucide-react';
+import { DATE_BUCKETS, dateBucket, homeProjectOrder, resumeProject } from '../home-order';
+import { BatchBar, type BatchControls } from '../parts/BatchBar';
+import { HomeHealth } from '../parts/HomeHealth';
 import { type ProjectSummary } from '../../stores/library';
 import { TEMPLATES, type TemplateDefinition } from '../../templates/catalog';
 import type { Dispatch, SetStateAction, ReactElement } from 'react';
 
-export function HomeMain({ libraryReady, shortcutText, openProject, homeSection, open, canEdit, ready, setModal, chooseImages, projects, libraryQuery, setLibraryQuery, librarySort, setLibrarySort, favoriteOnly, setFavoriteOnly, groupFilter, setGroupFilter, projectGroupsList, openGroupManager, matchingProjects, renderProjectCard, visibleProjects, chooseTemplate, templateImage }: {
+export function HomeMain({ batch, openSettings, libraryReady, shortcutText, openProject, homeSection, open, canEdit, ready, setModal, chooseImages, projects, libraryQuery, setLibraryQuery, librarySort, setLibrarySort, favoriteOnly, setFavoriteOnly, groupFilter, setGroupFilter, projectGroupsList, openGroupManager, matchingProjects, renderProjectCard, visibleProjects, chooseTemplate, templateImage }: {
+  batch: BatchControls;
+  openSettings: () => void;
   libraryReady: boolean;
   shortcutText: (id: string) => string;
   openProject: (entry: ProjectSummary) => Promise<void> | void;
@@ -34,6 +38,8 @@ export function HomeMain({ libraryReady, shortcutText, openProject, homeSection,
   templateImage: (template: TemplateDefinition) => string;
 }) {
   const returning = homeSection === 'home' && projects.length > 0;
+  // With many projects sorted by recency, the Projects page gets Today / This week headings.
+  const dated = homeSection === 'projects' && librarySort === 'recent' && groupFilter === 'all' && !projectGroupsList.length && visibleProjects.length >= 6;
   const loading = !libraryReady && !projects.length;
   const [templateAspect, setTemplateAspect] = useState<string>('all');
   const templateAspects = useMemo(() => [...new Set(TEMPLATES.map(template => template.aspect))], []);
@@ -87,7 +93,7 @@ export function HomeMain({ libraryReady, shortcutText, openProject, homeSection,
     <>
       
       <main className="home-main">
-        <div className="home-drop" aria-hidden="true"><Images size={34} /><strong>{t('Drop photos or videos to start a movie')}</strong><small>{t('PNG, JPEG, WebP, MP4, MOV, M4V, WebM')}</small></div>
+        <div className="home-drop" aria-hidden="true"><Images size={34} /><strong>{t('Drop photos or videos to start a movie')}</strong><small>{t('PNG, JPEG, WebP, MP4, MOV, M4V, WebM or a .pixcut project')}</small></div>
         <header className="home-topbar">
           <div className={`home-heading ${returning ? 'returning' : ''}`}>
             <div className="eyebrow"><span /><>{t(homeSection === 'home' ? 'A LITTLE MOMENT. A GREAT STORY.' : 'YOUR LOCAL LIBRARY')}</></div>
@@ -101,6 +107,8 @@ export function HomeMain({ libraryReady, shortcutText, openProject, homeSection,
           </div>
         </header>
       
+        {homeSection === 'home' && <HomeHealth openSettings={openSettings} />}
+
         {homeSection === 'home' && !returning && createGrid}
 
         <section className="recent-section">
@@ -113,7 +121,9 @@ export function HomeMain({ libraryReady, shortcutText, openProject, homeSection,
               <label className="search-field"><Search size={14} /><input aria-label="Search projects" placeholder={t('Search projects or groups…')} value={libraryQuery} onChange={event => setLibraryQuery(event.target.value)} /></label>
               <select aria-label="Sort projects" value={librarySort} onChange={event => setLibrarySort(event.target.value as 'recent' | 'name' | 'duration')}><option value="recent">{t('Recently edited')}</option><option value="name">{t('Name A–Z')}</option><option value="duration">{t('Longest first')}</option></select>
               <button className={`favorite-filter ${favoriteOnly ? 'active' : ''}`} aria-pressed={favoriteOnly} onClick={() => setFavoriteOnly(value => !value)}><Star size={13} fill={favoriteOnly ? 'currentColor' : 'none'} /> {t('Favorites')}</button>
+              <button className={`favorite-filter ${batch.mode ? 'active' : ''}`} aria-pressed={batch.mode} onClick={() => batch.mode ? batch.end() : batch.begin()}><Check size={13} /> {t('Select')}</button>
             </div>}
+            {homeSection === 'projects' && batch.mode && <BatchBar batch={batch} groups={projectGroupsList} selectedCount={batch.ids.length} />}
             {homeSection === 'projects' && <div className="group-filter" role="group" aria-label="Filter projects by group">
               <button className={`group-chip ${groupFilter === 'all' ? 'active' : ''}`} onClick={() => setGroupFilter('all')}>{t('All')} <span>{projects.length}</span></button>
               {projectGroupsList.map(group => <button key={group} className={`group-chip ${groupFilter === group ? 'active' : ''}`} onClick={() => setGroupFilter(group)}><FolderOpen size={11} />{group} <span>{projects.filter(entry => entry.group === group).length}</span></button>)}
@@ -136,6 +146,15 @@ export function HomeMain({ libraryReady, shortcutText, openProject, homeSection,
                   <div className="project-meta"><strong>{t('Start something new')}</strong><small>{t('A fresh story, ready for your photos.')}</small></div>
                 </button>
               </div></div>
+            </> : dated ? <>
+              {DATE_BUCKETS.map(bucket => {
+                const items = visibleProjects.filter(entry => dateBucket(entry.updatedAt) === bucket);
+                if (!items.length) return null;
+                return <div className="project-group-section" key={bucket}>
+                  <div className="project-group-title"><h3>{t(bucket)}</h3><span>{projectCount(items.length)}</span></div>
+                  <div className="project-grid">{items.map(renderProjectCard)}</div>
+                </div>;
+              })}
             </> : <div className={`project-grid ${homeSection === 'home' ? 'home-grid' : ''}`}>
               {homeProjects.map(renderProjectCard)}
               {!visibleProjects.length && <div className="library-empty compact group-empty"><FolderOpen size={28} /><strong>{t('No projects in this group yet.')}</strong><p>{t('Use a project’s ••• menu to move it here.')}</p></div>}
@@ -144,10 +163,14 @@ export function HomeMain({ libraryReady, shortcutText, openProject, homeSection,
                 <div className="project-meta"><strong>{t('Start something new')}</strong><small>{t('A fresh story, ready for your photos.')}</small></div>
               </button>}
             </div>}
-          </> : <div className="empty-projects">
+          </> : <div className="empty-projects empty-dropzone">
             <div className="empty-projects-icon"><Clapperboard size={28} /></div>
-            <div><strong>{t('Your next favorite starts here.')}</strong><p>{t('Start a story above, import a photo movie, or open a saved PixCut project.')}</p></div>
-            <button className="button subtle" onClick={() => void chooseImages()} disabled={!canEdit}><Upload size={15} /> {t('Import photos')}</button>
+            <div><strong>{t('Your next favorite starts here.')}</strong><p>{t('Drop photos anywhere in this window, import them, or start from a template.')}</p></div>
+            <div className="empty-actions">
+              <button className="button primary" onClick={() => void chooseImages()} disabled={!canEdit}><Upload size={15} /> {t('Import photos')}</button>
+              <button className="button subtle" onClick={() => setModal('templates')} disabled={!ready}><LayoutTemplate size={15} /> {t('Browse templates')}</button>
+            </div>
+            <div className="empty-templates">{TEMPLATES.slice(0, 3).map(template => <button key={template.id} className="empty-template" onClick={() => chooseTemplate(template)} title={t(template.name)}><img src={templateImage(template)} alt="" /><span>{t(template.name)}</span></button>)}</div>
           </div>}
         </section>
 
