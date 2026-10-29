@@ -48,6 +48,7 @@ import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
 import { useUpdates } from './hooks/useUpdates';
 import { useFormats } from './hooks/useFormats';
+import { useProjectLibrary } from './hooks/useProjectLibrary';
 import { ELEMENT_LABEL_DEFAULTS } from '../components/elements/symbols';
 import { useCallback, useMemo, useEffect, useRef, useState, type ChangeEvent, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import {
@@ -140,7 +141,7 @@ import { clampWeight, fontOption } from '../components/text/fonts';
 import { FORMAT_FILTERS, FORMAT_PRESETS, filterFormatGroups, formatSlug, formatSize, groupFormatsByOutput, resolveSceneForFormat } from '../stores/formats';
 import { messageFor } from './errors';
 import { captureDragPointer, formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
-import { backfillThumbnails, deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, listProjects, renameProjectGroup, saveLibraryProject, setProjectFavorite, setProjectGroup, type ProjectSummary } from '../stores/library';
+import { backfillThumbnails, listProjects, saveLibraryProject, type ProjectSummary } from '../stores/library';
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from '../stores/preferences';
 import { TEMPLATES, buildTemplateProject, templatePreview, type TemplateDefinition } from '../templates/catalog';
 import {
@@ -249,11 +250,6 @@ export default function App() {
   const [templateCategory, setTemplateCategory] = useState<'All' | TemplateDefinition['category']>('All');
   const [pendingTemplate, setPendingTemplate] = useState<TemplateDefinition | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]), [libraryReady, setLibraryReady] = useState(false);
-  const [projectMenu, setProjectMenu] = useState<string | null>(null), [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
-  const [renameTarget, setRenameTarget] = useState<ProjectSummary | null>(null), [renameDraft, setRenameDraft] = useState('');
-  const [groupTarget, setGroupTarget] = useState<ProjectSummary | null>(null), [groupDraft, setGroupDraft] = useState('');
-  const [groupDrafts, setGroupDrafts] = useState<Record<string, string>>({});
-  const [groupFilter, setGroupFilter] = useState<string>('all');
   const [libraryQuery, setLibraryQuery] = useState('');
   const [librarySort, setLibrarySort] = useState<'recent' | 'name' | 'duration'>('recent');
   const [favoriteOnly, setFavoriteOnly] = useState(false);
@@ -780,17 +776,6 @@ export default function App() {
     }
   }, [position, playing, playDirection, audio, cueAudio, project.timebase, videoDuckWindows, project.ducking, audioMix]);
   useEffect(() => () => { for (const element of audioElements.current.values()) element.pause(); recorderRef.current?.state !== 'inactive' && recorderRef.current?.stop(); if (recordTimer.current) clearInterval(recordTimer.current); }, []);
-  useEffect(() => {
-    if (!projectMenu) return;
-    const close = (event: Event) => {
-      if (event.target instanceof Element && event.target.closest(`[data-project-menu="${projectMenu}"], [data-project-actions="${projectMenu}"]`)) return;
-      setProjectMenu(null);
-    };
-    window.addEventListener('pointerdown', close);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
-    return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); };
-  }, [projectMenu]);
   useEffect(() => { setName(project.name); }, [project.name]);
   useEffect(() => { if (modal === 'export') setExportSettings(current => ({ ...current, name: project.name, version: 'v1' })); }, [modal, project.id]);
   useEffect(() => {
@@ -2244,125 +2229,7 @@ export default function App() {
     void startTemplate(template);
   }
 
-  async function openLibraryProject(summary: ProjectSummary) {
-    setProjectMenu(null);
-    if (summary.id === project.id) { setScreen('editor'); return; }
-    if (!canEdit) return;
-    try {
-      const p = await getLibraryProject(summary.id);
-      if (!p) throw new Error('This project could not be found on this device.');
-      if (await launchProject(p)) setNotice(`Opened “${p.name}”.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  async function duplicateProject(summary: ProjectSummary) {
-    setProjectMenu(null);
-    if (!canEdit) return;
-    try {
-      const copy = await duplicateLibraryProject(summary.id);
-      if (!copy) throw new Error('This project could not be duplicated.');
-      await refreshLibrary();
-      setNotice(`“${copy.name}” added to your library.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  function askDeleteProject(summary: ProjectSummary) {
-    setProjectMenu(null);
-    setDeleteTarget(summary);
-    setModal('delete');
-  }
-
-  function askRenameProject(summary: ProjectSummary) {
-    setProjectMenu(null);
-    setRenameTarget(summary);
-    setRenameDraft(summary.name);
-    setModal('rename');
-  }
-
-  function askGroupProject(summary: ProjectSummary) {
-    setProjectMenu(null);
-    setGroupTarget(summary);
-    setGroupDraft(summary.group ?? '');
-    setModal('group');
-  }
-
-  async function confirmGroupProject(group: string | null) {
-    const target = groupTarget;
-    if (!target) return;
-    setModal(null);
-    setGroupTarget(null);
-    try {
-      await setProjectGroup(target.id, group);
-      setProjects(items => items.map(item => item.id === target.id ? { ...item, ...(group?.trim() ? { group: group.trim() } : { group: undefined }) } : item));
-      setNotice(group?.trim() ? `“${target.name}” moved to “${group.trim()}”.` : `“${target.name}” removed from its group.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  function projectGroups() {
-    return [...new Set(projects.map(entry => entry.group).filter((group): group is string => Boolean(group)))].sort((a, b) => a.localeCompare(b));
-  }
-
-  function openGroupManager() {
-    const groups = projectGroups();
-    setGroupDrafts(Object.fromEntries(groups.map(group => [group, group])));
-    setModal('groups');
-  }
-
-  async function saveGroupRename(from: string) {
-    const to = groupDrafts[from]?.trim();
-    if (!to || to === from) return;
-    try {
-      await renameProjectGroup(from, to);
-      await refreshLibrary();
-      setGroupDrafts(current => {
-        const next = { ...current };
-        delete next[from];
-        next[to] = to;
-        return next;
-      });
-      if (groupFilter === from) setGroupFilter(to);
-      setNotice(`Group renamed to “${to}”.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  async function removeGroup(group: string) {
-    try {
-      await deleteProjectGroup(group);
-      await refreshLibrary();
-      setGroupDrafts(current => { const next = { ...current }; delete next[group]; return next; });
-      if (groupFilter === group) setGroupFilter('all');
-      setNotice(`“${group}” removed. Its projects are now ungrouped.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  async function toggleProjectFavorite(summary: ProjectSummary) {
-    try {
-      await setProjectFavorite(summary.id, !summary.favorite);
-      setProjects(items => items.map(item => item.id === summary.id ? { ...item, ...(summary.favorite ? { favorite: undefined } : { favorite: true }) } : item));
-      setNotice(summary.favorite ? `“${summary.name}” removed from favorites.` : `“${summary.name}” added to favorites.`);
-      setProjectMenu(null);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  async function confirmDeleteProject() {
-    const target = deleteTarget;
-    if (!target) return;
-    setModal(null);
-    setDeleteTarget(null);
-    try {
-      await deleteLibraryProject(target.id);
-      setProjects(list => list.filter(item => item.id !== target.id));
-      if (target.id === latestProject.current.id) {
-        await run({ type: 'replace', project: emptyProject() });
-        setSelectedIds([]);
-        setPrimarySelected(null);
-        selectionAnchor.current = null;
-        setPosition(0);
-        setScreen('home');
-      }
-      setNotice(`“${target.name}” deleted from this device.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
+  const { projectMenu, setProjectMenu, deleteTarget, setDeleteTarget, setRenameTarget, renameDraft, setRenameDraft, groupTarget, setGroupTarget, groupDraft, setGroupDraft, groupDrafts, setGroupDrafts, groupFilter, setGroupFilter, openLibraryProject, duplicateProject, askDeleteProject, askRenameProject, askGroupProject, confirmGroupProject, projectGroups, openGroupManager, saveGroupRename, removeGroup, toggleProjectFavorite, confirmDeleteProject, renameProject, exportLibraryProject } = useProjectLibrary({ projects, setProjects, project, latestProject, canEdit, launchProject, refreshLibrary, persistCurrent, run, setScreen, setModal, setNotice, setError, setSelectedIds, setPrimarySelected, selectionAnchor, setPosition });
 
   async function stageImportedMedia(added: Scene[]) {
     const items = [...importedMedia, ...added.filter(item => !importedMedia.some(old => old.image === item.image))];
@@ -2785,35 +2652,6 @@ export default function App() {
       const asset = await bridge.importMediaPath(paths[0]);
       await replaceSceneWithAsset(sceneId, asset);
     } catch (error) { setError(messageFor(error)); }
-  }
-
-  async function renameProject() {
-    const target = renameTarget;
-    if (!target) return;
-    const name = renameDraft.trim().replace(/\s+/g, ' ').slice(0, 120) || 'Untitled story';
-    try {
-      if (target.id === latestProject.current.id) {
-        if (!(await run({ type: 'rename', name }))) return;
-        await persistCurrent();
-      } else {
-        const stored = await getLibraryProject(target.id);
-        if (!stored) throw new Error('This project could not be found on this device.');
-        await saveLibraryProject({ ...stored, name });
-      }
-      await refreshLibrary();
-      setModal(null);
-      setRenameTarget(null);
-      setNotice(`Project renamed to “${name}”.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  async function exportLibraryProject(summary: ProjectSummary) {
-    setProjectMenu(null);
-    try {
-      const stored = await getLibraryProject(summary.id);
-      if (!stored) throw new Error('This project could not be found on this device.');
-      if (await bridge.exportProjectFile(stored)) setNotice(`Project file for “${stored.name}” saved.`);
-    } catch (e) { setError(messageFor(e)); }
   }
 
   async function open() {
