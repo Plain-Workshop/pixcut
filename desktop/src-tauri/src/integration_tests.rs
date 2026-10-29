@@ -1641,3 +1641,61 @@ fn real_image_export_applies_fades() {
     assert!(steady[0] > 200, "the middle of the clip should stay bright: {steady:?}");
     assert!(faded_out[1] < 120, "fade-out should darken the last frame: {faded_out:?}");
 }
+
+#[test]
+#[ignore = "Requires FFmpeg with libx264 and ffprobe installed"]
+fn real_transition_frames_all_reach_the_output() {
+    let binary = ffmpeg().expect("FFmpeg is installed");
+    assert!(encoder_available(&binary, ExportCodec::H264));
+    let temp = tempfile::tempdir().unwrap();
+    let clip = |name: &str, color: &str| {
+        let path = temp.path().join(name);
+        let status = Process::new(&binary)
+            .args(["-y", "-v", "error", "-f", "lavfi", "-i", &format!("color=c={color}:s=320x240:r=30:d=1"), "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+            .arg(&path).status().unwrap();
+        assert!(status.success());
+        format!("data:video/mp4;base64,{}", STANDARD.encode(fs::read(&path).unwrap()))
+    };
+    // One-tick stills that fade from red to blue, the way the planner bakes a video transition.
+    // The fixture project is 30 ticks long, so the plan has to add up to exactly that.
+    const STILLS: usize = 12;
+    const HOLD: u64 = 9;
+    let still = |index: usize| {
+        let red = 255 - index * 255 / (STILLS - 1);
+        let path = temp.path().join(format!("still-{index}.png"));
+        let status = Process::new(&binary)
+            .args(["-y", "-v", "error", "-f", "lavfi", "-i", &format!("color=c=0x{red:02X}00{:02X}:s=320x240", 255 - red), "-frames:v", "1"])
+            .arg(&path).status().unwrap();
+        assert!(status.success());
+        format!("data:image/png;base64,{}", STANDARD.encode(fs::read(&path).unwrap()))
+    };
+    let segment = |kind: &str, png: Option<String>, video: Option<String>, ticks: u64| PlanSegment {
+        kind: kind.into(), png, video, source_in_seconds: video_source(kind), fit: Some("cover".into()),
+        speed: None, speed_end: None, reverse: false, lut: None, fade_in: 0.0, fade_out: 0.0,
+        video_volume: None, include_audio: false, audio_duration_ticks: None, duration_ticks: ticks, overlays: vec![],
+    };
+    fn video_source(kind: &str) -> Option<f64> { (kind == "video").then_some(0.0) }
+    let mut segments = vec![segment("video", None, Some(clip("red.mp4", "red")), HOLD)];
+    for index in 0..STILLS { segments.push(segment("image", Some(still(index)), None, 1)); }
+    segments.push(segment("video", None, Some(clip("blue.mp4", "blue")), HOLD));
+    let (project, _) = fixture_project();
+    let mut options = export_options();
+    options.width = 320; options.height = 240; options.speed = EncodeSpeed::Fast;
+    let output = temp.path().join("transition.mp4");
+    encode_plan(&project, ExportPlan { segments, options }, binary.clone(), output.clone(), temp.path(), Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+
+    let raw = Process::new(&binary)
+        .args(["-v", "error", "-i"]).arg(&output)
+        .args(["-vf", "scale=1:1,format=rgb24", "-f", "rawvideo", "-"])
+        .output().unwrap();
+    assert!(raw.status.success(), "{}", String::from_utf8_lossy(&raw.stderr));
+    let pixels: Vec<(u8, u8)> = raw.stdout.chunks_exact(3).map(|rgb| (rgb[0], rgb[2])).collect();
+    let expected = HOLD as usize * 2 + STILLS;
+    assert_eq!(pixels.len(), expected, "every planned tick must become one output frame: {pixels:?}");
+    let blend = &pixels[HOLD as usize..HOLD as usize + STILLS];
+    for pair in blend.windows(2) {
+        assert!(pair[1].0 < pair[0].0 && pair[1].1 > pair[0].1, "the blend must progress frame by frame: {blend:?}");
+    }
+    assert!(pixels[0].0 > 200 && pixels[0].1 < 60, "starts red: {:?}", pixels[0]);
+    assert!(pixels[expected - 1].1 > 200 && pixels[expected - 1].0 < 60, "ends blue: {:?}", pixels[expected - 1]);
+}

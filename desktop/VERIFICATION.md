@@ -1545,3 +1545,10 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Cause: the Rust `Project` serialized `audio_mix`, `global_text` and `beat_ticks` in snake_case while the editor reads `audioMix`, `globalText` and `beatTicks`. In the desktop app every Rust answer therefore dropped the mixer levels (and global text and beat markers), so the track mute and volume controls reverted and changed nothing; exports ignored the mixer for the same reason. The browser preview never touches Rust, so it worked.
 - Fix: those three fields are now written in camelCase and still read the old snake_case keys, so projects and recovery files saved by earlier builds load. The editor's project validation also accepts the old keys.
 - Tests: JSON round trip of the `audioMix` command through a session, camelCase output with snake_case input accepted, and a TypeScript load of an old-key project.
+
+## Transition frames survive concat (2026-10-29)
+
+- Found by running the real planner and encoder end to end on FFmpeg 9.0.2: a video-to-video fade planned 15 baked still frames, but the MP4 kept only 2 of them. `concat` stamps runs of one-frame segments with the same timestamp and the muxer drops the duplicates.
+- `encode_plan` now renumbers the concatenated stream with `setpts=N/(fps*TB)`; every segment is already constant-rate after `fps`, so this keeps one output frame per tick.
+- New ignored FFmpeg test `real_transition_frames_all_reach_the_output` asserts the exact output frame count and a strictly progressing red-to-blue blend. It fails without the fix (19 of 30 frames) and passes with it.
+- Tests: 49 native (17 ignored FFmpeg tests all pass), 53 project-model, 432 TypeScript.

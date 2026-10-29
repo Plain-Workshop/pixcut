@@ -105,6 +105,25 @@ fn queue_open_project(app: &tauri::AppHandle, path: PathBuf) {
     let _ = app.emit("project-opened", ());
 }
 
+/// Checks a path dropped onto Home before it is queued as the project to open.
+fn check_project_drop(path: &Path) -> Result<(), String> {
+    if !is_pixcut_path(path) {
+        return Err("Drop a .pixcut project file.".into());
+    }
+    if !path.is_file() {
+        return Err("That project file could not be found.".into());
+    }
+    Ok(())
+}
+/// Opens a `.pixcut` file dropped onto the Home screen through the same path as a double-click.
+#[tauri::command]
+fn open_project_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    check_project_drop(&path)?;
+    queue_open_project(&app, path);
+    Ok(())
+}
+
 #[allow(clippy::expect_used)] // Tauri cannot recover if the shell fails to start.
 pub fn run() {
     let pending = pixcut_path_from_args(std::env::args_os().skip(1));
@@ -133,6 +152,7 @@ pub fn run() {
             online_music::online_music_download,
             project_io::initialize,
             project_io::take_pending_project,
+            open_project_path,
             project_io::apply_order,
             project_io::dispatch,
             project_io::save_project,
@@ -193,6 +213,25 @@ pub fn run() {
             let _ = (app_handle, event);
         }
     });
+}
+
+#[cfg(test)]
+mod drop_tests {
+    use super::*;
+
+    #[test]
+    fn project_drop_rejects_other_files_and_missing_paths() {
+        assert!(check_project_drop(Path::new("/tmp/photo.png")).is_err());
+        assert!(check_project_drop(Path::new("/tmp/does-not-exist.pixcut")).is_err());
+    }
+
+    #[test]
+    fn project_drop_accepts_an_existing_pixcut_file() {
+        let path = std::env::temp_dir().join(format!("pixcut-drop-{}.pixcut", std::process::id()));
+        assert!(std::fs::write(&path, b"x").is_ok());
+        assert!(check_project_drop(&path).is_ok());
+        let _ = std::fs::remove_file(&path);
+    }
 }
 
 #[cfg(test)]

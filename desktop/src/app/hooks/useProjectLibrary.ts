@@ -28,6 +28,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
   const [groupTarget, setGroupTarget] = useState<ProjectSummary | null>(null), [groupDraft, setGroupDraft] = useState('');
   const [groupDrafts, setGroupDrafts] = useState<Record<string, string>>({});
   const [groupFilter, setGroupFilter] = useState<string>('all');
+  const [batchMode, setBatchMode] = useState(false), [batchIds, setBatchIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!projectMenu) return;
@@ -161,6 +162,46 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
     } catch (e) { setError(messageFor(e)); }
   }
 
+
+  function toggleBatch(id: string) { setBatchIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]); }
+  function endBatch() { setBatchMode(false); setBatchIds([]); }
+  const batchTargets = () => projects.filter(entry => batchIds.includes(entry.id));
+
+  async function batchFavorite(on: boolean) {
+    const targets = batchTargets();
+    try {
+      for (const entry of targets) await setProjectFavorite(entry.id, on);
+      setProjects(items => items.map(item => batchIds.includes(item.id) ? { ...item, favorite: on ? true : undefined } : item));
+      setNotice(`${targets.length} project${targets.length === 1 ? '' : 's'} ${on ? 'added to' : 'removed from'} favorites.`);
+      endBatch();
+    } catch (e) { setError(messageFor(e)); }
+  }
+
+  async function batchMove(group: string | null) {
+    const name = group?.trim() || null;
+    const targets = batchTargets();
+    try {
+      for (const entry of targets) await setProjectGroup(entry.id, name);
+      setProjects(items => items.map(item => batchIds.includes(item.id) ? { ...item, group: name ?? undefined } : item));
+      setNotice(name ? `${targets.length} project${targets.length === 1 ? '' : 's'} moved to “${name}”.` : `${targets.length} project${targets.length === 1 ? '' : 's'} removed from their group.`);
+      endBatch();
+    } catch (e) { setError(messageFor(e)); }
+  }
+
+  async function batchDelete() {
+    const targets = batchTargets();
+    try {
+      for (const entry of targets) await deleteLibraryProject(entry.id);
+      setProjects(items => items.filter(item => !batchIds.includes(item.id)));
+      if (targets.some(entry => entry.id === latestProject.current.id)) {
+        await run({ type: 'replace', project: emptyProject() });
+        setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null; setPosition(0); setScreen('home');
+      }
+      setNotice(`${targets.length} project${targets.length === 1 ? '' : 's'} deleted from this device.`);
+      endBatch();
+    } catch (e) { setError(messageFor(e)); await refreshLibrary(); }
+  }
+
   async function renameProject() {
     const target = renameTarget;
     if (!target) return;
@@ -190,5 +231,5 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
     } catch (e) { setError(messageFor(e)); }
   }
 
-  return { projectMenu, setProjectMenu, deleteTarget, setDeleteTarget, setRenameTarget, renameDraft, setRenameDraft, groupTarget, setGroupTarget, groupDraft, setGroupDraft, groupDrafts, setGroupDrafts, groupFilter, setGroupFilter, openLibraryProject, duplicateProject, askDeleteProject, askRenameProject, askGroupProject, confirmGroupProject, projectGroups, openGroupManager, saveGroupRename, removeGroup, toggleProjectFavorite, confirmDeleteProject, renameProject, exportLibraryProject };
+  return { batchMode, setBatchMode, batchIds, toggleBatch, endBatch, batchFavorite, batchMove, batchDelete, projectMenu, setProjectMenu, deleteTarget, setDeleteTarget, setRenameTarget, renameDraft, setRenameDraft, groupTarget, setGroupTarget, groupDraft, setGroupDraft, groupDrafts, setGroupDrafts, groupFilter, setGroupFilter, openLibraryProject, duplicateProject, askDeleteProject, askRenameProject, askGroupProject, confirmGroupProject, projectGroups, openGroupManager, saveGroupRename, removeGroup, toggleProjectFavorite, confirmDeleteProject, renameProject, exportLibraryProject };
 }

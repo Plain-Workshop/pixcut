@@ -446,6 +446,8 @@ export default function App() {
       setDropTarget(sceneId);
       if (event.type !== 'drop') return;
       setFileDragActive(false); setDropTarget(null);
+      const projectFile = screen === 'home' ? (event.paths ?? []).find(path => /\.pixcut$/i.test(path)) : undefined;
+      if (projectFile) { void bridge.openProjectPath(projectFile).catch(e => setError(messageFor(e))); return; }
       const paths = (event.paths ?? []).filter(path => /\.(png|jpe?g|webp|mp4|m4v|mov|webm)$/i.test(path));
       if (!(event.paths?.length)) return;
       if (!paths.length) { setError('Drop a PNG, JPEG, WebP, MP4, MOV, M4V, or WebM file.'); return; }
@@ -453,7 +455,7 @@ export default function App() {
       else void importNativePaths(paths);
     })?.then(fn => { if (disposed) fn(); else unlisten = fn; }).catch(() => {});
     return () => { disposed = true; unlisten?.(); };
-  }, [project, preferences]);
+  }, [project, preferences, screen]);
 
   const hasVideoScenes = scenes.some(scene => scene.mediaKind === 'video');
   const activeFormat = project.formats.find(format => format.id === activeFormatId) ?? project.formats[0];
@@ -1630,7 +1632,7 @@ export default function App() {
     void startTemplate(template);
   }
 
-  const { projectMenu, setProjectMenu, deleteTarget, setDeleteTarget, setRenameTarget, renameDraft, setRenameDraft, groupTarget, setGroupTarget, groupDraft, setGroupDraft, groupDrafts, setGroupDrafts, groupFilter, setGroupFilter, openLibraryProject, duplicateProject, askDeleteProject, askRenameProject, askGroupProject, confirmGroupProject, projectGroups, openGroupManager, saveGroupRename, removeGroup, toggleProjectFavorite, confirmDeleteProject, renameProject, exportLibraryProject } = useProjectLibrary({ projects, setProjects, project, latestProject, canEdit, launchProject, refreshLibrary, persistCurrent, run, setScreen, setModal, setNotice, setError, setSelectedIds, setPrimarySelected, selectionAnchor, setPosition });
+  const { batchMode, setBatchMode, batchIds, toggleBatch, endBatch, batchFavorite, batchMove, batchDelete, projectMenu, setProjectMenu, deleteTarget, setDeleteTarget, setRenameTarget, renameDraft, setRenameDraft, groupTarget, setGroupTarget, groupDraft, setGroupDraft, groupDrafts, setGroupDrafts, groupFilter, setGroupFilter, openLibraryProject, duplicateProject, askDeleteProject, askRenameProject, askGroupProject, confirmGroupProject, projectGroups, openGroupManager, saveGroupRename, removeGroup, toggleProjectFavorite, confirmDeleteProject, renameProject, exportLibraryProject } = useProjectLibrary({ projects, setProjects, project, latestProject, canEdit, launchProject, refreshLibrary, persistCurrent, run, setScreen, setModal, setNotice, setError, setSelectedIds, setPrimarySelected, selectionAnchor, setPosition });
 
   async function stageImportedMedia(added: Scene[]) {
     const items = [...importedMedia, ...added.filter(item => !importedMedia.some(old => old.image === item.image))];
@@ -1992,7 +1994,7 @@ export default function App() {
   function renderProjectCard(entry: ProjectSummary) {
     const active = entry.id === project.id;
     return <div className={`project-card ${active ? 'active' : ''} ${projectMenu === entry.id ? 'menu-open' : ''}`} key={entry.id}>
-      <button className="project-open" onClick={() => void openLibraryProject(entry)} disabled={!libraryReady || !canEdit}>
+      <button className={`project-open ${batchMode && batchIds.includes(entry.id) ? 'batch-selected' : ''}`} aria-pressed={batchMode ? batchIds.includes(entry.id) : undefined} onClick={() => batchMode ? toggleBatch(entry.id) : void openLibraryProject(entry)} disabled={!libraryReady || (!batchMode && !canEdit)}>
         <ProjectThumb key={`${entry.id}-${entry.updatedAt}`} entry={entry}>
           <div className="project-frame" style={{ aspectRatio: entry.width && entry.height ? `${entry.width} / ${entry.height}` : entry.aspect.replace(':', ' / ') }}>
             {entry.thumbnail ? <img src={entry.thumbnail} alt="" /> : <span className="project-thumb-fallback"><Clapperboard size={24} /></span>}
@@ -2000,7 +2002,7 @@ export default function App() {
           <span className="project-aspect">{entry.aspect}</span>
           {missingCounts[entry.id] > 0 && <span className="project-missing" title={t('Some media for this project is missing from this device.')}><AlertTriangle size={10} />{missingCounts[entry.id]} {t('missing')}</span>}
           {entry.group && <span className="project-group-badge"><FolderOpen size={10} />{entry.group}</span>}
-          <span className="project-play"><Play size={15} fill="currentColor" /></span>
+          {batchMode ? <span className={`project-check ${batchIds.includes(entry.id) ? 'on' : ''}`}><Check size={14} /></span> : <span className="project-play"><Play size={15} fill="currentColor" /></span>}
         </ProjectThumb>
         <div className="project-meta">
           <strong>{entry.name}</strong>
@@ -2013,7 +2015,12 @@ export default function App() {
           <span className={`project-export ${entry.exportedAt ? 'done' : ''}`}>{entry.exportedAt ? t('Exported {time}', { time: relativeTime(entry.exportedAt) }) : t('Not exported yet')}</span>
         </div>
       </button>
-      <button className={`project-favorite ${entry.favorite ? 'active' : ''}`} aria-label={entry.favorite ? `Remove ${entry.name} from favorites` : `Add ${entry.name} to favorites`} aria-pressed={Boolean(entry.favorite)} onClick={() => void toggleProjectFavorite(entry)}><Star size={15} fill={entry.favorite ? 'currentColor' : 'none'} /></button>
+      {!batchMode && <div className="project-quick" role="group" aria-label={`Quick actions for ${entry.name}`}>
+        <button aria-label={`Export ${entry.name}`} title={t('Export project file')} onClick={() => void exportLibraryProject(entry)}><Download size={13} /></button>
+        <button aria-label={`Duplicate ${entry.name}`} title={t('Duplicate')} disabled={!canEdit} onClick={() => void duplicateProject(entry)}><Copy size={13} /></button>
+        <button aria-label={`Rename ${entry.name}`} title={t('Rename…')} disabled={!canEdit} onClick={() => askRenameProject(entry)}><Pencil size={13} /></button>
+      </div>}
+      {!batchMode && <button className={`project-favorite ${entry.favorite ? 'active' : ''}`} aria-label={entry.favorite ? `Remove ${entry.name} from favorites` : `Add ${entry.name} to favorites`} aria-pressed={Boolean(entry.favorite)} onClick={() => void toggleProjectFavorite(entry)}><Star size={15} fill={entry.favorite ? 'currentColor' : 'none'} /></button>
       <button className="project-actions" data-project-actions={entry.id} aria-label={`Actions for ${entry.name}`} aria-haspopup="menu" aria-expanded={projectMenu === entry.id} onClick={() => setProjectMenu(id => id === entry.id ? null : entry.id)}><MoreHorizontal size={16} /></button>
       {projectMenu === entry.id && <div className="project-menu" data-project-menu={entry.id} role="menu" aria-label={`${entry.name} actions`}>
         <span className="project-menu-heading">{entry.name}</span>

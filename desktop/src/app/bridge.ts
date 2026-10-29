@@ -68,6 +68,7 @@ export function onProjectOpened(handler: () => void): Promise<UnlistenFn> | null
 export async function takePendingProject(): Promise<Session | null> {
   return native ? invoke('take_pending_project') : null;
 }
+export async function openProjectPath(path: string): Promise<void> { return invoke('open_project_path', { path }); }
 export async function openProject(): Promise<Session | null> { return invoke('open_project'); }
 export async function exporterAvailable(): Promise<boolean> { return native ? invoke('exporter_available') : false; }
 export type PickedMedia = { name: string; mime: string; data: string };

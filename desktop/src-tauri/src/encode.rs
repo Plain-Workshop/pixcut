@@ -243,7 +243,10 @@ pub(crate) fn encode_plan(
         "v0".to_string()
     } else {
         let labels: String = (0..visual.len()).map(|index| format!("[v{index}]")).collect();
-        filters.push(format!("{labels}concat=n={}:v=1:a=0[base]", visual.len()));
+        // Segments are constant-rate after `fps`, but concat gives runs of one-frame
+        // segments (transition frames) the same timestamp, and the muxer then drops
+        // them as duplicates. Renumbering restores one frame per tick.
+        filters.push(format!("{labels}concat=n={}:v=1:a=0,setpts=N/({fps}*TB)[base]", visual.len()));
         "base".to_string()
     };
     for (index, (input, start, end)) in overlays.iter().enumerate() {
