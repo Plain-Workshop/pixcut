@@ -320,13 +320,43 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       // install, a cleared webview or a partially failed write) rebuilds it
       // from IndexedDB, which remains the source of truth.
       if (rows.length && rows.length === localCount) return parseIndexedSummaries(rows);
-      const local = await listLocalProjects();
+      const local = await restoreLabels(await listLocalProjects(), rows);
       await bridge.libraryIndexClear().catch(() => {});
       await syncIndexes(local);
       return local;
     } catch { /* fall back to IndexedDB below */ }
   }
   return listLocalProjects();
+}
+
+/**
+ * When the catalog is rebuilt from the project store, labels that only the old
+ * catalog still held (group, favorite, export time) are carried over instead of
+ * being dropped, and written back so both copies agree.
+ */
+async function restoreLabels(local: ProjectSummary[], indexRows: string[]): Promise<ProjectSummary[]> {
+  const old = new Map(parseIndexedSummaries<ProjectSummary>(indexRows).map(entry => [entry.id, entry]));
+  const changed: ProjectSummary[] = [];
+  const merged = local.map(entry => {
+    const previous = old.get(entry.id);
+    if (!previous) return entry;
+    const next: ProjectSummary = { ...entry };
+    if (!next.group && previous.group) next.group = previous.group;
+    if (!next.favorite && previous.favorite) next.favorite = true;
+    if (!next.exportedAt && previous.exportedAt) { next.exportedAt = previous.exportedAt; if (previous.exportedHash) next.exportedHash = previous.exportedHash; }
+    if (next.group === entry.group && next.favorite === entry.favorite && next.exportedAt === entry.exportedAt) return entry;
+    changed.push(next);
+    return next;
+  });
+  if (changed.length) {
+    try {
+      const db = await openDatabase();
+      const write = db.transaction(META, 'readwrite');
+      for (const entry of changed) write.objectStore(META).put(entry);
+      await transactionDone(write);
+    } catch { /* the catalog still carries the labels */ }
+  }
+  return merged;
 }
 
 const backfillTried = new Set<string>();
