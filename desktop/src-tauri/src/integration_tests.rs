@@ -1714,7 +1714,8 @@ fn real_every_plan_tick_becomes_one_output_frame() {
     let video = format!("data:video/mp4;base64,{}", STANDARD.encode(fs::read(&source).unwrap()));
     let (project, frames) = fixture_project();
     // (kind, ticks, speed, reverse). The fixture project is 30 ticks, so each shape adds up to 30.
-    let shapes: Vec<(&str, Vec<(&str, u64, Option<f64>, bool)>)> = vec![
+    type Shape = Vec<(&'static str, u64, Option<f64>, bool)>;
+    let shapes: Vec<(&str, Shape)> = vec![
         ("long stills", vec![("image", 5, None, false); 6]),
         ("one-tick stills between long ones", [vec![("image", 1, None, false); 10], vec![("image", 10, None, false)], vec![("image", 1, None, false); 10]].concat()),
         ("alternating still and video", (0..5).flat_map(|_| [("image", 1, None, false), ("video", 5, None, false)]).collect()),
