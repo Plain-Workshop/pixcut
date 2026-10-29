@@ -13,8 +13,6 @@ import { Toast, ErrorBanner, ExportJobCard } from './parts/Notices';
 import { BehaviorControls } from '../components/elements/BehaviorControls';
 import { ELEMENT_CATALOG, elementPreset, elementDisplayName } from '../components/elements/catalog';
 import { exportOutputFormat } from './export-progress';
-import { framingTravel } from '../components/preview/framing';
-import { edgeGuides, snapToTargets } from '../components/preview/snapping';
 import { registerCustomFonts } from '../components/text/fonts';
 import { subsetCharacters } from '../components/text/subset-chars';
 import { subsetFontBytes } from '../components/text/subset';
@@ -47,11 +45,13 @@ import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
 import { useUpdates } from './hooks/useUpdates';
 import { useFormats } from './hooks/useFormats';
+import { useStagePointer } from './hooks/useStagePointer';
+import { usePanelLayout } from './hooks/usePanelLayout';
 import { useElementPointer } from './hooks/useElementPointer';
 import { useSourcePreview } from './hooks/useSourcePreview';
 import { useProjectLibrary } from './hooks/useProjectLibrary';
 import { ELEMENT_LABEL_DEFAULTS } from '../components/elements/symbols';
-import { useCallback, useMemo, useEffect, useRef, useState, type ChangeEvent, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useMemo, useEffect, useRef, useState, type ChangeEvent, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   AudioLines, 
   AlertTriangle,
@@ -133,15 +133,15 @@ import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import * as bridge from './bridge';
 import { HINTS_KEY } from './export-options';
-import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, minTicks, projectScenes, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
+import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, minTicks, projectScenes, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
 import { probeVideo } from '../components/preview/video';
 import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers } from '../components/text/layers';
 import { clampWeight, fontOption } from '../components/text/fonts';
 import { FORMAT_FILTERS, FORMAT_PRESETS, filterFormatGroups, formatSlug, formatSize, groupFormatsByOutput, resolveSceneForFormat } from '../stores/formats';
 import { messageFor } from './errors';
-import { captureDragPointer, formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
-import { backfillThumbnails, listProjects, saveLibraryProject, type ProjectSummary } from '../stores/library';
+import { formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
+import { backfillThumbnails, getLibraryProject, listProjects, saveLibraryProject, type ProjectSummary } from '../stores/library';
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from '../stores/preferences';
 import { TEMPLATES, buildTemplateProject, templatePreview, type TemplateDefinition } from '../templates/catalog';
 import {
@@ -290,7 +290,13 @@ export default function App() {
   const [globalTextDraft, setGlobalTextDraft] = useState<TextLayer[] | null>(null);
   const [textFocus, setTextFocus] = useState(0);
   const [activeFormatId, setActiveFormatId] = useState<string | null>(null);
-  const [newFormatIds, setNewFormatIds] = useState<string[]>(['youtube-video']);
+  const [newFormatIds, setNewFormatIds] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('pixcut.lastFormats') ?? '[]');
+      const known = Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string' && FORMAT_PRESETS.some(preset => preset.id === id)) : [];
+      return known.length ? known : ['youtube-video'];
+    } catch { return ['youtube-video']; }
+  });
   // Mirrors startWithFormats() so the modal can preview how many files the
   // selection will actually produce.
   const newFormatSelection = [
@@ -313,35 +319,7 @@ export default function App() {
   const [duckDraft, setDuckDraft] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [fadeDrag, setFadeDrag] = useState<{ sceneId: string; side: 'in' | 'out'; value: number } | null>(null);
-  const [layout, setLayout] = useState(() => { try { return JSON.parse(localStorage.getItem('pixcut-layout') || '{}'); } catch { return {}; } });
-  const libraryWidth = layout.libraryWidth ?? 280, inspectorWidth = layout.inspectorWidth ?? 288, timelineHeight = layout.timelineHeight ?? 340;
-  const timelineZoom = Math.min(6, Math.max(.5, Number(layout.timelineZoom) || 1));
-
-  function beginResize(kind: 'library' | 'inspector' | 'timeline', start: number, coord: number) {
-    const onMove = (e: PointerEvent) => {
-      setLayout((l: any) => {
-        if (kind === 'library') return { ...l, libraryWidth: Math.min(380, Math.max(220, start + (e.clientX - coord))) };
-        if (kind === 'inspector') return { ...l, inspectorWidth: Math.min(380, Math.max(220, start + (coord - e.clientX))) };
-        return { ...l, timelineHeight: Math.min(460, Math.max(230, start + (coord - e.clientY))) };
-      });
-    };
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      setLayout((l: any) => { try { localStorage.setItem('pixcut-layout', JSON.stringify(l)); } catch {} return l; });
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-  }
-
-  function changeTimelineZoom(value: number) {
-    const next = Math.min(6, Math.max(.5, Math.round(value * 4) / 4));
-    setLayout((current: any) => {
-      const updated = { ...current, timelineZoom: next };
-      try { localStorage.setItem('pixcut-layout', JSON.stringify(updated)); } catch { /* optional */ }
-      return updated;
-    });
-  }
+  const { setLayout, libraryWidth, inspectorWidth, timelineHeight, timelineZoom, beginResize, changeTimelineZoom } = usePanelLayout();
 
   useEffect(() => {
     const element = timelineScroll.current;
@@ -725,7 +703,29 @@ export default function App() {
   useEffect(() => {
     void bridge.setAppMenu(language).catch(() => { /* the native menu is optional in the browser preview */ });
   }, [language]);
-  useEffect(() => { if (screen === 'home') void refreshLibrary(); }, [screen, refreshLibrary]);
+  useEffect(() => { if (screen === 'home') { void refreshLibrary(); refreshStorage(); } }, [screen, refreshLibrary]);
+  const [missingCounts, setMissingCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (screen !== 'home' || !libraryReady) return;
+    let cancelled = false;
+    void (async () => {
+      const found: Record<string, number> = {};
+      for (const entry of projects.slice(0, 12)) {
+        try {
+          const saved = await getLibraryProject(entry.id);
+          const refs = saved ? projectAssetRefs(saved) : [];
+          if (!refs.length) continue;
+          const lost = bridge.native
+            ? await bridge.missingAssetRefs(refs)
+            : (await Promise.all(refs.map(async reference => await assetExists(reference.slice('pixcut-asset:'.length)) ? null : reference))).filter(Boolean);
+          if (lost.length) found[entry.id] = lost.length;
+        } catch { /* a card without a badge is better than a failed library */ }
+        if (cancelled) return;
+      }
+      if (!cancelled) setMissingCounts(found);
+    })();
+    return () => { cancelled = true; };
+  }, [screen, libraryReady, projects.map(entry => `${entry.id}:${entry.updatedAt}`).join('|')]);
   useEffect(() => {
     if (!ready) return;
     const timeout = setTimeout(() => { void persistCurrent(); }, preferences.autosaveMs);
@@ -1742,233 +1742,15 @@ export default function App() {
     commitInlineText();
   }
 
-  function beginImagePan(event: ReactPointerEvent<HTMLElement>) {
-    const scene = inspectorScene;
-    if (!scene || !canEdit || event.button !== 0) return;
-    event.preventDefault();
-    captureDragPointer(event);
-    inspectorFlush.current();
-    const stage = previewStage.current?.getBoundingClientRect();
-    if (!stage || stage.width <= 0 || stage.height <= 0) return;
-    setPlaying(false);
-    setEditingText(false);
-    const startX = event.clientX, startY = event.clientY;
-    setDraggingOverlay(true);
-    const initialX = scene.imageX ?? 0, initialY = scene.imageY ?? 0;
-    let travel = { x: activeSize.width / 4, y: activeSize.height / 4 };
-    void loadImage(scene.videoPoster ?? scene.image).then(image => { travel = framingTravel({ width: image.naturalWidth, height: image.naturalHeight }, activeSize, scene.fit, scene.imageZoom ?? 1); }).catch(() => {});
-    let latest = { imageX: initialX, imageY: initialY };
-    const move = (moveEvent: PointerEvent) => {
-      latest = {
-        imageX: Math.min(1, Math.max(-1, initialX - (moveEvent.clientX - startX) / stage.width * activeSize.width / travel.x)),
-        imageY: Math.min(1, Math.max(-1, initialY - (moveEvent.clientY - startY) / stage.height * activeSize.height / travel.y)),
-      };
-      setPreviewScene({ ...scene, ...latest });
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      setDraggingOverlay(false);
-      void pending.current.then(() => {
-        const current = projectScenes(latestProject.current).find(item => item.id === scene.id) ?? scene;
-        if ((current.imageX ?? 0) === latest.imageX && (current.imageY ?? 0) === latest.imageY) { setPreviewScene(null); return; }
-        void updateSelection({ ...scene, ...latest }).finally(() => setPreviewScene(null));
-      });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
 
-  function beginTextMove(event: ReactPointerEvent<HTMLElement>) {
-    const scene = selectedScene;
-    const layer = selectedTextLayer;
-    if (!scene || !layer || !canEdit || event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    inspectorFlush.current();
-    const stage = previewStage.current?.getBoundingClientRect();
-    if (!stage || stage.width <= 0 || stage.height <= 0) return;
-    const startX = event.clientX, startY = event.clientY;
-    const initialX = layer.x, initialY = layer.y;
-    const width = layer.width;
-    const height = (textBox?.heightPct ?? 10) / 100;
-    let latest = { x: initialX, y: initialY };
-    setPlaying(false);
-    setEditingText(false);
-    const move = (moveEvent: PointerEvent) => {
-      const rawX = Math.min(Math.max(0, initialX + (moveEvent.clientX - startX) / stage.width), Math.max(0, 1 - width));
-      const rawY = Math.min(Math.max(0, initialY + (moveEvent.clientY - startY) / stage.height), Math.max(0, 1 - height));
-      const x = snapToTargets(rawX, edgeGuides(width));
-      const y = snapToTargets(rawY, edgeGuides(height));
-      setSnapGuides({ x: x.guide, y: y.guide });
-      latest = { x: x.value, y: y.value };
-      const layers = sceneTextLayers(scene).map(item => item.id === layer.id ? { ...item, x: x.value, y: y.value } : item);
-      setPreviewScene(replaceSceneTextLayers(scene, layers));
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      setSnapGuides({ x: null, y: null });
-      void pending.current.then(() => {
-        const current = projectScenes(latestProject.current).find(item => item.id === scene.id) ?? scene;
-        const currentLayer = sceneTextLayers(current).find(item => item.id === layer.id);
-        if (!currentLayer || (currentLayer.x === latest.x && currentLayer.y === latest.y)) { setPreviewScene(null); return; }
-        const layers = sceneTextLayers(current).map(item => item.id === layer.id ? { ...item, ...latest } : item);
-        void run({ type: 'update', scene: replaceSceneTextLayers(current, layers) }).finally(() => setPreviewScene(null));
-      });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
 
-  function beginTextResize(event: ReactPointerEvent<HTMLElement>, side: 'left' | 'right') {
-    const scene = selectedScene;
-    const layer = selectedTextLayer;
-    if (!scene || !layer || !canEdit || event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    inspectorFlush.current();
-    const stage = previewStage.current?.getBoundingClientRect();
-    if (!stage || stage.width <= 0) return;
-    const startX = event.clientX;
-    const initialX = layer.x, initialWidth = layer.width;
-    let latest = { x: initialX, width: initialWidth };
-    setPlaying(false);
-    setEditingText(false);
-    const move = (moveEvent: PointerEvent) => {
-      const delta = (moveEvent.clientX - startX) / stage.width;
-      if (side === 'right') {
-        const width = Math.min(1 - initialX, Math.max(.15, initialWidth + delta));
-        latest = { x: initialX, width };
-      } else {
-        const x = Math.min(initialX + initialWidth - .15, Math.max(0, initialX + delta));
-        latest = { x, width: initialWidth + (initialX - x) };
-      }
-      const layers = sceneTextLayers(scene).map(item => item.id === layer.id ? { ...item, ...latest } : item);
-      setPreviewScene(replaceSceneTextLayers(scene, layers));
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      void pending.current.then(() => {
-        const current = projectScenes(latestProject.current).find(item => item.id === scene.id) ?? scene;
-        const currentLayer = sceneTextLayers(current).find(item => item.id === layer.id);
-        if (!currentLayer || (currentLayer.x === latest.x && currentLayer.width === latest.width)) { setPreviewScene(null); return; }
-        const layers = sceneTextLayers(current).map(item => item.id === layer.id ? { ...item, ...latest } : item);
-        void run({ type: 'update', scene: replaceSceneTextLayers(current, layers) }).finally(() => setPreviewScene(null));
-      });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
 
-  function beginFadeDrag(event: ReactPointerEvent<HTMLSpanElement>, scene: Scene, side: 'in' | 'out') {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    captureDragPointer(event);
-    const clip = event.currentTarget.closest<HTMLElement>('.timeline-clip');
-    const width = clip?.getBoundingClientRect().width ?? 0;
-    if (width <= 0) return;
-    const startX = event.clientX;
-    const initialIn = scene.fadeIn ?? 0;
-    const initialOut = scene.fadeOut ?? 0;
-    let next = { fadeIn: initialIn, fadeOut: initialOut };
-    setSelectedIds(ids => ids.includes(scene.id) ? ids : [scene.id]);
-    setPrimarySelected(scene.id);
-    if (!selectedIds.includes(scene.id)) selectionAnchor.current = scene.id;
-    setPlaying(false);
-    setPreviewScene({ ...scene, ...next });
-    const sceneDuration = sceneSeconds(scene, project.timebase);
-    setFadeDrag({ sceneId: scene.id, side, value: side === 'in' ? initialIn : initialOut });
-    const move = (moveEvent: PointerEvent) => {
-      const delta = ((moveEvent.clientX - startX) / width) * sceneDuration * (side === 'in' ? 1 : -1);
-      const base = side === 'in' ? initialIn : initialOut;
-      const value = Math.min(sceneDuration, Math.max(0, Math.round((base + delta) * 10) / 10));
-      next = side === 'in' ? { ...next, fadeIn: value } : { ...next, fadeOut: value };
-      setFadeDrag({ sceneId: scene.id, side, value });
-      setPreviewScene({ ...scene, ...next });
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', cancel);
-      setFadeDrag(null);
-      setPreviewScene(null);
-      void pending.current.then(() => {
-        const current = projectScenes(latestProject.current).find(item => item.id === scene.id) ?? scene;
-        if ((current.fadeIn ?? 0) !== next.fadeIn || (current.fadeOut ?? 0) !== next.fadeOut) {
-          void run({ type: 'update', scene: { ...current, ...next } });
-        }
-      });
-    };
-    const cancel = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', cancel);
-      setFadeDrag(null);
-      setPreviewScene(null);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', cancel);
-  }
 
-  function beginSceneTrim(event: ReactPointerEvent<HTMLSpanElement>, scene: Scene, side: 'left' | 'right') {
-    if (!canEdit || event.button !== 0 || !projectTicks) return;
-    event.preventDefault();
-    event.stopPropagation();
-    captureDragPointer(event);
-    const clip = event.currentTarget.closest<HTMLElement>('.timeline-clip, .video-audio-clip');
-    clip?.focus({ preventScroll: true });
-    const width = clip?.getBoundingClientRect().width ?? 0;
-    if (width <= 0) return;
-    setSelectedIds(ids => (ids.includes(scene.id) ? ids : [scene.id]));
-    setPrimarySelected(scene.id);
-    if (!selectedIds.includes(scene.id)) selectionAnchor.current = scene.id;
-    setPlaying(false);
-    const timebase = project.timebase;
-    const startX = event.clientX;
-    const initialDuration = scene.durationTicks;
-    const initialSourceIn = scene.sourceInTicks ?? 0;
-    let next = scene;
-    let frame = 0;
-    setPreviewScene(scene);
-    const move = (moveEvent: PointerEvent) => {
-      const delta = Math.round(((moveEvent.clientX - startX) / width) * initialDuration);
-      const candidate = trimSceneWindow(scene, delta, side, timebase);
-      if (candidate.durationTicks === next.durationTicks && candidate.sourceInTicks === next.sourceInTicks) return;
-      next = candidate;
-      // Coalesce pointer moves into one paint. The timeline reads this draft
-      // immediately, while the expensive preview/render tree only updates once
-      // per animation frame.
-      if (!frame) frame = requestAnimationFrame(() => { frame = 0; setPreviewScene(next); });
-    };
-    const up = () => finish(true);
-    const cancel = () => finish(false);
-    const finish = (commit: boolean) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', cancel);
-      if (frame) { cancelAnimationFrame(frame); frame = 0; }
-      setPreviewScene(null);
-      if (!commit) return;
-      if (next.durationTicks === initialDuration && next.sourceInTicks === initialSourceIn) return;
-      const current = projectScenes(latestProject.current).find(item => item.id === scene.id);
-      if (!current) return;
-      const updated = { ...current, durationTicks: next.durationTicks, sourceInTicks: next.sourceInTicks, fadeIn: Math.min(current.fadeIn ?? 0, ticksToSeconds(next.durationTicks, timebase)), fadeOut: Math.min(current.fadeOut ?? 0, ticksToSeconds(next.durationTicks, timebase)) };
-      const before = optimisticScene(updated);
-      void run({ type: 'update', scene: updated }).then(ok => {
-        if (!ok) { latestProject.current = before; setSession(session => ({ ...session, project: before })); }
-      });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', cancel);
-  }
 
   const fadeScene = previewScene && previewScene.id === active?.id ? previewScene : active;
   const fadeAmount = fadeScene ? 1 - fadeOpacity(fadeScene, position - activeStart, project.timebase) : 0;
+
+  const { beginImagePan, beginTextMove, beginTextResize, beginFadeDrag, beginSceneTrim, beginPlayheadDrag } = useStagePointer({ canEdit, inspectorFlush, previewStage, inspectorScene, selectedScene, selectedIds, selectedTextLayer, textBox, project, latestProject, projectTicks, duration, activeSize, pending, run, updateSelection, optimisticScene, replaceSceneTextLayers, scrubTo, selectionAnchor, setSession, setPreviewScene, setPlaying, setEditingText, setFadeDrag, setSnapGuides, setSelectedIds, setPrimarySelected, setDraggingOverlay });
 
   function requestCloseModal() {
     if (modal === 'settings' && settingsTab === 'shortcuts' && shortcutDirty) {
@@ -2100,6 +1882,7 @@ export default function App() {
 
   async function startWithFormats() {
     const selected = FORMAT_PRESETS.filter(preset => newFormatIds.includes(preset.id));
+    try { if (selected.length) localStorage.setItem('pixcut.lastFormats', JSON.stringify(selected.map(preset => preset.id))); } catch { /* remembering the last choice is optional */ }
     const baseAspect = (['16:9', '9:16', '1:1', '4:5'].includes(selected[0]?.aspect ?? '') ? selected[0].aspect : preferences.defaultAspect) as Project['aspect'];
     const next = emptyProject('Untitled story', baseAspect, newProjectFps);
     const presetFormats = selected.map(preset => ({ id: crypto.randomUUID(), name: preset.name, platform: preset.platform, aspect: preset.aspect, width: preset.width, height: preset.height, fps: preset.fps, quality: preset.quality, presetId: preset.id, overrides: {} }));
@@ -2551,25 +2334,6 @@ export default function App() {
    */
   const { saveStillFrame, exportVideo } = useVideoExport({ saveCredits, musicCredits, exportAudio, exportCancelled, setExportProgress, exportCodec, exportContainer, exportSpeed, useHardware, exportFilename, sceneForPreview, setError, previewTransition, resolvedNextScene, displayAspect, previewLocalSeconds, project, activeSize, renderOverlays, position, videoScene, sceneVideo, renderPipScenes, activeFormat, setNotice, latestProject, presentRefs, exportCodecs, commitElement, inspectorFlush, pending, exportFormatIds, exportResolution, exportQuality, exportFps, setCancellingExport, setExporting, setExportElapsed, setExportJob, setPlaying, setModal });
 
-  function beginPlayheadDrag(event: ReactPointerEvent<HTMLElement>) {
-    if (!duration) return;
-    const track = document.querySelector<HTMLElement>('.scene-track');
-    if (!track) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = track.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    setPlaying(false);
-    const update = (clientX: number) => scrubTo(Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * duration);
-    update(event.clientX);
-    const move = (moveEvent: PointerEvent) => update(moveEvent.clientX);
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
 
   function cancelExport() {
     exportCancelled.current = true;
@@ -2631,6 +2395,7 @@ export default function App() {
             {entry.thumbnail ? <img src={entry.thumbnail} alt="" /> : <span className="project-thumb-fallback"><Clapperboard size={24} /></span>}
           </div>
           <span className="project-aspect">{entry.aspect}</span>
+          {missingCounts[entry.id] > 0 && <span className="project-missing" title={t('Some media for this project is missing from this device.')}><AlertTriangle size={10} />{missingCounts[entry.id]} {t('missing')}</span>}
           {entry.group && <span className="project-group-badge"><FolderOpen size={10} />{entry.group}</span>}
           <span className="project-play"><Play size={15} fill="currentColor" /></span>
         </div>
@@ -2758,8 +2523,8 @@ export default function App() {
       <input ref={fontInput} type="file" hidden accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" onChange={e => void importFontFile(e.target.files)} />
 
       {screen === 'home' ? <>
-        <HomeSidebar setHomeSection={setHomeSection} homeSection={homeSection} setModal={setModal} updateState={updateState} setSettingsTab={setSettingsTab} updateProgress={updateProgress} updateInfo={updateInfo} appVersion={appVersion} />
-<HomeMain homeSection={homeSection} open={open} canEdit={canEdit} ready={ready} setModal={setModal} chooseImages={chooseImages} projects={projects} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} librarySort={librarySort} setLibrarySort={setLibrarySort} favoriteOnly={favoriteOnly} setFavoriteOnly={setFavoriteOnly} groupFilter={groupFilter} setGroupFilter={setGroupFilter} projectGroupsList={projectGroupsList} openGroupManager={openGroupManager} matchingProjects={matchingProjects} renderProjectCard={renderProjectCard} visibleProjects={visibleProjects} chooseTemplate={chooseTemplate} templateImage={templateImage} />
+        <HomeSidebar storageLabel={storageLabel} projects={projects} openProject={openLibraryProject} setHomeSection={setHomeSection} homeSection={homeSection} setModal={setModal} updateState={updateState} setSettingsTab={setSettingsTab} updateProgress={updateProgress} updateInfo={updateInfo} appVersion={appVersion} />
+<HomeMain libraryReady={libraryReady} shortcutText={shortcutText} openProject={openLibraryProject} activeProjectId={project.id} homeSection={homeSection} open={open} canEdit={canEdit} ready={ready} setModal={setModal} chooseImages={chooseImages} projects={projects} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} librarySort={librarySort} setLibrarySort={setLibrarySort} favoriteOnly={favoriteOnly} setFavoriteOnly={setFavoriteOnly} groupFilter={groupFilter} setGroupFilter={setGroupFilter} projectGroupsList={projectGroupsList} openGroupManager={openGroupManager} matchingProjects={matchingProjects} renderProjectCard={renderProjectCard} visibleProjects={visibleProjects} chooseTemplate={chooseTemplate} templateImage={templateImage} />
       </> : <>
         <EditorHeader goHome={goHome} name={name} canEdit={canEdit} setName={setName} project={project} run={run} status={status} tip={tip} runCommandId={runCommandId} session={session} ready={ready} save={save} scenes={scenes} exporting={exporting} openExportModal={openExportModal} />
 

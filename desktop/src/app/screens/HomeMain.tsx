@@ -1,10 +1,15 @@
+import { useEffect, useMemo, useState } from 'react';
 import { projectCount, sceneCount, t } from '../../i18n';
-import { ArrowRight, ArrowUpRight, Ban, Clapperboard, FolderOpen, Images, Layers, LayoutTemplate, Plus, Search, Settings2, Star, Upload, WifiOff, Zap } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Ban, Clapperboard, FolderOpen, Images, Layers, LayoutTemplate, Play, Plus, Search, Settings2, Star, Upload, WifiOff, Zap } from 'lucide-react';
 import { type ProjectSummary } from '../../stores/library';
 import { TEMPLATES, type TemplateDefinition } from '../../templates/catalog';
 import type { Dispatch, SetStateAction, ReactElement } from 'react';
 
-export function HomeMain({ homeSection, open, canEdit, ready, setModal, chooseImages, projects, libraryQuery, setLibraryQuery, librarySort, setLibrarySort, favoriteOnly, setFavoriteOnly, groupFilter, setGroupFilter, projectGroupsList, openGroupManager, matchingProjects, renderProjectCard, visibleProjects, chooseTemplate, templateImage }: {
+export function HomeMain({ libraryReady, shortcutText, openProject, activeProjectId, homeSection, open, canEdit, ready, setModal, chooseImages, projects, libraryQuery, setLibraryQuery, librarySort, setLibrarySort, favoriteOnly, setFavoriteOnly, groupFilter, setGroupFilter, projectGroupsList, openGroupManager, matchingProjects, renderProjectCard, visibleProjects, chooseTemplate, templateImage }: {
+  libraryReady: boolean;
+  shortcutText: (id: string) => string;
+  openProject: (entry: ProjectSummary) => Promise<void> | void;
+  activeProjectId: string;
   homeSection: "home" | "projects";
   open: () => Promise<void>;
   canEdit: boolean;
@@ -29,6 +34,10 @@ export function HomeMain({ homeSection, open, canEdit, ready, setModal, chooseIm
   templateImage: (template: TemplateDefinition) => string;
 }) {
   const returning = homeSection === 'home' && projects.length > 0;
+  const loading = !libraryReady && !projects.length;
+  const [templateAspect, setTemplateAspect] = useState<string>('all');
+  const templateAspects = useMemo(() => [...new Set(TEMPLATES.map(template => template.aspect))], []);
+  const shownTemplates = TEMPLATES.filter(template => templateAspect === 'all' || template.aspect === templateAspect).slice(0, 6);
   const createGrid = <section className={`create-grid ${returning ? 'compact' : ''}`} aria-label="Create something new">
           <button className="create-card new-video" disabled={!ready} onClick={() => setModal('new')}>
             <span className="create-icon"><Plus size={25} /></span>
@@ -46,11 +55,39 @@ export function HomeMain({ homeSection, open, canEdit, ready, setModal, chooseIm
             <span className="create-arrow"><ArrowUpRight size={19} /></span>
           </button>
         </section>;
-  const homeProjects = returning ? visibleProjects.slice(0, 6) : visibleProjects;
+  // Starred projects lead the Home grid; the sort is stable, so recency still orders each group.
+  const homeProjects = returning ? [...visibleProjects].sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite))).slice(0, 6) : visibleProjects;
+  const resumeTarget = projects.length ? projects.reduce((latest, entry) => entry.updatedAt > latest.updatedAt ? entry : latest) : null;
+
+  useEffect(() => {
+    if (homeSection !== 'home') return;
+    const key = (event: KeyboardEvent) => {
+      if (event.isComposing || document.querySelector('[role="dialog"], .modal-backdrop')) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.matches('input, textarea, select, [contenteditable="true"]')) return;
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && /^[1-6]$/.test(event.key)) {
+        const entry = homeProjects[Number(event.key) - 1];
+        if (entry) { event.preventDefault(); void openProject(entry); }
+        return;
+      }
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) || event.metaKey || event.ctrlKey || event.altKey) return;
+      const cards = Array.from(document.querySelectorAll<HTMLButtonElement>('.recent-section .project-open'));
+      if (!cards.length) return;
+      const current = cards.findIndex(card => card === document.activeElement);
+      const columns = Math.max(1, cards.filter(card => card.offsetTop === cards[0].offsetTop).length);
+      const step = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : event.key === 'ArrowUp' ? -columns : columns;
+      const next = current < 0 ? 0 : Math.min(cards.length - 1, Math.max(0, current + step));
+      event.preventDefault();
+      cards[next].focus();
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [homeSection, homeProjects.map(entry => entry.id).join('|'), openProject]);
   return (
     <>
       
       <main className="home-main">
+        <div className="home-drop" aria-hidden="true"><Images size={34} /><strong>{t('Drop photos or videos to start a movie')}</strong><small>{t('PNG, JPEG, WebP, MP4, MOV, M4V, WebM')}</small></div>
         <header className="home-topbar">
           <div className={`home-heading ${returning ? 'returning' : ''}`}>
             <div className="eyebrow"><span /><>{t(homeSection === 'home' ? 'A LITTLE MOMENT. A GREAT STORY.' : 'YOUR LOCAL LIBRARY')}</></div>
@@ -58,8 +95,9 @@ export function HomeMain({ homeSection, open, canEdit, ready, setModal, chooseIm
             <p className="home-intro">{homeSection === 'home' ? (returning ? t('Pick up where you left off, or start something new.') : <>{t('Your photos, your pace, your point of view.')}<br />{t('Bring them together in a place that’s entirely yours.')}</>) : <>{t('Everything lives on this device. Open a recent story or start a new one whenever inspiration arrives.')}</>}</p>
           </div>
           <div className="home-actions">
-            <button className="button subtle" onClick={() => void open()} disabled={!canEdit}><FolderOpen size={16} /> {t('Open project')}</button>
-            <button className="button primary" disabled={!ready} onClick={() => setModal('new')}><Plus size={16} /> {t('New project')}</button>
+            <button className="button subtle" onClick={() => void open()} disabled={!canEdit} title={`${t('Open project')} · ${shortcutText('project.open')}`}><FolderOpen size={16} /> {t('Open project')} <kbd className="button-key">{shortcutText('project.open')}</kbd></button>
+            {returning && resumeTarget && <button className="button primary resume-button" onClick={() => void openProject(resumeTarget)} disabled={!canEdit} title={resumeTarget.name}><Play size={14} fill="currentColor" /> <span className="resume-name">{t('Resume')} “{resumeTarget.name}”</span></button>}
+            <button className={`button ${returning ? 'subtle' : 'primary'}`} disabled={!ready} onClick={() => setModal('new')} title={`${t('New project')} · ${shortcutText('project.new')}`}><Plus size={16} /> {t('New project')} <kbd className="button-key">{shortcutText('project.new')}</kbd></button>
           </div>
         </header>
       
@@ -70,7 +108,7 @@ export function HomeMain({ homeSection, open, canEdit, ready, setModal, chooseIm
             <div><h2>{t(homeSection === 'home' ? (returning ? 'Continue editing' : 'Recent projects') : 'Your projects')}</h2><p>{t(homeSection === 'home' ? 'Pick up where you left off.' : 'Stored locally, recovered automatically.')}</p></div>
             <span className="count-label">{projects.length ? (returning && visibleProjects.length > homeProjects.length ? `${homeProjects.length} of ${projectCount(projects.length)}` : projectCount(projects.length)) : t('Nothing yet')}</span>
           </div>
-          {projects.length ? <>
+          {loading ? <div className="project-grid home-skeletons" aria-busy="true" aria-label="Loading projects">{[0, 1, 2].map(index => <div className="project-card skeleton" key={index}><div className="skeleton-thumb" /><div className="skeleton-line" /><div className="skeleton-line short" /></div>)}</div> : projects.length ? <>
             {homeSection === 'projects' && <div className="library-controls">
               <label className="search-field"><Search size={14} /><input aria-label="Search projects" placeholder={t('Search projects or groups…')} value={libraryQuery} onChange={event => setLibraryQuery(event.target.value)} /></label>
               <select aria-label="Sort projects" value={librarySort} onChange={event => setLibrarySort(event.target.value as 'recent' | 'name' | 'duration')}><option value="recent">{t('Recently edited')}</option><option value="name">{t('Name A–Z')}</option><option value="duration">{t('Longest first')}</option></select>
@@ -98,7 +136,7 @@ export function HomeMain({ homeSection, open, canEdit, ready, setModal, chooseIm
                   <div className="project-meta"><strong>{t('Start something new')}</strong><small>{t('A fresh story, ready for your photos.')}</small></div>
                 </button>
               </div></div>
-            </> : <div className="project-grid">
+            </> : <div className={`project-grid ${homeSection === 'home' ? 'home-grid' : ''}`}>
               {homeProjects.map(renderProjectCard)}
               {!visibleProjects.length && <div className="library-empty compact group-empty"><FolderOpen size={28} /><strong>{t('No projects in this group yet.')}</strong><p>{t('Use a project’s ••• menu to move it here.')}</p></div>}
               {homeSection === 'projects' && <button className="project-card ghost" onClick={() => setModal('new')} disabled={!canEdit}>
@@ -117,7 +155,10 @@ export function HomeMain({ homeSection, open, canEdit, ready, setModal, chooseIm
 
         {homeSection === 'home' && <section className="thumb-strip" aria-label="Template inspiration">
           <div className="section-title"><div><h2>{t('Skip the blank page')}</h2><p>{t('Start from a sample and make it yours.')}</p></div><button className="text-button" onClick={() => setModal('templates')}>{t('Browse templates')} <ArrowRight size={14} /></button></div>
-          <div className="thumb-grid">{TEMPLATES.slice(0, 3).map(template => <button key={template.id} className="thumb-card" onClick={() => chooseTemplate(template)}><span className="thumb-art"><img src={templateImage(template)} alt="" /></span><span><strong>{t(template.name)}</strong><small>{sceneCount(template.sceneCount)} · {template.duration.toFixed(1)} s</small></span></button>)}</div>
+          <div className="group-filter template-filter" role="group" aria-label="Filter templates by format">
+            {['all', ...templateAspects].map(aspect => <button key={aspect} className={`group-chip ${templateAspect === aspect ? 'active' : ''}`} aria-pressed={templateAspect === aspect} onClick={() => setTemplateAspect(aspect)}>{aspect === 'all' ? t('All') : aspect}</button>)}
+          </div>
+          <div className="thumb-grid">{shownTemplates.map(template => <button key={template.id} className="thumb-card" onClick={() => chooseTemplate(template)}><span className="thumb-art"><img src={templateImage(template)} alt="" /></span><span><strong>{t(template.name)}</strong><small>{sceneCount(template.sceneCount)} · {template.duration.toFixed(1)} s</small></span></button>)}</div>
         </section>}
       
         {homeSection === 'home' && !returning && <section className="home-perks">
