@@ -1632,3 +1632,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - Browser preview: delete a scene (notice shown) and undo (3 → 2 → 3 scenes), copy notice, audio inspector with its nine typed fields, preview canvas and media library present, no console errors.
 - Playback timings were not measured: the Browser pane was hidden, so frame times were throttled. Playback store deferred until measured in the desktop app (see IMPROVEMENT_PLAN.md).
 - Tests: 551 TypeScript.
+
+## Editor view (Phase 4, step 4) (2026-10-29)
+
+- `src/app/editor-view.tsx`: `deriveEditorView` (pure) plus hook and context for the active clip, selected clips, preview target, project text, picture-in-picture and text-layer selection. `tests/editor-view.test.ts` (8). `TimelinePanel` 71 → 65 props, `EditorBody` 165 → 150.
+- Browser preview: with nothing selected the inspector followed the playhead (MOVE WITH IT. at 0.5 s, KEEP GOING. at 2.5 s); a click overrode it; shift-click gave "Editing 3 clips"; text, element and audio inspectors opened; playback ran; no console errors. No project data was edited.
+- Tests: 559 TypeScript.

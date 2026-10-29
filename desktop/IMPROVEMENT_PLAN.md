@@ -139,10 +139,15 @@ Step 3 done: **editor model** (`src/app/editor-model.tsx`). A context holding th
 
 Also checked: only one state pair (`elementLimit`) is used purely inside `EditorBody`, so "push state down" would save about 2 props.
 
+Step 4 done: **editor view** (`src/app/editor-view.tsx`). The block in `App.tsx` that worked out the active clip, selected clips, preview target, project-text stand-in, picture-in-picture and text-layer selection is now a pure function, `deriveEditorView`, with a memoising hook and a context. It is tested directly (8 tests: playhead fallback, primary clip, stale ids, preview target while playing vs paused, drag drafts, project text, staged text preview). `TimelinePanel` 71 → 65 props and `EditorBody` 165 → 150 (it also reads four selection ids straight from the selection store). `App.tsx` is 2,296 lines.
+
+Known looseness kept on purpose: `selectedTextLayer` is typed as always present although it can be absent when a clip has no text; the panels only read it under a text selection. Tightening that is a separate change.
+
 Remaining:
-1. **Selectors on the stores.** `EditorBody` still receives about 30 values derived from the project plus selection (`selectedScene`, `selectedElement`, `selectedPip`, `previewTarget`, …) and about 60 callbacks. Compute the derived ones with hooks reading the three stores, and group the callbacks (clip, audio, element, export) into small contexts or hooks the panel calls directly.
-2. **Project and commands** (`session`, `run`, undo flags) into a store once the derived selectors exist.
-3. Replace the remaining `any`s in `EditorBody`'s prop types.
+1. **Callbacks.** About 60 of `EditorBody`'s props are functions (`selectScene`, `updateSelection`, `deleteSelected`, audio and element actions, export). Group them into small hooks or contexts the panel calls directly (clip, audio, element, export), starting with the ones that only wrap `run`.
+2. **Drafts.** Drag drafts (`previewScene`, `overlayDraft`, `pipDraft`, `audioDraft`) are still `useState` in `App`; moving them next to the stores lets `deriveEditorView` take them without `App` threading them through.
+3. **Project and commands** (`session`, `run`, undo flags) into a store.
+4. Replace the remaining `any`s in `EditorBody`'s prop types.
 
 **Done when:** no component takes more than ~25 props and `App.tsx` is under 800 lines.
 

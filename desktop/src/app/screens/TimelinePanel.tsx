@@ -19,6 +19,7 @@ import { inRange } from '../../components/timeline/clip-edit';
 import { useSelection } from '../selection-store';
 import { useLayout } from '../layout-store';
 import { useEditorModel } from '../editor-model';
+import { useEditorView } from '../editor-view';
 
 /** Zoom commands the editor's shortcuts call; the panel owns the scroll position they anchor to. */
 export type TimelineControls = { zoomBy: (factor: number) => void; fit: () => void };
@@ -33,12 +34,10 @@ function LaneToggle({ id, label, collapsed, toggle, locked, toggleLock }: { id: 
   </span>;
 }
 
-export function TimelinePanel({ timelineControls, onLockedEdit, selectedCount, selectedScene, snapping, tip, runCommandId, addBeatAtPlayhead, audioDisplay, setAudioDisplay, fileDragActive, timelineScroll, mediaDragRef, dropLibraryMedia, timelineRatio, beginPlayheadDrag, removeBeat, position, scrubTo, hasMediaOverlays, isSelected, selectScene, setTab, setTextFocus, selectedTextLayer, setPosition, addTextLayerAtPlayhead, orderedLayers, overlayDraft, selectOverlay, beginOverlayTiming: rawBeginOverlayTiming, layerNumbers, previewScene, active, dropTarget, reorderId, replacingSceneId, beginReorder: rawBeginReorder, endReorder, dragOverScene, setDropTarget, dropScene, selectionAnchor, setPlaying, setContextMenu, beginFadeDrag: rawBeginFadeDrag, beginSceneTrim: rawBeginSceneTrim, fadeDrag, chooseImages, videoScenes, audioMix, setVideoAudioLevel, commitMix, videoVolumeDraft, stageVideoVolume, commitVideoVolume, renderPipScenes, selectPip, beginPipTiming: rawBeginPipTiming, audioLanes, toggleLaneMute, setLaneMix, selectedAudio, focusAudio, beginAudioMove: rawBeginAudioMove, beginAudioTrim: rawBeginAudioTrim, stageAudio, commitAudio, audioLaneRef, chooseAudio, shortcutText }: {
+export function TimelinePanel({ timelineControls, onLockedEdit, snapping, tip, runCommandId, addBeatAtPlayhead, audioDisplay, setAudioDisplay, fileDragActive, timelineScroll, mediaDragRef, dropLibraryMedia, timelineRatio, beginPlayheadDrag, removeBeat, position, scrubTo, hasMediaOverlays, selectScene, setTab, setTextFocus, setPosition, addTextLayerAtPlayhead, orderedLayers, overlayDraft, selectOverlay, beginOverlayTiming: rawBeginOverlayTiming, layerNumbers, previewScene, dropTarget, reorderId, replacingSceneId, beginReorder: rawBeginReorder, endReorder, dragOverScene, setDropTarget, dropScene, selectionAnchor, setPlaying, setContextMenu, beginFadeDrag: rawBeginFadeDrag, beginSceneTrim: rawBeginSceneTrim, fadeDrag, chooseImages, videoScenes, audioMix, setVideoAudioLevel, commitMix, videoVolumeDraft, stageVideoVolume, commitVideoVolume, selectPip, beginPipTiming: rawBeginPipTiming, audioLanes, toggleLaneMute, setLaneMix, selectedAudio, focusAudio, beginAudioMove: rawBeginAudioMove, beginAudioTrim: rawBeginAudioTrim, stageAudio, commitAudio, audioLaneRef, chooseAudio, shortcutText }: {
   timelineControls: RefObject<TimelineControls | null>;
   /** Called when a drag is refused because its lane is locked. */
   onLockedEdit: () => void;
-  selectedCount: number;
-  selectedScene: Scene | undefined;
   snapping: boolean;
   tip: (id: string, label: string) => string;
   runCommandId: (id: string) => void;
@@ -55,11 +54,9 @@ export function TimelinePanel({ timelineControls, onLockedEdit, selectedCount, s
   position: number;
   scrubTo: (value: number) => void;
   hasMediaOverlays: boolean;
-  isSelected: (id: string) => boolean;
   selectScene: (scene: Scene, event?: ReactMouseEvent, seek?: boolean) => void;
   setTab: Dispatch<SetStateAction<"text" | "audio" | "media" | "elements" | "templates">>;
   setTextFocus: Dispatch<SetStateAction<number>>;
-  selectedTextLayer: TextLayer;
   setPosition: Dispatch<SetStateAction<number>>;
   addTextLayerAtPlayhead: (preset?: Partial<TextLayer>) => void;
   orderedLayers: TimelineOverlay[];
@@ -68,7 +65,6 @@ export function TimelinePanel({ timelineControls, onLockedEdit, selectedCount, s
   beginOverlayTiming: (event: ReactPointerEvent<HTMLElement>, element: TimelineOverlay, edge: "move" | "start" | "end") => void;
   layerNumbers: Map<string, number>;
   previewScene: Scene | null;
-  active: Scene | undefined;
   dropTarget: string | null;
   reorderId: string | null;
   replacingSceneId: string | null;
@@ -91,7 +87,6 @@ export function TimelinePanel({ timelineControls, onLockedEdit, selectedCount, s
   videoVolumeDraft: { id: string; value: number; } | null;
   stageVideoVolume: (scene: Scene, value: number) => void;
   commitVideoVolume: (scene: Scene, value: number) => void;
-  renderPipScenes: Scene[];
   selectPip: (clip: Scene) => void;
   beginPipTiming: (event: ReactPointerEvent<HTMLElement>, clip: Scene, edge: "move" | "start" | "end") => void;
   audioLanes: number[];
@@ -108,6 +103,7 @@ export function TimelinePanel({ timelineControls, onLockedEdit, selectedCount, s
   shortcutText: (id: string) => string;
 }) {
   const { scenes, canEdit, run, duration, project, projectTicks, frameSeconds, audio } = useEditorModel();
+  const { selectedCount, selectedScene, isSelected, selectedTextLayer, active, renderPipScenes } = useEditorView();
   const { collapsedLanes, toggleLane, setCollapsedLanes, lockedLanes, toggleLaneLock, timelineHeight, timelineZoom, setTimelineZoom } = useLayout();
   const { selectedIds, setSelectedIds, setPrimarySelected, selectedElementId, setSelectedElementId, setSelectedTextLayerId, editTarget, setEditTarget, selectedPipId } = useSelection();
   const isLocked = (id: string) => lockedLanes.includes(id);
