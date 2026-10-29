@@ -1,5 +1,0 @@
-# Reviews are requested automatically for these paths.
-/desktop/src/stores/model.ts          @dawidof
-/desktop/crates/project/              @dawidof
-/desktop/src-tauri/src/online_music.rs @dawidof
-/.github/                             @dawidof
