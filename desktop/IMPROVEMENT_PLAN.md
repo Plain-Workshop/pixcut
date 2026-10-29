@@ -76,9 +76,8 @@ Verified in the browser preview: "piano" → 19 Free Music Archive results in ab
 
 ### 6. Reliability and process
 
-- `VERIFICATION.md` was last updated on 25 October and lists 34 TypeScript tests; there are now 488.
+- `VERIFICATION.md` is kept current, but it is 1,500+ lines of dated sections with no summary at the top; its first line still reads 2026-10-25.
 - The online catalogues have no "last known good" cache: when all are down, the panel is empty.
-- One `.expect("Unable to start PixCut")` in `src-tauri/src/lib.rs` (`AGENTS.md` rule 1).
 - The browser preview cannot exercise native downloads, updates or pinch zoom, and there is no end-to-end test of the Tauri window.
 - The `chore/update-deps` branch holds feature work unrelated to its name.
 
@@ -88,9 +87,9 @@ Each phase ends with `npm test`, `npm run build`, the Rust tests, a screenshot c
 
 ### Phase 0 — housekeeping (S)
 
-1. Move this session's commits to a correctly named branch, open a PR, and run CI.
-2. Update `VERIFICATION.md`: test counts, what was verified in the browser and what still needs the native app.
-3. Replace the startup `.expect` with a logged error dialog and a non-zero exit.
+1. Open a PR from `chore/update-deps` (26 commits ahead of `main`, already pushed, so renaming it is the owner's call) and run CI.
+2. ~~Update `VERIFICATION.md`~~ Done: dated section added. Still to do: a short current-state summary at the top.
+3. ~~Replace the startup `.expect`~~ Done: error dialog and exit code 1.
 
 **Done when:** CI is green on the PR and `VERIFICATION.md` matches reality.
 
