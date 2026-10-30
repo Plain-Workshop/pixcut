@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DICTIONARIES, beatMarkerCount, captionCount, clipCount, conflictCount, cueCount, cutCount, fileCount, fontCount, mediaFileCount, projectCount, sceneCount, setLocale, videoCount, type Locale } from '../src/i18n';
+import './all-locales';
 
 /** Every literal `t('…')` key in the source. Template strings and variables cannot be checked statically. */
 function sourceKeys(): Map<string, string> {

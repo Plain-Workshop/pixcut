@@ -33,7 +33,7 @@ import { LatestRenderQueue } from '../components/preview/render-queue';
 import { loadMediaBin, saveMediaBin, uniqueMediaSources } from '../stores/media-bin';
 import { missingAssets, projectAssetRefs, replaceAssetRef, type MissingAsset } from '../stores/missing-assets';
 import { syncAudioElement } from '../components/preview/audio';
-import { captionCount, formatCount, isLocale, mediaFileCount, sceneCount, setLocale, t, type Locale } from '../i18n';
+import { captionCount, formatCount, isLocale, mediaFileCount, sceneCount, setLocale, t, loadLocale, type Locale } from '../i18n';
 import { applyClipEq } from '../components/preview/eq';
 import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
@@ -58,7 +58,7 @@ import { useElementPointer } from './hooks/useElementPointer';
 import { useSourcePreview } from './hooks/useSourcePreview';
 import { useProjectLibrary } from './hooks/useProjectLibrary';
 import { ELEMENT_LABEL_DEFAULTS } from '../components/elements/symbols';
-import { useCallback, useMemo, useEffect, useRef, useState, type ChangeEvent, type DragEvent as ReactDragEvent } from 'react';
+import { Suspense, useCallback, useMemo, useEffect, useRef, useState, type ChangeEvent, type DragEvent as ReactDragEvent } from 'react';
 import {
   AudioLines, 
   AlertTriangle,
@@ -169,17 +169,13 @@ import {
   type ShortcutSettings as ShortcutSettingsData,
 } from '../shortcuts/registry';
 import '../styles/styles.css';
-import { NewProjectModal } from './modals/NewProjectModal';
-import { ExportModal } from './modals/ExportModal';
-import { SettingsModal, type SettingsTab } from './modals/SettingsModal';
+import type { SettingsTab } from './modals/SettingsModal';
+import { ExportModal, FormatsModal, NewProjectModal, SettingsModal, SourceModal, TemplatesModal } from './modals/lazy';
 import { MissingMediaModal } from './modals/MissingMediaModal';
 import { DeleteProjectModal } from './modals/DeleteProjectModal';
-import { FormatsModal } from './modals/FormatsModal';
 import { GroupsModal } from './modals/GroupsModal';
 import { GroupModal } from './modals/GroupModal';
 import { RenameProjectModal } from './modals/RenameProjectModal';
-import { TemplatesModal } from './modals/TemplatesModal';
-import { SourceModal } from './modals/SourceModal';
 import { TimelinePanel } from './screens/TimelinePanel';
 import { LibraryPanel } from './screens/LibraryPanel';
 import { PreviewPanel } from './screens/PreviewPanel';
@@ -465,6 +461,8 @@ export default function App() {
   const videoScenes = scenes.filter(scene => scene.mediaKind === 'video');
   const projectTicks = totalTicks(project);
   setLocale(language);
+  const [, setLocaleReady] = useState(0);
+  useEffect(() => { let live = true; void loadLocale(language).then(ok => { if (live && ok) setLocaleReady(value => value + 1); }); return () => { live = false; }; }, [language]);
   const timelineRatio = duration > 0 ? Math.min(1, Math.max(0, position / duration)) : 0;
   const frameSeconds = secondsPerTick(project.timebase);
   const view = useEditorViewModel({ project, position, playing, selectedIds, primarySelected, selectedGlobalTextId, selectedPipId, selectedTextLayerId, previewScene, pipDraft });
@@ -2098,6 +2096,7 @@ export default function App() {
       {exporting && <ExportJobCard name={exportJob.name} phase={exportJob.phase} progress={exportProgress} elapsed={exportElapsed} cancelling={cancellingExport} onCancel={cancelExport} />}
       {modal && <div className="modal-backdrop"><section className={`modal ${modal === 'export' ? 'export-studio' : modal === 'new' ? 'project-setup' : modal === 'formats' ? 'format-studio' : modal === 'settings' ? 'settings-modal' : wideModal ? 'wide' : mediumModal ? 'medium' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div className="modal-header"><span className="eyebrow">{modalEyebrow}</span><IconButton label="Close dialog" onClick={requestCloseModal}><X size={20} /></IconButton></div>
+        <Suspense fallback={null}>
         {modal === 'source' && sourcePreview ? <>
           <SourceModal sourcePreview={sourcePreview} previewVideo={previewVideo} sourcePreviewUrl={sourcePreviewUrl} previewMuted={previewMuted} setPreviewVideoDuration={setPreviewVideoDuration} setPreviewVideoTime={setPreviewVideoTime} setPreviewVideoPlaying={setPreviewVideoPlaying} previewList={previewList} switchPreview={switchPreview} previewIndex={previewIndex} previewVideoPlaying={previewVideoPlaying} togglePreviewPlayback={togglePreviewPlayback} previewVideoTime={previewVideoTime} previewVideoDuration={previewVideoDuration} seekPreview={seekPreview} togglePreviewMute={togglePreviewMute} previewVolume={previewVolume} changePreviewVolume={changePreviewVolume} appendMedia={appendMedia} selectedScene={selectedScene} addMediaPip={addMediaPip} setError={setError} />
         </> : modal === 'templates' ? <>
@@ -2126,6 +2125,7 @@ export default function App() {
         </> : <>
           <ExportModal project={project} duration={duration} scenes={scenes} exportCodecs={exportCodecs} hardwareAvailable={hardwareAvailable} musicCredits={musicCredits} setNotice={setNotice} setError={setError} hasVideoScenes={hasVideoScenes} exportSettings={exportSettings} setExportSettings={setExportSettings} exportOutputs={exportOutputs} exportFormats={exportFormats} exportFilename={exportFilename} exporter={exporter} platform={platform} exporting={exporting} busy={busy} exportVideo={exportVideo} />
         </>}
+        </Suspense>
       </section></div>}
     </div>
     </EditorActionsProvider>

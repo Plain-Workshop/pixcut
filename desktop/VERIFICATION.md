@@ -1697,3 +1697,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - `src/app/home-support.ts` plus `tests/home-support.test.ts` (12): diagnostics lines and privacy, drop classification order, missing-asset counting (browser and native paths, unreadable project, limit, cancellation).
 - Browser preview: dropping a PDF on Home showed "Drop photos, videos or a .pixcut project file."; Home rendered its project card with no missing-media badge (nothing is missing). Copy diagnostics was not clicked in the browser (the Settings button was not found by my selector); it is covered by the unit tests only.
 - Tests: 617 TypeScript, tsc, build and eslint (0 errors).
+
+## Phase 5: bundle and music (2026-10-30)
+
+- Build: first chunk 1,864 KB → 1,039 KB raw (326 KB gzip → about 319 KB gzip measured on the new chunk only; the old gzip size was not measured). Ten locale chunks of 67 to 99 KB, six dialog chunks of 3 to 26 KB.
+- Browser preview: with `pixcut-language` = de the Home screen is German on first paint and only `de.ts` was fetched; switching to Japanese in Settings fetched `ja.ts` and relabelled the dialog (設定, 一般, 外観, 編集, ショートカット); back to English restored it and the stored value; the Export dialog opened and fetched its chunk; the Music tab fetched 2 audio files, down from 15 (to be confirmed natively).
+- Tests: 624 TypeScript (4 for lazy locales, 3 for the preview cache; i18n tests now import `tests/all-locales.ts`), tsc and eslint (0 errors).

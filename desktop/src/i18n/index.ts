@@ -1,13 +1,3 @@
-import { de } from './locales/de';
-import { es } from './locales/es';
-import { fr } from './locales/fr';
-import { it } from './locales/it';
-import { ja } from './locales/ja';
-import { ko } from './locales/ko';
-import { pl } from './locales/pl';
-import { pt } from './locales/pt';
-import { uk } from './locales/uk';
-import { zh } from './locales/zh';
 
 export type Locale = 'en' | 'pl' | 'uk' | 'es' | 'fr' | 'de' | 'pt' | 'it' | 'ja' | 'ko' | 'zh';
 
@@ -39,7 +29,44 @@ export function isLocale(value: unknown): value is Locale {
  * fall back to English instead of showing an empty label, so the interface is
  * always readable while a language is being filled in.
  */
-export const DICTIONARIES: Record<Exclude<Locale, 'en'>, Record<string, string>> = { pl, uk, es, fr, de, pt, it, ja, ko, zh };
+export type Dictionary = Record<string, string>;
+type Translated = Exclude<Locale, 'en'>;
+
+/**
+ * Filled as languages load, so the first screen does not ship ten dictionaries
+ * (about 900 KB of source) for a language nobody picked. Typed as complete for
+ * callers that only read it after `loadLocale` has run.
+ */
+export const DICTIONARIES = {} as Record<Translated, Dictionary>;
+
+const LOADERS: Record<Translated, () => Promise<Dictionary>> = {
+  pl: () => import('./locales/pl').then(module => module.pl),
+  uk: () => import('./locales/uk').then(module => module.uk),
+  es: () => import('./locales/es').then(module => module.es),
+  fr: () => import('./locales/fr').then(module => module.fr),
+  de: () => import('./locales/de').then(module => module.de),
+  pt: () => import('./locales/pt').then(module => module.pt),
+  it: () => import('./locales/it').then(module => module.it),
+  ja: () => import('./locales/ja').then(module => module.ja),
+  ko: () => import('./locales/ko').then(module => module.ko),
+  zh: () => import('./locales/zh').then(module => module.zh),
+};
+
+/** Makes a dictionary available to `t`. Used by `loadLocale` and by tests that load every language. */
+export function registerLocale(locale: Translated, dictionary: Dictionary): void {
+  DICTIONARIES[locale] = dictionary;
+}
+
+/** Loads a language's dictionary once. English needs none; a failed load leaves the interface in English. */
+export async function loadLocale(locale: Locale): Promise<boolean> {
+  if (locale === 'en' || DICTIONARIES[locale]) return true;
+  try {
+    registerLocale(locale, await LOADERS[locale]());
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Plural categories used by `Intl.PluralRules`. */
 type PluralCategory = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other';

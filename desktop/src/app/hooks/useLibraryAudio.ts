@@ -60,11 +60,12 @@ export function useLibraryAudio({ canEdit, projectTicks, position, project, late
   }
 
   useEffect(()=>{stopLibraryPreview();setHoveredMedia(null);setHoveredElement(null);},[tab,audioLibraryTab,playing,modal,project.id]);
-  // Read the bundled tracks as soon as the Music tab opens, so Listen starts
-  // from memory instead of waiting on the file the user just clicked.
+  // Warm only the first track when the Music tab opens; the rest are read when
+  // Listen is clicked (a local file, so it starts at once) instead of loading
+  // every bundled track into memory.
   useEffect(()=>{
     if(tab!=='audio'||audioLibraryTab!=='music')return;
-    for(const track of MUSIC_TRACKS)void musicTrackPreviewUrl(track).catch(()=>{});
+    void musicTrackPreviewUrl(MUSIC_TRACKS[0]).catch(()=>{});
   },[tab,audioLibraryTab]);
   useEffect(()=>()=>{libraryAudioToken.current++;window.clearTimeout(libraryAudioTimer.current);libraryAudio.current?.pause();releaseMusicPreviewUrls();},[]);
   useEffect(()=>{

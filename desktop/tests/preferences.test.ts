@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { DEFAULT_PREFERENCES, loadPreferences, resolveTheme } from '../src/stores/preferences';
 import { SettingsModal } from '../src/app/modals/SettingsModal';
 import { setLocale } from '../src/i18n';
+import './all-locales';
 
 let store: Record<string, string> = {};
 
