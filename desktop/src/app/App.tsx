@@ -139,6 +139,7 @@ import { IconButton } from '../components/IconButton';
 import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import * as bridge from './bridge';
+import type { ModalId } from './modal';
 import { runCommand } from './command-runner';
 import { HINTS_KEY } from './export-options';
 import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, minTicks, projectScenes, sceneAt, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
@@ -212,7 +213,7 @@ export default function App() {
   const selectionStore = useCreateSelectionStore();
   const { selectedIds, primarySelected, selectedAudioId, selectedElementId, selectedPipId, selectedTextLayerId, selectedGlobalTextId, editTarget, setSelectedIds, setPrimarySelected, setSelectedAudioId, setSelectedElementId, setSelectedPipId, setSelectedTextLayerId, setSelectedGlobalTextId, setEditTarget } = useSelection(selectionStore);
   const [position, setPosition] = useState(0);
-  const [tab, setTab] = useState<'media' | 'text' | 'elements' | 'audio' | 'templates'>('media'), [modal, setModal] = useState<'source' | 'templates' | 'export' | 'new' | 'shortcuts' | 'palette' | 'settings' | 'delete' | 'rename' | 'group' | 'groups' | 'formats' | 'missing' | null>(null);
+  const [tab, setTab] = useState<'media' | 'text' | 'elements' | 'audio' | 'templates'>('media'), [modal, setModal] = useState<ModalId | null>(null);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [systemDark, setSystemDark] = useState(() => typeof window.matchMedia !== 'function' || window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [language, setLanguage] = useState<Locale>(() => {

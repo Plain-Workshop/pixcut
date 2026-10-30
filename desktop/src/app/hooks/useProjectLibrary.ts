@@ -1,3 +1,4 @@
+import type { ModalId } from '../modal';
 import { projectCount, t } from '../../i18n';
 import { useEffect, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import * as bridge from '../bridge';
@@ -16,7 +17,7 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
   persistCurrent: () => Promise<unknown>;
   run: (command: Command) => Promise<boolean>;
   setScreen: Dispatch<SetStateAction<'home' | 'editor'>>;
-  setModal: Dispatch<SetStateAction<any>>;
+  setModal: Dispatch<SetStateAction<ModalId | null>>;
   setNotice: Dispatch<SetStateAction<string>>;
   setError: Dispatch<SetStateAction<string>>;
   setSelectedIds: Dispatch<SetStateAction<string[]>>;

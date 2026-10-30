@@ -150,9 +150,13 @@ export function commonsPlayableUrl(original: string): { url: string; fallbackUrl
   return IMPORTABLE_ORIGINALS.has(extension) || (converter && CONVERTIBLE_EXTENSIONS.has(extension)) ? { url, fallbackUrl: original } : { url };
 }
 
+/** The parts of a Wikimedia Commons search answer that are read; every field may be missing or the wrong type. */
+type CommonsPage = { title?: unknown; pageid?: unknown; imageinfo?: { url?: unknown; descriptionurl?: unknown; duration?: unknown; extmetadata?: Record<string, { value?: unknown } | undefined> }[] };
+type CommonsResponse = { query?: { pages?: unknown }; continue?: { gsroffset?: unknown } };
+
 export function parseCommonsSearch(json: unknown, page: number, kind: OnlineKind = 'music'): OnlineSearchPage {
-  const root = (json && typeof json === 'object' ? json : {}) as Record<string, any>;
-  const pages: any[] = Array.isArray(root.query?.pages) ? root.query.pages : [];
+  const root = (json && typeof json === 'object' ? json : {}) as CommonsResponse;
+  const pages: CommonsPage[] = Array.isArray(root.query?.pages) ? root.query.pages : [];
   const tracks: OnlineTrack[] = [];
   for (const item of pages) {
     const info = item?.imageinfo?.[0], meta = info?.extmetadata ?? {};

@@ -25,8 +25,8 @@ export function useLibraryAudio({ canEdit, projectTicks, position, project, late
   audioLibraryTab: string;
   playing: boolean;
   modal: string | null;
-  setHoveredMedia: Dispatch<SetStateAction<any>>;
-  setHoveredElement: Dispatch<SetStateAction<any>>;
+  setHoveredMedia: Dispatch<SetStateAction<string | null>>;
+  setHoveredElement: Dispatch<SetStateAction<string | null>>;
 }) {
   const soundPreviewRef = useRef<HTMLAudioElement | null>(null);
   const [previewingAudio, setPreviewingAudio] = useState<string | null>(null);

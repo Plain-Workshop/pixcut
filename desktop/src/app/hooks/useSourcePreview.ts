@@ -1,3 +1,4 @@
+import type { ModalId } from '../modal';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { resolveMediaSource } from '../../components/preview/media-url';
 import { isTextEntryTarget } from '../../shortcuts/registry';
@@ -6,7 +7,7 @@ import type { Scene } from '../../stores/model';
 /** State and controls for the full-size media viewer opened from the library. */
 export function useSourcePreview({ modal, setModal, setPlaying, filteredScenes, sourceMedia }: {
   modal: string | null;
-  setModal: Dispatch<SetStateAction<any>>;
+  setModal: Dispatch<SetStateAction<ModalId | null>>;
   setPlaying: Dispatch<SetStateAction<boolean>>;
   filteredScenes: Scene[];
   sourceMedia: Scene[];
