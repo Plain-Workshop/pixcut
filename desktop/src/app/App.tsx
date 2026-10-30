@@ -141,9 +141,10 @@ import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import * as bridge from './bridge';
 import type { ModalId } from './modal';
+import { commandAvailability as resolveAvailability } from './command-availability';
 import { runCommand } from './command-runner';
 import { HINTS_KEY } from './export-options';
-import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, minTicks, projectScenes, sceneAt, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
+import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, projectScenes, sceneAt, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
 import { probeVideo } from '../components/preview/video';
 import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers } from '../components/text/layers';
@@ -193,7 +194,6 @@ import { useMediaImport } from './hooks/useMediaImport';
 import { usePipLayers } from './hooks/usePipLayers';
 
 const INITIAL: Session = { project: emptyProject(), canUndo: false, canRedo: false };
-const AVAILABLE: CommandAvailability = { disabled: false };
 
 const RANGE_NAVIGATION_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
 // Codecs use different CRF scales; ProRes maps the value to a 422 profile.
@@ -1082,95 +1082,12 @@ export default function App() {
     return binding ? formatBinding(binding, platform) : 'Unassigned';
   }
 
-  const LANE_EDITS = new Set(['clip.delete', 'clip.ripple_delete', 'clip.split', 'clip.trim_start', 'clip.trim_end', 'clip.nudge_left', 'clip.nudge_right', 'clip.nudge_left_10', 'clip.nudge_right_10']);
-  /** Locked lanes refuse every keyboard edit, whatever the command. */
   function availabilityFor(id: string): CommandAvailability {
-    if (LANE_EDITS.has(id) && lockedLanes.includes(clipEditing.current?.selectionLane() ?? '')) return { disabled: true, reason: t('This lane is locked. Unlock it to edit.') };
-    return baseAvailability(id);
-  }
-
-  function baseAvailability(id: string): CommandAvailability {
-    if (exporting && id === 'export.open') return { disabled: true, reason: t('An export is already running.') };
-    const editor = screen === 'editor';
-    const hasProject = scenes.length > 0;
-    const scene = selectedScene;
-    const sceneStartTicks = scene?.startTicks ?? 0;
-    const sceneOffsetTicks = secondsToTicks(position, project.timebase) - sceneStartTicks;
-    const splitMinimum = minTicks(project.timebase);
-    switch (id) {
-      case 'project.new': return ready ? AVAILABLE : { disabled: true, reason: t('PixCut is still loading.') };
-      case 'project.open': return canEdit ? AVAILABLE : { disabled: true, reason: t('Finish the current operation first.') };
-      case 'project.save': return ready ? AVAILABLE : { disabled: true, reason: t('PixCut is still loading.') };
-      case 'project.import': return canEdit ? AVAILABLE : { disabled: true, reason: t('Finish the current operation first.') };
-      case 'export.open': return hasProject && ready && !busy ? AVAILABLE : { disabled: true, reason: hasProject ? t('PixCut is busy.') : t('Add at least one scene to export.') };
-      case 'history.undo': return session.canUndo && canEdit ? AVAILABLE : { disabled: true, reason: session.canUndo ? t('Finish the current operation first.') : t('Nothing to undo.') };
-      case 'history.redo': return session.canRedo && canEdit ? AVAILABLE : { disabled: true, reason: session.canRedo ? t('Finish the current operation first.') : t('Nothing to redo.') };
-      case 'playback.toggle':
-      case 'playback.forward':
-      case 'playback.reverse':
-      case 'playback.stop':
-        if (!editor) return { disabled: true, reason: t('Open a story to use playback.') };
-        if (!duration) return { disabled: true, reason: t('Add a scene to play.') };
-        return canEdit ? AVAILABLE : { disabled: true, reason: t('Finish the current operation first.') };
-      case 'clip.split':
-        if (!editor) return { disabled: true, reason: t('Open a story to edit clips.') };
-        if (!canEdit) return { disabled: true, reason: t('Finish the current operation first.') };
-        if (editTargetRef.current === 'audio') {
-          const audioClip = audio.find(item => item.id === audioTargetRef.current) ?? selectedAudio;
-          if (!audioClip) return { disabled: true, reason: t('Select an audio clip first.') };
-          const audioOffsetTicks = secondsToTicks(position, project.timebase) - audioClip.startTicks;
-          return audioOffsetTicks >= splitMinimum && audioClip.durationTicks - audioOffsetTicks >= splitMinimum ? AVAILABLE : { disabled: true, reason: t('Place the playhead at least half a second inside the selected audio clip.') };
-        }
-        if (!selectedScenes.length) return { disabled: true, reason: t('Select a clip first.') };
-        if (selectedScenes.length !== 1) return { disabled: true, reason: t('Select one clip to split.') };
-        return scene && sceneOffsetTicks >= splitMinimum && scene.durationTicks - sceneOffsetTicks >= splitMinimum ? AVAILABLE : { disabled: true, reason: t('Place the playhead at least half a second inside the selected clip.') };
-      case 'clip.delete':
-      case 'clip.ripple_delete':
-        if (!editor) return { disabled: true, reason: t('Open a story to edit clips.') };
-        if (editTargetRef.current !== 'audio' && !selectedScenes.length || editTargetRef.current === 'audio' && !audioTargetRef.current) return { disabled: true, reason: t('Select a clip first.') };
-        return canEdit ? AVAILABLE : { disabled: true, reason: t('Finish the current operation first.') };
-      case 'clip.duplicate':
-        if (!editor) return { disabled: true, reason: t('Open a story to edit clips.') };
-        if (!selectedScenes.length) return { disabled: true, reason: t('Select a clip first.') };
-        return canEdit ? AVAILABLE : { disabled: true, reason: t('Finish the current operation first.') };
-      case 'clip.trim_start':
-      case 'clip.trim_end':
-      case 'clip.nudge_left':
-      case 'clip.nudge_right':
-      case 'clip.nudge_left_10':
-      case 'clip.nudge_right_10':
-      case 'clip.copy':
-        if (!editor) return { disabled: true, reason: t('Open a story to edit clips.') };
-        return canEdit ? AVAILABLE : { disabled: true, reason: t('Finish the current operation first.') };
-      case 'clip.paste':
-        return editor && canEdit ? AVAILABLE : { disabled: true, reason: t('Open a story to paste clips.') };
-      case 'edit.select_after':
-        return scenes.length && canEdit ? AVAILABLE : { disabled: true, reason: t('Open a project with scenes first.') };
-      case 'timeline.prev_frame':
-      case 'timeline.next_frame':
-      case 'timeline.prev_edit':
-      case 'timeline.next_edit':
-      case 'timeline.back_second':
-      case 'timeline.forward_second':
-      case 'timeline.go_start':
-      case 'timeline.go_end':
-      case 'timeline.zoom_in':
-      case 'timeline.zoom_out':
-      case 'timeline.zoom_fit':
-        return editor && duration > 0 ? AVAILABLE : { disabled: true, reason: t('Add a scene to move around the timeline.') };
-      case 'timeline.snapping':
-      case 'view.safe_area':
-        return editor ? AVAILABLE : { disabled: true, reason: t('Open a story to use editor controls.') };
-      case 'edit.select_all':
-        return scenes.length && canEdit ? AVAILABLE : { disabled: true, reason: t('Open a project with scenes first.') };
-      case 'edit.deselect':
-        return AVAILABLE;
-      case 'beat.add':
-        return projectTicks && canEdit ? AVAILABLE : { disabled: true, reason: t('Add a scene before placing a beat.') };
-      case 'text.add':
-        return selectedScene && canEdit ? AVAILABLE : { disabled: true, reason: t('Select a scene first.') };
-      default: return AVAILABLE;
-    }
+    return resolveAvailability(id, {
+      screen, ready, busy, canEdit, exporting, canUndo: session.canUndo, canRedo: session.canRedo, scenes, selectedScenes, selectedScene,
+      position, timebase: project.timebase, duration, projectTicks, editTarget: editTargetRef.current, audioTargetId: audioTargetRef.current,
+      audio, selectedAudio, lockedLanes, selectionLane: () => clipEditing.current?.selectionLane() ?? '',
+    });
   }
 
   function tip(id: string, label: string) {

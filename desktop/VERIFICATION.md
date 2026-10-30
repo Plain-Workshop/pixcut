@@ -1685,3 +1685,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - `src/app/keyed-store.ts`, `src/app/export-store.tsx`, `tests/export-store.test.ts` (6): setter shape and identity, no notification for unchanged values, reset, defaults, `effectiveHardware` for h264/hevc/other and with or without support, provider.
 - Browser preview: opened Export; quality "High" became the pressed choice; Include audio toggled on → off; frame rate 24 changed the output list to "1920 × 1080 · 24 fps"; hardware encoder correctly disabled ("Unavailable") in the browser; no new console errors. No export was run (needs the desktop app and FFmpeg).
 - Tests: 590 TypeScript. The native export path is unchanged in code but was not exercised here; that remains Phase 7.
+
+## Command availability (Phase 4, step 13) (2026-10-30)
+
+- `src/app/command-availability.ts` plus `tests/command-availability.test.ts` (15).
+- Browser preview: the command palette on Home lists Undo, Redo, Play/pause and Play backward as unavailable with "Open a story to use playback."; in the editor only Undo, Redo and Split clip (playhead at the very start: "Place the playhead at least half a second inside the selected clip") are unavailable out of 44 commands.
+- Tests: 605 TypeScript, tsc, build and eslint (0 errors).
