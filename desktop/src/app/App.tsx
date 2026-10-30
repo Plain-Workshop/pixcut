@@ -139,6 +139,7 @@ import { IconButton } from '../components/IconButton';
 import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import * as bridge from './bridge';
+import { runCommand } from './command-runner';
 import { HINTS_KEY } from './export-options';
 import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, minTicks, projectScenes, sceneAt, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
@@ -808,61 +809,11 @@ export default function App() {
     return before;
   }
 
-  const run = useCallback((command: Command): Promise<boolean> => {
-    const light = (value: Command) => value.type === 'order' || value.type === 'update' || value.type === 'updateMany' || value.type === 'audio' || value.type === 'audioMix' || value.type === 'overlays';
-    if (operation.current) {
-      if (command.type === 'update') {
-        const queued = sceneQueue.current;
-        const last = queued.at(-1);
-        if (last?.type === 'update' && last.scene.id === command.scene.id) queued[queued.length - 1] = command;
-        else queued.push(command);
-      } else {
-        sceneQueue.current.push(command);
-        if (!light(command)) {
-          setBusy(true);
-          setPlaying(false);
-        }
-      }
-      return pending.current;
-    }
-    operation.current = true;
-    if (!light(command)) { setBusy(true); setPlaying(false); }
-    setStatus('Saving…');
-    const task = (async () => {
-      let current: Command | undefined = command;
-      let success = true;
-      while (current) {
-        if (!light(current)) { setBusy(true); setPlaying(false); }
-        try {
-          if (current.type === 'order') {
-            // Compute the same edit Rust will make, then ask Rust to record it.
-            // The answer carries history flags only, never a project payload.
-            const project = edit(latestProject.current, current);
-            const history = await bridge.applyOrder(current);
-            latestProject.current = project;
-            setSession({ project, ...history });
-          } else {
-            const next = await bridge.dispatch(current);
-            latestProject.current = next.project;
-            setSession(next);
-          }
-          setStatus('Saved');
-        } catch (e) {
-          success = false;
-          sceneQueue.current = [];
-          setError(messageFor(e));
-          setStatus('Changes not saved');
-          break;
-        }
-        current = sceneQueue.current.shift();
-      }
-      operation.current = false;
-      setBusy(false);
-      return success;
-    })();
-    pending.current = task;
-    return task;
-  }, []);
+  const run = useCallback((command: Command): Promise<boolean> => runCommand(command, { operation, queue: sceneQueue, pending }, {
+    dispatch: bridge.dispatch, applyOrder: bridge.applyOrder, edit,
+    getProject: () => latestProject.current, setProject: next => { latestProject.current = next; },
+    setSession, setBusy, stopPlayback: () => setPlaying(false), setStatus, setError, describeError: messageFor,
+  }), []);
 
   useEffect(() => { positionRef.current = position; }, [position]);
   useEffect(() => {

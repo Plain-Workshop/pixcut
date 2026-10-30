@@ -1662,3 +1662,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - `src/app/drafts-store.tsx` plus `tests/drafts-store.test.ts` (5): empty start, useState-shaped setters with stable identity, notify only on change, `clear()` in one notification, provider.
 - Browser preview: added an element (In project 1 → 2), dragged it 80 × 40 px with pointer events: it followed the pointer while staged and kept its place after commit; two undos returned the project to 1 element. The console errors seen were stale hot-reload failures from an intermediate edit, not present after the fix.
 - Tests: 575 TypeScript.
+
+## Command runner (Phase 4, step 9) (2026-10-30)
+
+- `src/app/command-runner.ts` plus `tests/command-runner.test.ts` (9): light/heavy classification, busy and playback stop only for heavy commands, ordered queue, same-scene update coalescing (a, b, a stays a, b, a), local order edit with history flags from Rust, failure drops the queue and resolves false, recovery after failure, queueing behind an import.
+- Browser preview: duplicate clip 3 → 4, undo 3, redo 4, undo 3 (heavy commands and order commands both go through the runner); project back to its start; no new console errors.
+- Tests: 584 TypeScript.
