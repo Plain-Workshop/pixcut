@@ -1,11 +1,11 @@
-import { createContext, createElement, useContext, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
+import { createContext, createElement, useContext, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import type { SavedTrack } from '../stores/online-downloads';
 import type { OnlineTrack } from '../stores/online-music';
 import type { MusicTrack } from '../stores/music-library';
 import type { RecordedSound } from '../stores/sound-library';
 import type { SoundId } from '../components/elements/sound-catalog';
 import type { TimelineOverlay } from '../components/elements/overlays';
-import type { AudioClip, Scene, ScenePatchKey, TextLayer } from '../stores/model';
+import type { AudioClip, AudioLaneMix, Scene, ScenePatchKey, TextLayer } from '../stores/model';
 import type { ResizeCorner } from '../components/preview/transform-handles';
 import type { TemplateDefinition } from '../templates/catalog';
 
@@ -78,6 +78,30 @@ export type EditorActions = {
   reorderLayer: (kind: "text" | "element" | "overlay", id: string, z: number) => void;
   deleteSelected: () => void;
   duplicateSelected: () => void;
+  dropLibraryMedia: (event: ReactDragEvent<HTMLElement>) => boolean;
+  beginPlayheadDrag: (event: ReactPointerEvent<HTMLElement>) => void;
+  removeBeat: (tick: number) => void;
+  selectScene: (scene: Scene, event?: ReactMouseEvent, seek?: boolean) => void;
+  beginOverlayTiming: (event: ReactPointerEvent<HTMLElement>, element: TimelineOverlay, edge: "move" | "start" | "end") => void;
+  beginReorder: (event: ReactDragEvent<HTMLElement>, scene: Scene) => void;
+  endReorder: () => void;
+  dragOverScene: (event: ReactDragEvent<HTMLElement>, id: string) => void;
+  dropScene: (event: ReactDragEvent<HTMLElement>, target: Scene) => void;
+  beginFadeDrag: (event: ReactPointerEvent<HTMLSpanElement>, scene: Scene, side: "in" | "out") => void;
+  beginSceneTrim: (event: ReactPointerEvent<HTMLSpanElement>, scene: Scene, side: "left" | "right") => void;
+  setVideoAudioLevel: (volume: number) => void;
+  commitMix: () => void;
+  stageVideoVolume: (scene: Scene, value: number) => void;
+  commitVideoVolume: (scene: Scene, value: number) => void;
+  selectPip: (clip: Scene) => void;
+  beginPipTiming: (event: ReactPointerEvent<HTMLElement>, clip: Scene, edge: "move" | "start" | "end") => void;
+  toggleLaneMute: (lane: number) => void;
+  setLaneMix: (lane: number, patch: Partial<Omit<AudioLaneMix, "lane">>) => void;
+  beginAudioMove: (event: ReactPointerEvent<HTMLElement>, clip: AudioClip) => void;
+  beginAudioTrim: (event: ReactPointerEvent<HTMLElement>, clip: AudioClip, side: "left" | "right") => void;
+  stageAudio: (patch: Partial<AudioClip>) => void;
+  commitAudio: () => void;
+  addBeatAtPlayhead: () => void;
 };
 
 const EditorActionsContext = createContext<EditorActions | null>(null);

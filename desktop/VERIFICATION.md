@@ -1668,3 +1668,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - `src/app/command-runner.ts` plus `tests/command-runner.test.ts` (9): light/heavy classification, busy and playback stop only for heavy commands, ordered queue, same-scene update coalescing (a, b, a stays a, b, a), local order edit with history flags from Rust, failure drops the queue and resolves false, recovery after failure, queueing behind an import.
 - Browser preview: duplicate clip 3 → 4, undo 3, redo 4, undo 3 (heavy commands and order commands both go through the runner); project back to its start; no new console errors.
 - Tests: 584 TypeScript.
+
+## Timeline callbacks through editor actions (Phase 4, step 10) (2026-10-30)
+
+- 24 callbacks moved into `EditorActions`; nine duplicated props dropped. `TimelinePanel` 63 → 30 props.
+- Browser preview: selected a scene by clicking it; dragged the right trim handle of scene 1 by 80 px (width 253 → 194, kept after release), then undo restored 253. The left handle of scene 2 did not change width in the same test; not compared with the previous commit, so it may be a clamp at the start of the source and needs a check.
+- Tests: 584 TypeScript, build and tsc clean.
