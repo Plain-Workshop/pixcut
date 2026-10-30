@@ -151,6 +151,8 @@ Step 6 done: **`EditorBody` split.** It is gone, replaced by `LibraryPanel` (236
 
 Step 7 done: **library store** (`src/app/library-store.tsx`). The eleven library-only values (media query, hovered media, audio tab, music mood, sound query, open sound group, element search/category/collection/limit, hovered element) moved out of `App` into one store with `useState`-shaped setters. `filterElements` is pure and tested; the sound groups and element list are now derived inside `LibraryPanel`, and changing an element filter shortens the grid again in the store instead of in each handler. `LibraryPanel` 45 → 20 props. `App` still reads the query, audio tab and two hover setters for source preview and audio previews.
 
+Step 8 done: **drafts store** (`src/app/drafts-store.tsx`). The four staged-edit values (`previewScene`, `overlayDraft`, `pipDraft`, `audioDraft`) are one store with `useState`-shaped setters and a `clear()`. `PreviewPanel`, `InspectorPanel` and `TimelinePanel` read them directly, so `overlayDraft`, `previewScene` and `setPreviewScene` are no longer props (`TimelinePanel` 65 → 63, `PreviewPanel` 32 → 31, `InspectorPanel` 20 → 19). The refs that mirror the drafts for pointer handlers stay in `App` for now; they are written next to the setters by the hooks and folding them in is a separate, riskier change.
+
 Remaining:
 1. **Shrink the three panels' props further.** 97 props in total across them (88 distinct), mostly UI state and refs that `App` owns because other hooks use them. A `LibraryState` store (media query, sound/music filters, hover state) would cut `LibraryPanel` to about 20.
 2. **Drafts.** Drag drafts (`previewScene`, `overlayDraft`, `pipDraft`, `audioDraft`) are still `useState` in `App`; move them next to the stores.

@@ -5,6 +5,7 @@ import { t } from '../../i18n';
 import { ArrowRight, Camera, Check, Film, Layers, Maximize2, Pause, Play, Plus, Repeat, SkipBack, Type } from 'lucide-react';
 import { IconButton } from '../../components/IconButton';
 import { useEditorActions } from '../editor-actions';
+import { useDrafts } from '../drafts-store';
 import { useEditorModel } from '../editor-model';
 import { useEditorView } from '../editor-view';
 import { useSelection } from '../selection-store';
@@ -14,7 +15,7 @@ import { SAMPLE_TEMPLATE } from '../../templates/catalog';
 import type { Dispatch, SetStateAction, RefObject } from 'react';
 import { elementDisplayName } from '../../components/elements/catalog';
 
-export function PreviewPanel({ setModal, playing, modal, position, allOverlays, safeArea, activeFormat, setActiveFormatId, previewArea, previewStage, previewSize, preview, sceneVideo, setVideoTick, pipVideoElements, setPipVideoTick, snapGuides, framingMode, textBox, selectedTextVisible, selectedElement, editingText, setTextDraft, setEditingText, overlayDraft, sceneLayerRank, textDraft, fadeAmount, setPosition, setPlaying, loop, setLoop }: {
+export function PreviewPanel({ setModal, playing, modal, position, allOverlays, safeArea, activeFormat, setActiveFormatId, previewArea, previewStage, previewSize, preview, sceneVideo, setVideoTick, pipVideoElements, setPipVideoTick, snapGuides, framingMode, textBox, selectedTextVisible, selectedElement, editingText, setTextDraft, setEditingText, sceneLayerRank, textDraft, fadeAmount, setPosition, setPlaying, loop, setLoop }: {
   setModal: Dispatch<SetStateAction<"templates" | "source" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null>>;
   playing: boolean;
   modal: "templates" | "source" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null;
@@ -39,7 +40,6 @@ export function PreviewPanel({ setModal, playing, modal, position, allOverlays, 
   editingText: boolean;
   setTextDraft: Dispatch<SetStateAction<{ title: string; subtitle: string; }>>;
   setEditingText: Dispatch<SetStateAction<boolean>>;
-  overlayDraft: TimelineOverlay | null;
   sceneLayerRank: Map<string, number>;
   textDraft: { title: string; subtitle: string; };
   fadeAmount: number;
@@ -48,6 +48,7 @@ export function PreviewPanel({ setModal, playing, modal, position, allOverlays, 
   loop: boolean;
   setLoop: Dispatch<SetStateAction<boolean>>;
 }) {
+  const { overlayDraft } = useDrafts();
   const { canEdit, project, activeSize, duration, frameSeconds } = useEditorModel();
   const { selectedScene, previewTarget, pipVideoScenes, selectedTextLayer, selectedGlobalText } = useEditorView();
   const { selectedElementId } = useSelection();

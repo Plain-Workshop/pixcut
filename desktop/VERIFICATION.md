@@ -1656,3 +1656,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - `src/app/library-store.tsx` plus `tests/library-store.test.ts` (9): defaults, useState-shaped setters with stable identity, the element grid shortening on a filter change but not on "show more", no notification without a change, reset, provider, `filterElements`.
 - Browser preview: Elements showed 40 cards, "Show 40 more" gave 80, searching "star" gave 7 with no more button, a nonsense search showed the empty note, clearing it went back to 40 (not 80); Sounds listed 15 groups, "rain" 5, a nonsense search showed "No sound matches that search."; Music tab opened; no console errors.
 - Tests: 570 TypeScript. `LibraryPanel` 45 → 20 props; `App.tsx` 2,307 → 2,298 lines.
+
+## Drafts store (Phase 4, step 8) (2026-10-30)
+
+- `src/app/drafts-store.tsx` plus `tests/drafts-store.test.ts` (5): empty start, useState-shaped setters with stable identity, notify only on change, `clear()` in one notification, provider.
+- Browser preview: added an element (In project 1 → 2), dragged it 80 × 40 px with pointer events: it followed the pointer while staged and kept its place after commit; two undos returned the project to 1 element. The console errors seen were stale hot-reload failures from an intermediate edit, not present after the fix.
+- Tests: 575 TypeScript.

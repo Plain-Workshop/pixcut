@@ -5,6 +5,7 @@ import { Copy, ImagePlus, Layers, Settings2, Trash2 } from 'lucide-react';
 import { IconButton } from '../../components/IconButton';
 import { SceneForm } from '../../components/inspector/SceneForm';
 import { RangeField } from '../../components/inspector/NumberField';
+import { useDrafts } from '../drafts-store';
 import { useLayout } from '../layout-store';
 import { useEditorActions } from '../editor-actions';
 import { useEditorModel } from '../editor-model';
@@ -14,7 +15,7 @@ import { minTicks, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds,
 import type { Dispatch, SetStateAction, ReactElement, RefObject } from 'react';
 import type { InspectorKind } from '../inspector';
 
-export function InspectorPanel({ selectedAudio, activeFormat, framingMode, setEditingText, propertyKind, setSelectedIds, setPrimarySelected, selectionAnchor, audioInspector, elementInspector, inspectorScene, setGlobalTextDraft, setPreviewScene, propertyClipboard, textStartTicks, textLayerLocal, previewLocalSeconds, textFocus, setFramingMode, renderOverlays }: {
+export function InspectorPanel({ selectedAudio, activeFormat, framingMode, setEditingText, propertyKind, setSelectedIds, setPrimarySelected, selectionAnchor, audioInspector, elementInspector, inspectorScene, setGlobalTextDraft, propertyClipboard, textStartTicks, textLayerLocal, previewLocalSeconds, textFocus, setFramingMode, renderOverlays }: {
   selectedAudio: AudioClip;
   activeFormat: FormatVariant;
   framingMode: boolean;
@@ -27,7 +28,6 @@ export function InspectorPanel({ selectedAudio, activeFormat, framingMode, setEd
   elementInspector: ReactElement | null;
   inspectorScene: Scene | null;
   setGlobalTextDraft: Dispatch<SetStateAction<TextLayer[] | null>>;
-  setPreviewScene: Dispatch<SetStateAction<Scene | null>>;
   propertyClipboard: Partial<Scene> | null;
   textStartTicks: number;
   textLayerLocal: number;
@@ -36,6 +36,7 @@ export function InspectorPanel({ selectedAudio, activeFormat, framingMode, setEd
   setFramingMode: Dispatch<SetStateAction<boolean>>;
   renderOverlays: ElementLayer[];
 }) {
+  const { setPreviewScene } = useDrafts();
   const { canEdit, projectTicks, project, scenes, preferences } = useEditorModel();
   const { selectedScene, selectedGlobalText, selectedPip, selectedCount, activePip, pipScenes, selectedTextScene, hasSceneSelection } = useEditorView();
   const { selectedTextLayerId } = useSelection();

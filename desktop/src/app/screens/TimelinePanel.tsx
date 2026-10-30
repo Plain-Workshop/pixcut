@@ -17,6 +17,7 @@ import { anchoredScroll, clampZoom, formatRulerTime, MIN_TIMELINE_ZOOM, rulerTic
 import { SNAP_LABELS, useSnapGuide } from '../../components/timeline/timeline-snap';
 import { inRange } from '../../components/timeline/clip-edit';
 import { useSelection } from '../selection-store';
+import { useDrafts } from '../drafts-store';
 import { useLayout } from '../layout-store';
 import { useEditorModel } from '../editor-model';
 import { useEditorView } from '../editor-view';
@@ -34,7 +35,7 @@ function LaneToggle({ id, label, collapsed, toggle, locked, toggleLock }: { id: 
   </span>;
 }
 
-export function TimelinePanel({ timelineControls, onLockedEdit, snapping, tip, runCommandId, addBeatAtPlayhead, audioDisplay, setAudioDisplay, fileDragActive, timelineScroll, mediaDragRef, dropLibraryMedia, timelineRatio, beginPlayheadDrag, removeBeat, position, scrubTo, hasMediaOverlays, selectScene, setTab, setTextFocus, setPosition, addTextLayerAtPlayhead, orderedLayers, overlayDraft, selectOverlay, beginOverlayTiming: rawBeginOverlayTiming, layerNumbers, previewScene, dropTarget, reorderId, replacingSceneId, beginReorder: rawBeginReorder, endReorder, dragOverScene, setDropTarget, dropScene, selectionAnchor, setPlaying, setContextMenu, beginFadeDrag: rawBeginFadeDrag, beginSceneTrim: rawBeginSceneTrim, fadeDrag, chooseImages, videoScenes, audioMix, setVideoAudioLevel, commitMix, videoVolumeDraft, stageVideoVolume, commitVideoVolume, selectPip, beginPipTiming: rawBeginPipTiming, audioLanes, toggleLaneMute, setLaneMix, selectedAudio, focusAudio, beginAudioMove: rawBeginAudioMove, beginAudioTrim: rawBeginAudioTrim, stageAudio, commitAudio, audioLaneRef, chooseAudio, shortcutText }: {
+export function TimelinePanel({ timelineControls, onLockedEdit, snapping, tip, runCommandId, addBeatAtPlayhead, audioDisplay, setAudioDisplay, fileDragActive, timelineScroll, mediaDragRef, dropLibraryMedia, timelineRatio, beginPlayheadDrag, removeBeat, position, scrubTo, hasMediaOverlays, selectScene, setTab, setTextFocus, setPosition, addTextLayerAtPlayhead, orderedLayers, selectOverlay, beginOverlayTiming: rawBeginOverlayTiming, layerNumbers, dropTarget, reorderId, replacingSceneId, beginReorder: rawBeginReorder, endReorder, dragOverScene, setDropTarget, dropScene, selectionAnchor, setPlaying, setContextMenu, beginFadeDrag: rawBeginFadeDrag, beginSceneTrim: rawBeginSceneTrim, fadeDrag, chooseImages, videoScenes, audioMix, setVideoAudioLevel, commitMix, videoVolumeDraft, stageVideoVolume, commitVideoVolume, selectPip, beginPipTiming: rawBeginPipTiming, audioLanes, toggleLaneMute, setLaneMix, selectedAudio, focusAudio, beginAudioMove: rawBeginAudioMove, beginAudioTrim: rawBeginAudioTrim, stageAudio, commitAudio, audioLaneRef, chooseAudio, shortcutText }: {
   timelineControls: RefObject<TimelineControls | null>;
   /** Called when a drag is refused because its lane is locked. */
   onLockedEdit: () => void;
@@ -60,11 +61,9 @@ export function TimelinePanel({ timelineControls, onLockedEdit, snapping, tip, r
   setPosition: Dispatch<SetStateAction<number>>;
   addTextLayerAtPlayhead: (preset?: Partial<TextLayer>) => void;
   orderedLayers: TimelineOverlay[];
-  overlayDraft: TimelineOverlay | null;
   selectOverlay: (element: TimelineOverlay, seek?: boolean) => void;
   beginOverlayTiming: (event: ReactPointerEvent<HTMLElement>, element: TimelineOverlay, edge: "move" | "start" | "end") => void;
   layerNumbers: Map<string, number>;
-  previewScene: Scene | null;
   dropTarget: string | null;
   reorderId: string | null;
   replacingSceneId: string | null;
@@ -102,6 +101,7 @@ export function TimelinePanel({ timelineControls, onLockedEdit, snapping, tip, r
   chooseAudio: () => Promise<void>;
   shortcutText: (id: string) => string;
 }) {
+  const { overlayDraft, previewScene } = useDrafts();
   const { scenes, canEdit, run, duration, project, projectTicks, frameSeconds, audio } = useEditorModel();
   const { selectedCount, selectedScene, isSelected, selectedTextLayer, active, renderPipScenes } = useEditorView();
   const { collapsedLanes, toggleLane, setCollapsedLanes, lockedLanes, toggleLaneLock, timelineHeight, timelineZoom, setTimelineZoom } = useLayout();
