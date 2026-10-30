@@ -1650,3 +1650,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - `EditorBody` replaced by `LibraryPanel`, `PreviewPanel` and `InspectorPanel`, generated mechanically from the existing JSX; `App` renders them directly. DOM structure unchanged.
 - Browser preview: all five library tabs, Music → Online/Bundled (15 tracks), Sounds groups (11), safe-area toggle, inspector heading, no console errors. Play toggles Play/Pause; the timecode does not advance in this pane, and the previous commit behaves identically (stashed and re-tested), so it is a limitation of the hidden preview pane.
 - Tests: 561 TypeScript (unchanged; the panels have no unit tests of their own yet).
+
+## Library store (Phase 4, step 7) (2026-10-30)
+
+- `src/app/library-store.tsx` plus `tests/library-store.test.ts` (9): defaults, useState-shaped setters with stable identity, the element grid shortening on a filter change but not on "show more", no notification without a change, reset, provider, `filterElements`.
+- Browser preview: Elements showed 40 cards, "Show 40 more" gave 80, searching "star" gave 7 with no more button, a nonsense search showed the empty note, clearing it went back to 40 (not 80); Sounds listed 15 groups, "rain" 5, a nonsense search showed "No sound matches that search."; Music tab opened; no console errors.
+- Tests: 570 TypeScript. `LibraryPanel` 45 → 20 props; `App.tsx` 2,307 → 2,298 lines.

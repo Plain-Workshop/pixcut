@@ -1,7 +1,6 @@
 import { creditForClipName } from '../stores/music-library';
 import { SOUND_EFFECTS, type SoundEffectId } from '../components/elements/sound-effects';
 import { creditForRecordedClip, loadRecordedSounds, type RecordedSound } from '../stores/sound-library';
-import { groupedSounds } from '../components/elements/sound-catalog';
 import { ElementTextField } from '../components/elements/ElementTextField';
 import { inspectorKind } from './inspector';
 import { presetSize } from '../components/elements/designer';
@@ -40,6 +39,7 @@ import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
 import { useUpdates } from './hooks/useUpdates';
 import { SelectionProvider, useCreateSelectionStore, useSelection } from './selection-store';
+import { LibraryProvider, useCreateLibraryStore, useLibraryState } from './library-store';
 import { LayoutProvider, useCreateLayoutStore, useLayout } from './layout-store';
 import { EditorModelProvider } from './editor-model';
 import { EditorViewProvider, useEditorViewModel } from './editor-view';
@@ -193,7 +193,6 @@ const AVAILABLE: CommandAvailability = { disabled: false };
 
 const RANGE_NAVIGATION_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
 // Codecs use different CRF scales; ProRes maps the value to a 422 profile.
-const ELEMENTS = ELEMENT_CATALOG;
 const ELEMENT_COLOR_DEFAULTS: Partial<Record<ElementKind, string>> = {
   subscribe: '#FF0033', like: '#0A66C2', bell: '#FFD166', comment: '#FFFFFF',
   share: '#6BE7FF', play: '#FFFFFF', progress: '#FF7A9E', location: '#FF6B6B',
@@ -246,12 +245,7 @@ export default function App() {
   const [draggingOverlay, setDraggingOverlay] = useState(false);
   const [loop, setLoop] = useState(false);
   const [snapGuides, setSnapGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
-  const [elementCategory, setElementCategory] = useState('All');
-  const [elementSearch, setElementSearch] = useState('');
-  const [elementCollection, setElementCollection] = useState('All');
-  const [elementLimit, setElementLimit] = useState(40);
-  const filteredElements = useMemo(() => ELEMENTS.filter(p => (elementCategory === 'All' || p.category === elementCategory) && (elementCollection === 'All' || p.collection === elementCollection) && `${p.label} ${p.collectionLabel} ${p.text} ${p.icon}`.toLocaleLowerCase().includes(elementSearch.trim().toLocaleLowerCase())), [elementCategory, elementCollection, elementSearch]);
-  const [templateQuery, setTemplateQuery] = useState(''), [mediaQuery, setMediaQuery] = useState('');
+  const [templateQuery, setTemplateQuery] = useState('');
   const [templateCategory, setTemplateCategory] = useState<'All' | TemplateDefinition['category']>('All');
   const [pendingTemplate, setPendingTemplate] = useState<TemplateDefinition | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]), [libraryReady, setLibraryReady] = useState(false);
@@ -326,6 +320,8 @@ export default function App() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [fadeDrag, setFadeDrag] = useState<{ sceneId: string; side: 'in' | 'out'; value: number } | null>(null);
   const layoutStore = useCreateLayoutStore();
+  const libraryStore = useCreateLibraryStore();
+  const { mediaQuery, audioLibraryTab, setHoveredMedia, setHoveredElement } = useLibraryState(libraryStore);
   const { timelineHeight, lockedLanes, beginResize, reset: resetLayout } = useLayout(layoutStore);
   const timelineControls = useRef<TimelineControls | null>(null);
   const clipEditing = useRef<ReturnType<typeof useClipEditing> | null>(null);
@@ -355,16 +351,10 @@ export default function App() {
   const mediaDragRef = useRef<Scene | null>(null);
   const mediaDropAt = useRef(0);
   const [soundEffect, setSoundEffect] = useState<SoundEffectId>('click');
-  const [audioLibraryTab,setAudioLibraryTab]=useState<'project'|'music'|'sounds'>('project');
-  const [musicMood,setMusicMood]=useState('All');
-  const [soundQuery,setSoundQuery]=useState('');
   const [recordedSounds,setRecordedSounds]=useState<RecordedSound[]>([]);
   useEffect(()=>{let live=true;void loadRecordedSounds().then(list=>{if(live)setRecordedSounds(list);});return()=>{live=false;};},[]);
-  const [openSoundGroup,setOpenSoundGroup]=useState<string|null>(null);
-  const [hoveredElement,setHoveredElement]=useState<string|null>(null);
   const [hoverEntrance,setHoverEntrance]=useState<string|null>(null);
   const [audioDisplay,setAudioDisplay]=useState<'spectrogram'|'waveform'>('spectrogram');
-  const [hoveredMedia,setHoveredMedia]=useState<string|null>(null);
 
   useEffect(() => { if (!exporting) return; const start = performance.now(); const timer = setInterval(() => setExportElapsed((performance.now() - start) / 1000), 500); return () => clearInterval(timer); }, [exporting]);
   const project = session.project, duration = totalDuration(project);
@@ -468,7 +458,6 @@ export default function App() {
   const useHardware = exportHardware && hardwareAvailable && (exportCodec === 'h264' || exportCodec === 'hevc');
   const displayAspect = project.aspect;
   const cueAudio = useMemo(() => actionAudio(project), [project]);
-  const soundGroups = useMemo(() => groupedSounds(soundQuery), [soundQuery]);
   const videoDuckWindows = useMemo(() => audibleVideoWindows(projectScenes(project), project.timebase, videoAudioGain({ audioMix: mixDraft ?? project.audioMix })), [project.tracks, project.timebase, project.audioMix, mixDraft]);
   const audioClips = previewAudio ?? project.audio;
   const musicCredits = [...new Set(project.audio.map(clip => clip.credit || creditForClipName(clip.name) || creditForRecordedClip(clip.name, recordedSounds)).filter((credit): credit is string => Boolean(credit)))];
@@ -2206,6 +2195,7 @@ export default function App() {
   return (
     <SelectionProvider store={selectionStore}>
     <LayoutProvider store={layoutStore}>
+    <LibraryProvider store={libraryStore}>
     <EditorModelProvider value={editorModel}>
     <EditorViewProvider value={view}>
     <EditorActionsProvider value={editorActions}>
@@ -2241,7 +2231,7 @@ export default function App() {
         </div>}
 
         <div className="editor-body">
-          <LibraryPanel tab={tab} setTab={setTab} tabTitles={tabTitles} audioLaneRef={audioLaneRef} selectedAudio={selectedAudio} setModal={setModal} mediaQuery={mediaQuery} setMediaQuery={setMediaQuery} filteredScenes={filteredScenes} mediaDragRef={mediaDragRef} setDropTarget={setDropTarget} setHoveredMedia={setHoveredMedia} hoveredMedia={hoveredMedia} playing={playing} modal={modal} sourceMedia={sourceMedia} setSelectedGlobalTextId={setSelectedGlobalTextId} captionInput={captionInput} fontTargetId={fontTargetId} fontInput={fontInput} audioLibraryTab={audioLibraryTab} setAudioLibraryTab={setAudioLibraryTab} previewingAudio={previewingAudio} musicMood={musicMood} setMusicMood={setMusicMood} savedTracks={savedTracks} soundQuery={soundQuery} setSoundQuery={setSoundQuery} soundGroups={soundGroups} openSoundGroup={openSoundGroup} setOpenSoundGroup={setOpenSoundGroup} recordedSounds={recordedSounds} position={position} elementSearch={elementSearch} setElementSearch={setElementSearch} setElementLimit={setElementLimit} elementCollection={elementCollection} setElementCollection={setElementCollection} setElementCategory={setElementCategory} elementCategory={elementCategory} allOverlays={allOverlays} filteredElements={filteredElements} elementLimit={elementLimit} setHoveredElement={setHoveredElement} hoveredElement={hoveredElement} />
+          <LibraryPanel tab={tab} setTab={setTab} tabTitles={tabTitles} audioLaneRef={audioLaneRef} selectedAudio={selectedAudio} setModal={setModal} mediaDragRef={mediaDragRef} setDropTarget={setDropTarget} playing={playing} modal={modal} sourceMedia={sourceMedia} setSelectedGlobalTextId={setSelectedGlobalTextId} captionInput={captionInput} fontTargetId={fontTargetId} fontInput={fontInput} previewingAudio={previewingAudio} savedTracks={savedTracks} recordedSounds={recordedSounds} position={position} allOverlays={allOverlays} />
           <PreviewPanel setModal={setModal} playing={playing} modal={modal} position={position} allOverlays={allOverlays} safeArea={safeArea} activeFormat={activeFormat} setActiveFormatId={setActiveFormatId} previewArea={previewArea} previewStage={previewStage} previewSize={previewSize} preview={preview} sceneVideo={sceneVideo} setVideoTick={setVideoTick} pipVideoElements={pipVideoElements} setPipVideoTick={setPipVideoTick} snapGuides={snapGuides} framingMode={framingMode} textBox={textBox} selectedTextVisible={selectedTextVisible} selectedElement={selectedElement} editingText={editingText} setTextDraft={setTextDraft} setEditingText={setEditingText} overlayDraft={overlayDraft} sceneLayerRank={sceneLayerRank} textDraft={textDraft} fadeAmount={fadeAmount} setPosition={setPosition} setPlaying={setPlaying} loop={loop} setLoop={setLoop} />
           <InspectorPanel selectedAudio={selectedAudio} activeFormat={activeFormat} framingMode={framingMode} setEditingText={setEditingText} propertyKind={propertyKind} setSelectedIds={setSelectedIds} setPrimarySelected={setPrimarySelected} selectionAnchor={selectionAnchor} audioInspector={audioInspector} elementInspector={elementInspector} inspectorScene={inspectorScene} setGlobalTextDraft={setGlobalTextDraft} setPreviewScene={setPreviewScene} propertyClipboard={propertyClipboard} textStartTicks={textStartTicks} textLayerLocal={textLayerLocal} previewLocalSeconds={previewLocalSeconds} textFocus={textFocus} setFramingMode={setFramingMode} renderOverlays={renderOverlays} />
         </div>
@@ -2301,6 +2291,7 @@ export default function App() {
     </EditorActionsProvider>
     </EditorViewProvider>
     </EditorModelProvider>
+    </LibraryProvider>
     </LayoutProvider>
     </SelectionProvider>
   );

@@ -4,13 +4,14 @@ import { OnlineMusic } from '../../components/music/OnlineMusic';
 import { HoverVideo } from '../../components/preview/HoverVideo';
 import { MUSIC_TRACKS, MUSIC_LICENSE, MUSIC_MOODS, musicTrackPreviewUrl, musicTrackCredit } from '../../stores/music-library';
 import { searchRecordedSounds, recordedSoundData, creditForRecordedClip, recordedSoundClipName, type RecordedSound } from '../../stores/sound-library';
-import { SOUND_CATALOG, soundData } from '../../components/elements/sound-catalog';
+import { SOUND_CATALOG, soundData, groupedSounds } from '../../components/elements/sound-catalog';
 import { ElementGlyph } from '../../components/elements/ElementGlyph';
 import { ELEMENT_CATALOG, ELEMENT_CATEGORIES, ELEMENT_COLLECTIONS } from '../../components/elements/catalog';
 import { AssetImage } from '../../components/preview/AssetImage';
 import { type TimelineOverlay } from '../../components/elements/overlays';
 import { fontCount, sceneCount, t } from '../../i18n';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useLibraryState, filterElements } from '../library-store';
 import { Captions, ChevronDown, Clapperboard, Copy, Download, Film, ImagePlus, Layers, LayoutTemplate, Music, Pause, Play, Plus, RefreshCw, Search, Shapes, Trash2, Type } from 'lucide-react';
 import { ElementPreview } from '../../components/elements/ElementPreview';
 import { IconButton } from '../../components/IconButton';
@@ -26,25 +27,18 @@ import { messageFor } from '../errors';
 import { formatBytes, hasMedia } from '../helpers';
 import { TEMPLATES } from '../../templates/catalog';
 import type { Dispatch, SetStateAction, RefObject } from 'react';
-import type { SoundCategoryId, SoundSpec } from '../../components/elements/sound-catalog';
-import type { ElementPreset } from '../../components/elements/catalog';
 import { TITLE_PRESETS } from '../title-presets';
 import { elementDisplayName } from '../../components/elements/catalog';
 
-export function LibraryPanel({ tab, setTab, tabTitles, audioLaneRef, selectedAudio, setModal, mediaQuery, setMediaQuery, filteredScenes, mediaDragRef, setDropTarget, setHoveredMedia, hoveredMedia, playing, modal, sourceMedia, setSelectedGlobalTextId, captionInput, fontTargetId, fontInput, audioLibraryTab, setAudioLibraryTab, previewingAudio, musicMood, setMusicMood, savedTracks, soundQuery, setSoundQuery, soundGroups, openSoundGroup, setOpenSoundGroup, recordedSounds, position, elementSearch, setElementSearch, setElementLimit, elementCollection, setElementCollection, setElementCategory, elementCategory, allOverlays, filteredElements, elementLimit, setHoveredElement, hoveredElement }: {
+export function LibraryPanel({tab, setTab, tabTitles, audioLaneRef, selectedAudio, setModal, mediaDragRef, setDropTarget, playing, modal, sourceMedia, setSelectedGlobalTextId, captionInput, fontTargetId, fontInput, previewingAudio, savedTracks, recordedSounds, position, allOverlays}: {
   tab: "media" | "text" | "elements" | "audio" | "templates";
   setTab: Dispatch<SetStateAction<"media" | "text" | "elements" | "audio" | "templates">>;
   tabTitles: { readonly media: "Your media"; readonly text: "Titles"; readonly elements: "Elements"; readonly transitions: "Transitions"; readonly effects: "Effects"; readonly audio: "Audio"; readonly templates: "Templates"; };
   audioLaneRef: RefObject<number>;
   selectedAudio: AudioClip;
   setModal: Dispatch<SetStateAction<"templates" | "source" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null>>;
-  mediaQuery: string;
-  setMediaQuery: Dispatch<SetStateAction<string>>;
-  filteredScenes: Scene[];
   mediaDragRef: RefObject<Scene | null>;
   setDropTarget: Dispatch<SetStateAction<string | null>>;
-  setHoveredMedia: Dispatch<SetStateAction<string | null>>;
-  hoveredMedia: string | null;
   playing: boolean;
   modal: "templates" | "source" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null;
   sourceMedia: Scene[];
@@ -52,32 +46,16 @@ export function LibraryPanel({ tab, setTab, tabTitles, audioLaneRef, selectedAud
   captionInput: RefObject<HTMLInputElement | null>;
   fontTargetId: RefObject<string | null>;
   fontInput: RefObject<HTMLInputElement | null>;
-  audioLibraryTab: "project" | "music" | "sounds";
-  setAudioLibraryTab: Dispatch<SetStateAction<"project" | "music" | "sounds">>;
   previewingAudio: string | null;
-  musicMood: string;
-  setMusicMood: Dispatch<SetStateAction<string>>;
   savedTracks: SavedTrack[];
-  soundQuery: string;
-  setSoundQuery: Dispatch<SetStateAction<string>>;
-  soundGroups: { id: SoundCategoryId; label: string; count: number; sounds: SoundSpec[]; }[];
-  openSoundGroup: string | null;
-  setOpenSoundGroup: Dispatch<SetStateAction<string | null>>;
   recordedSounds: RecordedSound[];
   position: number;
-  elementSearch: string;
-  setElementSearch: Dispatch<SetStateAction<string>>;
-  setElementLimit: Dispatch<SetStateAction<number>>;
-  elementCollection: string;
-  setElementCollection: Dispatch<SetStateAction<string>>;
-  setElementCategory: Dispatch<SetStateAction<string>>;
-  elementCategory: string;
   allOverlays: TimelineOverlay[];
-  filteredElements: ElementPreset[];
-  elementLimit: number;
-  setHoveredElement: Dispatch<SetStateAction<string | null>>;
-  hoveredElement: string | null;
 }) {
+  const { mediaQuery, hoveredMedia, audioLibraryTab, musicMood, soundQuery, openSoundGroup, elementSearch, elementCategory, elementCollection, elementLimit, hoveredElement, setMediaQuery, setHoveredMedia, setAudioLibraryTab, setMusicMood, setSoundQuery, setOpenSoundGroup, setElementSearch, setElementCategory, setElementCollection, setElementLimit, setHoveredElement } = useLibraryState();
+  const soundGroups = useMemo(() => groupedSounds(soundQuery), [soundQuery]);
+  const filteredElements = useMemo(() => filterElements(ELEMENT_CATALOG, { elementCategory, elementCollection, elementSearch }), [elementCategory, elementCollection, elementSearch]);
+  const filteredScenes = useMemo(() => sourceMedia.filter(scene => scene.name.toLowerCase().includes(mediaQuery.trim().toLowerCase())), [sourceMedia, mediaQuery]);
   const { canEdit, projectTicks, project, setError, run, scenes, audio, setNotice, preferences } = useEditorModel();
   const { selectedScene } = useEditorView();
   const { selectedGlobalTextId, selectedTextLayerId, editTarget, selectedElementId } = useSelection();
@@ -213,9 +191,9 @@ export function LibraryPanel({ tab, setTab, tabTitles, audioLaneRef, selectedAud
       
           </div> : <div className="elements-panel">
             <div className="element-library-tools">
-              <label className="element-search"><Search size={15} /><input aria-label={t('Search elements')} placeholder={t('Search {count} elements…', { count: ELEMENT_CATALOG.length })} value={elementSearch} onChange={e => { setElementSearch(e.target.value); setElementLimit(40); }} /></label>
-              <select aria-label={t('Element collection')} value={elementCollection} onChange={e => { setElementCollection(e.target.value); setElementCategory('All'); setElementLimit(40); }}><option value="All">{t('All {count} collections', { count: ELEMENT_COLLECTIONS.length })}</option>{ELEMENT_COLLECTIONS.map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select>
-              <select aria-label={t('Element category')} value={elementCategory} onChange={e => { setElementCategory(e.target.value); setElementCollection('All'); setElementLimit(40); }}>{ELEMENT_CATEGORIES.map(category => <option key={category} value={category}>{category === 'All' ? t('All categories') : t(category)}</option>)}</select>
+              <label className="element-search"><Search size={15} /><input aria-label={t('Search elements')} placeholder={t('Search {count} elements…', { count: ELEMENT_CATALOG.length })} value={elementSearch} onChange={e => { setElementSearch(e.target.value); }} /></label>
+              <select aria-label={t('Element collection')} value={elementCollection} onChange={e => { setElementCollection(e.target.value); setElementCategory('All'); }}><option value="All">{t('All {count} collections', { count: ELEMENT_COLLECTIONS.length })}</option>{ELEMENT_COLLECTIONS.map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select>
+              <select aria-label={t('Element category')} value={elementCategory} onChange={e => { setElementCategory(e.target.value); setElementCollection('All'); }}>{ELEMENT_CATEGORIES.map(category => <option key={category} value={category}>{category === 'All' ? t('All categories') : t(category)}</option>)}</select>
             </div>
             {allOverlays.length > 0 && <details className="element-list element-project-overlays library-disclosure">
               <summary>{t('In project')} <span>{allOverlays.length}</span></summary>
