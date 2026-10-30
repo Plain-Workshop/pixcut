@@ -141,10 +141,11 @@ import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import * as bridge from './bridge';
 import type { ModalId } from './modal';
+import { buildDiagnostics, classifyDrop, countMissingAssets } from './home-support';
 import { commandAvailability as resolveAvailability } from './command-availability';
 import { runCommand } from './command-runner';
 import { HINTS_KEY } from './export-options';
-import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, projectScenes, sceneAt, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
+import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, projectScenes, sceneAt, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
 import { probeVideo } from '../components/preview/video';
 import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers } from '../components/text/layers';
@@ -601,16 +602,7 @@ export default function App() {
   }, [modal, settingsTab]);
 
   function diagnostics() {
-    return [
-      `PixCut Desktop ${appVersion}`,
-      `Build: ${__BUILD_SHA__.slice(0, 7)} · ${__BUILD_DATE__}`,
-      `Runtime: ${bridge.native ? 'native Tauri' : 'browser preview'}`,
-      `Platform: ${platform}`,
-      `Project schema: ${latestProject.current.schema_version}`,
-      `Project: ${latestProject.current.aspect} · ${frameRate(latestProject.current.timebase).toFixed(0)} fps · ${totalDuration(latestProject.current).toFixed(1)} s`,
-      `FFmpeg: ${exporter ? 'available' : 'not found'}`,
-      `Preferences: ${preferences.compact ? 'compact' : 'comfortable'} · ${preferences.reduceMotion ? 'reduced motion' : 'full motion'} · autosave ${preferences.autosaveMs} ms`,
-    ].join('\n');
+    return buildDiagnostics({ appVersion, buildSha: __BUILD_SHA__, buildDate: __BUILD_DATE__, native: bridge.native, platform, project: latestProject.current, exporter, preferences });
   }
 
   function copyDiagnostics() {
@@ -694,14 +686,13 @@ export default function App() {
     const drop = (event: DragEvent) => {
       if (!hasFiles(event)) return;
       event.preventDefault();
-      const files = Array.from(event.dataTransfer?.files ?? []);
-      const projectFile = files.find(file => /\.pixcut$/i.test(file.name));
-      if (projectFile) { void openProjectFile(projectFile); return; }
-      const images = files.filter(file => /^image\//.test(file.type));
-      const videos = files.filter(file => /^video\//.test(file.type));
-      if (images.length) { const transfer = new DataTransfer(); images.forEach(file => transfer.items.add(file)); void importFiles(transfer.files); }
-      else if (videos.length) { const transfer = new DataTransfer(); videos.forEach(file => transfer.items.add(file)); void importVideos(transfer.files); }
-      else setError(t('Drop photos, videos or a .pixcut project file.'));
+      const action = classifyDrop(Array.from(event.dataTransfer?.files ?? []));
+      if (action.kind === 'project') void openProjectFile(action.file);
+      else if (action.kind === 'images' || action.kind === 'videos') {
+        const transfer = new DataTransfer();
+        action.files.forEach(file => transfer.items.add(file));
+        void (action.kind === 'images' ? importFiles(transfer.files) : importVideos(transfer.files));
+      } else setError(t('Drop photos, videos or a .pixcut project file.'));
     };
     window.addEventListener('dragover', over);
     window.addEventListener('drop', drop);
@@ -711,22 +702,8 @@ export default function App() {
   useEffect(() => {
     if (screen !== 'home' || !libraryReady) return;
     let cancelled = false;
-    void (async () => {
-      const found: Record<string, number> = {};
-      for (const entry of projects.slice(0, 12)) {
-        try {
-          const saved = await getLibraryProject(entry.id);
-          const refs = saved ? projectAssetRefs(saved) : [];
-          if (!refs.length) continue;
-          const lost = bridge.native
-            ? await bridge.missingAssetRefs(refs)
-            : (await Promise.all(refs.map(async reference => await assetExists(reference.slice('pixcut-asset:'.length)) ? null : reference))).filter(Boolean);
-          if (lost.length) found[entry.id] = lost.length;
-        } catch { /* a card without a badge is better than a failed library */ }
-        if (cancelled) return;
-      }
-      if (!cancelled) setMissingCounts(found);
-    })();
+    void countMissingAssets(projects, { load: getLibraryProject, refsOf: projectAssetRefs, nativeMissing: bridge.native ? bridge.missingAssetRefs : null, exists: assetExists, isCancelled: () => cancelled })
+      .then(found => { if (found) setMissingCounts(found); });
     return () => { cancelled = true; };
   }, [screen, libraryReady, projects.map(entry => `${entry.id}:${entry.updatedAt}`).join('|')]);
   useEffect(() => {

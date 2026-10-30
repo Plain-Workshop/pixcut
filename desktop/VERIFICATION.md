@@ -1691,3 +1691,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - `src/app/command-availability.ts` plus `tests/command-availability.test.ts` (15).
 - Browser preview: the command palette on Home lists Undo, Redo, Play/pause and Play backward as unavailable with "Open a story to use playback."; in the editor only Undo, Redo and Split clip (playhead at the very start: "Place the playhead at least half a second inside the selected clip") are unavailable out of 44 commands.
 - Tests: 605 TypeScript, tsc, build and eslint (0 errors).
+
+## Home support helpers (Phase 4, step 14) (2026-10-30)
+
+- `src/app/home-support.ts` plus `tests/home-support.test.ts` (12): diagnostics lines and privacy, drop classification order, missing-asset counting (browser and native paths, unreadable project, limit, cancellation).
+- Browser preview: dropping a PDF on Home showed "Drop photos, videos or a .pixcut project file."; Home rendered its project card with no missing-media badge (nothing is missing). Copy diagnostics was not clicked in the browser (the Settings button was not found by my selector); it is covered by the unit tests only.
+- Tests: 617 TypeScript, tsc, build and eslint (0 errors).
