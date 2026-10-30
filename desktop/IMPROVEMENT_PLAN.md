@@ -173,6 +173,8 @@ Remaining:
 
 **Done when:** no component takes more than ~25 props and `App.tsx` is under 800 lines.
 
+**Status after step 14 (2026-10-30), not done.** Four components are still over 25 props (`SettingsModal` 39, `PreviewPanel` 31, `TimelinePanel` 30, `HomeMain` 29) and `App.tsx` is 2,140 lines. Every cut so far moved real behaviour out and added tests, but each now removes only 20 to 90 lines, because what is left is mostly hook calls and the glue between them: the JSX return is about 100 lines, and the modal state is already inside `useProjectLibrary`. Reaching 800 would need a different kind of change: grouping the 17 `use…` hook calls into three or four larger domain hooks (media, audio, project library, export), which touches shared refs (`operation`, `pending`, `latestProject`) and is where regressions would come from. That should be a deliberate decision with native verification (Phase 7), not a continuation of this series. Suggested revision of the goal: no component over ~30 props and `App.tsx` under about 1,500 lines, then move to Phase 5.
+
 ### Phase 5 — performance (M)
 
 1. Code-split the element catalogue, templates, music panel and export studio with `import()`; target under 500 KB for the first chunk.
