@@ -1679,3 +1679,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 
 - `ModalId` type, typed hover setters, typed Commons response; `grep` finds no `: any`, `<any`, `as any` or `any[]` in `src`, and no ts-ignore directives.
 - Tests: 584 TypeScript (the existing online-music parser tests cover the Commons change), tsc and build clean, eslint 0 errors. Types only; no browser run needed.
+
+## Export settings store (Phase 4, step 12) (2026-10-30)
+
+- `src/app/keyed-store.ts`, `src/app/export-store.tsx`, `tests/export-store.test.ts` (6): setter shape and identity, no notification for unchanged values, reset, defaults, `effectiveHardware` for h264/hevc/other and with or without support, provider.
+- Browser preview: opened Export; quality "High" became the pressed choice; Include audio toggled on → off; frame rate 24 changed the output list to "1920 × 1080 · 24 fps"; hardware encoder correctly disabled ("Unavailable") in the browser; no new console errors. No export was run (needs the desktop app and FFmpeg).
+- Tests: 590 TypeScript. The native export path is unchanged in code but was not exercised here; that remains Phase 7.

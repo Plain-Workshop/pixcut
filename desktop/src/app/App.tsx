@@ -39,6 +39,7 @@ import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
 import { useUpdates } from './hooks/useUpdates';
 import { SelectionProvider, useCreateSelectionStore, useSelection } from './selection-store';
+import { ExportProvider, effectiveHardware, useCreateExportStore, useExportSettings } from './export-store';
 import { DraftsProvider, useCreateDraftsStore, useDrafts } from './drafts-store';
 import { LibraryProvider, useCreateLibraryStore, useLibraryState } from './library-store';
 import { LayoutProvider, useCreateLayoutStore, useLayout } from './layout-store';
@@ -231,18 +232,11 @@ export default function App() {
   const customElementKind = useRef<'image' | 'video'>('image');
   const [exportElapsed, setExportElapsed] = useState(0);
   const [exportJob, setExportJob] = useState({ name: '', phase: 'Preparing frames' });
-  const [exportQuality, setExportQuality] = useState('standard');
-  const [exportCodec, setExportCodec] = useState<bridge.ExportCodec>('h264');
-  const [exportContainer, setExportContainer] = useState<bridge.ExportContainer>('mp4');
-  const [exportSpeed, setExportSpeed] = useState<'fast' | 'medium' | 'slow'>('medium');
   const [hardwareAvailable, setHardwareAvailable] = useState(false);
 
-  const [exportHardware, setExportHardware] = useState(false);
-  const [exportAudio, setExportAudio] = useState(true);
-  const [saveCredits, setSaveCredits] = useState(true);
   const [exportCodecs, setExportCodecs] = useState<bridge.ExportCodec[]>([]);
-  const [exportResolution, setExportResolution] = useState('project');
-  const [exportFps, setExportFps] = useState('project');
+  const exportStore = useCreateExportStore();
+  const { quality: exportQuality, codec: exportCodec, container: exportContainer, speed: exportSpeed, hardware: exportHardware, audio: exportAudio, saveCredits, resolution: exportResolution, fps: exportFps, formatIds: exportFormatIds, setFormatIds: setExportFormatIds, setHardware: setExportHardware } = useExportSettings(exportStore);
   const draftsStore = useCreateDraftsStore();
   const { previewScene, overlayDraft, pipDraft, audioDraft, setPreviewScene, setOverlayDraft, setPipDraft, setAudioDraft } = useDrafts(draftsStore);
   const overlayDraftRef = useRef<TimelineOverlay | null>(null);
@@ -306,7 +300,6 @@ export default function App() {
     ...newCustomFormats,
   ];
   const newFormatOutputs = groupFormatsByOutput(newFormatSelection);
-  const [exportFormatIds, setExportFormatIds] = useState<string[]>([]);
   const [framingMode, setFramingMode] = useState(false);
   const [, setFontTick] = useState(0);
   const [propertyClipboard, setPropertyClipboard] = useState<Partial<Scene> | null>(null);
@@ -456,7 +449,7 @@ export default function App() {
   const exportFormats = project.formats.map(format => exportOutputFormat(format, exportResolution, exportQuality, exportFps));
   const exportOutputs = groupFormatsByOutput(exportFormats.filter(format => exportFormatIds.includes(format.id)));
   const projectFormatOutputs = groupFormatsByOutput(project.formats);
-  const useHardware = exportHardware && hardwareAvailable && (exportCodec === 'h264' || exportCodec === 'hevc');
+  const useHardware = effectiveHardware({ hardware: exportHardware, codec: exportCodec }, hardwareAvailable);
   const displayAspect = project.aspect;
   const cueAudio = useMemo(() => actionAudio(project), [project]);
   const videoDuckWindows = useMemo(() => audibleVideoWindows(projectScenes(project), project.timebase, videoAudioGain({ audioMix: mixDraft ?? project.audioMix })), [project.tracks, project.timebase, project.audioMix, mixDraft]);
@@ -2147,6 +2140,7 @@ export default function App() {
     <SelectionProvider store={selectionStore}>
     <LayoutProvider store={layoutStore}>
     <LibraryProvider store={libraryStore}>
+    <ExportProvider store={exportStore}>
     <DraftsProvider store={draftsStore}>
     <EditorModelProvider value={editorModel}>
     <EditorViewProvider value={view}>
@@ -2236,7 +2230,7 @@ export default function App() {
         </> : modal === 'settings' ? <>
           <SettingsModal settingsTab={settingsTab} shortcutDirty={shortcutDirty} setNotice={setNotice} setSettingsTab={setSettingsTab} preferences={preferences} updatePreferences={updatePreferences} storageUsage={storageUsage} refreshAssetUsage={refreshAssetUsage} storageBusy={storageBusy} cleanStorage={cleanStorage} storageConfirm={storageConfirm} storageNote={storageNote} language={language} setLanguage={setLanguage} resetPreferences={resetPreferences} showHints={showHints} setShowHints={setShowHints} setSnapping={setSnapping} resetLayout={resetLayout} shortcuts={shortcuts} platform={platform} applyShortcuts={applyShortcuts} setShortcutDirty={setShortcutDirty} closeShortcutSettings={closeShortcutSettings} appVersion={appVersion} updateState={updateState} updateInfo={updateInfo} updateMessage={updateMessage} checkForUpdates={checkForUpdates} downloadUpdate={downloadUpdate} updateProgress={updateProgress} restartUpdate={restartUpdate} copyDownloadLink={copyDownloadLink} exporter={exporter} diagnostics={diagnostics} copyDiagnostics={copyDiagnostics} recheckExporter={recheckExporter} storageLabel={storageLabel} refreshStorage={refreshStorage} />
         </> : <>
-          <ExportModal saveCredits={saveCredits} setSaveCredits={setSaveCredits} project={project} duration={duration} scenes={scenes} exportCodec={exportCodec} exportCodecs={exportCodecs} setExportCodec={setExportCodec} setExportContainer={setExportContainer} exportContainer={exportContainer} exportSpeed={exportSpeed} setExportSpeed={setExportSpeed} exportHardware={exportHardware} hardwareAvailable={hardwareAvailable} setExportHardware={setExportHardware} exportQuality={exportQuality} setExportQuality={setExportQuality} exportResolution={exportResolution} setExportResolution={setExportResolution} exportFps={exportFps} setExportFps={setExportFps} exportAudio={exportAudio} setExportAudio={setExportAudio} musicCredits={musicCredits} setNotice={setNotice} setError={setError} hasVideoScenes={hasVideoScenes} exportSettings={exportSettings} setExportSettings={setExportSettings} exportFormatIds={exportFormatIds} exportOutputs={exportOutputs} exportFormats={exportFormats} setExportFormatIds={setExportFormatIds} exportFilename={exportFilename} exporter={exporter} platform={platform} exporting={exporting} busy={busy} exportVideo={exportVideo} />
+          <ExportModal project={project} duration={duration} scenes={scenes} exportCodecs={exportCodecs} hardwareAvailable={hardwareAvailable} musicCredits={musicCredits} setNotice={setNotice} setError={setError} hasVideoScenes={hasVideoScenes} exportSettings={exportSettings} setExportSettings={setExportSettings} exportOutputs={exportOutputs} exportFormats={exportFormats} exportFilename={exportFilename} exporter={exporter} platform={platform} exporting={exporting} busy={busy} exportVideo={exportVideo} />
         </>}
       </section></div>}
     </div>
@@ -2244,6 +2238,7 @@ export default function App() {
     </EditorViewProvider>
     </EditorModelProvider>
     </DraftsProvider>
+    </ExportProvider>
     </LibraryProvider>
     </LayoutProvider>
     </SelectionProvider>

@@ -1,3 +1,4 @@
+import { useExportSettings } from '../export-store';
 import * as bridge from '../bridge';
 import { fileCount, formatCount, renderCount, sceneCount, t, videoCount } from '../../i18n';
 import { Check, Copy, Download, Film, Layers, Music } from 'lucide-react';
@@ -7,40 +8,20 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { FormatOutputGroup } from '../../stores/formats';
 import { EXPORT_CODEC_OPTIONS, EXPORT_CONTAINERS, EXPORT_CONTAINER_LABEL, EXPORT_CONTAINER_SHORT, EXPORT_CODEC_NOTE, FFMPEG_INSTALL } from '../export-options';
 
-export function ExportModal({ saveCredits, setSaveCredits, project, duration, scenes, exportCodec, exportCodecs, setExportCodec, setExportContainer, exportContainer, exportSpeed, setExportSpeed, exportHardware, hardwareAvailable, setExportHardware, exportQuality, setExportQuality, exportResolution, setExportResolution, exportFps, setExportFps, exportAudio, setExportAudio, musicCredits, setNotice, setError, hasVideoScenes, exportSettings, setExportSettings, exportFormatIds, exportOutputs, exportFormats, setExportFormatIds, exportFilename, exporter, platform, exporting, busy, exportVideo }: {
+export function ExportModal({project, duration, scenes, exportCodecs, hardwareAvailable, musicCredits, setNotice, setError, hasVideoScenes, exportSettings, setExportSettings, exportOutputs, exportFormats, exportFilename, exporter, platform, exporting, busy, exportVideo}: {
   project: Project;
   duration: number;
   scenes: Scene[];
-  exportCodec: bridge.ExportCodec;
   exportCodecs: bridge.ExportCodec[];
-  setExportCodec: Dispatch<SetStateAction<bridge.ExportCodec>>;
-  setExportContainer: Dispatch<SetStateAction<bridge.ExportContainer>>;
-  exportContainer: bridge.ExportContainer;
-  exportSpeed: "fast" | "medium" | "slow";
-  setExportSpeed: Dispatch<SetStateAction<"fast" | "medium" | "slow">>;
-  exportHardware: boolean;
   hardwareAvailable: boolean;
-  setExportHardware: Dispatch<SetStateAction<boolean>>;
-  exportQuality: string;
-  setExportQuality: Dispatch<SetStateAction<string>>;
-  exportResolution: string;
-  setExportResolution: Dispatch<SetStateAction<string>>;
-  exportFps: string;
-  setExportFps: Dispatch<SetStateAction<string>>;
-  exportAudio: boolean;
-  setExportAudio: Dispatch<SetStateAction<boolean>>;
   musicCredits: string[];
-  saveCredits: boolean;
-  setSaveCredits: Dispatch<SetStateAction<boolean>>;
   setNotice: Dispatch<SetStateAction<string>>;
   setError: Dispatch<SetStateAction<string>>;
   hasVideoScenes: boolean;
   exportSettings: { name: string; version: string; includeQuality: boolean; includePreset: boolean; };
   setExportSettings: Dispatch<SetStateAction<{ name: string; version: string; includeQuality: boolean; includePreset: boolean; }>>;
-  exportFormatIds: string[];
   exportOutputs: FormatOutputGroup<FormatVariant>[];
   exportFormats: FormatVariant[];
-  setExportFormatIds: Dispatch<SetStateAction<string[]>>;
   exportFilename: (delivery: { formats: { name: string; presetId?: string | null; quality: string; width: number; height: number; }[]; slug?: string; }, includeFormat?: boolean) => string;
   exporter: boolean;
   platform: ShortcutPlatform;
@@ -48,6 +29,7 @@ export function ExportModal({ saveCredits, setSaveCredits, project, duration, sc
   busy: boolean;
   exportVideo: () => Promise<void>;
 }) {
+  const { saveCredits, setSaveCredits, codec: exportCodec, setCodec: setExportCodec, setContainer: setExportContainer, container: exportContainer, speed: exportSpeed, setSpeed: setExportSpeed, hardware: exportHardware, setHardware: setExportHardware, quality: exportQuality, setQuality: setExportQuality, resolution: exportResolution, setResolution: setExportResolution, fps: exportFps, setFps: setExportFps, audio: exportAudio, setAudio: setExportAudio, formatIds: exportFormatIds, setFormatIds: setExportFormatIds } = useExportSettings();
   return (
     <>
       <div className="export-title"><h2 id="modal-title">{t('Export video')}</h2><p>{project.name} <span>· {duration.toFixed(1)} s · {sceneCount(scenes.length)}</span></p></div>
