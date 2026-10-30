@@ -1176,4 +1176,9 @@ export const ko: Record<string, string> = {
   'Delete for good': '영구 삭제',
   'Confirm: delete for good': '확인: 영구 삭제',
   'Move to Recently deleted…': '최근 삭제된 항목으로 이동…',
+  'Saved search results': '저장된 검색 결과',
+  'The last answer to each online music and sound search, kept so an outage still shows something. Titles and links only, never audio.': '온라인 음악·효과음 검색마다 마지막 결과를 저장해 두어 장애가 있어도 무언가 표시됩니다. 제목과 링크만 저장하며 오디오는 저장하지 않습니다.',
+  'Saved search results cleared.': '저장된 검색 결과를 지웠습니다.',
+  'Clear': '지우기',
+  'The catalogues are not answering. Showing the results saved on {date}.': '카탈로그가 응답하지 않습니다. {date}에 저장된 결과를 표시합니다.',
 };

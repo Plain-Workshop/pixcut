@@ -1176,4 +1176,9 @@ export const ja: Record<string, string> = {
   'Delete for good': '完全に削除',
   'Confirm: delete for good': '確認: 完全に削除',
   'Move to Recently deleted…': '最近削除した項目に移動…',
+  'Saved search results': '保存した検索結果',
+  'The last answer to each online music and sound search, kept so an outage still shows something. Titles and links only, never audio.': 'オンラインの音楽・効果音検索ごとの最後の結果を保存し、障害時でも何か表示できるようにします。タイトルとリンクのみで、音声は含みません。',
+  'Saved search results cleared.': '保存した検索結果を消去しました。',
+  'Clear': '消去',
+  'The catalogues are not answering. Showing the results saved on {date}.': 'カタログが応答していません。{date} に保存した結果を表示しています。',
 };

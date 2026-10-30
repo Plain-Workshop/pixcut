@@ -1176,4 +1176,9 @@ export const zh: Record<string, string> = {
   'Delete for good': '永久删除',
   'Confirm: delete for good': '确认：永久删除',
   'Move to Recently deleted…': '移至“最近删除”…',
+  'Saved search results': '已保存的搜索结果',
+  'The last answer to each online music and sound search, kept so an outage still shows something. Titles and links only, never audio.': '保存每次在线音乐和音效搜索的最后一次结果，以便目录无法访问时仍能显示内容。只保存标题和链接，不保存音频。',
+  'Saved search results cleared.': '已清除保存的搜索结果。',
+  'Clear': '清除',
+  'The catalogues are not answering. Showing the results saved on {date}.': '目录没有响应。正在显示 {date} 保存的结果。',
 };

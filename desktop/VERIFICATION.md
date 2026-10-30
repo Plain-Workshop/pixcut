@@ -1703,3 +1703,10 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - Build: first chunk 1,864 KB → 1,039 KB raw (326 KB gzip → about 319 KB gzip measured on the new chunk only; the old gzip size was not measured). Ten locale chunks of 67 to 99 KB, six dialog chunks of 3 to 26 KB.
 - Browser preview: with `pixcut-language` = de the Home screen is German on first paint and only `de.ts` was fetched; switching to Japanese in Settings fetched `ja.ts` and relabelled the dialog (設定, 一般, 外観, 編集, ショートカット); back to English restored it and the stored value; the Export dialog opened and fetched its chunk; the Music tab fetched 2 audio files, down from 15 (to be confirmed natively).
 - Tests: 624 TypeScript (4 for lazy locales, 3 for the preview cache; i18n tests now import `tests/all-locales.ts`), tsc and eslint (0 errors).
+
+## Phase 6: catalogue resilience (2026-10-30)
+
+- `src/stores/online-cache.ts`, `tests/online-cache.test.ts` (12): key normalisation, save and read, empty answers not saved, one-month expiry, 40-entry cap, re-validation (an `http://` URL is dropped), corrupt storage, clear, live-then-offline through `searchOnlineCached`, no saved answer still fails, empty query still asks for a word, catalogue labels.
+- Rust: `commons_search_and_download_work_end_to_end` (ignored, needs network) passes against the real Commons; the normal suite is 50 passed, 25 ignored; clippy clean for this file.
+- Five new strings translated into all ten languages (coverage test passes). The translations are mine and unreviewed by native speakers.
+- Tests: 636 TypeScript.

@@ -1176,4 +1176,9 @@ export const es: Record<string, string> = {
   'Delete for good': 'Eliminar definitivamente',
   'Confirm: delete for good': 'Confirmar: eliminar definitivamente',
   'Move to Recently deleted…': 'Mover a Eliminados recientemente…',
+  'Saved search results': 'Resultados de búsqueda guardados',
+  'The last answer to each online music and sound search, kept so an outage still shows something. Titles and links only, never audio.': 'La última respuesta a cada búsqueda de música y sonidos en línea, guardada para que una caída siga mostrando algo. Solo títulos y enlaces, nunca audio.',
+  'Saved search results cleared.': 'Resultados de búsqueda guardados borrados.',
+  'Clear': 'Borrar',
+  'The catalogues are not answering. Showing the results saved on {date}.': 'Los catálogos no responden. Se muestran los resultados guardados el {date}.',
 };

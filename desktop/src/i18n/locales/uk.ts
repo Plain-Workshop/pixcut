@@ -1176,4 +1176,9 @@ export const uk: Record<string, string> = {
   'Delete for good': 'Видалити назавжди',
   'Confirm: delete for good': 'Підтвердьте: видалити назавжди',
   'Move to Recently deleted…': 'Перемістити до Нещодавно видалених…',
+  'Saved search results': 'Збережені результати пошуку',
+  'The last answer to each online music and sound search, kept so an outage still shows something. Titles and links only, never audio.': 'Остання відповідь на кожен онлайн-пошук музики та звуків, збережена, щоб під час збою щось усе одно показувалося. Лише назви та посилання, ніколи аудіо.',
+  'Saved search results cleared.': 'Збережені результати пошуку видалено.',
+  'Clear': 'Очистити',
+  'The catalogues are not answering. Showing the results saved on {date}.': 'Каталоги не відповідають. Показано результати, збережені {date}.',
 };

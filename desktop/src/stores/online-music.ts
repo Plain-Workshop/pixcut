@@ -25,7 +25,7 @@ export type OnlineTrack = {
   license: OnlineLicense; licenseVersion: string; licenseUrl: string;
   seconds: number; genres: string[]; source: string; credit: string;
 };
-export type OnlineSearchPage = { tracks: OnlineTrack[]; total: number; pages: number; page: number; provider?: OnlineProvider; /** Commons only: the offset the catalogue says continues this search. Absent means no more results. */ cursor?: number; /** Set when Openverse failed and this page came from another catalogue. */ fellBack?: boolean };
+export type OnlineSearchPage = { tracks: OnlineTrack[]; total: number; pages: number; page: number; provider?: OnlineProvider; /** Commons only: the offset the catalogue says continues this search. Absent means no more results. */ cursor?: number; /** Set when Openverse failed and this page came from another catalogue. */ fellBack?: boolean; /** Set when every catalogue failed and this is the last saved answer; the time it was saved, in ms. */ cachedAt?: number };
 
 /** When a catalogue last failed. The chips show it so a dead catalogue is obvious, and forget it after ten minutes. */
 const failedAt = new Map<OnlineProvider, number>();
@@ -36,6 +36,9 @@ async function tracked<T>(provider: OnlineProvider, task: Promise<T>): Promise<T
   try { const value = await task; failedAt.delete(provider); return value; }
   catch (error) { failedAt.set(provider, Date.now()); throw error; }
 }
+
+/** The catalogue a result came from, as shown on its row. Results without a provider come from Openverse. */
+export const catalogueLabel = (track: Pick<OnlineTrack, 'provider'>) => ({ openverse: 'Openverse', commons: 'Wikimedia', archive: 'Free Music Archive' } as const)[track.provider ?? 'openverse'];
 
 export const ONLINE_GENRES = ['Pop', 'Rock', 'Indie', 'Electronic', 'Hip-hop', 'Funk', 'Lo-fi', 'Jazz', 'Acoustic', 'Cinematic'] as const;
 const ALLOWED = new Set<string>(['cc0', 'by', 'pdm']);
@@ -436,22 +439,22 @@ async function downloadFrom(track: OnlineTrack, url: string): Promise<Downloaded
   } finally { if (browserDownload === controller) browserDownload = null; }
 }
 
-export const onlineHasMore = (page: OnlineSearchPage) => page.provider === 'commons' ? page.cursor !== undefined : page.page < page.pages;
+export const onlineHasMore = (page: OnlineSearchPage) => page.cachedAt === undefined && (page.provider === 'commons' ? page.cursor !== undefined : page.page < page.pages);
 
 /**
  * Fetches pages until `want` new tracks are found, the catalogue runs out, or `maxFetches` is reached.
  * Licence and length filters can empty a whole page of hits, so one request often adds nothing.
  * `seen` holds the ids already on screen; the returned page lists only new tracks.
  */
-export async function searchOnlineFill(query: string, kind: OnlineKind, source: OnlineSource, start: { page: number; cursor?: number }, seen: ReadonlySet<string> = new Set(), want = 10, maxFetches = 5): Promise<OnlineSearchPage> {
+export async function searchOnlineFill(query: string, kind: OnlineKind, source: OnlineSource, start: { page: number; cursor?: number }, seen: ReadonlySet<string> = new Set(), want = 10, maxFetches = 5, search: typeof searchOnline = searchOnline): Promise<OnlineSearchPage> {
   const known = new Set(seen), fresh: OnlineTrack[] = [];
   let page = start.page, cursor = start.cursor, pinned = source, last = null as OnlineSearchPage | null;
   for (let fetches = 0; fetches < maxFetches; fetches++) {
-    const found = await searchOnline(query, page, kind, pinned, cursor);
+    const found = await search(query, page, kind, pinned, cursor);
     last = { ...found, fellBack: found.fellBack || last?.fellBack };
     if (found.provider) pinned = found.provider;
     for (const track of found.tracks) if (!known.has(track.id)) { known.add(track.id); fresh.push(track); }
-    if (fresh.length >= want || !onlineHasMore(found)) break;
+    if (found.cachedAt || fresh.length >= want || !onlineHasMore(found)) break;
     page = found.page + 1; cursor = found.cursor;
   }
   return { ...last!, tracks: fresh };

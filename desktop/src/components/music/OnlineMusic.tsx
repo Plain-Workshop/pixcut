@@ -1,8 +1,9 @@
 import { t } from '../../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { Check, ExternalLink, Loader2, Pause, Play, Plus, Search, Star, X } from 'lucide-react';
-import { FALLBACK_AFTER_MS, cancelOnlineDownload, catalogueDown, fallbackOrder, downloadPercent, formatDownloadProgress, subscribeDownloadProgress, type DownloadProgress, ONLINE_GENRES, ONLINE_SOUND_TOPICS, ONLINE_PROVIDERS, buildOnlineQuery, onlineHasMore, onlineLicenseLabel, searchOnlineFill, type OnlineKind, type OnlineSearchPage, type OnlineSource, type OnlineTrack } from '../../stores/online-music';
+import { FALLBACK_AFTER_MS, catalogueLabel, cancelOnlineDownload, catalogueDown, fallbackOrder, downloadPercent, formatDownloadProgress, subscribeDownloadProgress, type DownloadProgress, ONLINE_GENRES, ONLINE_SOUND_TOPICS, ONLINE_PROVIDERS, buildOnlineQuery, onlineHasMore, onlineLicenseLabel, searchOnlineFill, type OnlineKind, type OnlineSearchPage, type OnlineSource, type OnlineTrack } from '../../stores/online-music';
 import { messageFor } from '../../app/errors';
+import { searchOnlineCached } from '../../stores/online-cache';
 import { loadFavorites, saveFavorites, toggleFavorite, type OnlineFavorite } from '../../stores/online-favorites';
 
 /**
@@ -78,7 +79,7 @@ export function OnlineMusic({ canEdit, onAdd, onStopOther, kind = 'music', isDow
     try {
       const previous = append ? result : null;
       const seen = new Set(append ? tracks.map(track => track.id) : []);
-      const found = await searchOnlineFill(words, kind, previous?.provider ?? nextSource, previous ? { page: previous.page + 1, cursor: previous.cursor } : { page: 1 }, seen);
+      const found = await searchOnlineFill(words, kind, previous?.provider ?? nextSource, previous ? { page: previous.page + 1, cursor: previous.cursor } : { page: 1 }, seen, 10, 5, searchOnlineCached);
       if (token !== searchToken.current) return;
       setResult(found);
       setTracks(current => append ? [...current, ...found.tracks.filter(track => !current.some(item => item.id === track.id))] : found.tracks);
@@ -137,7 +138,8 @@ export function OnlineMusic({ canEdit, onAdd, onStopOther, kind = 'music', isDow
     </div>
     <p className={`online-status ${statusText ? 'busy' : ''}`} role="status" aria-live="polite">{statusText && <><Loader2 size={12} className="spin" /> {statusText}</>}</p>
     {error && <p className="online-music-error" role="alert">{error}</p>}
-    {!showSaved && result?.fellBack && !error && <p className="note online-fallback">Openverse is not answering, so these results come from {ONLINE_PROVIDERS.find(item => item.id === result.provider)?.label ?? 'another catalogue'}.</p>}
+    {!showSaved && result?.cachedAt !== undefined && !error && <p className="note online-fallback" role="status">{t('The catalogues are not answering. Showing the results saved on {date}.', { date: new Date(result.cachedAt).toLocaleString() })}</p>}
+    {!showSaved && result?.fellBack && result.cachedAt === undefined && !error && <p className="note online-fallback">Openverse is not answering, so these results come from {ONLINE_PROVIDERS.find(item => item.id === result.provider)?.label ?? 'another catalogue'}.</p>}
     {!showSaved && !searched && !loading && !error && <div className="library-empty music-empty">
       <strong>{sounds ? 'Find free sound effects for your video.' : 'Find free music for your video.'}</strong>
       <p>{sounds ? 'Search by word or pick a topic. Results are CC0 or CC BY sounds that are free to use commercially.' : 'Search by word or pick a genre. Results are CC0 or CC BY tracks that are free to use commercially.'}</p>
@@ -148,7 +150,7 @@ export function OnlineMusic({ canEdit, onAdd, onStopOther, kind = 'music', isDow
     {(showSaved || !fresh) && <div className="free-music-list online-music-list">
       {(showSaved ? saved : tracks).map(track => <div key={track.id} className={`free-music-track ${playing === track.id ? 'previewing' : ''}`}>
         <button className="music-listen" aria-label={playing === track.id ? t('Stop {name}', { name: track.title }) : t('Listen to {name}', { name: track.title })} onClick={() => listen(track)}>{playing === track.id ? <Pause size={13} /> : <Play size={13} />}</button>
-        <span><strong>{track.title}</strong>{isDownloaded?.(track) && <em className="online-downloaded" title={t('Saved on this device, works offline')}><Check size={10} /> Downloaded</em>}<small>{track.artist} · {onlineLicenseLabel(track)}{source === 'auto' && track.provider === 'commons' ? ' · Wikimedia' : ''} · {sounds ? `${track.seconds.toFixed(track.seconds < 10 ? 1 : 0)}s` : `${Math.floor(track.seconds / 60)}:${String(Math.round(track.seconds) % 60).padStart(2, '0')}`}</small>{adding === track.id && <span className="online-progress" role="status" aria-live="polite"><em>{progress ? formatDownloadProgress(progress) : 'Starting download…'}</em><progress max={100} value={progress ? downloadPercent(progress) ?? undefined : undefined} aria-label={t('Download progress for {title}', { title: track.title })} /></span>}</span>
+        <span><strong>{track.title}</strong>{isDownloaded?.(track) && <em className="online-downloaded" title={t('Saved on this device, works offline')}><Check size={10} /> Downloaded</em>}<small>{track.artist} · {onlineLicenseLabel(track)}{source === 'auto' || showSaved ? ` · ${catalogueLabel(track)}` : ''} · {sounds ? `${track.seconds.toFixed(track.seconds < 10 ? 1 : 0)}s` : `${Math.floor(track.seconds / 60)}:${String(Math.round(track.seconds) % 60).padStart(2, '0')}`}</small>{adding === track.id && <span className="online-progress" role="status" aria-live="polite"><em>{progress ? formatDownloadProgress(progress) : 'Starting download…'}</em><progress max={100} value={progress ? downloadPercent(progress) ?? undefined : undefined} aria-label={t('Download progress for {title}', { title: track.title })} /></span>}</span>
         <button className={`icon-button star ${favorites.some(item => item.id === track.id) ? 'on' : ''}`} aria-pressed={favorites.some(item => item.id === track.id)} aria-label={favorites.some(item => item.id === track.id) ? t('Remove {name}', { name: track.title }) : t('Save {name}', { name: track.title })} title={t('Save to favorites')} onClick={() => star(track)}><Star size={14} fill={favorites.some(item => item.id === track.id) ? 'currentColor' : 'none'} /></button>
         <a className="icon-button" href={track.landingUrl} target="_blank" rel="noreferrer noopener" aria-label={t('Open {title} on its source page', { title: track.title })} title={t('Open the source page')}><ExternalLink size={14} /></a>
         {adding === track.id

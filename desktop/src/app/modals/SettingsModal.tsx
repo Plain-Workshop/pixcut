@@ -1,3 +1,4 @@
+import { clearOnlineCache } from '../../stores/online-cache';
 import * as bridge from '../bridge';
 import { isLocale, LOCALES, t, type Locale } from '../../i18n';
 import { Ban, Check, Copy, Download, HardDrive, Info, Keyboard, Monitor, Moon, Palette, RefreshCw, Scissors, Settings2, ShieldCheck, Sun, WifiOff } from 'lucide-react';
@@ -180,6 +181,10 @@ export function SettingsModal({ settingsTab, shortcutDirty, setNotice, setSettin
                   <button className={`button ${storageConfirm ? 'danger' : 'subtle'}`} onClick={() => void cleanStorage()} disabled={storageBusy}>{storageBusy ? t('Cleaning…') : storageConfirm ? t('Confirm cleanup') : t('Remove unused media')}</button>
                 </span>
               </div>}
+              <div className="settings-row">
+                <span className="settings-row-text"><strong>{t('Saved search results')}</strong><small>{t('The last answer to each online music and sound search, kept so an outage still shows something. Titles and links only, never audio.')}</small></span>
+                <span className="settings-row-control"><button className="button subtle" onClick={() => { clearOnlineCache(); setNotice(t('Saved search results cleared.')); }}>{t('Clear')}</button></span>
+              </div>
             </Group>
             <p className="note">{t('Deleting a project removes its local library record and media assets. Exported videos and downloaded project backups are not touched.')}</p>
           </>}

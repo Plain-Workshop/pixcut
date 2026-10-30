@@ -193,6 +193,12 @@ Remaining:
 2. Show which catalogue each result came from (Free Music Archive rows currently show nothing).
 3. Add a native end-to-end check (ignored by default, like the FFmpeg tests) that searches and downloads one CC0 file through the Rust path.
 
+**Status (2026-10-30): done, one limit.**
+
+1. *Cache.* `src/stores/online-cache.ts` keeps the last good answer to each search (up to 40, one month). When every catalogue fails, `searchOnlineCached` returns the saved answer, and the panel says "The catalogues are not answering. Showing the results saved on {date}." instead of an error; "Load more" is hidden for a saved page. Nothing but catalogue entries is stored (titles, links, licences, credit lines; never audio), entries are re-validated with the favourites rules on the way in, and Settings → Storage & privacy has a Clear button. An empty live answer is not an outage and is shown as is. The limit: a search nobody has run before still fails with the real error, and this cache is per device, so a fresh install offline has nothing to show.
+2. *Source labels.* Every result row in Auto and Saved views now names its catalogue (Openverse, Wikimedia, Free Music Archive); only Wikimedia was labelled before.
+3. *Native check.* `commons_search_and_download_work_end_to_end` in `online_music.rs` is `#[ignore]`d like the FFmpeg tests. It searches the real Wikimedia Commons through the app's allow-list and request code, picks a small CC0, public-domain or CC BY sound, downloads it through the retrying client and size-capped copy, and checks it is non-empty and about the promised size. It passed here. It does not cover the Tauri asset store (that needs a window), so the last step of Add is still a Phase 7 hand check. Openverse is not in the test because it was down during this work.
+
 ### Phase 7 — native verification (S)
 
 On the desktop app, check:
