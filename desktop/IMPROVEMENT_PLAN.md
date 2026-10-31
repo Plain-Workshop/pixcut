@@ -210,6 +210,21 @@ On the desktop app, check:
 
 Record the results in `VERIFICATION.md`.
 
+**Status (2026-10-31): partly done. Four checks need a person at the app.**
+
+| Check | Result | How |
+|---|---|---|
+| Rust tests that need FFmpeg or the network | **Passed**: 25 of 25 ignored tests (all export paths, h264/hevc/vp9/prores, audio lane gain, FLAC conversion, real Commons search and download) | `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored` with FFmpeg and ffprobe installed |
+| Native app builds and starts on this branch | **Passed**: `tauri build --debug` produced the bundle; it launched and ran without crash entries in the system log. The build then failed at the updater-signing step because no signing key is set, which is expected and leaves the `.app` intact | |
+| Pinch zoom | **Browser only**: ctrl+wheel and Safari-style `gesturechange` events both zoom (0.5 → 0.8 with scale 1.6, clamps at 50% and at one frame per 16 px). A real trackpad in the desktop app was not tried | needs a trackpad |
+| Theme "System" following the OS | **Browser only**: with System chosen, switching the emulated OS scheme from light to dark changed the app from `theme-light` to `theme-dark` without a reload. The desktop webview's own OS signal was not tried | needs toggling macOS appearance |
+| Update from a test feed | **Not done.** The endpoint is fixed to the GitHub feed and a test needs a build signed with the updater key; I did not use that key. The live feed answers (HTTP 200; latest published is v0.2.0, the build is 0.2.2, so the app should say it is up to date) | see the hand procedure below |
+| Online download through Rust, last step | **Not done**: the test covers search and download; storing the file in the asset store needs a window | add a track in the Online tab of the desktop app |
+
+Hand procedure for the update check: build a version higher than the published one with the real key on a release machine, publish a draft, then in an older build press Check for updates, Download and install, Restart, and confirm the new version number under Settings → Updates. Drafts are not visible to the updater (see `RELEASING.md`).
+
+Hand checks to run once in the desktop app (about ten minutes): (1) Music → Online: search, Listen, Add one result, confirm it appears on the audio lane and plays; unplug the network and search again to see the saved-results banner. (2) Music → Bundled: Listen to a track that was not the first one and note whether it starts at once. (3) Timeline: pinch in and out on the trackpad. (4) Settings → Appearance → System, then flip macOS between light and dark. (5) Settings → Updates → Check for updates should say it is up to date. (6) Scene 2's left trim handle: drag it left and right; during Phase 4 its width did not change in one browser test and I never compared it with the earlier code.
+
 ## Order and size
 
 | Phase | Size | Why this order |

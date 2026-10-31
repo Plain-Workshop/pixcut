@@ -1710,3 +1710,10 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - Rust: `commons_search_and_download_work_end_to_end` (ignored, needs network) passes against the real Commons; the normal suite is 50 passed, 25 ignored; clippy clean for this file.
 - Five new strings translated into all ten languages (coverage test passes). The translations are mine and unreviewed by native speakers.
 - Tests: 636 TypeScript.
+
+## Phase 7: native verification (2026-10-31)
+
+- Rust: `cargo test -- --ignored` with FFmpeg 7+ and ffprobe from Homebrew: 25 passed, 0 failed (exports in h264, hevc, vp9, prores, webm, audio lane gain and mute, video speed ramps and reverse, transitions, hardware h264, FLAC to M4A, real Wikimedia Commons search and download).
+- Native build: `tauri build --debug --bundles app` produced `target/debug/bundle/macos/PixCut.app` (updater signing then failed for lack of `TAURI_SIGNING_PRIVATE_KEY`, as expected; the key in `.secrets/` was not used). The app was restarted on it and was running with no crash lines in the system log. It was not driven through its window.
+- Browser preview (not the native webview): System theme followed a light to dark change live; ctrl+wheel and gesture pinch zoom both worked and clamp correctly.
+- Not verified: update from a test feed, trackpad pinch, macOS appearance switch, adding an online track in the desktop app, first Listen latency on an unwarmed bundled track, scene 2's left trim handle. Procedures are in `IMPROVEMENT_PLAN.md` Phase 7.
