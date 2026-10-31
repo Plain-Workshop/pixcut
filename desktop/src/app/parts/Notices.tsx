@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { AlertTriangle, Check, X } from 'lucide-react';
 import { IconButton } from '../../components/IconButton';
 import { errorTitle } from '../errors';
@@ -18,11 +19,11 @@ export function ErrorBanner({ message, onDismiss }: { message: string; onDismiss
 export function ExportJobCard({ name, phase, progress, elapsed, cancelling, onCancel }: {
   name: string; phase: string; progress: number; elapsed: number; cancelling: boolean; onCancel: () => void;
 }) {
-  return <aside className="export-job" aria-label="Background export">
+  return <aside className="export-job" aria-label={t('Background export')}>
     <div><strong>Exporting {name}</strong><button className="text-button" onClick={onCancel} disabled={cancelling}>{cancelling ? 'Cancelling…' : 'Cancel'}</button></div>
     <span>{phase} · {Math.round(progress)}%</span>
     <progress max="100" value={progress} />
     <span>{exportEta(elapsed, progress)}</span>
-    <small>You can keep editing. This export uses the version captured when you started.</small>
+    <small>{t('You can keep editing. This export uses the version captured when you started.')}</small>
   </aside>;
 }

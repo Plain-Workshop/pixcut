@@ -47,6 +47,8 @@ export const MUSIC_LICENSE = 'Bundled music is licensed CC BY 4.0, not public do
 
 export const musicTrackUrl=(track:MusicTrack)=>`${import.meta.env.BASE_URL}${track.file}`;
 const previews=new Map<string,Promise<string>>();
+/** Listened-to tracks kept as blob URLs; older ones are released so browsing the library never holds all of it in memory. */
+export const MAX_PREVIEW_BLOBS=3;
 /**
  * A playable source for a bundled track.
  *
@@ -58,13 +60,19 @@ const previews=new Map<string,Promise<string>>();
  * when the editor unmounts.
  */
 export function musicTrackPreviewUrl(track:MusicTrack):Promise<string>{
- const existing=previews.get(track.id);if(existing)return existing;
+ const existing=previews.get(track.id);if(existing){previews.delete(track.id);previews.set(track.id,existing);return existing;}
  const task=fetch(musicTrackUrl(track)).then(async response=>{
   if(!response.ok)throw Error('This bundled track could not be opened. Reinstall PixCut or import another audio file.');
   const blob=await response.blob();
   return URL.createObjectURL(blob.slice(0,blob.size,'audio/mp4'));
  }).catch(error=>{previews.delete(track.id);throw error;});
- previews.set(track.id,task);return task;
+ previews.set(track.id,task);trimPreviews();return task;
+}
+function trimPreviews(){
+ while(previews.size>MAX_PREVIEW_BLOBS){
+  const [oldest,task]=previews.entries().next().value as [string,Promise<string>];
+  previews.delete(oldest);void task.then(url=>URL.revokeObjectURL(url),()=>{});
+ }
 }
 export function releaseMusicPreviewUrls(){
  for(const task of previews.values())void task.then(url=>URL.revokeObjectURL(url),()=>{});

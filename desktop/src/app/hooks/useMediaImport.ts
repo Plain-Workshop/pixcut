@@ -1,3 +1,4 @@
+import { captionCount, cueCount, fileCount, sceneCount, t } from '../../i18n';
 import { loadSavedTracks } from '../../stores/online-downloads';
 import { parseCaptions, placeCaptions } from '../../components/text/captions';
 import { resolveAssetUrl, resolveMediaSource } from '../../components/preview/media-url';
@@ -184,12 +185,12 @@ export function useMediaImport({ canEdit, setBusy, customElementKind, addMediaOv
     try {
       const cues = parseCaptions(await file.text());
       const { changed, placement } = placeCaptions(projectScenes(latestProject.current), cues, project.timebase);
-      if (!changed.length) { setError('Those captions fall outside the timeline. Add scenes or import a file that matches the story length.'); return; }
+      if (!changed.length) { setError(t('Those captions fall outside the timeline. Add scenes or import a file that matches the story length.')); return; }
       if (!await run({ type: 'updateMany', scenes: changed })) return;
-      const notes = [`${placement.added} caption${placement.added === 1 ? '' : 's'} across ${placement.scenes} scene${placement.scenes === 1 ? '' : 's'}`];
-      if (placement.split) notes.push(`${placement.split} long cue${placement.split === 1 ? '' : 's'} split`);
-      if (placement.skipped) notes.push(`${placement.skipped} skipped`);
-      setNotice(`${notes.join(' · ')}. Style them in Text.`);
+      const notes = [t('{captions} across {scenes}', { captions: captionCount(placement.added), scenes: sceneCount(placement.scenes) })];
+      if (placement.split) notes.push(t('{cues} split', { cues: cueCount(placement.split) }));
+      if (placement.skipped) notes.push(t('{count} skipped', { count: placement.skipped }));
+      setNotice(t('{summary}. Style them in Text.', { summary: notes.join(' · ') }));
     } catch (error) {
       setError(messageFor(error));
     } finally {
@@ -206,7 +207,7 @@ export function useMediaImport({ canEdit, setBusy, customElementKind, addMediaOv
     if (!bridge.native || storageBusy) return;
     if (!storageConfirm) {
       setStorageConfirm(true);
-      setStorageNote('Click again to remove media that no saved project, open project, or undo step uses.');
+      setStorageNote(t('Click again to remove media that no saved project, open project, or undo step uses.'));
       return;
     }
     setStorageConfirm(false);
@@ -215,7 +216,7 @@ export function useMediaImport({ canEdit, setBusy, customElementKind, addMediaOv
       const keep = new Set([...(await bridge.referencedRefs()), ...(await libraryAssetRefs()), ...loadSavedTracks().map(track => track.reference)]);
       const removed = await bridge.pruneAssets([...keep]);
       setStorageNote(removed.files
-        ? `Removed ${removed.files} unused file${removed.files === 1 ? '' : 's'} · ${formatBytes(removed.bytes)}.`
+        ? t('Removed {files} · {size}.', { files: fileCount(removed.files), size: formatBytes(removed.bytes) })
         : 'No unused media was found.');
       await refreshAssetUsage();
     } catch (error) {

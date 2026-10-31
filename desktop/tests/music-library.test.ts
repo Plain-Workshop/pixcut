@@ -1,5 +1,5 @@
 import { describe,it,expect,vi,afterEach } from 'vitest';
-import { MUSIC_TRACKS,MUSIC_LICENSE,MUSIC_MOODS,musicTrackUrl,musicTrackPreviewUrl,musicTrackCredit,musicTrackClipName,creditForClipName,releaseMusicPreviewUrls } from '../src/stores/music-library';
+import { MUSIC_TRACKS,MUSIC_LICENSE,MUSIC_MOODS,musicTrackUrl,musicTrackPreviewUrl,MAX_PREVIEW_BLOBS,musicTrackCredit,musicTrackClipName,creditForClipName,releaseMusicPreviewUrls } from '../src/stores/music-library';
 import { readFileSync,existsSync,statSync } from 'node:fs';
 import { resolve } from 'node:path';
 describe('bundled music library',()=>{
@@ -67,5 +67,37 @@ describe('bundled music preview source',()=>{
   await expect(musicTrackPreviewUrl(track)).rejects.toThrow('This bundled track could not be opened. Reinstall PixCut or import another audio file.');
   await expect(musicTrackPreviewUrl(track)).rejects.toThrow('could not be opened');
   expect(fetchMock).toHaveBeenCalledTimes(2);
+ });
+
+ describe('preview cache',()=>{
+  afterEach(()=>{releaseMusicPreviewUrls();vi.unstubAllGlobals();});
+  function stub(){
+   let n=0;const created:string[]=[],revoked:string[]=[];
+   vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,blob:async()=>new Blob(['x'])})));
+   vi.stubGlobal('URL',{createObjectURL:()=>{const url=`blob:${n++}`;created.push(url);return url;},revokeObjectURL:(url:string)=>{revoked.push(url);}});
+   return {created,revoked};
+  }
+  it('reads a track once and reuses its blob',async()=>{
+   const {created}=stub();
+   const first=await musicTrackPreviewUrl(MUSIC_TRACKS[0]);
+   expect(await musicTrackPreviewUrl(MUSIC_TRACKS[0])).toBe(first);
+   expect(created).toHaveLength(1);expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('keeps only the most recent few blobs and releases the older ones',async()=>{
+   const {created,revoked}=stub();
+   for(const track of MUSIC_TRACKS.slice(0,MAX_PREVIEW_BLOBS+2))await musicTrackPreviewUrl(track);
+   await Promise.resolve();await Promise.resolve();
+   expect(created).toHaveLength(MAX_PREVIEW_BLOBS+2);
+   expect(revoked).toEqual(created.slice(0,2));
+  });
+  it('counts a replay as recent, so the track being heard is not the one released',async()=>{
+   const {created,revoked}=stub();
+   const tracks=MUSIC_TRACKS.slice(0,MAX_PREVIEW_BLOBS+1);
+   for(const track of tracks.slice(0,MAX_PREVIEW_BLOBS))await musicTrackPreviewUrl(track);
+   await musicTrackPreviewUrl(tracks[0]);
+   await musicTrackPreviewUrl(tracks[MAX_PREVIEW_BLOBS]);
+   await Promise.resolve();await Promise.resolve();
+   expect(revoked).toEqual([created[1]]);
+  });
  });
 });

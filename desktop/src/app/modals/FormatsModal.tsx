@@ -32,7 +32,7 @@ export function FormatsModal({ formatSection, setFormatSection, setFormatSearch,
       <p>{t('Choose output formats. Adjust each selected format on the right.')}</p>
       <div className="format-studio-body">
         <div className="format-browser">
-          <div className="format-section-tabs" role="tablist" aria-label="Format type">{([['social','Social'],['sizes','Standard sizes'],['custom','Custom']] as const).map(([id,label]) => <button key={id} id={`format-tab-${id}`} role="tab" aria-selected={formatSection === id} aria-controls="format-browser-panel" onClick={() => { setFormatSection(id); setFormatSearch(''); }}>{t(label)}</button>)}</div>
+          <div className="format-section-tabs" role="tablist" aria-label={t('Format type')}>{([['social','Social'],['sizes','Standard sizes'],['custom','Custom']] as const).map(([id,label]) => <button key={id} id={`format-tab-${id}`} role="tab" aria-selected={formatSection === id} aria-controls="format-browser-panel" onClick={() => { setFormatSection(id); setFormatSearch(''); }}>{t(label)}</button>)}</div>
           <div id="format-browser-panel" className="format-browser-panel" role="tabpanel" aria-labelledby={`format-tab-${formatSection}`} key={formatSection}>
           {formatSection === 'custom' ? <>
       <div className="settings-section-title" id="custom-format-section">{t('Custom format')}</div>
@@ -48,7 +48,7 @@ export function FormatsModal({ formatSection, setFormatSection, setFormatSearch,
           </> : <>
             <div className="format-browser-tools">
               <label className="search-field"><Search size={14} /><input aria-label={t('Search formats')} placeholder={t('Search formats…')} value={formatSearch} onChange={event => setFormatSearch(event.target.value)} /></label>
-              {formatSection === 'social' && <select aria-label="Social platform" value={formatPlatform} onChange={event => setFormatPlatform(event.target.value)}><option value="all">{t('All platforms')}</option>{filterFormatGroups('all').filter(group => !['Sizes','4K Master'].includes(group.platform)).map(group => <option key={group.platform} value={group.platform}>{t(group.label)}</option>)}</select>}
+              {formatSection === 'social' && <select aria-label={t('Social platform')} value={formatPlatform} onChange={event => setFormatPlatform(event.target.value)}><option value="all">{t('All platforms')}</option>{filterFormatGroups('all').filter(group => !['Sizes','4K Master'].includes(group.platform)).map(group => <option key={group.platform} value={group.platform}>{t(group.label)}</option>)}</select>}
             </div>
             <div className="format-preset-scroll">
       <div className="format-groups">{formatBrowserGroups.map(group => <section className="format-group" key={group.platform}>
@@ -61,9 +61,9 @@ export function FormatsModal({ formatSection, setFormatSection, setFormatSearch,
           </>}
           </div>
         </div>
-        <aside className="format-selection" aria-label="Selected format settings">
+        <aside className="format-selection" aria-label={t('Selected format settings')}>
       <div className="settings-section-title">{t('Selected formats')}</div>
-      <div className="format-current-list">{project.formats.map(format => <div className={`format-current ${activeFormat?.id === format.id ? 'active' : ''}`} key={format.id}><button className="format-current-select" onClick={() => setActiveFormatId(format.id)}><span className="format-ratio">{format.width}×{format.height}</span><span><strong>{format.name}</strong><small>{format.width}×{format.height} · {format.fps} fps · {format.quality}</small></span></button><button className="icon-button" aria-label={`Remove ${format.name}`} disabled={project.formats.length <= 1} onClick={() => void removeFormat(format.id)}><Trash2 size={14} /></button></div>)}</div>
+      <div className="format-current-list">{project.formats.map(format => <div className={`format-current ${activeFormat?.id === format.id ? 'active' : ''}`} key={format.id}><button className="format-current-select" onClick={() => setActiveFormatId(format.id)}><span className="format-ratio">{format.width}×{format.height}</span><span><strong>{format.name}</strong><small>{format.width}×{format.height} · {format.fps} fps · {format.quality}</small></span></button><button className="icon-button" aria-label={t('Remove {name}', { name: format.name })} disabled={project.formats.length <= 1} onClick={() => void removeFormat(format.id)}><Trash2 size={14} /></button></div>)}</div>
       {activeFormat && <div className="format-settings-card" key={activeFormat.id}>
         <div className="settings-section-title">{t('Settings for {name}', { name: activeFormat.name })}</div>
         <div className="format-settings-grid">
@@ -80,7 +80,7 @@ export function FormatsModal({ formatSection, setFormatSection, setFormatSearch,
       <div className="format-studio-footer">
       <div className="format-pick-summary" role="status" aria-live="polite"><Layers size={13} /><span>{t('{formats} · {files} when you export', { formats: formatCount(project.formats.length), files: fileCount(projectFormatOutputs.length) })}{projectFormatOutputs.length < project.formats.length ? t('. Formats with the same size, frame rate and framing share one video.') : ''}</span></div>
       
-        <button className="button primary" onClick={requestCloseModal}>Done</button>
+        <button className="button primary" onClick={requestCloseModal}>{t('Done')}</button>
       </div>
     </>
   );

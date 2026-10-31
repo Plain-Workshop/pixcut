@@ -68,6 +68,7 @@ export function onProjectOpened(handler: () => void): Promise<UnlistenFn> | null
 export async function takePendingProject(): Promise<Session | null> {
   return native ? invoke('take_pending_project') : null;
 }
+export async function openProjectPath(path: string): Promise<void> { return invoke('open_project_path', { path }); }
 export async function openProject(): Promise<Session | null> { return invoke('open_project'); }
 export async function exporterAvailable(): Promise<boolean> { return native ? invoke('exporter_available') : false; }
 export type PickedMedia = { name: string; mime: string; data: string };
@@ -79,7 +80,7 @@ export async function exporterCapabilities(): Promise<ExportCodec[]> { return na
 export type ExportOptions = { codec?: ExportCodec; container?: ExportContainer; speed?: 'fast' | 'medium' | 'slow'; hardware?: boolean; width: number; height: number; fps: number; crf: number; filename: string };
 export type ExportJob = { frames: string[]; durations: number[]; options: ExportOptions };
 export type PlanOverlay = { png: string; frames?: string[]; startTicks: number; durationTicks: number };
-export type PlanSegment = { kind: 'image' | 'video'; png?: string; video?: string; sourceInSeconds?: number; fit?: 'cover' | 'contain' | 'blur'; speed?: number; /** End rate of a linear ramp; omitted for constant speed. */ speedEnd?: number; reverse?: boolean; lut?: string; fadeIn?: number; fadeOut?: number; videoVolume?: number; includeAudio?: boolean; durationTicks: number; /** Clip sound can outlast a shortened visual segment while a transition runs. */ audioDurationTicks?: number; overlays: PlanOverlay[] };
+export type PlanSegment = { kind: 'image' | 'video'; png?: string; video?: string; sourceInSeconds?: number; fit?: 'cover' | 'contain' | 'blur'; speed?: number; /** End rate of a linear ramp; omitted for constant speed. */ speedEnd?: number; reverse?: boolean; lut?: string; fadeIn?: number; fadeOut?: number; videoVolume?: number; includeAudio?: boolean; durationTicks: number; /** Clip sound can outlast a shortened visual segment while a transition runs. */ audioDurationTicks?: number; overlays: PlanOverlay[]; /** Zoom, pan and letterbox colour for a video clip, matching the preview framing. */ framing?: { background?: string; x?: number; y?: number; zoom?: number } };
 export type ExportPlan = { segments: PlanSegment[]; options: ExportOptions };
 export async function exportMovie(projectId: string, frames: string[], durations: number[], options: ExportOptions): Promise<string | null> { return invoke('export_movie', { projectId, frames, durations, options }); }
 export async function saveCreditsFile(videoPath: string, text: string): Promise<string | null> { return native ? invoke('save_credits_file', { videoPath, text }) : null; }
@@ -120,7 +121,9 @@ export async function appVersion(): Promise<string | null> {
 export async function checkForUpdate(): Promise<UpdateInfo | null> {
   if (!native) throw new Error('Updates are available in the desktop app.');
   const { check } = await import('@tauri-apps/plugin-updater');
+  const previous = pendingUpdate;
   pendingUpdate = await check();
+  if (previous && previous !== pendingUpdate) void previous.close().catch(() => { /* already released */ });
   if (!pendingUpdate) return null;
   const update = pendingUpdate;
   return { version: update.version, currentVersion: update.currentVersion, notes: update.body ?? '', date: update.date ?? null };
@@ -141,6 +144,7 @@ export async function installUpdate(onProgress: (percent: number) => void): Prom
     else if (event.event === 'Finished') onProgress(100);
   });
   pendingUpdate = null;
+  void update.close().catch(() => { /* already released */ });
 }
 
 export async function restartToUpdate(): Promise<void> {

@@ -25,10 +25,10 @@ export function EditorHeader({ goHome, name, canEdit, setName, project, run, sta
   return (
     <>
       <header className="editor-header">
-        <button className="brand-button" aria-label="Back to home" onClick={goHome}><Brand /></button>
+        <button className="brand-button" aria-label={t('Back to home')} onClick={goHome}><Brand /></button>
         <span className="header-divider" />
         <span className="editor-mode">{t('Video Editor')}</span>
-        <input className="project-name" aria-label="Project name" value={name} maxLength={120} disabled={!canEdit} onChange={e => setName(e.target.value)} onBlur={() => { if (name !== project.name) void run({ type: 'rename', name: name.trim() || 'Untitled story' }); }} />
+        <input className="project-name" aria-label={t('Project name')} value={name} maxLength={120} disabled={!canEdit} onChange={e => setName(e.target.value)} onBlur={() => { if (name !== project.name) void run({ type: 'rename', name: name.trim() || 'Untitled story' }); }} />
         <span className="save-status" role="status" aria-live="polite"><span className="status-dot" aria-hidden="true" />{status}</span>
         <div className="header-actions">
           <IconButton label={tip('palette.open', 'Command palette')} onClick={() => runCommandId('palette.open')}><CommandIcon size={17} /></IconButton>
@@ -36,7 +36,7 @@ export function EditorHeader({ goHome, name, canEdit, setName, project, run, sta
           <span className="header-divider" />
           <IconButton label={tip('history.undo', 'Undo')} disabled={!session.canUndo || !canEdit} onClick={() => void run({ type: 'undo' })}><Undo2 size={17} /></IconButton>
           <IconButton label={tip('history.redo', 'Redo')} disabled={!session.canRedo || !canEdit} onClick={() => void run({ type: 'redo' })}><Redo2 size={17} /></IconButton>
-          <button className="button subtle header-save" aria-label="Save project" title={tip('project.save', 'Save project')} disabled={!ready} onClick={() => void save()}><Save size={15} /> <span>{t('Save')}</span></button>
+          <button className="button subtle header-save" aria-label={t('Save project')} title={tip('project.save', 'Save project')} disabled={!ready} onClick={() => void save()}><Save size={15} /> <span>{t('Save')}</span></button>
           <button className="button export" title={tip('export.open', 'Export video')} disabled={!scenes.length || !ready || exporting} onClick={openExportModal}><Download size={15} /> {t('Export')} <ChevronDown size={12} /></button>
         </div>
       </header>

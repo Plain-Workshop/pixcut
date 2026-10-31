@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { useEffect,useRef,useState } from 'react';
 import type { FilterId,Scene } from '../../stores/model';
 import { drawScene } from './render';
@@ -11,5 +12,5 @@ export function LookPreview({scene,filter,intensity}:{scene:Scene;filter:FilterI
   void drawScene(canvas,sample,'16:9','thumb',0,undefined,{width:240,height:135}).then(()=>{if(live&&ref.current){ref.current.width=240;ref.current.height=135;ref.current.getContext('2d')?.drawImage(canvas,0,0);}}).catch(()=>{if(live)setFailed(true);});
   return()=>{live=false;};
  },[scene,filter,intensity]);
- return <><canvas ref={ref} data-look={filter} aria-hidden="true"/>{failed&&<span className="look-unavailable">Preview unavailable</span>}</>;
+ return <><canvas ref={ref} data-look={filter} aria-hidden="true"/>{failed&&<span className="look-unavailable">{t('Preview unavailable')}</span>}</>;
 }

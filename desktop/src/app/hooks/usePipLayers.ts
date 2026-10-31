@@ -1,3 +1,5 @@
+import { t } from '../../i18n';
+import { landedOn, setSnapGuide, snapEdges, snapThreshold, timelineSnapPoints } from '../../components/timeline/timeline-snap';
 import { constrainPipTiming, freePipStart, pipSourceRoom } from '../../components/timeline/pip';
 import { resolveMediaSource } from '../../components/preview/media-url';
 import { type PointerEvent as ReactPointerEvent } from 'react';
@@ -8,7 +10,7 @@ import { messageFor } from '../errors';
 import { captureDragPointer } from '../helpers';
 import { type Dispatch, type SetStateAction, type RefObject } from 'react';
 
-export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelected, selectionAnchor, setSelectedTextLayerId, setSelectedGlobalTextId, setSelectedElementId, setEditTarget, setEditingText, setFramingMode, setPlaying, setPosition, project, selectedPip, pipDraftRef, setPipDraft, activePip, setError, run, setNotice, canEdit, projectTicks, selectedScene, position, activeSize }: {
+export function usePipLayers({ timelineSnapping, setSelectedPipId, setSelectedIds, setPrimarySelected, selectionAnchor, setSelectedTextLayerId, setSelectedGlobalTextId, setSelectedElementId, setEditTarget, setEditingText, setFramingMode, setPlaying, setPosition, project, selectedPip, pipDraftRef, setPipDraft, activePip, setError, run, setNotice, canEdit, projectTicks, selectedScene, position, activeSize }: {
   setSelectedPipId: Dispatch<SetStateAction<string | null>>;
   setSelectedIds: Dispatch<SetStateAction<string[]>>;
   setPrimarySelected: Dispatch<SetStateAction<string | null>>;
@@ -33,6 +35,7 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
   projectTicks: number;
   selectedScene: Scene | undefined;
   position: number;
+  timelineSnapping: boolean;
   activeSize: { width: number; height: number; };
 }) {
   function selectPip(clip: Scene) {
@@ -62,7 +65,7 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
     setPipDraft(null);
     if (!draft) return;
     if (draft.pip && (![draft.pip.x, draft.pip.y, draft.pip.width, draft.pip.height, draft.pip.radius, draft.pip.shadow].every(Number.isFinite))) {
-      setError('Picture-in-picture placement is invalid.');
+      setError(t('Picture-in-picture placement is invalid.'));
       return;
     }
     void run({ type: 'pip', scenes: overlayScenes(project).map(clip => clip.id === draft.id ? draft : clip) });
@@ -70,7 +73,7 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
 
   function removePip(id: string) {
     void run({ type: 'pip', scenes: overlayScenes(project).filter(clip => clip.id !== id) }).then(ok => {
-      if (ok) { setSelectedPipId(null); setPipDraft(null); pipDraftRef.current = null; setNotice('Picture-in-picture clip removed.'); }
+      if (ok) { setSelectedPipId(null); setPipDraft(null); pipDraftRef.current = null; setNotice(t('Picture-in-picture clip removed.')); }
     });
   }
 
@@ -81,10 +84,16 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
     if (!track?.width) return;
     const startX = event.clientX;
     let moved = false;
+    const points = timelineSnapping ? timelineSnapPoints(project, secondsToTicks(position, project.timebase), clip.id) : [];
+    const threshold = snapThreshold(projectTicks, track.width);
+    const constrain = (delta: number) => constrainPipTiming(clip, edge, delta, overlayScenes(project), projectTicks, project.timebase, minTicks(project.timebase));
     const move = (moveEvent: PointerEvent) => {
       const delta = Math.round((moveEvent.clientX - startX) / track.width * projectTicks);
       moved ||= Math.abs(moveEvent.clientX - startX) > 2;
-      const timing = constrainPipTiming(clip, edge, delta, overlayScenes(project), projectTicks, project.timebase, minTicks(project.timebase));
+      const raw = constrain(delta);
+      const snapped = snapEdges(edge, raw.startTicks, raw.durationTicks, points, threshold);
+      const timing = snapped.guide ? constrain(edge === 'end' ? snapped.startTicks + snapped.durationTicks - clip.startTicks - clip.durationTicks : snapped.startTicks - clip.startTicks) : raw;
+      setSnapGuide(landedOn(snapped.guide, timing.startTicks, timing.durationTicks));
       const next = { ...clip, ...timing };
       pipDraftRef.current = next;
       setPipDraft(next);
@@ -93,6 +102,7 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
+      setSnapGuide(null);
       const draft = pipDraftRef.current;
       pipDraftRef.current = null;
       setPipDraft(null);
@@ -102,6 +112,7 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
+      setSnapGuide(null);
       pipDraftRef.current = null;
       setPipDraft(null);
     };
@@ -111,9 +122,9 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
   }
 
   async function addMediaPip(source: Scene) {
-    if (!selectedScene) { setNotice('Select the background scene first, then add picture in picture.'); return; }
+    if (!selectedScene) { setNotice(t('Select the background scene first, then add picture in picture.')); return; }
     const existing = overlayScenes(project);
-    if (existing.length >= 50) { setNotice('This project already has 50 picture-in-picture clips.'); return; }
+    if (existing.length >= 50) { setNotice(t('This project already has 50 picture-in-picture clips.')); return; }
     try {
       let sourceAspect = 16 / 9;
       if (source.mediaKind === 'video') {
@@ -125,7 +136,7 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
       }
       const minimum = minTicks(project.timebase);
       const desired = Math.max(0, Math.min(projectTicks - 1, secondsToTicks(position, project.timebase)));
-      if (projectTicks - desired < minimum) { setNotice('Move the playhead earlier to fit a picture-in-picture clip.'); return; }
+      if (projectTicks - desired < minimum) { setNotice(t('Move the playhead earlier to fit a picture-in-picture clip.')); return; }
       let durationTicks = Math.min(source.durationTicks, projectTicks - desired);
       if (source.mediaKind === 'video' && source.sourceDurationSeconds) {
         durationTicks = Math.min(durationTicks, pipSourceRoom(source, project.timebase));
@@ -133,7 +144,7 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
       durationTicks = Math.max(minimum, Math.min(durationTicks, projectTicks));
       const startTicks = freePipStart(existing, desired, durationTicks, projectTicks);
       if (startTicks === null) {
-        setNotice('There is no free space for picture in picture there. Move the playhead or shorten an existing clip.');
+        setNotice(t('There is no free space for picture in picture there. Move the playhead or shorten an existing clip.'));
         return;
       }
       const width = .32;
@@ -153,7 +164,7 @@ export function usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelec
         setSelectedIds([]); setPrimarySelected(null);
         setEditTarget('scene'); setSelectedTextLayerId(null); setSelectedGlobalTextId(null); setSelectedElementId(null);
         setPosition(ticksToSeconds(startTicks, project.timebase));
-        setNotice('Picture in picture added. Adjust its corner and size in the inspector.');
+        setNotice(t('Picture in picture added. Adjust its corner and size in the inspector.'));
       }
     } catch (error) {
       setError(messageFor(error));

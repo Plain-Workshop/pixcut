@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Pause, Play, Plus, Trash2, WifiOff } from 'lucide-react';
 import { resolveAssetUrl } from '../preview/media-url';
@@ -26,13 +27,13 @@ export function DownloadedMusic({ tracks, canEdit, onAdd, onRemove, onStopOther,
 
   async function listen(track: SavedTrack) {
     if (playing === track.key) { stop(); return; }
-    stop(); onStopOther(); setError('');
+    stop(); onStopOther(); setError(t(''));
     try {
       const audio = new Audio(await resolveAssetUrl(track.reference));
       audio.volume = .6;
       player.current = audio;
       audio.onended = () => { if (player.current === audio) stop(); };
-      audio.onerror = () => { if (player.current === audio) { stop(); setError('This file is no longer in PixCut storage. Remove it and download it again.'); } };
+      audio.onerror = () => { if (player.current === audio) { stop(); setError(t('This file is no longer in PixCut storage. Remove it and download it again.')); } };
       setPlaying(track.key);
       await audio.play();
     } catch (e) { stop(); setError(messageFor(e)); }
@@ -54,11 +55,11 @@ export function DownloadedMusic({ tracks, canEdit, onAdd, onRemove, onStopOther,
     {error && <p className="online-music-error" role="alert">{error}</p>}
     <div className="free-music-list online-music-list">
       {tracks.map(track => <div key={track.key} className={`free-music-track ${playing === track.key ? 'previewing' : ''}`}>
-        <button className="music-listen" aria-label={`${playing === track.key ? 'Pause' : 'Play'} ${track.title}`} aria-pressed={playing === track.key} onClick={() => void listen(track)}>{playing === track.key ? <Pause size={13} /> : <Play size={13} />}</button>
+        <button className="music-listen" aria-label={playing === track.key ? t('Pause {name}', { name: track.title }) : t('Play {name}', { name: track.title })} aria-pressed={playing === track.key} onClick={() => void listen(track)}>{playing === track.key ? <Pause size={13} /> : <Play size={13} />}</button>
         <span><strong>{track.title}</strong><small>{[track.artist, track.license, (kind === 'sound_effect' ? `${track.seconds.toFixed(track.seconds < 10 ? 1 : 0)}s` : `${Math.floor(track.seconds / 60)}:${String(Math.round(track.seconds % 60)).padStart(2, '0')}`)].filter(Boolean).join(' · ')}</small></span>
-        {track.landingUrl && <a className="icon-button" href={track.landingUrl} target="_blank" rel="noreferrer noopener" aria-label={`Open ${track.title} on its source page`} title="Open the source page"><ExternalLink size={14} /></a>}
-        <button className="icon-button" aria-label={`Remove ${track.title} from downloads`} title="Remove from this list. Run Clean storage in Settings to free the space." onClick={() => { if (playing === track.key) stop(); onRemove(track.key); }}><Trash2 size={14} /></button>
-        <button className="icon-button" aria-label={`Add ${track.title} to the project`} disabled={!canEdit || adding !== null} onClick={() => void add(track)}><Plus size={16} /></button>
+        {track.landingUrl && <a className="icon-button" href={track.landingUrl} target="_blank" rel="noreferrer noopener" aria-label={t('Open {title} on its source page', { title: track.title })} title={t('Open the source page')}><ExternalLink size={14} /></a>}
+        <button className="icon-button" aria-label={t('Remove {title} from downloads', { title: track.title })} title={t('Remove from this list. Run Clean storage in Settings to free the space.')} onClick={() => { if (playing === track.key) stop(); onRemove(track.key); }}><Trash2 size={14} /></button>
+        <button className="icon-button" aria-label={t('Add {title} to the project', { title: track.title })} disabled={!canEdit || adding !== null} onClick={() => void add(track)}><Plus size={16} /></button>
       </div>)}
     </div>
   </div>;

@@ -1545,3 +1545,175 @@ Windows/Linux builds, signing/notarization, FFmpeg redistribution, full native m
 - Cause: the Rust `Project` serialized `audio_mix`, `global_text` and `beat_ticks` in snake_case while the editor reads `audioMix`, `globalText` and `beatTicks`. In the desktop app every Rust answer therefore dropped the mixer levels (and global text and beat markers), so the track mute and volume controls reverted and changed nothing; exports ignored the mixer for the same reason. The browser preview never touches Rust, so it worked.
 - Fix: those three fields are now written in camelCase and still read the old snake_case keys, so projects and recovery files saved by earlier builds load. The editor's project validation also accepts the old keys.
 - Tests: JSON round trip of the `audioMix` command through a session, camelCase output with snake_case input accepted, and a TypeScript load of an old-key project.
+
+## Transition frames survive concat (2026-10-29)
+
+- Found by running the real planner and encoder end to end on FFmpeg 9.0.2: a video-to-video fade planned 15 baked still frames, but the MP4 kept only 2 of them. `concat` stamps runs of one-frame segments with the same timestamp and the muxer drops the duplicates.
+- `encode_plan` now renumbers the concatenated stream with `setpts=N/(fps*TB)`; every segment is already constant-rate after `fps`, so this keeps one output frame per tick.
+- New ignored FFmpeg test `real_transition_frames_all_reach_the_output` asserts the exact output frame count and a strictly progressing red-to-blue blend. It fails without the fix (19 of 30 frames) and passes with it.
+- Tests: 49 native (17 ignored FFmpeg tests all pass), 53 project-model, 432 TypeScript.
+
+## Pixel parity for exported video clips (2026-10-29)
+
+- New ignored FFmpeg tests compare exported pixels with the preview model:
+  - `real_video_cover_and_contain_match_the_preview_framing`: cover fills a square frame from a 16:9 clip (left/right halves keep their colours), contain keeps the whole picture with black bars above and below.
+  - `real_video_fades_follow_the_preview_opacity_curve`: every frame of a fade-in/fade-out clip is within 24/255 of `fadeOpacity`.
+  - `real_video_speed_ramps_and_reverse_show_the_preview_source_time`: brightness encodes source time, and every frame of constant, ramped (up and down) and reversed clips matches `consumedSeconds`/`sourceSecondsAt` within 10/255.
+- The expected values mirror `fadeOpacity` (preview/render.ts) and `consumedSeconds` (preview/speed.ts); change both sides together.
+- Video framing now matches the preview (found as gaps while writing the tests above; each new test failed before the fix):
+  - The export plan carries `framing { background, x, y, zoom }` per video clip, and `fit: 'blur'` is honoured instead of being encoded as cover.
+  - `encode_plan` builds these in FFmpeg only when needed (zoomed, panned, blurred, or a coloured contain backdrop); plain cover/contain keeps the old scale-and-crop path. Zoom is clamped to 1-4, pan to -1..1 and the colour must be `#RRGGBB`, like the preview.
+  - Tests: `real_video_letterbox_uses_the_framing_background`, `real_video_zoom_and_pan_match_the_preview_framing`, `real_video_blur_fit_fills_the_bars_with_a_dimmed_blur`, and `plan_segment_reads_framing_from_the_editor_json`.
+  - The blur backdrop approximates the canvas version (small blurred cover, dimmed by rgba(8,10,16,.42)); it is not pixel-identical.
+
+## Settings, updates, timeline, inspector, audio lanes and music search (2026-10-29)
+
+Verified in the browser preview (Chrome engine, 1440×900) with the Vite dev server; native-only paths are listed at the end.
+
+- **Settings:** two-pane dialog; the System theme follows the OS and switches live (checked light and dark emulation). `tests/preferences.test.ts`.
+- **Updates:** a failed quiet check retries after an hour, a new version is announced once, the project is saved and exports block before install or restart, failed downloads can be retried. `tests/updates.test.ts`.
+- **Timeline:** ruler ticks and timecodes, cursor-anchored zoom (a point stayed at 2.262 s across zoom steps), 16 px per frame at full zoom, navigation shortcuts, collapsible lanes, labelled snap guide, 36 px toolbar and 20 px ruler, playhead line centred on its handle (665.58 px for line, handle and tick). `tests/timeline-ruler.test.ts`, `tests/timeline-snap.test.ts`.
+- **Inspector:** labelled tabs with changed dots, per-tab reset, apply to all clips as one undo step (verified by undoing three steps). `tests/scene-tabs.test.ts`.
+- **Audio lanes:** spectrogram uses a 2048-point FFT with interpolated low bands; the old code was confirmed to paint runs of up to 7 identical bands. Waveform uses a decibel scale and a one-sided envelope; names sit in a strip above the graph; silent video clips say "No sound". `tests/spectrogram.test.ts`, `tests/waveform.test.ts`.
+- **Music search:** Openverse's search API did not answer at the time (its stats endpoint did); Auto now skips it while marked down and falls back to the Free Music Archive, then Commons. "piano" returned 19 results and Add downloaded and placed a clip.
+- **Startup:** a failed Tauri start now shows an error dialog and exits instead of panicking.
+- Tests: 50 native (24 ignored FFmpeg tests not run this round), 489 TypeScript. `cargo clippy` is clean for the library; two `field_reassign_with_default` warnings remain in test code.
+
+Not verified: pinch zoom on a real trackpad, an update download/install/restart against a published release, an online download through the Rust path, and clicking through the native window (only the browser preview was driven).
+
+## Editing basics: ripple, trim, nudge, copy/paste, marquee, lane lock (2026-10-29)
+
+Verified in the browser preview on "Motion opener" with real key events, undoing every change afterwards.
+
+- Delete vs ripple delete on three back-to-back audio clips: Delete left 3.5–5.0 in place; Ripple delete moved it to 2.0–3.5; the other lane did not move; both undid cleanly.
+- `Q` / `W` trimmed to 0.50 and 2.00 s and refused a playhead outside the clip with a notice. `Alt+→` moved 0.50 → 0.53 s (one frame), `Alt+Shift+→` ten frames more.
+- Copy and paste: audio landed on the next free lane when its own lane was busy; three pastes made back-to-back clips; visual clip paste added one scene and undid.
+- Lane lock: Backspace, Shift+Backspace, nudge, trim and a pointer drag were all refused on the locked lane with a notice; a different lane still edited; unlocking restored editing.
+- Marquee selected 1 clip mid-drag and all 3 at the end, showed a band and removed it on release; Mod+Shift+→ at 2.0 s selected scenes 2 and 3.
+- Tests: 501 TypeScript (`tests/clip-edit.test.ts` adds 12). Test copies were removed afterwards, leaving the original single audio clip.
+
+Not verified: marquee with a real mouse (events were dispatched), and any of this in the native window.
+
+## Inspector polish: shared number field, camera movement, colour and speed tabs (2026-10-29)
+
+Verified in the browser preview on "Birthday reel" (photos) and "Motion opener" (video), undoing every edit.
+
+- Typed value: typing 150 into Zoom moved the slider to 150; Shift+↑ made it 160; typing 900 clamped to 400; three undos returned it to 100. Typing 30 into the audio Volume set the slider and the clip badge to 30% and undo restored 62%.
+- All 9 audio sliders keep their old accessible names ("Audio volume", "Audio low EQ", …) and now have a typed value.
+- Camera movement is open for photo clips with 8 cards; it is hidden for video clips. The cards' keyframes were confirmed by forcing the animation on (scale 1.2 → 1.0 for Zoom out at 20%).
+- Found and fixed while testing: an `animation:` shorthand on the hover/active rule reset `animation-name`, so no card animated.
+- Colour: groups Light and Colour, 12 sliders each with a typed value, split toning collapsed. Speed: groups Speed, Direction, Sound.
+- Tests: 507 TypeScript (`tests/number-field.test.ts` adds 6).
+
+Not verified: the card animation as a user sees it. The preview pane reports `prefers-reduced-motion: reduce`, which PixCut honours by stopping all animation, so cards stay still there by design. Also not checked: chroma key and mask sliders (they need an image overlay selected), and the native window.
+
+## Translation sweep (2026-10-29)
+
+- Coverage: `tests/i18n-coverage.test.ts` fails if any `t()` key, tooltip label, `IconButton`/`RangeField` label or disabled reason lacks a translation in any of the ten languages, if a `{placeholder}` differs, or if a hand-built plural or `t(cond ? 'a' : 'b')` appears.
+- Checked in the app with real key presses: in German the toolbar, timeline labels, tooltips, the copy notice and the trim message were translated, with variables filled in ("Textebene 1 in …: … 0.00 bis 2.00 Sekunden"). In Polish the copy notice read "1 klip", "2 klipy", "3 klipy"; "5 klipów" is covered by a unit test.
+- Found by the new checks: about 30 slider labels, 92 strings from earlier this session, and `t(safeArea ? 'on' : 'off')`, which hid two keys.
+- Tests: 535 TypeScript. The translations are mine, not a native speaker's review; a proofread by native speakers is advisable before release.
+
+## Selection store (Phase 4, step 1) (2026-10-29)
+
+- Replaced eight selection `useState` calls in `App.tsx` with `src/app/selection-store.tsx`; `TimelinePanel` reads it directly. `tests/selection-store.test.ts` (8 tests): setter shape, no-op on equal values, stable setter identity, subscribe/unsubscribe, reset, store isolation, provider.
+- Checked in the browser preview: click and shift-click range, select all, Escape, audio and element selection (inspector switches), marquee, delete then undo (select all → 0 scenes → undo → 3). An early run appeared to fail because the undo shortcut was pressed while the delete was still pending and was refused; repeating with waits worked.
+- Tests: 543 TypeScript.
+
+## Layout store (Phase 4, step 2) (2026-10-29)
+
+- `src/app/layout-store.tsx` replaces `usePanelLayout`: validated and clamped state, persistence to `pixcut-layout`, and `reset()`. `tests/layout-store.test.ts` (6): normalising garbage and old layouts, limits, load/corrupt storage, save and notify per change, reset, splitter drags (clamped, written to storage only when the drag ends).
+- Checked in the browser preview: all three splitters (library 280→340, inspector 288→340, timeline 340→400), saved on release; zoom 150%, one collapsed and one locked lane and the library width survived a reload; Settings → Editing → Reset panel layout restored defaults and cleared storage.
+- Props: `TimelinePanel` 93 → 79, `EditorBody` 180 → 177. Tests: 549 TypeScript.
+
+## Editor model context (Phase 4, step 3) (2026-10-29)
+
+- `src/app/editor-model.tsx`: one context for the twelve project-level values both panels read. `tests/editor-model.test.ts` (2). `TimelinePanel` 79 → 71 props, `EditorBody` 177 → 165.
+- Browser preview: delete a scene (notice shown) and undo (3 → 2 → 3 scenes), copy notice, audio inspector with its nine typed fields, preview canvas and media library present, no console errors.
+- Playback timings were not measured: the Browser pane was hidden, so frame times were throttled. Playback store deferred until measured in the desktop app (see IMPROVEMENT_PLAN.md).
+- Tests: 551 TypeScript.
+
+## Editor view (Phase 4, step 4) (2026-10-29)
+
+- `src/app/editor-view.tsx`: `deriveEditorView` (pure) plus hook and context for the active clip, selected clips, preview target, project text, picture-in-picture and text-layer selection. `tests/editor-view.test.ts` (8). `TimelinePanel` 71 → 65 props, `EditorBody` 165 → 150.
+- Browser preview: with nothing selected the inspector followed the playhead (MOVE WITH IT. at 0.5 s, KEEP GOING. at 2.5 s); a click overrode it; shift-click gave "Editing 3 clips"; text, element and audio inspectors opened; playback ran; no console errors. No project data was edited.
+- Tests: 559 TypeScript.
+
+## Editor actions context (Phase 4, step 5) (2026-10-29)
+
+- `src/app/editor-actions.tsx`: 62 callbacks as one typed context. `tests/editor-actions.test.ts` (2). `EditorBody` 150 → 88 props.
+- Browser preview, each undone afterwards: duplicate clip (3 → 4 → 3), add element (1 → 2 → 1), add bundled sound (1 → 2 → 1), add text with `T` (9 → 10 → 9); no console errors. The project ended in its starting state.
+- Tests: 561 TypeScript.
+
+## EditorBody split (Phase 4, step 6) (2026-10-29)
+
+- `EditorBody` replaced by `LibraryPanel`, `PreviewPanel` and `InspectorPanel`, generated mechanically from the existing JSX; `App` renders them directly. DOM structure unchanged.
+- Browser preview: all five library tabs, Music → Online/Bundled (15 tracks), Sounds groups (11), safe-area toggle, inspector heading, no console errors. Play toggles Play/Pause; the timecode does not advance in this pane, and the previous commit behaves identically (stashed and re-tested), so it is a limitation of the hidden preview pane.
+- Tests: 561 TypeScript (unchanged; the panels have no unit tests of their own yet).
+
+## Library store (Phase 4, step 7) (2026-10-30)
+
+- `src/app/library-store.tsx` plus `tests/library-store.test.ts` (9): defaults, useState-shaped setters with stable identity, the element grid shortening on a filter change but not on "show more", no notification without a change, reset, provider, `filterElements`.
+- Browser preview: Elements showed 40 cards, "Show 40 more" gave 80, searching "star" gave 7 with no more button, a nonsense search showed the empty note, clearing it went back to 40 (not 80); Sounds listed 15 groups, "rain" 5, a nonsense search showed "No sound matches that search."; Music tab opened; no console errors.
+- Tests: 570 TypeScript. `LibraryPanel` 45 → 20 props; `App.tsx` 2,307 → 2,298 lines.
+
+## Drafts store (Phase 4, step 8) (2026-10-30)
+
+- `src/app/drafts-store.tsx` plus `tests/drafts-store.test.ts` (5): empty start, useState-shaped setters with stable identity, notify only on change, `clear()` in one notification, provider.
+- Browser preview: added an element (In project 1 → 2), dragged it 80 × 40 px with pointer events: it followed the pointer while staged and kept its place after commit; two undos returned the project to 1 element. The console errors seen were stale hot-reload failures from an intermediate edit, not present after the fix.
+- Tests: 575 TypeScript.
+
+## Command runner (Phase 4, step 9) (2026-10-30)
+
+- `src/app/command-runner.ts` plus `tests/command-runner.test.ts` (9): light/heavy classification, busy and playback stop only for heavy commands, ordered queue, same-scene update coalescing (a, b, a stays a, b, a), local order edit with history flags from Rust, failure drops the queue and resolves false, recovery after failure, queueing behind an import.
+- Browser preview: duplicate clip 3 → 4, undo 3, redo 4, undo 3 (heavy commands and order commands both go through the runner); project back to its start; no new console errors.
+- Tests: 584 TypeScript.
+
+## Timeline callbacks through editor actions (Phase 4, step 10) (2026-10-30)
+
+- 24 callbacks moved into `EditorActions`; nine duplicated props dropped. `TimelinePanel` 63 → 30 props.
+- Browser preview: selected a scene by clicking it; dragged the right trim handle of scene 1 by 80 px (width 253 → 194, kept after release), then undo restored 253. The left handle of scene 2 did not change width in the same test; not compared with the previous commit, so it may be a clamp at the start of the source and needs a check.
+- Tests: 584 TypeScript, build and tsc clean.
+
+## Typed hooks, no explicit any (Phase 4, step 11) (2026-10-30)
+
+- `ModalId` type, typed hover setters, typed Commons response; `grep` finds no `: any`, `<any`, `as any` or `any[]` in `src`, and no ts-ignore directives.
+- Tests: 584 TypeScript (the existing online-music parser tests cover the Commons change), tsc and build clean, eslint 0 errors. Types only; no browser run needed.
+
+## Export settings store (Phase 4, step 12) (2026-10-30)
+
+- `src/app/keyed-store.ts`, `src/app/export-store.tsx`, `tests/export-store.test.ts` (6): setter shape and identity, no notification for unchanged values, reset, defaults, `effectiveHardware` for h264/hevc/other and with or without support, provider.
+- Browser preview: opened Export; quality "High" became the pressed choice; Include audio toggled on → off; frame rate 24 changed the output list to "1920 × 1080 · 24 fps"; hardware encoder correctly disabled ("Unavailable") in the browser; no new console errors. No export was run (needs the desktop app and FFmpeg).
+- Tests: 590 TypeScript. The native export path is unchanged in code but was not exercised here; that remains Phase 7.
+
+## Command availability (Phase 4, step 13) (2026-10-30)
+
+- `src/app/command-availability.ts` plus `tests/command-availability.test.ts` (15).
+- Browser preview: the command palette on Home lists Undo, Redo, Play/pause and Play backward as unavailable with "Open a story to use playback."; in the editor only Undo, Redo and Split clip (playhead at the very start: "Place the playhead at least half a second inside the selected clip") are unavailable out of 44 commands.
+- Tests: 605 TypeScript, tsc, build and eslint (0 errors).
+
+## Home support helpers (Phase 4, step 14) (2026-10-30)
+
+- `src/app/home-support.ts` plus `tests/home-support.test.ts` (12): diagnostics lines and privacy, drop classification order, missing-asset counting (browser and native paths, unreadable project, limit, cancellation).
+- Browser preview: dropping a PDF on Home showed "Drop photos, videos or a .pixcut project file."; Home rendered its project card with no missing-media badge (nothing is missing). Copy diagnostics was not clicked in the browser (the Settings button was not found by my selector); it is covered by the unit tests only.
+- Tests: 617 TypeScript, tsc, build and eslint (0 errors).
+
+## Phase 5: bundle and music (2026-10-30)
+
+- Build: first chunk 1,864 KB → 1,039 KB raw (326 KB gzip → about 319 KB gzip measured on the new chunk only; the old gzip size was not measured). Ten locale chunks of 67 to 99 KB, six dialog chunks of 3 to 26 KB.
+- Browser preview: with `pixcut-language` = de the Home screen is German on first paint and only `de.ts` was fetched; switching to Japanese in Settings fetched `ja.ts` and relabelled the dialog (設定, 一般, 外観, 編集, ショートカット); back to English restored it and the stored value; the Export dialog opened and fetched its chunk; the Music tab fetched 2 audio files, down from 15 (to be confirmed natively).
+- Tests: 624 TypeScript (4 for lazy locales, 3 for the preview cache; i18n tests now import `tests/all-locales.ts`), tsc and eslint (0 errors).
+
+## Phase 6: catalogue resilience (2026-10-30)
+
+- `src/stores/online-cache.ts`, `tests/online-cache.test.ts` (12): key normalisation, save and read, empty answers not saved, one-month expiry, 40-entry cap, re-validation (an `http://` URL is dropped), corrupt storage, clear, live-then-offline through `searchOnlineCached`, no saved answer still fails, empty query still asks for a word, catalogue labels.
+- Rust: `commons_search_and_download_work_end_to_end` (ignored, needs network) passes against the real Commons; the normal suite is 50 passed, 25 ignored; clippy clean for this file.
+- Five new strings translated into all ten languages (coverage test passes). The translations are mine and unreviewed by native speakers.
+- Tests: 636 TypeScript.
+
+## Phase 7: native verification (2026-10-31)
+
+- Rust: `cargo test -- --ignored` with FFmpeg 7+ and ffprobe from Homebrew: 25 passed, 0 failed (exports in h264, hevc, vp9, prores, webm, audio lane gain and mute, video speed ramps and reverse, transitions, hardware h264, FLAC to M4A, real Wikimedia Commons search and download).
+- Native build: `tauri build --debug --bundles app` produced `target/debug/bundle/macos/PixCut.app` (updater signing then failed for lack of `TAURI_SIGNING_PRIVATE_KEY`, as expected; the key in `.secrets/` was not used). The app was restarted on it and was running with no crash lines in the system log. It was not driven through its window.
+- Browser preview (not the native webview): System theme followed a light to dark change live; ctrl+wheel and gesture pinch zoom both worked and clamp correctly.
+- Not verified: update from a test feed, trackpad pinch, macOS appearance switch, adding an online track in the desktop app, first Listen latency on an unwarmed bundled track, scene 2's left trim handle. Procedures are in `IMPROVEMENT_PLAN.md` Phase 7.

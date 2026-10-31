@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { DICTIONARIES, fileCount, formatCount, isLocale, LOCALES, projectCount, sceneCount, setLocale, t } from '../src/i18n';
 import { TEMPLATES } from '../src/templates/catalog';
+import './all-locales';
 
 afterEach(() => setLocale('en'));
 

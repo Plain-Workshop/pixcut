@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { useMemo, useState } from 'react';
 import { ArrowRight, Download, Search } from 'lucide-react';
 import {
@@ -72,15 +73,15 @@ export function ShortcutHelp({
   }
 
   return <div className="shortcut-help">
-    <h2 id="modal-title">Keyboard shortcuts</h2>
+    <h2 id="modal-title">{t('Keyboard shortcuts')}</h2>
     <p>Find any action by name, synonym, or key. Binding hints across PixCut update as soon as you change them.</p>
     <div className="shortcut-help-toolbar">
       <label className="shortcut-search">
         <Search size={15} />
         <input
           autoFocus
-          aria-label="Search shortcuts"
-          placeholder="Search shortcuts, actions, or keys…"
+          aria-label={t('Search shortcuts')}
+          placeholder={t('Search shortcuts, actions, or keys…')}
           value={query}
           onChange={event => setQuery(event.target.value)}
         />
@@ -102,7 +103,7 @@ export function ShortcutHelp({
       {!groups.length && <div className="shortcut-empty">
         <Search size={24} />
         <strong>No shortcut matches “{query}”.</strong>
-        <span>Try “playback”, “timeline”, or “save”.</span>
+        <span>{t('Try “playback”, “timeline”, or “save”.')}</span>
       </div>}
     </div>
     <div className="shortcut-help-footer">

@@ -12,6 +12,13 @@ describe('native library index rows', () => {
     expect(parseIndexedSummaries(rows).map(row => row.id)).toEqual(['b', 'a']);
   });
 
+  it('keeps the export time and accepts rows written before it existed', () => {
+    const rows = [JSON.stringify({ ...summary('old', 1) }), JSON.stringify({ ...summary('new', 2), exportedAt: 1234 })];
+    const parsed = parseIndexedSummaries<ReturnType<typeof summary> & { exportedAt?: number }>(rows);
+    expect(parsed.find(row => row.id === 'new')?.exportedAt).toBe(1234);
+    expect(parsed.find(row => row.id === 'old')?.exportedAt).toBeUndefined();
+  });
+
   it('skips corrupt, incomplete and unknown-aspect rows', () => {
     const rows = [
       'not json',

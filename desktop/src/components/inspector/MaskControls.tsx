@@ -1,3 +1,4 @@
+import { RangeField } from './NumberField';
 import { defaultLayerMask, type LayerMask, type MaskShape } from '../../stores/model';
 import { t } from '../../i18n';
 
@@ -19,10 +20,7 @@ function ShapeSlider({ label, value, min, max, step, unit, disabled, onChange, o
   onChange: (value: number) => void;
   onCommit: () => void;
 }) {
-  return <label className="mask-slider">
-    <span>{label}<b>{Math.round(value * 100) / 100}{unit}</b></span>
-    <input type="range" aria-label={`Mask ${label.toLowerCase()}`} min={min} max={max} step={step} value={value} disabled={disabled} onChange={event => onChange(Number(event.target.value))} onPointerUp={onCommit} onKeyUp={onCommit} onBlur={onCommit} />
-  </label>;
+  return <RangeField label={label} sliderLabel={`Mask ${label.toLowerCase()}`} unit={unit.trim()} min={min} max={max} step={step} value={value} disabled={disabled} onChange={onChange} onCommit={onCommit} />;
 }
 
 /**
@@ -41,11 +39,11 @@ export function MaskControls({ mask, disabled, context = 'overlay', onStage, onC
   return <details className="advanced-disclosure mask-controls">
     <summary>{t('Shape mask')}{mask ? ` · ${SHAPES.find(shape => shape.id === mask.shape)?.label ?? mask.shape}` : ''}</summary>
     <div className="mask-row">
-      <label className="field">Shape<select aria-label="Overlay mask shape" value={mask?.shape ?? 'none'} disabled={disabled} onChange={event => {
+      <label className="field">{t('Shape')}<select aria-label={t('Overlay mask shape')} value={mask?.shape ?? 'none'} disabled={disabled} onChange={event => {
         const shape = event.target.value;
         onApply(shape === 'none' ? undefined : { ...current, shape: shape as MaskShape });
-      }}><option value="none">None</option>{SHAPES.map(shape => <option key={shape.id} value={shape.id}>{shape.label}</option>)}</select></label>
-      {mask && <button type="button" className="text-button" disabled={disabled} onClick={() => onApply({ ...mask, x: .5, y: .5, width: .82, height: .82, rotation: 0 })}>Center</button>}
+      }}><option value="none">{t('None')}</option>{SHAPES.map(shape => <option key={shape.id} value={shape.id}>{shape.label}</option>)}</select></label>
+      {mask && <button type="button" className="text-button" disabled={disabled} onClick={() => onApply({ ...mask, x: .5, y: .5, width: .82, height: .82, rotation: 0 })}>{t('Center')}</button>}
     </div>
     {mask ? <>
       <p className="inspector-inline-status">{context === 'scene' ? "The cutout applies to the photo only; the framing background stays visible outside it. Feathering is baked into exports." : "The cutout follows the overlay's move, scale and keyframes. Feathering is baked into exports."}</p>
@@ -59,8 +57,8 @@ export function MaskControls({ mask, disabled, context = 'overlay', onStage, onC
       </div>
       <div className="mask-footer">
         <label className="checkbox-field"><input type="checkbox" checked={mask.invert} disabled={disabled} onChange={event => onApply({ ...mask, invert: event.target.checked })} /> Invert mask</label>
-        <button type="button" className="text-button danger" disabled={disabled} onClick={() => onApply(undefined)}>Remove mask</button>
+        <button type="button" className="text-button danger" disabled={disabled} onClick={() => onApply(undefined)}>{t('Remove mask')}</button>
       </div>
-    </> : <button type="button" className="button" disabled={disabled} onClick={() => onApply(defaultLayerMask('rectangle'))}>Add shape mask</button>}
+    </> : <button type="button" className="button" disabled={disabled} onClick={() => onApply(defaultLayerMask('rectangle'))}>{t('Add shape mask')}</button>}
   </details>;
 }

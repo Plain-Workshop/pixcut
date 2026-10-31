@@ -9,7 +9,7 @@ import { applyMaskAlpha } from './mask';
 import { applyChromaKey } from './chroma-key';
 import { elementTransform } from '../elements/transform';
 import { applyElementMotion, applyTextMotion, framingAt } from '../animation/keyframes';
-import { resolveMediaSource } from './media-url';
+import { isNativeRuntime, resolveMediaSource } from './media-url';
 import { overlayVideoFrame } from './overlay-video';
 import { pipFrameTarget } from './pip-playback';
 import { drawElementSymbol, ELEMENT_LABEL_DEFAULTS, elementForeground } from '../elements/symbols';
@@ -44,6 +44,23 @@ function decodeImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+/**
+ * Pictures served by the native asset protocol are cross-origin to the webview,
+ * so drawing one taints the canvas and `toDataURL` throws "The operation is
+ * insecure" (blank project thumbnails, failing frame grabs). Reading the bytes
+ * into a blob keeps the pixels same-origin; the plain URL stays as a fallback.
+ */
+async function sameOriginSource(url: string): Promise<{ url: string; release: () => void }> {
+  const plain = { url, release: () => {} };
+  if (!isNativeRuntime() || !/^(asset:|https?:\/\/asset\.localhost)/.test(url)) return plain;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return plain;
+    const object = URL.createObjectURL(await response.blob());
+    return { url: object, release: () => URL.revokeObjectURL(object) };
+  } catch { return plain; }
+}
+
 export async function loadImage(src: string): Promise<HTMLImageElement> {
   if (!src) throw new Error('An image is missing from this project. Replace the photo to continue.');
   const cached = imageCache.get(src);
@@ -51,7 +68,8 @@ export async function loadImage(src: string): Promise<HTMLImageElement> {
   // Streamed media references resolve to the asset protocol on native; an
   // unresolved reference is drawn as an empty frame while relinking is offered.
   const resolved = src.startsWith('pixcut-asset:') ? await resolveMediaSource(src) : src;
-  const entry: CachedImage = { promise: decodeImage(resolved ?? MISSING_IMAGE) };
+  const source = await sameOriginSource(resolved ?? MISSING_IMAGE);
+  const entry: CachedImage = { promise: decodeImage(source.url).finally(source.release) };
   imageCache.set(src, entry, 0);
   entry.promise.then(img => {
     const width = img.naturalWidth || img.width || 0;

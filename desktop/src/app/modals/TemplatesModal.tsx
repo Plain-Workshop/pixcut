@@ -37,7 +37,7 @@ export function TemplatesModal({ projects, templateQuery, setTemplateQuery, temp
           <strong>{t(template.name)}</strong>
           <span>{t(template.description)}</span>
           <small>{sceneCount(template.sceneCount)} · {template.duration.toFixed(1)} s · {t(template.category)}</small>
-          <span className="template-badges">{template.video && <span className="template-badge video">VIDEO</span>}{template.audio && <span className="template-badge music">MUSIC</span>}</span>
+          <span className="template-badges">{template.video && <span className="template-badge video">{t('VIDEO')}</span>}{template.audio && <span className="template-badge music">{t('MUSIC')}</span>}</span>
           <span className="button primary">{t('Use template')} <ArrowRight size={15} /></span>
         </div>
       </button>)}</div> : <div className="shortcut-empty"><Search size={24} /><strong>{t('No templates match “{query}”.', { query: templateQuery })}</strong><span>{t('Try Nature, Travel, People or Food.')}</span></div>}

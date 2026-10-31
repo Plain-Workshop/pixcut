@@ -1,3 +1,4 @@
+import { conflictCount, t } from '../../i18n';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import { Download, RotateCcw, Search, Upload, X } from 'lucide-react';
 import {
@@ -156,7 +157,7 @@ export function ShortcutSettings({
     }
     const conflicts = findConflicts(parsed.settings.bindings);
     if (conflicts.length) {
-      setFeedback({ tone: 'error', text: `Resolve ${conflicts.length} shortcut conflict${conflicts.length === 1 ? '' : 's'} before applying.` });
+      setFeedback({ tone: 'error', text: t('Resolve {conflicts} before applying.', { conflicts: conflictCount(conflicts.length) }) });
       return;
     }
     const applied = onApply(parsed.settings);
@@ -200,8 +201,8 @@ export function ShortcutSettings({
         <Search size={15} />
         <input
           autoFocus
-          aria-label="Search shortcuts to customize"
-          placeholder="Search actions, synonyms, or keys…"
+          aria-label={t('Search shortcuts to customize')}
+          placeholder={t('Search actions, synonyms, or keys…')}
           value={query}
           onChange={event => setQuery(event.target.value)}
         />
@@ -213,14 +214,14 @@ export function ShortcutSettings({
       </div>
     </div>
 
-    <div className="preset-row" role="group" aria-label="Shortcut presets">
-      <span>Preset</span>
+    <div className="preset-row" role="group" aria-label={t('Shortcut presets')}>
+      <span>{t('Preset')}</span>
       {PRESETS.map(preset => <button key={preset} className={`preset-chip ${draft.preset === preset ? 'active' : ''}`} aria-pressed={draft.preset === preset} onClick={() => loadPreset(preset)}>{PRESET_LABELS[preset]}</button>)}
-      {draft.preset === 'custom' && <span className="preset-chip custom">Custom edits</span>}
+      {draft.preset === 'custom' && <span className="preset-chip custom">{t('Custom edits')}</span>}
     </div>
 
     {conflict && <div className="shortcut-conflict" role="alert">
-      <strong>That shortcut is already in use.</strong>
+      <strong>{t('That shortcut is already in use.')}</strong>
       <p><kbd>{formatBinding(conflict.binding, platform)}</kbd> would be shared by:</p>
       <ul>
         <li><b>{conflictCommand?.label}</b><span className={`scope-badge ${conflictCommand?.context ?? 'global'}`}>{contextLabel(conflictCommand?.context ?? 'global')}</span><span className="shortcut-new-tag">New</span></li>
@@ -231,8 +232,8 @@ export function ShortcutSettings({
       </ul>
       <p className="shortcut-conflict-note">These commands use overlapping scopes, so “keep both” is unavailable. Replace the existing binding or cancel.</p>
       <div className="shortcut-conflict-actions">
-        <button className="button primary" onClick={replaceOtherBindings}>Replace other binding</button>
-        <button className="button" onClick={() => setConflict(null)}>Cancel</button>
+        <button className="button primary" onClick={replaceOtherBindings}>{t('Replace other binding')}</button>
+        <button className="button" onClick={() => setConflict(null)}>{t('Cancel')}</button>
       </div>
     </div>}
 
@@ -240,7 +241,7 @@ export function ShortcutSettings({
 
     <div className="shortcut-settings-list">
       <div className="shortcut-setting-head" aria-hidden="true">
-        <span>Action</span><span>Assigned keys</span><span>Scope</span><span>Default</span><span>Edit</span>
+        <span>{t('Action')}</span><span>{t('Assigned keys')}</span><span>{t('Scope')}</span><span>{t('Default')}</span><span>{t('Edit')}</span>
       </div>
       {groups.map(group => <section className="shortcut-settings-group" key={group.category}>
         <h3>{group.category}</h3>
@@ -255,20 +256,20 @@ export function ShortcutSettings({
             </div>
             <button
               className={`binding-button ${recording === command.id ? 'recording' : ''} ${binding ? '' : 'unassigned'}`}
-              aria-label={`Record shortcut for ${command.label}`}
+              aria-label={t('Record shortcut for {label}', { label: command.label })}
               aria-pressed={recording === command.id}
               title={recording === command.id ? 'Press the keys you want, or Esc to cancel' : 'Click, then press the keys you want'}
               onBlur={() => { if (recording === command.id) setRecording(null); }}
               onClick={() => { setRecording(recording === command.id ? null : command.id); setFeedback(null); }}
               onKeyDown={event => record(event, command.id)}
             >
-              {recording === command.id ? <span className="recording-label"><span className="recording-dot" />Press keys · Esc to cancel</span> : formatBinding(binding, platform)}
+              {recording === command.id ? <span className="recording-label"><span className="recording-dot" />{t('Press keys · Esc to cancel')}</span> : formatBinding(binding, platform)}
             </button>
             <span className={`scope-badge ${command.context}`}>{contextLabel(command.context)}</span>
             <kbd className="shortcut-default">{formatBinding(fallback, platform)}</kbd>
             <div className="shortcut-row-actions">
-              <button className="text-button" title={`Reset ${command.label} to its default shortcut`} disabled={isDefault} onClick={() => resetCommand(command.id)}><RotateCcw size={12} /> Reset</button>
-              <button className="text-button" title={`Clear the shortcut for ${command.label}`} disabled={!binding} onClick={() => clearCommand(command.id)}><X size={12} /> Clear</button>
+              <button className="text-button" title={t('Reset {label} to its default shortcut', { label: command.label })} disabled={isDefault} onClick={() => resetCommand(command.id)}><RotateCcw size={12} /> Reset</button>
+              <button className="text-button" title={t('Clear the shortcut for {label}', { label: command.label })} disabled={!binding} onClick={() => clearCommand(command.id)}><X size={12} /> Clear</button>
             </div>
           </div>;
         })}
@@ -276,7 +277,7 @@ export function ShortcutSettings({
       {!groups.length && <div className="shortcut-empty">
         <Search size={24} />
         <strong>No shortcut matches “{query}”.</strong>
-        <span>Try a command name or a synonym such as “cut” or “preview”.</span>
+        <span>{t('Try a command name or a synonym such as “cut” or “preview”.')}</span>
       </div>}
     </div>
 
@@ -285,8 +286,8 @@ export function ShortcutSettings({
     <div className="shortcut-settings-footer">
       <span className={`shortcut-dirty ${dirty ? 'dirty' : ''}`}><span className="status-dot" />{dirty ? 'Unapplied changes' : 'All changes applied'}</span>
       <div>
-        <button className="button" onClick={onClose}>Cancel</button>
-        <button className="button primary" disabled={!dirty || Boolean(conflict)} onClick={apply}>Apply shortcuts</button>
+        <button className="button" onClick={onClose}>{t('Cancel')}</button>
+        <button className="button primary" disabled={!dirty || Boolean(conflict)} onClick={apply}>{t('Apply shortcuts')}</button>
       </div>
     </div>
   </div>;

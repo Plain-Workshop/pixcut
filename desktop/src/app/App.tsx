@@ -1,10 +1,6 @@
-import { findSavedTrack, loadSavedTracks, storeSavedTracks, withSavedTrack, withoutSavedTrack, type SavedTrack } from '../stores/online-downloads';
-import { onlineLicenseLabel } from '../stores/online-music';
-import { DOWNLOAD_CANCELLED, downloadOnlineTrack, type OnlineTrack } from '../stores/online-music';
-import { MUSIC_TRACKS, musicTrackData, musicTrackPreviewUrl, musicTrackCredit, musicTrackClipName, creditForClipName, releaseMusicPreviewUrls, type MusicTrack } from '../stores/music-library';
-import { SOUND_EFFECTS, soundEffectData, type SoundEffectId } from '../components/elements/sound-effects';
-import { createRecordedSoundClip, creditForRecordedClip, loadRecordedSounds, recordedSoundData, type RecordedSound } from '../stores/sound-library';
-import { createSoundClip, groupedSounds, type SoundId } from '../components/elements/sound-catalog';
+import { creditForClipName } from '../stores/music-library';
+import { SOUND_EFFECTS, type SoundEffectId } from '../components/elements/sound-effects';
+import { creditForRecordedClip, loadRecordedSounds, type RecordedSound } from '../stores/sound-library';
 import { ElementTextField } from '../components/elements/ElementTextField';
 import { inspectorKind } from './inspector';
 import { presetSize } from '../components/elements/designer';
@@ -13,17 +9,13 @@ import { Toast, ErrorBanner, ExportJobCard } from './parts/Notices';
 import { BehaviorControls } from '../components/elements/BehaviorControls';
 import { ELEMENT_CATALOG, elementPreset, elementDisplayName } from '../components/elements/catalog';
 import { exportOutputFormat } from './export-progress';
-import { framingTravel } from '../components/preview/framing';
-import { centreGuides, edgeGuides, snapToTargets } from '../components/preview/snapping';
 import { registerCustomFonts } from '../components/text/fonts';
 import { subsetCharacters } from '../components/text/subset-chars';
 import { subsetFontBytes } from '../components/text/subset';
-import { splitAudioClip } from '../components/timeline/audio-split';
 import { sourceSecondsAt, sourceSpan, speedAt, speedCurve } from '../components/preview/speed';
 import { textLayersAsCaptions, toSrt } from '../components/text/captions-export';
 import { applyTextMotion } from '../components/animation/keyframes';
 import { KeyframeControls } from '../components/animation/KeyframeControls';
-import { snapOverlayTiming } from '../components/timeline/beats';
 import { isAssetRef, resolveMediaSource } from '../components/preview/media-url';
 import { assetExists } from '../stores/assets';
 import { readPixcutBundle } from '../stores/pixcut-bundle';
@@ -32,7 +24,6 @@ import { ChromaControls } from '../components/inspector/ChromaControls';
 import { videoGain } from '../components/preview/video-audio';
 import { mediaClockPosition, videoSeekTarget } from '../components/preview/video-sync';
 import { clampPipSource, pipFrameTarget } from '../components/preview/pip-playback';
-import { resolvePreviewTarget } from '../components/preview/preview-target';
 import { timelineOverlays, replaceOverlay, constrainOverlay, type TimelineOverlay } from '../components/elements/overlays';
 import { sceneStack, stackIndex, stackZ, layerZ, newOverlayZ, overlaysForScene, type StackMove } from '../components/elements/stack';
 import { StackOrder } from '../components/inspector/StackOrder';
@@ -42,16 +33,36 @@ import { LatestRenderQueue } from '../components/preview/render-queue';
 import { loadMediaBin, saveMediaBin, uniqueMediaSources } from '../stores/media-bin';
 import { missingAssets, projectAssetRefs, replaceAssetRef, type MissingAsset } from '../stores/missing-assets';
 import { syncAudioElement } from '../components/preview/audio';
-import { formatCount, isLocale, sceneCount, setLocale, t, type Locale } from '../i18n';
+import { captionCount, formatCount, isLocale, mediaFileCount, sceneCount, setLocale, t, loadLocale, type Locale } from '../i18n';
 import { applyClipEq } from '../components/preview/eq';
 import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
-import { shouldCheckForUpdates } from './updates';
+import { useUpdates } from './hooks/useUpdates';
+import { SelectionProvider, useCreateSelectionStore, useSelection } from './selection-store';
+import { ExportProvider, effectiveHardware, useCreateExportStore, useExportSettings } from './export-store';
+import { DraftsProvider, useCreateDraftsStore, useDrafts } from './drafts-store';
+import { LibraryProvider, useCreateLibraryStore, useLibraryState } from './library-store';
+import { LayoutProvider, useCreateLayoutStore, useLayout } from './layout-store';
+import { EditorModelProvider } from './editor-model';
+import { EditorViewProvider, useEditorViewModel } from './editor-view';
+import { EditorActionsProvider, type EditorActions } from './editor-actions';
+import { RangeField } from '../components/inspector/NumberField';
+import { useClipEditing } from './hooks/useClipEditing';
+import { editPoints, nextEditPoint } from '../components/timeline/ruler';
+import { type TimelineControls } from './screens/TimelinePanel';
+import { useFormats } from './hooks/useFormats';
+import { useSceneCommands } from './hooks/useSceneCommands';
+import { useLibraryAudio } from './hooks/useLibraryAudio';
+import { useStagePointer } from './hooks/useStagePointer';
+import { useElementPointer } from './hooks/useElementPointer';
+import { useSourcePreview } from './hooks/useSourcePreview';
+import { useProjectLibrary } from './hooks/useProjectLibrary';
 import { ELEMENT_LABEL_DEFAULTS } from '../components/elements/symbols';
-import { useCallback, useMemo, useEffect, useRef, useState, type ChangeEvent, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { Suspense, useCallback, useMemo, useEffect, useRef, useState, type ChangeEvent, type DragEvent as ReactDragEvent } from 'react';
 import {
   AudioLines, 
   AlertTriangle,
+  Check,
   
   
   
@@ -129,18 +140,21 @@ import { IconButton } from '../components/IconButton';
 import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import * as bridge from './bridge';
+import type { ModalId } from './modal';
+import { buildDiagnostics, classifyDrop, countMissingAssets } from './home-support';
+import { commandAvailability as resolveAvailability } from './command-availability';
+import { runCommand } from './command-runner';
 import { HINTS_KEY } from './export-options';
-import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, MAX_PROJECT_FORMATS, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, frameRate, minTicks, projectScenes, sceneAt, scenePatch, sceneSeconds, secondsPerTick, secondsToTicks, setSceneSeconds, ticksToSeconds, timecode, totalDuration, totalTicks, trimSceneWindow, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type ScenePatchKey, type Session, type TextLayer, type SceneFormatOverride, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
+import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, projectScenes, sceneAt, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
-import { resizeRotatedBox, rotationFromPointer, type ResizeCorner } from '../components/preview/transform-handles';
 import { probeVideo } from '../components/preview/video';
 import { createTextLayer, layerStartSeconds, layerVisibleAt, sceneTextLayers } from '../components/text/layers';
 import { clampWeight, fontOption } from '../components/text/fonts';
-import { FORMAT_FILTERS, FORMAT_PRESETS, createCustomFormat, createFormat, filterFormatGroups, formatSlug, formatSize, groupFormatsByOutput, resolveSceneForFormat } from '../stores/formats';
+import { FORMAT_FILTERS, FORMAT_PRESETS, filterFormatGroups, formatSlug, formatSize, groupFormatsByOutput, resolveSceneForFormat } from '../stores/formats';
 import { messageFor } from './errors';
-import { captureDragPointer, formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
-import { deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, listProjects, renameProjectGroup, saveLibraryProject, setProjectFavorite, setProjectGroup, type ProjectSummary } from '../stores/library';
-import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, type Preferences } from '../stores/preferences';
+import { formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
+import { backfillThumbnails, exportState, getLibraryProject, listProjects, saveLibraryProject, type ProjectSummary } from '../stores/library';
+import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, resolveTheme, type Preferences } from '../stores/preferences';
 import { TEMPLATES, buildTemplateProject, templatePreview, type TemplateDefinition } from '../templates/catalog';
 import {
   COMMANDS,
@@ -155,21 +169,20 @@ import {
   type ShortcutSettings as ShortcutSettingsData,
 } from '../shortcuts/registry';
 import '../styles/styles.css';
-import { NewProjectModal } from './modals/NewProjectModal';
-import { ExportModal } from './modals/ExportModal';
-import { SettingsModal } from './modals/SettingsModal';
+import type { SettingsTab } from './modals/SettingsModal';
+import { ExportModal, FormatsModal, NewProjectModal, SettingsModal, SourceModal, TemplatesModal } from './modals/lazy';
 import { MissingMediaModal } from './modals/MissingMediaModal';
 import { DeleteProjectModal } from './modals/DeleteProjectModal';
-import { FormatsModal } from './modals/FormatsModal';
 import { GroupsModal } from './modals/GroupsModal';
 import { GroupModal } from './modals/GroupModal';
 import { RenameProjectModal } from './modals/RenameProjectModal';
-import { TemplatesModal } from './modals/TemplatesModal';
-import { SourceModal } from './modals/SourceModal';
 import { TimelinePanel } from './screens/TimelinePanel';
-import { EditorBody } from './screens/EditorBody';
+import { LibraryPanel } from './screens/LibraryPanel';
+import { PreviewPanel } from './screens/PreviewPanel';
+import { InspectorPanel } from './screens/InspectorPanel';
 import { EditorHeader } from './screens/EditorHeader';
 import { HomeMain } from './screens/HomeMain';
+import { ProjectThumb } from '../components/ProjectThumb';
 import { HomeSidebar } from './screens/HomeSidebar';
 import { useVideoExport } from './hooks/useVideoExport';
 import { useSceneReplacement } from './hooks/useSceneReplacement';
@@ -178,12 +191,9 @@ import { useMediaImport } from './hooks/useMediaImport';
 import { usePipLayers } from './hooks/usePipLayers';
 
 const INITIAL: Session = { project: emptyProject(), canUndo: false, canRedo: false };
-const AVAILABLE: CommandAvailability = { disabled: false };
 
 const RANGE_NAVIGATION_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
 // Codecs use different CRF scales; ProRes maps the value to a 422 profile.
-const RELEASES_URL = 'https://github.com/Plain-Workshop/pixcut/releases/latest';
-const ELEMENTS = ELEMENT_CATALOG;
 const ELEMENT_COLOR_DEFAULTS: Partial<Record<ElementKind, string>> = {
   subscribe: '#FF0033', like: '#0A66C2', bell: '#FFD166', comment: '#FFFFFF',
   share: '#6BE7FF', play: '#FFFFFF', progress: '#FF7A9E', location: '#FF6B6B',
@@ -198,16 +208,12 @@ export default function App() {
   const [session, setSession] = useState(INITIAL), [screen, setScreen] = useState<'home' | 'editor'>('home');
   const [homeSection, setHomeSection] = useState<'home' | 'projects'>('home');
   const [ready, setReady] = useState(false), [busy, setBusy] = useState(false), [playing, setPlaying] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]), [primarySelected, setPrimarySelected] = useState<string | null>(null), [position, setPosition] = useState(0);
-  const [tab, setTab] = useState<'media' | 'text' | 'elements' | 'audio' | 'templates'>('media'), [modal, setModal] = useState<'source' | 'templates' | 'export' | 'new' | 'shortcuts' | 'palette' | 'settings' | 'delete' | 'rename' | 'group' | 'groups' | 'formats' | 'missing' | null>(null);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'editing' | 'shortcuts' | 'updates' | 'privacy'>('general');
-  const [appVersion, setAppVersion] = useState(__APP_VERSION__);
-  const lastUpdateCheck = useRef(0);
-  const updateCheckInFlight = useRef(false);
-  const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'>('idle');
-  const [updateInfo, setUpdateInfo] = useState<bridge.UpdateInfo | null>(null);
-  const [updateProgress, setUpdateProgress] = useState(0);
-  const [updateMessage, setUpdateMessage] = useState('');
+  const selectionStore = useCreateSelectionStore();
+  const { selectedIds, primarySelected, selectedAudioId, selectedElementId, selectedPipId, selectedTextLayerId, selectedGlobalTextId, editTarget, setSelectedIds, setPrimarySelected, setSelectedAudioId, setSelectedElementId, setSelectedPipId, setSelectedTextLayerId, setSelectedGlobalTextId, setEditTarget } = useSelection(selectionStore);
+  const [position, setPosition] = useState(0);
+  const [tab, setTab] = useState<'media' | 'text' | 'elements' | 'audio' | 'templates'>('media'), [modal, setModal] = useState<ModalId | null>(null);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
+  const [systemDark, setSystemDark] = useState(() => typeof window.matchMedia !== 'function' || window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [language, setLanguage] = useState<Locale>(() => {
     try {
       const stored = localStorage.getItem('pixcut-language');
@@ -219,48 +225,25 @@ export default function App() {
   const [storageConfirm, setStorageConfirm] = useState(false);
   const [storageNote, setStorageNote] = useState<string | null>(null);
   const [mediaBin, setMediaBin] = useState<{ projectId: string; items: Scene[] }>({ projectId: '', items: [] });
-  const [sourcePreview, setSourcePreview] = useState<Scene | null>(null);
-  const previewVideo = useRef<HTMLVideoElement | null>(null);
-  const [previewVideoTime, setPreviewVideoTime] = useState(0);
-  const [previewVideoDuration, setPreviewVideoDuration] = useState(0);
-  const [previewVideoPlaying, setPreviewVideoPlaying] = useState(false);
-  const [previewVolume, setPreviewVolume] = useState(.8);
-  const [previewMuted, setPreviewMuted] = useState(false);
   const customElementInput = useRef<HTMLInputElement>(null);
   const customElementKind = useRef<'image' | 'video'>('image');
   const [exportElapsed, setExportElapsed] = useState(0);
   const [exportJob, setExportJob] = useState({ name: '', phase: 'Preparing frames' });
-  const [exportQuality, setExportQuality] = useState('standard');
-  const [exportCodec, setExportCodec] = useState<bridge.ExportCodec>('h264');
-  const [exportContainer, setExportContainer] = useState<bridge.ExportContainer>('mp4');
-  const [exportSpeed, setExportSpeed] = useState<'fast' | 'medium' | 'slow'>('medium');
   const [hardwareAvailable, setHardwareAvailable] = useState(false);
-  const [sourcePreviewUrl, setSourcePreviewUrl] = useState<string | undefined>(undefined);
-  const [exportHardware, setExportHardware] = useState(false);
-  const [exportAudio, setExportAudio] = useState(true);
-  const [saveCredits, setSaveCredits] = useState(true);
+
   const [exportCodecs, setExportCodecs] = useState<bridge.ExportCodec[]>([]);
-  const [exportResolution, setExportResolution] = useState('project');
-  const [exportFps, setExportFps] = useState('project');
-  const [overlayDraft, setOverlayDraft] = useState<TimelineOverlay | null>(null);
+  const exportStore = useCreateExportStore();
+  const { quality: exportQuality, codec: exportCodec, container: exportContainer, speed: exportSpeed, hardware: exportHardware, audio: exportAudio, saveCredits, resolution: exportResolution, fps: exportFps, formatIds: exportFormatIds, setFormatIds: setExportFormatIds, setHardware: setExportHardware } = useExportSettings(exportStore);
+  const draftsStore = useCreateDraftsStore();
+  const { previewScene, overlayDraft, pipDraft, audioDraft, setPreviewScene, setOverlayDraft, setPipDraft, setAudioDraft } = useDrafts(draftsStore);
   const overlayDraftRef = useRef<TimelineOverlay | null>(null);
   const [draggingOverlay, setDraggingOverlay] = useState(false);
   const [loop, setLoop] = useState(false);
   const [snapGuides, setSnapGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
-  const [elementCategory, setElementCategory] = useState('All');
-  const [elementSearch, setElementSearch] = useState('');
-  const [elementCollection, setElementCollection] = useState('All');
-  const [elementLimit, setElementLimit] = useState(40);
-  const filteredElements = useMemo(() => ELEMENTS.filter(p => (elementCategory === 'All' || p.category === elementCategory) && (elementCollection === 'All' || p.collection === elementCollection) && `${p.label} ${p.collectionLabel} ${p.text} ${p.icon}`.toLocaleLowerCase().includes(elementSearch.trim().toLocaleLowerCase())), [elementCategory, elementCollection, elementSearch]);
-  const [templateQuery, setTemplateQuery] = useState(''), [mediaQuery, setMediaQuery] = useState('');
+  const [templateQuery, setTemplateQuery] = useState('');
   const [templateCategory, setTemplateCategory] = useState<'All' | TemplateDefinition['category']>('All');
   const [pendingTemplate, setPendingTemplate] = useState<TemplateDefinition | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]), [libraryReady, setLibraryReady] = useState(false);
-  const [projectMenu, setProjectMenu] = useState<string | null>(null), [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
-  const [renameTarget, setRenameTarget] = useState<ProjectSummary | null>(null), [renameDraft, setRenameDraft] = useState('');
-  const [groupTarget, setGroupTarget] = useState<ProjectSummary | null>(null), [groupDraft, setGroupDraft] = useState('');
-  const [groupDrafts, setGroupDrafts] = useState<Record<string, string>>({});
-  const [groupFilter, setGroupFilter] = useState<string>('all');
   const [libraryQuery, setLibraryQuery] = useState('');
   const [librarySort, setLibrarySort] = useState<'recent' | 'name' | 'duration'>('recent');
   const [favoriteOnly, setFavoriteOnly] = useState(false);
@@ -268,10 +251,8 @@ export default function App() {
   const [reorderId, setReorderId] = useState<string | null>(null);
   const [replacingSceneId, setReplacingSceneId] = useState<string | null>(null);
   const [fileDragActive, setFileDragActive] = useState(false);
-  const [audioDraft, setAudioDraft] = useState<AudioClip | null>(null);
   const [mixDraft, setMixDraft] = useState<AudioMix | null>(null);
   const [videoVolumeDraft, setVideoVolumeDraft] = useState<{ id: string; value: number } | null>(null);
-  const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -293,22 +274,22 @@ export default function App() {
   const formatBrowserGroups = filterFormatGroups('all').filter(group => formatSection === 'social' ? !['Sizes', '4K Master'].includes(group.platform) && (formatPlatform === 'all' || group.platform === formatPlatform) : ['Sizes', '4K Master'].includes(group.platform)).map(group => ({ ...group, presets: group.presets.filter(preset => `${preset.name} ${preset.description} ${preset.platform}`.toLowerCase().includes(formatSearch.trim().toLowerCase())) })).filter(group => group.presets.length);
   const [newCustomFormats, setNewCustomFormats] = useState<FormatVariant[]>([]);
   const [newProjectFps, setNewProjectFps] = useState(30);
-  const [editTarget, setEditTarget] = useState<'scene' | 'text' | 'element' | 'audio'>('scene');
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [videoTick, setVideoTick] = useState(0);
   const [pipVideoTick, setPipVideoTick] = useState(0);
   const [name, setName] = useState('Untitled story');
   const [editingText, setEditingText] = useState(false), [safeArea, setSafeArea] = useState(false);
   const [textDraft, setTextDraft] = useState({ title: '', subtitle: '' });
-  const [selectedTextLayerId, setSelectedTextLayerId] = useState<string | null>(null);
-  const [selectedGlobalTextId, setSelectedGlobalTextId] = useState<string | null>(null);
-  const [selectedPipId, setSelectedPipId] = useState<string | null>(null);
-  const [pipDraft, setPipDraft] = useState<Scene | null>(null);
   const pipDraftRef = useRef<Scene | null>(null);
   const [globalTextDraft, setGlobalTextDraft] = useState<TextLayer[] | null>(null);
   const [textFocus, setTextFocus] = useState(0);
   const [activeFormatId, setActiveFormatId] = useState<string | null>(null);
-  const [newFormatIds, setNewFormatIds] = useState<string[]>(['youtube-video']);
+  const [newFormatIds, setNewFormatIds] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('pixcut.lastFormats') ?? '[]');
+      const known = Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string' && FORMAT_PRESETS.some(preset => preset.id === id)) : [];
+      return known.length ? known : ['youtube-video'];
+    } catch { return ['youtube-video']; }
+  });
   // Mirrors startWithFormats() so the modal can preview how many files the
   // selection will actually produce.
   const newFormatSelection = [
@@ -316,10 +297,8 @@ export default function App() {
     ...newCustomFormats,
   ];
   const newFormatOutputs = groupFormatsByOutput(newFormatSelection);
-  const [exportFormatIds, setExportFormatIds] = useState<string[]>([]);
   const [framingMode, setFramingMode] = useState(false);
   const [, setFontTick] = useState(0);
-  const [previewScene, setPreviewScene] = useState<Scene | null>(null);
   const [propertyClipboard, setPropertyClipboard] = useState<Partial<Scene> | null>(null);
   const [platform] = useState(detectPlatform);
   const [shortcuts, setShortcuts] = useState<ShortcutSettingsData>(() => loadShortcutSettings(platform));
@@ -331,43 +310,12 @@ export default function App() {
   const [duckDraft, setDuckDraft] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [fadeDrag, setFadeDrag] = useState<{ sceneId: string; side: 'in' | 'out'; value: number } | null>(null);
-  const [layout, setLayout] = useState(() => { try { return JSON.parse(localStorage.getItem('pixcut-layout') || '{}'); } catch { return {}; } });
-  const libraryWidth = layout.libraryWidth ?? 280, inspectorWidth = layout.inspectorWidth ?? 288, timelineHeight = layout.timelineHeight ?? 340;
-  const timelineZoom = Math.min(6, Math.max(.5, Number(layout.timelineZoom) || 1));
-
-  function beginResize(kind: 'library' | 'inspector' | 'timeline', start: number, coord: number) {
-    const onMove = (e: PointerEvent) => {
-      setLayout((l: any) => {
-        if (kind === 'library') return { ...l, libraryWidth: Math.min(380, Math.max(220, start + (e.clientX - coord))) };
-        if (kind === 'inspector') return { ...l, inspectorWidth: Math.min(380, Math.max(220, start + (coord - e.clientX))) };
-        return { ...l, timelineHeight: Math.min(460, Math.max(230, start + (coord - e.clientY))) };
-      });
-    };
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      setLayout((l: any) => { try { localStorage.setItem('pixcut-layout', JSON.stringify(l)); } catch {} return l; });
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-  }
-
-  function changeTimelineZoom(value: number) {
-    const next = Math.min(6, Math.max(.5, Math.round(value * 4) / 4));
-    setLayout((current: any) => {
-      const updated = { ...current, timelineZoom: next };
-      try { localStorage.setItem('pixcut-layout', JSON.stringify(updated)); } catch { /* optional */ }
-      return updated;
-    });
-  }
-
-  useEffect(() => {
-    const element = timelineScroll.current;
-    if (!element) return;
-    const ratio = duration > 0 ? position / duration : 0;
-    const frame = requestAnimationFrame(() => { element.scrollLeft = Math.max(0, ratio * element.scrollWidth - element.clientWidth * .45); });
-    return () => cancelAnimationFrame(frame);
-  }, [timelineZoom]);
+  const layoutStore = useCreateLayoutStore();
+  const libraryStore = useCreateLibraryStore();
+  const { mediaQuery, audioLibraryTab, setHoveredMedia, setHoveredElement } = useLibraryState(libraryStore);
+  const { timelineHeight, lockedLanes, beginResize, reset: resetLayout } = useLayout(layoutStore);
+  const timelineControls = useRef<TimelineControls | null>(null);
+  const clipEditing = useRef<ReturnType<typeof useClipEditing> | null>(null);
 
   const pending = useRef<Promise<boolean>>(Promise.resolve(true)), latestProject = useRef(INITIAL.project);
   const mediaInput = useRef<HTMLInputElement>(null), projectInput = useRef<HTMLInputElement>(null), replaceInput = useRef<HTMLInputElement>(null), audioInput = useRef<HTMLInputElement>(null), captionInput = useRef<HTMLInputElement>(null), fontInput = useRef<HTMLInputElement>(null), videoInput = useRef<HTMLInputElement>(null), sceneVideo = useRef<HTMLVideoElement>(null), preview = useRef<HTMLCanvasElement>(null), audioElements = useRef<Map<string, HTMLAudioElement>>(new Map()), previewArea = useRef<HTMLDivElement>(null), previewStage = useRef<HTMLDivElement>(null), operation = useRef(false);
@@ -393,20 +341,11 @@ export default function App() {
   const selectionAnchor = useRef<string | null>(null), reorderRef = useRef<string | null>(null);
   const mediaDragRef = useRef<Scene | null>(null);
   const mediaDropAt = useRef(0);
-  const soundPreviewRef = useRef<HTMLAudioElement | null>(null);
   const [soundEffect, setSoundEffect] = useState<SoundEffectId>('click');
-  const [audioLibraryTab,setAudioLibraryTab]=useState<'project'|'music'|'sounds'>('project');
-  const [musicMood,setMusicMood]=useState('All');
-  const [soundQuery,setSoundQuery]=useState('');
   const [recordedSounds,setRecordedSounds]=useState<RecordedSound[]>([]);
   useEffect(()=>{let live=true;void loadRecordedSounds().then(list=>{if(live)setRecordedSounds(list);});return()=>{live=false;};},[]);
-  const [openSoundGroup,setOpenSoundGroup]=useState<string|null>(null);
-  const [hoveredElement,setHoveredElement]=useState<string|null>(null);
   const [hoverEntrance,setHoverEntrance]=useState<string|null>(null);
   const [audioDisplay,setAudioDisplay]=useState<'spectrogram'|'waveform'>('spectrogram');
-  const [hoveredMedia,setHoveredMedia]=useState<string|null>(null);
-  const [previewingAudio,setPreviewingAudio]=useState<string|null>(null);
-  const libraryAudio=useRef<HTMLAudioElement|null>(null),libraryAudioToken=useRef(0),libraryAudioTimer=useRef<number|undefined>(undefined);
 
   useEffect(() => { if (!exporting) return; const start = performance.now(); const timer = setInterval(() => setExportElapsed((performance.now() - start) / 1000), 500); return () => clearInterval(timer); }, [exporting]);
   const project = session.project, duration = totalDuration(project);
@@ -490,14 +429,16 @@ export default function App() {
       setDropTarget(sceneId);
       if (event.type !== 'drop') return;
       setFileDragActive(false); setDropTarget(null);
+      const projectFile = screen === 'home' ? (event.paths ?? []).find(path => /\.pixcut$/i.test(path)) : undefined;
+      if (projectFile) { void bridge.openProjectPath(projectFile).catch(e => setError(messageFor(e))); return; }
       const paths = (event.paths ?? []).filter(path => /\.(png|jpe?g|webp|mp4|m4v|mov|webm)$/i.test(path));
       if (!(event.paths?.length)) return;
-      if (!paths.length) { setError('Drop a PNG, JPEG, WebP, MP4, MOV, M4V, or WebM file.'); return; }
+      if (!paths.length) { setError(t('Drop a PNG, JPEG, WebP, MP4, MOV, M4V, or WebM file.')); return; }
       if (sceneId) void dropNativeOnScene(sceneId, paths);
       else void importNativePaths(paths);
     })?.then(fn => { if (disposed) fn(); else unlisten = fn; }).catch(() => {});
     return () => { disposed = true; unlisten?.(); };
-  }, [project, preferences]);
+  }, [project, preferences, screen]);
 
   const hasVideoScenes = scenes.some(scene => scene.mediaKind === 'video');
   const activeFormat = project.formats.find(format => format.id === activeFormatId) ?? project.formats[0];
@@ -505,10 +446,9 @@ export default function App() {
   const exportFormats = project.formats.map(format => exportOutputFormat(format, exportResolution, exportQuality, exportFps));
   const exportOutputs = groupFormatsByOutput(exportFormats.filter(format => exportFormatIds.includes(format.id)));
   const projectFormatOutputs = groupFormatsByOutput(project.formats);
-  const useHardware = exportHardware && hardwareAvailable && (exportCodec === 'h264' || exportCodec === 'hevc');
+  const useHardware = effectiveHardware({ hardware: exportHardware, codec: exportCodec }, hardwareAvailable);
   const displayAspect = project.aspect;
   const cueAudio = useMemo(() => actionAudio(project), [project]);
-  const soundGroups = useMemo(() => groupedSounds(soundQuery), [soundQuery]);
   const videoDuckWindows = useMemo(() => audibleVideoWindows(projectScenes(project), project.timebase, videoAudioGain({ audioMix: mixDraft ?? project.audioMix })), [project.tracks, project.timebase, project.audioMix, mixDraft]);
   const audioClips = previewAudio ?? project.audio;
   const musicCredits = [...new Set(project.audio.map(clip => clip.credit || creditForClipName(clip.name) || creditForRecordedClip(clip.name, recordedSounds)).filter((credit): credit is string => Boolean(credit)))];
@@ -521,35 +461,13 @@ export default function App() {
   const videoScenes = scenes.filter(scene => scene.mediaKind === 'video');
   const projectTicks = totalTicks(project);
   setLocale(language);
+  const [, setLocaleReady] = useState(0);
+  useEffect(() => { let live = true; void loadLocale(language).then(ok => { if (live && ok) setLocaleReady(value => value + 1); }); return () => { live = false; }; }, [language]);
   const timelineRatio = duration > 0 ? Math.min(1, Math.max(0, position / duration)) : 0;
   const frameSeconds = secondsPerTick(project.timebase);
-  const activeInfo = sceneAt(project, position), active = activeInfo?.scene, activeStart = activeInfo?.start ?? 0;
-  const selectedScenes = selectedIds.length
-    ? selectedIds.map(id => scenes.find(scene => scene.id === id)).filter((scene): scene is Scene => Boolean(scene))
-    : active ? [active] : [];
-  const primaryScene = primarySelected ? selectedScenes.find(scene => scene.id === primarySelected) : undefined;
-  const selectedScene = primaryScene ?? selectedScenes.at(-1) ?? active;
-  const selectedCount = selectedScenes.length;
-  const hasSceneSelection = selectedIds.length > 0;
-  const isSelected = (id: string) => selectedIds.includes(id);
-  const previewTarget = resolvePreviewTarget(playing, active, previewScene);
-  // While a text drag or inline edit is previewing, follow the draft so the
-  // selection box, guides, and canvas text stay in the same place.
-  const projectTextScene = useMemo<Scene | null>(() => project.globalText?.length ? {
-    id: `${project.id}-project-text`, startTicks: 0, sourceInTicks: 0, durationTicks: Math.max(1, projectTicks),
-    name: 'Project text', image: '', title: '', subtitle: '', color: '#ffffff', fit: 'cover',
-    textLayers: project.globalText,
-  } : null, [project.id, project.globalText, projectTicks]);
-  const selectedGlobalText = selectedGlobalTextId ? (project.globalText ?? []).find(layer => layer.id === selectedGlobalTextId) ?? null : null;
-  const pipScenes = overlayScenes(project);
-  const selectedPip = selectedPipId ? pipScenes.find(clip => clip.id === selectedPipId) ?? null : null;
-  const renderPipScenes = pipDraft ? pipScenes.map(clip => clip.id === pipDraft.id ? pipDraft : clip) : pipScenes;
-  const pipVideoScenes = renderPipScenes.filter(clip => clip.mediaKind === 'video');
+  const view = useEditorViewModel({ project, position, playing, selectedIds, primarySelected, selectedGlobalTextId, selectedPipId, selectedTextLayerId, previewScene, pipDraft });
+  const { active, activeStart, selectedScenes, selectedScene, selectedCount, hasSceneSelection, previewTarget, selectedGlobalText, selectedPip, renderPipScenes, pipVideoScenes, activePip, selectedTextLayer } = view;
   const pipVideoSignature = pipVideoScenes.map(clip => `${clip.id}:${clip.image.length}:${clip.videoPoster?.length ?? 0}:${clip.startTicks}:${clip.durationTicks}:${clip.sourceInTicks ?? 0}`).join('|');
-  const activePip = pipDraft?.id === selectedPip?.id ? pipDraft : selectedPip;
-  const selectedTextScene = selectedGlobalText ? projectTextScene : (previewScene && selectedScene && previewScene.id === selectedScene.id ? previewScene : selectedScene);
-  const selectedTextLayers = selectedGlobalText ? [selectedGlobalText] : (selectedTextScene ? sceneTextLayers(selectedTextScene) : []);
-  const selectedTextLayer = selectedGlobalText ?? selectedTextLayers.find(layer => layer.id === selectedTextLayerId) ?? selectedTextLayers[0] ?? null;
   const allOverlays = useMemo(() => timelineOverlays(project), [project]);
   const layerWeight = (element: TimelineOverlay) => {
     if (typeof element.z === 'number') return element.z;
@@ -600,21 +518,35 @@ export default function App() {
   const sceneForPreview = resolvedPreviewTarget && framingStaged && previewScene ? { ...resolvedPreviewTarget, imageX: previewScene.imageX, imageY: previewScene.imageY, imageZoom: previewScene.imageZoom, fit: previewScene.fit, framingBackground: previewScene.framingBackground } : resolvedPreviewTarget;
   const resolvedNextScene = previewTransition?.next ? resolveSceneForFormat(previewTransition.next, activeFormat) : undefined;
   const filteredScenes = sourceMedia.filter(s => s.name.toLowerCase().includes(mediaQuery.trim().toLowerCase()));
-  const previewList = useMemo(() => {
-    if (!sourcePreview) return sourceMedia;
-    return filteredScenes.some(item => item.id === sourcePreview.id) ? filteredScenes : sourceMedia;
-  }, [filteredScenes, sourceMedia, sourcePreview]);
-  const previewIndex = sourcePreview ? previewList.findIndex(item => item.id === sourcePreview.id) : -1;
+
+  const { sourcePreview, setSourcePreview, previewVideo, sourcePreviewUrl, previewMuted, setPreviewVideoDuration, setPreviewVideoTime, setPreviewVideoPlaying, previewList, previewIndex, previewVideoPlaying, previewVideoTime, previewVideoDuration, previewVolume, previewMedia, switchPreview, togglePreviewPlayback, seekPreview, changePreviewVolume, togglePreviewMute } = useSourcePreview({ modal, setModal, setPlaying, filteredScenes, sourceMedia });
   const canEdit = ready && !busy;
 
   const refreshLibrary = useCallback(async () => {
-    try { setProjects(sortProjects(await listProjects())); }
-    catch (e) { setError(`Project library could not be read. ${messageFor(e)}`); }
+    try {
+      const listed = await listProjects();
+      setProjects(sortProjects(listed));
+      void backfillThumbnails(listed).then(fixed => { if (fixed) setProjects(current => current.map(item => { const next = fixed.find(entry => entry.id === item.id); return next?.thumbnail && !item.thumbnail ? { ...item, thumbnail: next.thumbnail } : item; })); }).catch(() => {});
+    }
+    catch (e) { setError(t('Project library could not be read. {e}', { e: messageFor(e) })); }
     finally { setLibraryReady(true); }
   }, []);
 
   function updatePreferences(patch: Partial<Preferences>) {
     setPreferences(current => ({ ...current, ...patch }));
+  }
+
+  /** Playhead moves from the keyboard stop playback and land on a frame inside the story. */
+  function movePlayhead(seconds: number) {
+    setPlaying(false);
+    setPosition(Math.min(Math.max(0, seconds), Math.max(0, duration - frameSeconds)));
+  }
+
+  function jumpToEdit(direction: 1 | -1) {
+    const current = secondsToTicks(position, project.timebase);
+    const target = nextEditPoint(editPoints(project), current, direction);
+    // The story's end tick is past the last frame, so step one frame back from it.
+    movePlayhead(target === current && direction > 0 ? duration : ticksToSeconds(target, project.timebase));
   }
 
   function toggleSnapping() {
@@ -630,7 +562,7 @@ export default function App() {
     setSnapping(DEFAULT_PREFERENCES.snapping);
     setShowHints(true);
     try { localStorage.removeItem(HINTS_KEY); } catch { /* optional */ }
-    setNotice('Preferences reset to their defaults.');
+    setNotice(t('Preferences reset to their defaults.'));
   }
 
   function refreshStorage() {
@@ -641,62 +573,20 @@ export default function App() {
   }
 
   function recheckExporter() {
-    bridge.exporterAvailable().then(available => { setExporter(available); setNotice(available ? 'FFmpeg is ready for MP4 export.' : 'FFmpeg was not found on this device.'); }).catch(error => setError(messageFor(error)));
+    bridge.exporterAvailable().then(available => { setExporter(available); setNotice(available ? t('FFmpeg is ready for MP4 export.') : t('FFmpeg was not found on this device.')); }).catch(error => setError(messageFor(error)));
   }
 
-  function updateErrorText(error: unknown) {
-    const raw = error instanceof Error ? error.message : String(error ?? '');
-    if (/fetch|network|connect|timeout|release json|status code|404|403|500/i.test(raw)) return 'Could not reach the release feed. Check your connection and try again.';
-    if (/signature|public key|verify/i.test(raw)) return 'This update could not be verified, so PixCut did not install it.';
-    return messageFor(error);
-  }
-
-  async function performUpdateCheck(silent: boolean) {
-    if (updateCheckInFlight.current) return;
-    updateCheckInFlight.current = true;
-    lastUpdateCheck.current = Date.now();
-    if (!silent) { setUpdateState('checking'); setUpdateMessage(''); }
-    try {
-      const info = await bridge.checkForUpdate();
-      setUpdateInfo(info);
-      setUpdateState(info ? 'available' : 'idle');
-      if (!silent) setUpdateMessage(info ? '' : 'PixCut is up to date.');
-    } catch (error) {
-      if (!silent) { setUpdateState('error'); setUpdateMessage(updateErrorText(error)); }
-    } finally { updateCheckInFlight.current = false; }
-  }
-
-  function checkForUpdates() { void performUpdateCheck(false); }
-
-  useEffect(() => {
-    const check = () => {
-      if (shouldCheckForUpdates({ native: bridge.native, enabled: preferences.automaticUpdates, home: screen === 'home' && !exporting,
-        visible: document.visibilityState === 'visible', online: navigator.onLine, state: updateState, lastCheck: lastUpdateCheck.current, now: Date.now() })) void performUpdateCheck(true);
-    };
-    const startup = window.setTimeout(check, 15_000);
-    const interval = window.setInterval(check, 60_000);
-    window.addEventListener('online', check);
-    document.addEventListener('visibilitychange', check);
-    return () => { clearTimeout(startup); clearInterval(interval); window.removeEventListener('online', check); document.removeEventListener('visibilitychange', check); };
-  }, [preferences.automaticUpdates, screen, exporting, updateState]);
-
-  function downloadUpdate() {
-    setUpdateState('downloading'); setUpdateProgress(0); setUpdateMessage('');
-    bridge.installUpdate(setUpdateProgress)
-      .then(() => { setUpdateState('ready'); setUpdateMessage(''); setNotice('Update downloaded. Restart PixCut to finish.'); })
-      .catch(error => { setUpdateState('error'); setUpdateMessage(updateErrorText(error)); });
-  }
-
-  function restartUpdate() {
-    bridge.restartToUpdate().catch(error => { setUpdateState('error'); setUpdateMessage(updateErrorText(error)); });
-  }
-
-  function copyDownloadLink() {
-    if (!navigator.clipboard) { setNotice(`Download the latest release from ${RELEASES_URL}`); return; }
-    navigator.clipboard.writeText(RELEASES_URL).then(() => setNotice('Download link copied.')).catch(() => setNotice(`Download the latest release from ${RELEASES_URL}`));
-  }
+  const { appVersion, updateState, updateInfo, updateProgress, updateMessage, checkForUpdates, downloadUpdate, restartUpdate, copyDownloadLink } = useUpdates({ automaticUpdates: preferences.automaticUpdates, home: screen === 'home', exporting, setNotice, saveBeforeUpdate: async () => { if (ready) await persistCurrent(); } });
 
   useEffect(() => { savePreferences(preferences); }, [preferences]);
+  useEffect(() => {
+    if (preferences.theme !== 'system' || typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const sync = () => setSystemDark(media.matches);
+    sync();
+    media.addEventListener?.('change', sync);
+    return () => media.removeEventListener?.('change', sync);
+  }, [preferences.theme]);
   useEffect(() => { document.documentElement.lang = language; }, [language]);
 
   useEffect(() => {
@@ -710,22 +600,13 @@ export default function App() {
   }, [modal, settingsTab]);
 
   function diagnostics() {
-    return [
-      `PixCut Desktop ${appVersion}`,
-      `Build: ${__BUILD_SHA__.slice(0, 7)} · ${__BUILD_DATE__}`,
-      `Runtime: ${bridge.native ? 'native Tauri' : 'browser preview'}`,
-      `Platform: ${platform}`,
-      `Project schema: ${latestProject.current.schema_version}`,
-      `Project: ${latestProject.current.aspect} · ${frameRate(latestProject.current.timebase).toFixed(0)} fps · ${totalDuration(latestProject.current).toFixed(1)} s`,
-      `FFmpeg: ${exporter ? 'available' : 'not found'}`,
-      `Preferences: ${preferences.compact ? 'compact' : 'comfortable'} · ${preferences.reduceMotion ? 'reduced motion' : 'full motion'} · autosave ${preferences.autosaveMs} ms`,
-    ].join('\n');
+    return buildDiagnostics({ appVersion, buildSha: __BUILD_SHA__, buildDate: __BUILD_DATE__, native: bridge.native, platform, project: latestProject.current, exporter, preferences });
   }
 
   function copyDiagnostics() {
     const text = diagnostics();
-    if (!navigator.clipboard) { setNotice('Clipboard access is unavailable in this preview.'); return; }
-    navigator.clipboard.writeText(text).then(() => setNotice('Build diagnostics copied.')).catch(error => setError(messageFor(error)));
+    if (!navigator.clipboard) { setNotice(t('Clipboard access is unavailable in this preview.')); return; }
+    navigator.clipboard.writeText(text).then(() => setNotice(t('Build diagnostics copied.'))).catch(error => setError(messageFor(error)));
   }
 
   const persistCurrent = useCallback(async () => {
@@ -738,7 +619,7 @@ export default function App() {
     } catch { /* recovery remains the source of truth if a thumbnail cannot be drawn */ }
   }, []);
 
-  useEffect(() => { bridge.initialize().then(s => { setSession(s); latestProject.current = s.project; setName(s.project.name); }).catch(e => setError(`Recovery could not be loaded. ${messageFor(e)}`)).finally(() => setReady(true)); bridge.exporterAvailable().then(setExporter).catch(() => setExporter(false)); bridge.appVersion().then(version => { if (version) setAppVersion(version); }).catch(() => { /* browser preview */ }); }, []);
+  useEffect(() => { bridge.initialize().then(s => { setSession(s); latestProject.current = s.project; setName(s.project.name); }).catch(e => setError(t('Recovery could not be loaded. {e}', { e: messageFor(e) }))).finally(() => setReady(true)); bridge.exporterAvailable().then(setExporter).catch(() => setExporter(false)); }, []);
   useEffect(() => { const listener = bridge.onExportProgress(percent => { setExportJob(job => ({ ...job, phase: 'Encoding video' })); setExportProgress(current => Math.max(current, 72 + Math.round(Math.min(99, percent) * .27))); }); return () => { void listener?.then(unlisten => unlisten()); }; }, []);
   useEffect(() => {
     if (!bridge.native) return;
@@ -782,18 +663,9 @@ export default function App() {
     registerCustomFonts(project.fonts, () => setFontTick(value => value + 1));
   }, [project.fonts]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const source = sourcePreview?.image;
-    if (!source) { setSourcePreviewUrl(undefined); return; }
-    if (!source.startsWith('pixcut-asset:')) { setSourcePreviewUrl(source); return; }
-    setSourcePreviewUrl(undefined);
-    void resolveMediaSource(source).then(url => { if (!cancelled) setSourcePreviewUrl(url); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [sourcePreview?.image]);
 
   useEffect(() => {
-    if (!bridge.native || modal !== 'settings' || settingsTab !== 'general') return;
+    if (!bridge.native || modal !== 'settings' || settingsTab !== 'privacy') return;
     void refreshAssetUsage();
   }, [modal, settingsTab]);
 
@@ -801,7 +673,37 @@ export default function App() {
   useEffect(() => {
     void bridge.setAppMenu(language).catch(() => { /* the native menu is optional in the browser preview */ });
   }, [language]);
-  useEffect(() => { if (screen === 'home') void refreshLibrary(); }, [screen, refreshLibrary]);
+  useEffect(() => { if (screen === 'home') { void refreshLibrary(); refreshStorage(); } }, [screen, refreshLibrary]);
+  useEffect(() => { if (screen !== 'home' || homeSection !== 'projects') endBatch(); }, [screen, homeSection]);
+  useEffect(() => { if (screen === 'home' && libraryReady) void refreshDeleted(); }, [screen, libraryReady]);
+  // Browser preview: files dropped on Home open a project or start a photo movie, like the native window does.
+  useEffect(() => {
+    if (bridge.native || screen !== 'home') return;
+    const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes('Files');
+    const over = (event: DragEvent) => { if (hasFiles(event)) event.preventDefault(); };
+    const drop = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      const action = classifyDrop(Array.from(event.dataTransfer?.files ?? []));
+      if (action.kind === 'project') void openProjectFile(action.file);
+      else if (action.kind === 'images' || action.kind === 'videos') {
+        const transfer = new DataTransfer();
+        action.files.forEach(file => transfer.items.add(file));
+        void (action.kind === 'images' ? importFiles(transfer.files) : importVideos(transfer.files));
+      } else setError(t('Drop photos, videos or a .pixcut project file.'));
+    };
+    window.addEventListener('dragover', over);
+    window.addEventListener('drop', drop);
+    return () => { window.removeEventListener('dragover', over); window.removeEventListener('drop', drop); };
+  }, [screen, canEdit, project.id]);
+  const [missingCounts, setMissingCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (screen !== 'home' || !libraryReady) return;
+    let cancelled = false;
+    void countMissingAssets(projects, { load: getLibraryProject, refsOf: projectAssetRefs, nativeMissing: bridge.native ? bridge.missingAssetRefs : null, exists: assetExists, isCancelled: () => cancelled })
+      .then(found => { if (found) setMissingCounts(found); });
+    return () => { cancelled = true; };
+  }, [screen, libraryReady, projects.map(entry => `${entry.id}:${entry.updatedAt}`).join('|')]);
   useEffect(() => {
     if (!ready) return;
     const timeout = setTimeout(() => { void persistCurrent(); }, preferences.autosaveMs);
@@ -833,17 +735,6 @@ export default function App() {
     }
   }, [position, playing, playDirection, audio, cueAudio, project.timebase, videoDuckWindows, project.ducking, audioMix]);
   useEffect(() => () => { for (const element of audioElements.current.values()) element.pause(); recorderRef.current?.state !== 'inactive' && recorderRef.current?.stop(); if (recordTimer.current) clearInterval(recordTimer.current); }, []);
-  useEffect(() => {
-    if (!projectMenu) return;
-    const close = (event: Event) => {
-      if (event.target instanceof Element && event.target.closest(`[data-project-menu="${projectMenu}"], [data-project-actions="${projectMenu}"]`)) return;
-      setProjectMenu(null);
-    };
-    window.addEventListener('pointerdown', close);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
-    return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); };
-  }, [projectMenu]);
   useEffect(() => { setName(project.name); }, [project.name]);
   useEffect(() => { if (modal === 'export') setExportSettings(current => ({ ...current, name: project.name, version: 'v1' })); }, [modal, project.id]);
   useEffect(() => {
@@ -877,7 +768,7 @@ export default function App() {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = previous; };
   }, [modal]);
-  useEffect(() => { if (!notice) return; const id = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(id); }, [notice]);
+  useEffect(() => { if (!notice) return; const id = setTimeout(() => setNotice(t('')), 5000); return () => clearTimeout(id); }, [notice]);
 
   function optimisticScene(scene: Scene) {
     const before = latestProject.current;
@@ -887,61 +778,11 @@ export default function App() {
     return before;
   }
 
-  const run = useCallback((command: Command): Promise<boolean> => {
-    const light = (value: Command) => value.type === 'order' || value.type === 'update' || value.type === 'updateMany' || value.type === 'audio' || value.type === 'audioMix' || value.type === 'overlays';
-    if (operation.current) {
-      if (command.type === 'update') {
-        const queued = sceneQueue.current;
-        const last = queued.at(-1);
-        if (last?.type === 'update' && last.scene.id === command.scene.id) queued[queued.length - 1] = command;
-        else queued.push(command);
-      } else {
-        sceneQueue.current.push(command);
-        if (!light(command)) {
-          setBusy(true);
-          setPlaying(false);
-        }
-      }
-      return pending.current;
-    }
-    operation.current = true;
-    if (!light(command)) { setBusy(true); setPlaying(false); }
-    setStatus('Saving…');
-    const task = (async () => {
-      let current: Command | undefined = command;
-      let success = true;
-      while (current) {
-        if (!light(current)) { setBusy(true); setPlaying(false); }
-        try {
-          if (current.type === 'order') {
-            // Compute the same edit Rust will make, then ask Rust to record it.
-            // The answer carries history flags only, never a project payload.
-            const project = edit(latestProject.current, current);
-            const history = await bridge.applyOrder(current);
-            latestProject.current = project;
-            setSession({ project, ...history });
-          } else {
-            const next = await bridge.dispatch(current);
-            latestProject.current = next.project;
-            setSession(next);
-          }
-          setStatus('Saved');
-        } catch (e) {
-          success = false;
-          sceneQueue.current = [];
-          setError(messageFor(e));
-          setStatus('Changes not saved');
-          break;
-        }
-        current = sceneQueue.current.shift();
-      }
-      operation.current = false;
-      setBusy(false);
-      return success;
-    })();
-    pending.current = task;
-    return task;
-  }, []);
+  const run = useCallback((command: Command): Promise<boolean> => runCommand(command, { operation, queue: sceneQueue, pending }, {
+    dispatch: bridge.dispatch, applyOrder: bridge.applyOrder, edit,
+    getProject: () => latestProject.current, setProject: next => { latestProject.current = next; },
+    setSession, setBusy, stopPlayback: () => setPlaying(false), setStatus, setError, describeError: messageFor,
+  }), []);
 
   useEffect(() => { positionRef.current = position; }, [position]);
   useEffect(() => {
@@ -1014,7 +855,7 @@ export default function App() {
       element.muted = true;
       const source = videoScene.image;
       void resolveMediaSource(source).then(url => {
-        if (!url) { setError('That video is missing from the local store. Relink the clip.'); return; }
+        if (!url) { setError(t('That video is missing from the local store. Relink the clip.')); return; }
         if (element.dataset.sceneSource !== source) return;
         element.src = url;
         element.load();
@@ -1100,7 +941,7 @@ export default function App() {
       element.muted = true;
       const source = clip.image;
       void resolveMediaSource(source).then(url => {
-        if (!url) { setError('That video is missing from the local store. Relink the clip.'); return; }
+        if (!url) { setError(t('That video is missing from the local store. Relink the clip.')); return; }
         if (pipVideoSources.current.get(clip.id) !== source) return;
         element.src = url;
         element.load();
@@ -1183,8 +1024,8 @@ export default function App() {
   }, [activeSize.width, activeSize.height, screen]);
 
   const save = useCallback(async () => {
-    if (missingAssets(latestProject.current, presentRefs).length) { setError('Relink missing media before saving this project.'); return; }
-    try { await pending.current; await persistCurrent(); if (await bridge.saveProject(latestProject.current)) setNotice(bridge.native ? 'Project saved as a .pixcut package with its media files.' : 'Project file downloaded. A local copy is also saved on this device.'); } catch (e) { setError(messageFor(e)); }
+    if (missingAssets(latestProject.current, presentRefs).length) { setError(t('Relink missing media before saving this project.')); return; }
+    try { await pending.current; await persistCurrent(); if (await bridge.saveProject(latestProject.current)) setNotice(bridge.native ? t('Project saved as a .pixcut package with its media files.') : t('Project file downloaded. A local copy is also saved on this device.')); } catch (e) { setError(messageFor(e)); }
   }, [persistCurrent]);
 
   function goHome() {
@@ -1217,349 +1058,22 @@ export default function App() {
   }
 
   function availabilityFor(id: string): CommandAvailability {
-    if (exporting && id === 'export.open') return { disabled: true, reason: 'An export is already running.' };
-    const editor = screen === 'editor';
-    const hasProject = scenes.length > 0;
-    const scene = selectedScene;
-    const sceneStartTicks = scene?.startTicks ?? 0;
-    const sceneOffsetTicks = secondsToTicks(position, project.timebase) - sceneStartTicks;
-    const splitMinimum = minTicks(project.timebase);
-    switch (id) {
-      case 'project.new': return ready ? AVAILABLE : { disabled: true, reason: 'PixCut is still loading.' };
-      case 'project.open': return canEdit ? AVAILABLE : { disabled: true, reason: 'Finish the current operation first.' };
-      case 'project.save': return ready ? AVAILABLE : { disabled: true, reason: 'PixCut is still loading.' };
-      case 'project.import': return canEdit ? AVAILABLE : { disabled: true, reason: 'Finish the current operation first.' };
-      case 'export.open': return hasProject && ready && !busy ? AVAILABLE : { disabled: true, reason: hasProject ? 'PixCut is busy.' : 'Add at least one scene to export.' };
-      case 'history.undo': return session.canUndo && canEdit ? AVAILABLE : { disabled: true, reason: session.canUndo ? 'Finish the current operation first.' : 'Nothing to undo.' };
-      case 'history.redo': return session.canRedo && canEdit ? AVAILABLE : { disabled: true, reason: session.canRedo ? 'Finish the current operation first.' : 'Nothing to redo.' };
-      case 'playback.toggle':
-      case 'playback.forward':
-      case 'playback.reverse':
-      case 'playback.stop':
-        if (!editor) return { disabled: true, reason: 'Open a story to use playback.' };
-        if (!duration) return { disabled: true, reason: 'Add a scene to play.' };
-        return canEdit ? AVAILABLE : { disabled: true, reason: 'Finish the current operation first.' };
-      case 'clip.split':
-        if (!editor) return { disabled: true, reason: 'Open a story to edit clips.' };
-        if (!canEdit) return { disabled: true, reason: 'Finish the current operation first.' };
-        if (editTargetRef.current === 'audio') {
-          const audioClip = audio.find(item => item.id === audioTargetRef.current) ?? selectedAudio;
-          if (!audioClip) return { disabled: true, reason: 'Select an audio clip first.' };
-          const audioOffsetTicks = secondsToTicks(position, project.timebase) - audioClip.startTicks;
-          return audioOffsetTicks >= splitMinimum && audioClip.durationTicks - audioOffsetTicks >= splitMinimum ? AVAILABLE : { disabled: true, reason: 'Place the playhead at least half a second inside the selected audio clip.' };
-        }
-        if (!selectedScenes.length) return { disabled: true, reason: 'Select a clip first.' };
-        if (selectedScenes.length !== 1) return { disabled: true, reason: 'Select one clip to split.' };
-        return scene && sceneOffsetTicks >= splitMinimum && scene.durationTicks - sceneOffsetTicks >= splitMinimum ? AVAILABLE : { disabled: true, reason: 'Place the playhead at least half a second inside the selected clip.' };
-      case 'clip.delete':
-      case 'clip.ripple_delete':
-        if (!editor) return { disabled: true, reason: 'Open a story to edit clips.' };
-        if (editTargetRef.current !== 'audio' && !selectedScenes.length || editTargetRef.current === 'audio' && !audioTargetRef.current) return { disabled: true, reason: 'Select a clip first.' };
-        return canEdit ? AVAILABLE : { disabled: true, reason: 'Finish the current operation first.' };
-      case 'clip.duplicate':
-        if (!editor) return { disabled: true, reason: 'Open a story to edit clips.' };
-        if (!selectedScenes.length) return { disabled: true, reason: 'Select a clip first.' };
-        return canEdit ? AVAILABLE : { disabled: true, reason: 'Finish the current operation first.' };
-      case 'timeline.prev_frame':
-      case 'timeline.next_frame':
-        return editor && duration > 0 ? AVAILABLE : { disabled: true, reason: 'Add a scene to step through frames.' };
-      case 'timeline.snapping':
-      case 'view.safe_area':
-        return editor ? AVAILABLE : { disabled: true, reason: 'Open a story to use editor controls.' };
-      case 'edit.select_all':
-        return scenes.length && canEdit ? AVAILABLE : { disabled: true, reason: 'Open a project with scenes first.' };
-      case 'edit.deselect':
-        return AVAILABLE;
-      case 'beat.add':
-        return projectTicks && canEdit ? AVAILABLE : { disabled: true, reason: 'Add a scene before placing a beat.' };
-      case 'text.add':
-        return selectedScene && canEdit ? AVAILABLE : { disabled: true, reason: 'Select a scene first.' };
-      default: return AVAILABLE;
-    }
+    return resolveAvailability(id, {
+      screen, ready, busy, canEdit, exporting, canUndo: session.canUndo, canRedo: session.canRedo, scenes, selectedScenes, selectedScene,
+      position, timebase: project.timebase, duration, projectTicks, editTarget: editTargetRef.current, audioTargetId: audioTargetRef.current,
+      audio, selectedAudio, lockedLanes, selectionLane: () => clipEditing.current?.selectionLane() ?? '',
+    });
   }
 
   function tip(id: string, label: string) {
     const state = availabilityFor(id);
-    return `${label} · ${shortcutText(id)}${state.disabled && state.reason ? ` — ${state.reason}` : ''}`;
-  }
-
-  function togglePlayback() {
-    if (!duration) return;
-    if (playing) { setPlaying(false); return; }
-    if (position >= duration - frameSeconds) setPosition(0);
-    setPreviewScene(null);
-    setPlayDirection(1);
-    setPlaying(true);
-  }
-
-  function playForward() {
-    if (!duration) return;
-    if (position >= duration - frameSeconds) setPosition(0);
-    setPreviewScene(null);
-    setPlayDirection(1);
-    setPlaying(true);
-  }
-
-  function playReverse() {
-    if (!duration) return;
-    if (position <= frameSeconds) setPosition(Math.max(0, duration - frameSeconds));
-    setPreviewScene(null);
-    setPlayDirection(-1);
-    setPlaying(true);
-  }
-
-  function stepFrame(direction: 1 | -1) {
-    if (!duration) return;
-    setPlaying(false);
-    setPosition(value => Math.min(Math.max(0, value + direction * frameSeconds), Math.max(0, duration - frameSeconds)));
-  }
-
-  function snapTime(value: number) {
-    const limit = Math.max(0, duration - frameSeconds);
-    const clamped = Math.min(Math.max(0, value), limit);
-    if (!snapping) return clamped;
-    const cuts = [0];
-    for (const scene of scenes) {
-      cuts.push(Math.min(ticksToSeconds(scene.startTicks, project.timebase), limit));
-      cuts.push(Math.min(ticksToSeconds(scene.startTicks + scene.durationTicks, project.timebase), limit));
-    }
-    let best = clamped, distance = 0.12;
-    for (const cut of cuts) {
-      const gap = Math.abs(cut - clamped);
-      if (gap <= distance) { distance = gap; best = cut; }
-    }
-    return best;
-  }
-
-  function scrubTo(value: number) {
-    setPlaying(false);
-    setPosition(snapTime(value));
-  }
-
-  function focusScene(scene: Scene) {
-    setPlaying(false);
-    setPosition(ticksToSeconds(scene.startTicks, project.timebase));
-  }
-
-  function selectScene(scene: Scene, event?: ReactMouseEvent, seek = true) {
-    commitElement();
-    // A linked audio strip selects its scene without seeking; keep the
-    // playhead exactly where it was if anything else tries to move it.
-    const anchor = positionRef.current;
-    const wasPlaying = playing;
-    if (!seek) queueMicrotask(() => {
-      if (!wasPlaying && positionRef.current !== anchor) { positionRef.current = anchor; setPosition(anchor); }
-    });
-    editTargetRef.current = 'scene';
-    audioTargetRef.current = null;
-    setSelectedElementId(null); setOverlayDraft(null); overlayDraftRef.current = null;
-    setEditingText(false); setSelectedTextLayerId(null); setSelectedGlobalTextId(null); setGlobalTextDraft(null);
-    setSelectedPipId(null); setPipDraft(null); pipDraftRef.current = null;
-    setSelectedAudioId(null);
-    setEditTarget('scene');
-    const toggle = Boolean(event?.metaKey || event?.ctrlKey);
-    const range = Boolean(event?.shiftKey);
-    if (toggle) {
-      if (selectedIds.includes(scene.id)) {
-        const next = selectedIds.filter(id => id !== scene.id);
-        setSelectedIds(next);
-        if (primarySelected === scene.id) setPrimarySelected(next.at(-1) ?? null);
-        selectionAnchor.current = scene.id;
-      } else {
-        setSelectedIds([...selectedIds, scene.id]);
-        setPrimarySelected(scene.id);
-        selectionAnchor.current = scene.id;
-        if (seek) focusScene(scene);
-      }
-      return;
-    }
-    if (range && selectionAnchor.current) {
-      const ids = scenes.map(item => item.id);
-      const from = ids.indexOf(selectionAnchor.current), to = ids.indexOf(scene.id);
-      if (from >= 0 && to >= 0) {
-        setSelectedIds(ids.slice(Math.min(from, to), Math.max(from, to) + 1));
-        setPrimarySelected(scene.id);
-        if (seek) focusScene(scene);
-        return;
-      }
-    }
-    setSelectedIds([scene.id]);
-    setPrimarySelected(scene.id);
-    selectionAnchor.current = scene.id;
-    if (seek) focusScene(scene);
-  }
-
-  function updateSelection(next: Scene, force: ScenePatchKey[] = []): Promise<boolean> {
-    if (selectedGlobalText) {
-      const layers = next.textLayers ?? [];
-      return run({ type: 'globalText', layers }).finally(() => setGlobalTextDraft(null));
-    }
-    const targets = selectedScenes;
-    if (!targets.length) return Promise.resolve(false);
-    const base = targets.find(scene => scene.id === next.id) ?? targets[0];
-    const patch = scenePatch(base, next);
-    for (const key of force) {
-      const value = (next as unknown as Record<string, unknown>)[key];
-      if (value !== undefined) (patch as Record<string, unknown>)[key] = value;
-    }
-    if (!Object.keys(patch).length) return Promise.resolve(true);
-    const ids = targets.map(scene => scene.id);
-    const framingKeys = ['imageX', 'imageY', 'imageZoom', 'fit', 'framingBackground'] as const;
-    const framePatch: SceneFormatOverride = {};
-    const existingFraming = activeFormat?.overrides[base.id];
-    let frameChanged = false;
-    for (const key of framingKeys) {
-      if (!(key in patch)) continue;
-      const value = (patch as Record<string, unknown>)[key];
-      if (value !== undefined) {
-        (framePatch as Record<string, unknown>)[key] = value;
-        if ((existingFraming as Record<string, unknown> | undefined)?.[key] !== value) frameChanged = true;
-      }
-      delete (patch as Record<string, unknown>)[key];
-    }
-    let formatsTask: Promise<boolean> | null = null;
-    if (frameChanged && activeFormat) {
-      const nextFormats = project.formats.map(format => format.id === activeFormat.id
-        ? { ...format, overrides: { ...format.overrides, ...Object.fromEntries(ids.map(id => [id, { ...format.overrides[id], ...framePatch }])) } }
-        : format);
-      formatsTask = run({ type: 'formats', formats: nextFormats });
-    }
-    const applyPatch = (): Promise<boolean> => {
-      const latest = projectScenes(latestProject.current);
-      const currentTargets = ids.map(id => latest.find(scene => scene.id === id)).filter((scene): scene is Scene => Boolean(scene));
-      if (!currentTargets.length) return Promise.resolve(false);
-      if (currentTargets.length === 1) {
-        return run({ type: 'update', scene: { ...currentTargets[0], ...patch } });
-      }
-      const scenes = currentTargets.map(scene => {
-        const merged: Scene = { ...scene, ...patch };
-        if (patch.speed !== undefined) {
-          const source = sceneSeconds(scene, project.timebase) * (scene.speed ?? 1);
-          const duration = Math.min(30, Math.max(0.5, source / patch.speed));
-          const resized = setSceneSeconds(scene, duration, project.timebase);
-          merged.durationTicks = resized.durationTicks;
-          merged.speed = patch.speed;
-        } else if (patch.durationTicks !== undefined) {
-          merged.durationTicks = setSceneSeconds(merged, ticksToSeconds(patch.durationTicks, project.timebase), project.timebase).durationTicks;
-        }
-        const seconds = sceneSeconds(merged, project.timebase);
-        merged.fadeIn = Math.min(merged.fadeIn ?? 0, seconds);
-        merged.fadeOut = Math.min(merged.fadeOut ?? 0, seconds);
-        return merged;
-      });
-      return run({ type: 'updateMany', scenes });
-    };
-    const commonTask = Object.keys(patch).length ? (operation.current ? pending.current.then(applyPatch) : Promise.resolve(applyPatch())) : null;
-    const task = formatsTask ?? commonTask ?? Promise.resolve(true);
-    return task.finally(() => setPreviewScene(null));
-  }
-
-  function splitAtPlayhead() {
-    if (editTargetRef.current === 'audio') {
-      splitAudioAtPlayhead(audio.find(item => item.id === audioTargetRef.current) ?? selectedAudio);
-      return;
-    }
-    if (selectedScenes.length !== 1) {
-      setNotice('Select one clip to split at the playhead.');
-      return;
-    }
-    const scene = selectedScenes[0];
-    const index = scenes.findIndex(item => item.id === scene.id);
-    if (index < 0) return;
-    const atTicks = secondsToTicks(position, project.timebase) - scene.startTicks;
-    const splitMinimum = minTicks(project.timebase);
-    if (atTicks < splitMinimum || scene.durationTicks - atTicks < splitMinimum) {
-      setNotice('Place the playhead at least half a second inside the selected clip.');
-      return;
-    }
-    const newId = crypto.randomUUID();
-    void run({ type: 'split', id: scene.id, atTicks, newId }).then(ok => {
-      if (ok) {
-        setSelectedIds([newId]);
-        setPrimarySelected(newId);
-        selectionAnchor.current = newId;
-        setNotice(scene.mediaKind === 'video' ? 'Video split at the playhead, with its sound. Undo restores one clip.' : 'Clip split at the playhead. Undo restores one clip.');
-      }
-    });
-  }
-
-  /**
-   * Audio clips are not in the visual track's split command, so splitting one
-   * replaces it with two clips that share the same source and lane. Selecting
-   * audio and pressing Split used to split the active video instead, because
-   * the visual selection falls back to whatever sits under the playhead.
-   */
-  function splitAudioAtPlayhead(clip: AudioClip | null) {
-    if (!clip) { setNotice('Select an audio clip to split at the playhead.'); return; }
-    const atTicks = secondsToTicks(position, project.timebase) - clip.startTicks;
-    const splitMinimum = minTicks(project.timebase);
-    if (atTicks < splitMinimum || clip.durationTicks - atTicks < splitMinimum) {
-      setNotice('Place the playhead at least half a second inside the selected audio clip.');
-      return;
-    }
-    const parts = splitAudioClip(clip, atTicks, crypto.randomUUID(), project.timebase);
-    if (!parts) { setNotice('Place the playhead inside the selected audio clip.'); return; }
-    const audio = project.audio.flatMap(item => item.id === clip.id ? [parts.left, parts.right] : [item]);
-    void run({ type: 'audio', audio }).then(ok => {
-      if (ok) { setEditTarget('audio'); setSelectedAudioId(parts.right.id); setNotice('Audio split at the playhead. Undo restores one clip.'); }
-    });
-  }
-
-  function duplicateSelected() {
-    const targets = selectedScenes;
-    if (!targets.length) return;
-    const items = targets.map(scene => ({ id: scene.id, newId: crypto.randomUUID() }));
-    void run({ type: 'duplicateMany', items }).then(ok => {
-      if (ok) {
-        const newIds = items.map(item => item.newId);
-        setSelectedIds(newIds);
-        setPrimarySelected(newIds.at(-1) ?? null);
-        selectionAnchor.current = newIds.at(-1) ?? null;
-        setNotice(`${items.length} clip${items.length === 1 ? '' : 's'} duplicated${items.length === 1 ? '' : ' together'}.`);
-      }
-    });
-  }
-
-  function deleteSelected() {
-    if (editTargetRef.current === 'audio') { const id = audioTargetRef.current ?? selectedAudioId; if (id) removeAudio(id); return; }
-    if (editTarget === 'element') { if (selectedElement) removeElement(selectedElement.id); return; }
-    if (selectedPip) { removePip(selectedPip.id); return; }
-    if (editTarget === 'text' && selectedGlobalText) {
-      const layers = (project.globalText ?? []).filter(layer => layer.id !== selectedGlobalText.id);
-      void run({ type: 'globalText', layers });
-      setSelectedGlobalTextId(null); return;
-    }
-    if (editTarget === 'text' && selectedScene && selectedTextLayerId) {
-      const layers = sceneTextLayers(selectedScene).filter(layer => layer.id !== selectedTextLayerId);
-      void updateSelection(replaceSceneTextLayers(selectedScene, layers));
-      setSelectedTextLayerId(null); return;
-    }
-    if (editTarget === 'text') return;
-    if (!hasSceneSelection) {
-      if (selectedAudioId) {
-        const clip = audio.find(item => item.id === selectedAudioId);
-        if (clip) { removeAudio(clip.id); return; }
-      }
-      setNotice('Select a clip to delete.');
-      return;
-    }
-    const targets = selectedScenes;
-    if (!targets.length) return;
-    const ids = targets.map(scene => scene.id);
-    void run({ type: 'removeMany', ids }).then(ok => {
-      if (ok) {
-        setSelectedIds([]);
-        setPrimarySelected(null);
-        selectionAnchor.current = null;
-        setNotice(`${ids.length} clip${ids.length === 1 ? '' : 's'} deleted. Undo restores ${ids.length === 1 ? 'it' : 'them'}.`);
-      }
-    });
+    return `${t(label)} · ${shortcutText(id)}${state.disabled && state.reason ? ` — ${state.reason}` : ''}`;
   }
 
   function applyShortcuts(next: ShortcutSettingsData) {
-    try { saveShortcutSettings(next); } catch (e) { setError(`Shortcuts could not be saved. ${messageFor(e)}`); return false; }
+    try { saveShortcutSettings(next); } catch (e) { setError(t('Shortcuts could not be saved. {e}', { e: messageFor(e) })); return false; }
     setShortcuts(next);
-    setNotice('Shortcuts applied everywhere: tooltips, help, and the command palette.');
+    setNotice(t('Shortcuts applied everywhere: tooltips, help, and the command palette.'));
     return true;
   }
 
@@ -1620,11 +1134,11 @@ export default function App() {
       textOpacity: source.textOpacity ?? 100,
       textSubtitleScale: source.textSubtitleScale ?? 0.4,
     });
-    setNotice('Color, look, text layout, and text-effect properties copied. Select another clip to paste them.');
+    setNotice(t('Color, look, text layout, and text-effect properties copied. Select another clip to paste them.'));
   }
 
   function notifyPasted() {
-    setNotice('Color, look, and text effects pasted.');
+    setNotice(t('Color, look, and text effects pasted.'));
   }
 
   function selectTextLayer(id: string | null) {
@@ -1651,15 +1165,15 @@ export default function App() {
   }
 
   function addProjectText() {
-    if (!canEdit || !projectTicks) { setNotice('Add a scene before adding project text.'); return; }
-    if ((project.globalText?.length ?? 0) >= MAX_GLOBAL_TEXT) { setNotice(`A project supports up to ${MAX_GLOBAL_TEXT} project text layers.`); return; }
+    if (!canEdit || !projectTicks) { setNotice(t('Add a scene before adding project text.')); return; }
+    if ((project.globalText?.length ?? 0) >= MAX_GLOBAL_TEXT) { setNotice(t('A project supports up to {max} project text layers.', { max: MAX_GLOBAL_TEXT })); return; }
     const startTicks = Math.min(Math.max(0, secondsToTicks(positionRef.current, project.timebase)), projectTicks - 1);
     const layer = createTextLayer(Math.max(1, projectTicks - startTicks), { startTicks, y: .84, size: .052 });
     void run({ type: 'globalText', layers: [...(project.globalText ?? []), layer] }).then(ok => {
       if (!ok) return;
       setEditTarget('text'); setSelectedElementId(null); setSelectedTextLayerId(null); setSelectedGlobalTextId(layer.id);
       setTab('text'); setTextFocus(value => value + 1);
-      setNotice('Project text added. It stays on screen across every scene.');
+      setNotice(t('Project text added. It stays on screen across every scene.'));
     });
   }
 
@@ -1671,9 +1185,9 @@ export default function App() {
     const preset = ELEMENT_CATALOG.find(item => item.id === presetId);
     if (!preset) return;
     const kind = preset.kind;
-    if (!selectedScene || !canEdit) { setNotice('Select a scene first.'); return; }
+    if (!selectedScene || !canEdit) { setNotice(t('Select a scene first.')); return; }
     const count = allOverlays.length;
-    if (count >= 64) { setNotice('This project already has 64 overlays.'); return; }
+    if (count >= 64) { setNotice(t('This project already has 64 overlays.')); return; }
     const element: ElementLayer = {
       id: crypto.randomUUID(), kind, presetId, z: newOverlayZ(sceneLayerStack), label: preset.text, ...(preset.behavior ? { behavior: preset.behavior } : {}), x: .5 + (count % 3) * .035, y: .5 + (count % 2) * .035, ...presetSize(preset, activeSize),
       rotation: 0, color: preset?.color ?? ELEMENT_COLOR_DEFAULTS[kind] ?? '#9D7CFF', opacity: 100,
@@ -1756,75 +1270,14 @@ export default function App() {
     void saveOverlay(element, null); setSelectedElementId(null); overlayDraftRef.current = null; setOverlayDraft(null);
   }
 
-  function beginElementMove(event: ReactPointerEvent<HTMLElement>, element = selectedElement) {
-    if (!element || !canEdit || event.button !== 0) return;
-    event.preventDefault(); event.stopPropagation(); inspectorFlush.current();
-    selectOverlay(element, false);
-    const stage = previewStage.current?.getBoundingClientRect(); if (!stage?.width || !stage.height) return;
-    setPlaying(false); setDraggingOverlay(true);
-    const startX = event.clientX, startY = event.clientY;
-    const visibleOthers = allOverlays.filter(other => other.id !== element.id
-      && position >= ticksToSeconds(other.startTicks, project.timebase)
-      && position < ticksToSeconds(other.startTicks + other.durationTicks, project.timebase));
-    const xGuides = centreGuides(visibleOthers.map(other => other.x));
-    const yGuides = centreGuides(visibleOthers.map(other => other.y));
-    const move = (e: PointerEvent) => {
-      const rawX = Math.max(element.width / 2, Math.min(1 - element.width / 2, element.x + (e.clientX - startX) / stage.width));
-      const rawY = Math.max(element.height / 2, Math.min(1 - element.height / 2, element.y + (e.clientY - startY) / stage.height));
-      const x = snapToTargets(rawX, xGuides);
-      const y = snapToTargets(rawY, yGuides);
-      setSnapGuides({ x: x.guide, y: y.guide });
-      stageElement({ x: x.value, y: y.value }, element);
-    };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); setSnapGuides({ x: null, y: null }); setDraggingOverlay(false); commitElement(); };
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
-  }
-
-  function beginElementResize(event: ReactPointerEvent<HTMLElement>, element = selectedElement, corner: ResizeCorner = 'se') {
-    if (!element || !canEdit || event.button !== 0) return;
-    event.preventDefault(); event.stopPropagation(); inspectorFlush.current();
-    selectOverlay(element, false);
-    const stage = previewStage.current?.getBoundingClientRect(); if (!stage?.width || !stage.height) return;
-    setPlaying(false); setDraggingOverlay(true);
-    const startX = event.clientX, startY = event.clientY;
-    const base = { cx: element.x * stage.width, cy: element.y * stage.height, w: element.width * stage.width, h: element.height * stage.height, rotation: element.rotation };
-    const limits = { minWidth: Math.max(6, .02 * stage.width), minHeight: Math.max(6, .02 * stage.height), maxWidth: stage.width, maxHeight: stage.height };
-    const move = (e: PointerEvent) => {
-      const box = resizeRotatedBox(base, corner, e.clientX - startX, e.clientY - startY, limits, e.shiftKey);
-      stageElement({
-        x: Math.min(1, Math.max(0, box.cx / stage.width)),
-        y: Math.min(1, Math.max(0, box.cy / stage.height)),
-        width: box.w / stage.width,
-        height: box.h / stage.height,
-      }, element);
-    };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); setDraggingOverlay(false); commitElement(); };
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
-  }
-
-  function beginElementRotate(event: ReactPointerEvent<HTMLElement>, element = selectedElement) {
-    if (!element || !canEdit || event.button !== 0) return;
-    event.preventDefault(); event.stopPropagation(); inspectorFlush.current();
-    selectOverlay(element, false);
-    const stage = previewStage.current?.getBoundingClientRect(); if (!stage?.width || !stage.height) return;
-    setPlaying(false); setDraggingOverlay(true);
-    const centre = { x: stage.left + element.x * stage.width, y: stage.top + element.y * stage.height };
-    const angleAt = (clientX: number, clientY: number) => Math.atan2(clientY - centre.y, clientX - centre.x) * 180 / Math.PI;
-    const startAngle = angleAt(event.clientX, event.clientY);
-    const startRotation = element.rotation;
-    const move = (e: PointerEvent) => {
-      stageElement({ rotation: rotationFromPointer(startRotation, startAngle, angleAt(e.clientX, e.clientY), e.shiftKey) }, element);
-    };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); setDraggingOverlay(false); commitElement(); };
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
-  }
+  const { beginElementMove, beginElementResize, beginElementRotate, beginOverlayTiming } = useElementPointer({ canEdit, inspectorFlush, previewStage, selectedElement, selectOverlay, allOverlays, position, project, projectTicks, snapping, setPlaying, setDraggingOverlay, setSnapGuides, setOverlayDraft, overlayDraftRef, stageElement, commitElement });
 
   function addBeatAtPlayhead() {
     if (!canEdit || !projectTicks) return;
     const tick = Math.min(projectTicks, Math.max(0, secondsToTicks(position, project.timebase)));
     const beats = project.beatTicks ?? [];
-    if (beats.some(existing => Math.abs(existing - tick) < 2)) { setNotice('A beat is already there.'); return; }
-    if (beats.length >= 500) { setNotice('A project supports up to 500 beat markers.'); return; }
+    if (beats.some(existing => Math.abs(existing - tick) < 2)) { setNotice(t('A beat is already there.')); return; }
+    if (beats.length >= 500) { setNotice(t('A project supports up to 500 beat markers.')); return; }
     void run({ type: 'beats', beatTicks: [...beats, tick].sort((a, b) => a - b) });
   }
 
@@ -1833,34 +1286,10 @@ export default function App() {
     void run({ type: 'beats', beatTicks: (project.beatTicks ?? []).filter(beat => beat !== tick) });
   }
 
-  function beginOverlayTiming(event: ReactPointerEvent<HTMLElement>, element: TimelineOverlay, edge: 'move' | 'start' | 'end') {
-    if (!canEdit || event.button !== 0) return;
-    event.preventDefault(); event.stopPropagation(); selectOverlay(element, false);
-    const track = event.currentTarget.closest('.overlay-track')?.getBoundingClientRect(); if (!track?.width) return;
-    const startX = event.clientX; let moved = false;
-    const move = (e: PointerEvent) => {
-      const delta = Math.round((e.clientX - startX) / track.width * projectTicks); moved ||= Math.abs(e.clientX - startX) > 2;
-      let patch: Partial<ElementLayer>;
-      if (edge === 'move') patch = { startTicks: Math.max(0, Math.min(projectTicks - element.durationTicks, element.startTicks + delta)) };
-      else if (edge === 'end') patch = { durationTicks: Math.max(1, element.durationTicks + delta) };
-      else { const start = Math.max(0, Math.min(element.startTicks + element.durationTicks - 1, element.startTicks + delta)); patch = { startTicks: start, durationTicks: element.durationTicks + element.startTicks - start }; }
-      const next = { ...element, ...constrainOverlay(element, projectTicks, patch) };
-      if (next.kind === 'video' && next.sourceDurationSeconds) next.durationTicks = Math.min(next.durationTicks, Math.max(1, secondsToTicks(next.sourceDurationSeconds - (next.sourceInSeconds ?? 0), project.timebase)));
-      if (snapping && project.beatTicks?.length) {
-        const snapped = snapOverlayTiming(edge, next.startTicks, next.durationTicks, project.beatTicks, Math.max(1, Math.round(projectTicks / track.width * 8)));
-        next.startTicks = snapped.startTicks;
-        next.durationTicks = snapped.durationTicks;
-      }
-      overlayDraftRef.current = next; setOverlayDraft(next);
-    };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); if (moved) commitElement(); else selectOverlay(element); };
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up, { once: true });
-  }
-
   function addTextLayerAtPlayhead(preset: Partial<TextLayer> = {}) {
     const scene = selectedScene ?? active;
-    if (!scene || !canEdit) { setNotice('Add a photo before adding text.'); return; }
-    if (sceneTextLayers(scene).length >= 8) { setNotice('This scene already has eight text layers.'); return; }
+    if (!scene || !canEdit) { setNotice(t('Add a photo before adding text.')); return; }
+    if (sceneTextLayers(scene).length >= 8) { setNotice(t('This scene already has eight text layers.')); return; }
     const startTicks = Math.min(Math.max(0, textStartTicks), Math.max(0, scene.durationTicks - 1));
     const layer = createTextLayer(Math.max(1, scene.durationTicks - startTicks), { ...preset, startTicks });
     const next = replaceSceneTextLayers(scene, [...sceneTextLayers(scene), layer]);
@@ -1914,237 +1343,18 @@ export default function App() {
     commitInlineText();
   }
 
-  function beginImagePan(event: ReactPointerEvent<HTMLElement>) {
-    const scene = inspectorScene;
-    if (!scene || !canEdit || event.button !== 0) return;
-    event.preventDefault();
-    captureDragPointer(event);
-    inspectorFlush.current();
-    const stage = previewStage.current?.getBoundingClientRect();
-    if (!stage || stage.width <= 0 || stage.height <= 0) return;
-    setPlaying(false);
-    setEditingText(false);
-    const startX = event.clientX, startY = event.clientY;
-    setDraggingOverlay(true);
-    const initialX = scene.imageX ?? 0, initialY = scene.imageY ?? 0;
-    let travel = { x: activeSize.width / 4, y: activeSize.height / 4 };
-    void loadImage(scene.videoPoster ?? scene.image).then(image => { travel = framingTravel({ width: image.naturalWidth, height: image.naturalHeight }, activeSize, scene.fit, scene.imageZoom ?? 1); }).catch(() => {});
-    let latest = { imageX: initialX, imageY: initialY };
-    const move = (moveEvent: PointerEvent) => {
-      latest = {
-        imageX: Math.min(1, Math.max(-1, initialX - (moveEvent.clientX - startX) / stage.width * activeSize.width / travel.x)),
-        imageY: Math.min(1, Math.max(-1, initialY - (moveEvent.clientY - startY) / stage.height * activeSize.height / travel.y)),
-      };
-      setPreviewScene({ ...scene, ...latest });
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      setDraggingOverlay(false);
-      void pending.current.then(() => {
-        const current = projectScenes(latestProject.current).find(item => item.id === scene.id) ?? scene;
-        if ((current.imageX ?? 0) === latest.imageX && (current.imageY ?? 0) === latest.imageY) { setPreviewScene(null); return; }
-        void updateSelection({ ...scene, ...latest }).finally(() => setPreviewScene(null));
-      });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
 
-  function beginTextMove(event: ReactPointerEvent<HTMLElement>) {
-    const scene = selectedScene;
-    const layer = selectedTextLayer;
-    if (!scene || !layer || !canEdit || event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    inspectorFlush.current();
-    const stage = previewStage.current?.getBoundingClientRect();
-    if (!stage || stage.width <= 0 || stage.height <= 0) return;
-    const startX = event.clientX, startY = event.clientY;
-    const initialX = layer.x, initialY = layer.y;
-    const width = layer.width;
-    const height = (textBox?.heightPct ?? 10) / 100;
-    let latest = { x: initialX, y: initialY };
-    setPlaying(false);
-    setEditingText(false);
-    const move = (moveEvent: PointerEvent) => {
-      const rawX = Math.min(Math.max(0, initialX + (moveEvent.clientX - startX) / stage.width), Math.max(0, 1 - width));
-      const rawY = Math.min(Math.max(0, initialY + (moveEvent.clientY - startY) / stage.height), Math.max(0, 1 - height));
-      const x = snapToTargets(rawX, edgeGuides(width));
-      const y = snapToTargets(rawY, edgeGuides(height));
-      setSnapGuides({ x: x.guide, y: y.guide });
-      latest = { x: x.value, y: y.value };
-      const layers = sceneTextLayers(scene).map(item => item.id === layer.id ? { ...item, x: x.value, y: y.value } : item);
-      setPreviewScene(replaceSceneTextLayers(scene, layers));
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      setSnapGuides({ x: null, y: null });
-      void pending.current.then(() => {
-        const current = projectScenes(latestProject.current).find(item => item.id === scene.id) ?? scene;
-        const currentLayer = sceneTextLayers(current).find(item => item.id === layer.id);
-        if (!currentLayer || (currentLayer.x === latest.x && currentLayer.y === latest.y)) { setPreviewScene(null); return; }
-        const layers = sceneTextLayers(current).map(item => item.id === layer.id ? { ...item, ...latest } : item);
-        void run({ type: 'update', scene: replaceSceneTextLayers(current, layers) }).finally(() => setPreviewScene(null));
-      });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
 
-  function beginTextResize(event: ReactPointerEvent<HTMLElement>, side: 'left' | 'right') {
-    const scene = selectedScene;
-    const layer = selectedTextLayer;
-    if (!scene || !layer || !canEdit || event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    inspectorFlush.current();
-    const stage = previewStage.current?.getBoundingClientRect();
-    if (!stage || stage.width <= 0) return;
-    const startX = event.clientX;
-    const initialX = layer.x, initialWidth = layer.width;
-    let latest = { x: initialX, width: initialWidth };
-    setPlaying(false);
-    setEditingText(false);
-    const move = (moveEvent: PointerEvent) => {
-      const delta = (moveEvent.clientX - startX) / stage.width;
-      if (side === 'right') {
-        const width = Math.min(1 - initialX, Math.max(.15, initialWidth + delta));
-        latest = { x: initialX, width };
-      } else {
-        const x = Math.min(initialX + initialWidth - .15, Math.max(0, initialX + delta));
-        latest = { x, width: initialWidth + (initialX - x) };
-      }
-      const layers = sceneTextLayers(scene).map(item => item.id === layer.id ? { ...item, ...latest } : item);
-      setPreviewScene(replaceSceneTextLayers(scene, layers));
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      void pending.current.then(() => {
-        const current = projectScenes(latestProject.current).find(item => item.id === scene.id) ?? scene;
-        const currentLayer = sceneTextLayers(current).find(item => item.id === layer.id);
-        if (!currentLayer || (currentLayer.x === latest.x && currentLayer.width === latest.width)) { setPreviewScene(null); return; }
-        const layers = sceneTextLayers(current).map(item => item.id === layer.id ? { ...item, ...latest } : item);
-        void run({ type: 'update', scene: replaceSceneTextLayers(current, layers) }).finally(() => setPreviewScene(null));
-      });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
 
-  function beginFadeDrag(event: ReactPointerEvent<HTMLSpanElement>, scene: Scene, side: 'in' | 'out') {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    captureDragPointer(event);
-    const clip = event.currentTarget.closest<HTMLElement>('.timeline-clip');
-    const width = clip?.getBoundingClientRect().width ?? 0;
-    if (width <= 0) return;
-    const startX = event.clientX;
-    const initialIn = scene.fadeIn ?? 0;
-    const initialOut = scene.fadeOut ?? 0;
-    let next = { fadeIn: initialIn, fadeOut: initialOut };
-    setSelectedIds(ids => ids.includes(scene.id) ? ids : [scene.id]);
-    setPrimarySelected(scene.id);
-    if (!selectedIds.includes(scene.id)) selectionAnchor.current = scene.id;
-    setPlaying(false);
-    setPreviewScene({ ...scene, ...next });
-    const sceneDuration = sceneSeconds(scene, project.timebase);
-    setFadeDrag({ sceneId: scene.id, side, value: side === 'in' ? initialIn : initialOut });
-    const move = (moveEvent: PointerEvent) => {
-      const delta = ((moveEvent.clientX - startX) / width) * sceneDuration * (side === 'in' ? 1 : -1);
-      const base = side === 'in' ? initialIn : initialOut;
-      const value = Math.min(sceneDuration, Math.max(0, Math.round((base + delta) * 10) / 10));
-      next = side === 'in' ? { ...next, fadeIn: value } : { ...next, fadeOut: value };
-      setFadeDrag({ sceneId: scene.id, side, value });
-      setPreviewScene({ ...scene, ...next });
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', cancel);
-      setFadeDrag(null);
-      setPreviewScene(null);
-      void pending.current.then(() => {
-        const current = projectScenes(latestProject.current).find(item => item.id === scene.id) ?? scene;
-        if ((current.fadeIn ?? 0) !== next.fadeIn || (current.fadeOut ?? 0) !== next.fadeOut) {
-          void run({ type: 'update', scene: { ...current, ...next } });
-        }
-      });
-    };
-    const cancel = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', cancel);
-      setFadeDrag(null);
-      setPreviewScene(null);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', cancel);
-  }
 
-  function beginSceneTrim(event: ReactPointerEvent<HTMLSpanElement>, scene: Scene, side: 'left' | 'right') {
-    if (!canEdit || event.button !== 0 || !projectTicks) return;
-    event.preventDefault();
-    event.stopPropagation();
-    captureDragPointer(event);
-    const clip = event.currentTarget.closest<HTMLElement>('.timeline-clip, .video-audio-clip');
-    clip?.focus({ preventScroll: true });
-    const width = clip?.getBoundingClientRect().width ?? 0;
-    if (width <= 0) return;
-    setSelectedIds(ids => (ids.includes(scene.id) ? ids : [scene.id]));
-    setPrimarySelected(scene.id);
-    if (!selectedIds.includes(scene.id)) selectionAnchor.current = scene.id;
-    setPlaying(false);
-    const timebase = project.timebase;
-    const startX = event.clientX;
-    const initialDuration = scene.durationTicks;
-    const initialSourceIn = scene.sourceInTicks ?? 0;
-    let next = scene;
-    let frame = 0;
-    setPreviewScene(scene);
-    const move = (moveEvent: PointerEvent) => {
-      const delta = Math.round(((moveEvent.clientX - startX) / width) * initialDuration);
-      const candidate = trimSceneWindow(scene, delta, side, timebase);
-      if (candidate.durationTicks === next.durationTicks && candidate.sourceInTicks === next.sourceInTicks) return;
-      next = candidate;
-      // Coalesce pointer moves into one paint. The timeline reads this draft
-      // immediately, while the expensive preview/render tree only updates once
-      // per animation frame.
-      if (!frame) frame = requestAnimationFrame(() => { frame = 0; setPreviewScene(next); });
-    };
-    const up = () => finish(true);
-    const cancel = () => finish(false);
-    const finish = (commit: boolean) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', cancel);
-      if (frame) { cancelAnimationFrame(frame); frame = 0; }
-      setPreviewScene(null);
-      if (!commit) return;
-      if (next.durationTicks === initialDuration && next.sourceInTicks === initialSourceIn) return;
-      const current = projectScenes(latestProject.current).find(item => item.id === scene.id);
-      if (!current) return;
-      const updated = { ...current, durationTicks: next.durationTicks, sourceInTicks: next.sourceInTicks, fadeIn: Math.min(current.fadeIn ?? 0, ticksToSeconds(next.durationTicks, timebase)), fadeOut: Math.min(current.fadeOut ?? 0, ticksToSeconds(next.durationTicks, timebase)) };
-      const before = optimisticScene(updated);
-      void run({ type: 'update', scene: updated }).then(ok => {
-        if (!ok) { latestProject.current = before; setSession(session => ({ ...session, project: before })); }
-      });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', cancel);
-  }
 
   const fadeScene = previewScene && previewScene.id === active?.id ? previewScene : active;
   const fadeAmount = fadeScene ? 1 - fadeOpacity(fadeScene, position - activeStart, project.timebase) : 0;
 
+
   function requestCloseModal() {
     if (modal === 'settings' && settingsTab === 'shortcuts' && shortcutDirty) {
-      setNotice('Apply or cancel your shortcut changes before closing Settings.');
+      setNotice(t('Apply or cancel your shortcut changes before closing Settings.'));
       return;
     }
     if (modal === 'new') setPendingTemplate(null);
@@ -2181,11 +1391,29 @@ export default function App() {
       case 'playback.reverse': playReverse(); break;
       case 'playback.stop': setPlaying(false); break;
       case 'clip.split': splitAtPlayhead(); break;
-      case 'clip.delete':
-      case 'clip.ripple_delete': deleteSelected(); break;
+      case 'clip.delete': deleteSelected(); break;
+      case 'clip.ripple_delete': clipEditing.current?.rippleDeleteSelected(); break;
+      case 'clip.trim_start': clipEditing.current?.trimSelected('start'); break;
+      case 'clip.trim_end': clipEditing.current?.trimSelected('end'); break;
+      case 'clip.nudge_left': clipEditing.current?.nudgeSelected(-1); break;
+      case 'clip.nudge_right': clipEditing.current?.nudgeSelected(1); break;
+      case 'clip.nudge_left_10': clipEditing.current?.nudgeSelected(-10); break;
+      case 'clip.nudge_right_10': clipEditing.current?.nudgeSelected(10); break;
+      case 'clip.copy': clipEditing.current?.copySelected(); break;
+      case 'clip.paste': clipEditing.current?.pasteClipboard(); break;
+      case 'edit.select_after': clipEditing.current?.selectAfterPlayhead(); break;
       case 'clip.duplicate': duplicateSelected(); break;
       case 'timeline.prev_frame': stepFrame(-1); break;
       case 'timeline.next_frame': stepFrame(1); break;
+      case 'timeline.prev_edit': jumpToEdit(-1); break;
+      case 'timeline.next_edit': jumpToEdit(1); break;
+      case 'timeline.back_second': movePlayhead(position - 1); break;
+      case 'timeline.forward_second': movePlayhead(position + 1); break;
+      case 'timeline.go_start': movePlayhead(0); break;
+      case 'timeline.go_end': movePlayhead(duration); break;
+      case 'timeline.zoom_in': timelineControls.current?.zoomBy(1.5); break;
+      case 'timeline.zoom_out': timelineControls.current?.zoomBy(1 / 1.5); break;
+      case 'timeline.zoom_fit': timelineControls.current?.fit(); break;
       case 'timeline.snapping': toggleSnapping(); break;
       case 'edit.select_all': {
         const ids = scenes.map(scene => scene.id);
@@ -2222,7 +1450,7 @@ export default function App() {
       const candidates = COMMANDS.filter(command => command.context === 'global' || screen === 'editor');
       const command = candidates.find(item => bindingMatchesEvent(shortcuts.bindings[item.id] ?? '', event, platform));
       if (!command) return;
-      if (event.repeat && !['timeline.prev_frame', 'timeline.next_frame'].includes(command.id)) return;
+      if (event.repeat && !['timeline.prev_frame', 'timeline.next_frame', 'clip.nudge_left', 'clip.nudge_right'].includes(command.id)) return;
       event.preventDefault();
       commandRef.current(command.id);
     };
@@ -2272,6 +1500,7 @@ export default function App() {
 
   async function startWithFormats() {
     const selected = FORMAT_PRESETS.filter(preset => newFormatIds.includes(preset.id));
+    try { if (selected.length) localStorage.setItem('pixcut.lastFormats', JSON.stringify(selected.map(preset => preset.id))); } catch { /* remembering the last choice is optional */ }
     const baseAspect = (['16:9', '9:16', '1:1', '4:5'].includes(selected[0]?.aspect ?? '') ? selected[0].aspect : preferences.defaultAspect) as Project['aspect'];
     const next = emptyProject('Untitled story', baseAspect, newProjectFps);
     const presetFormats = selected.map(preset => ({ id: crypto.randomUUID(), name: preset.name, platform: preset.platform, aspect: preset.aspect, width: preset.width, height: preset.height, fps: preset.fps, quality: preset.quality, presetId: preset.id, overrides: {} }));
@@ -2280,68 +1509,7 @@ export default function App() {
     await launchProject(next);
   }
 
-  async function addFormat(presetId: string) {
-    if (project.formats.length >= MAX_PROJECT_FORMATS) { setNotice(`A project supports up to ${MAX_PROJECT_FORMATS} output formats.`); return; }
-    const format = createFormat(presetId, project.formats);
-    if (await run({ type: 'formats', formats: [...project.formats, format] })) {
-      setActiveFormatId(format.id);
-      setNotice(`${format.name} added. Framing is saved separately for this format.`);
-    }
-  }
-
-  async function toggleFormatPreset(presetId: string) {
-    const existing = project.formats.find(format => format.presetId === presetId);
-    if (existing) await removeFormat(existing.id);
-    else await addFormat(presetId);
-  }
-
-  function addNewCustomFormat() {
-    if (newFormatSelection.length >= MAX_PROJECT_FORMATS) { setNotice(`A project supports up to ${MAX_PROJECT_FORMATS} output formats.`); return; }
-    const width = Math.round(customFormatDraft.width / 2) * 2;
-    const height = Math.round(customFormatDraft.height / 2) * 2;
-    if (width < 160 || height < 160 || width > 3840 || height > 3840) { setError('Custom size must be between 160 and 3840 pixels.'); return; }
-    setNewCustomFormats(current => [...current, createCustomFormat(customFormatDraft.name, width, height, customFormatDraft.fps, customFormatDraft.quality, current)]);
-    setCustomFormatDraft({ name: '', width: 1080, height: 1080, fps: 30, quality: 'standard' });
-  }
-
-  async function addCustomFormat() {
-    if (project.formats.length >= MAX_PROJECT_FORMATS) { setNotice(`A project supports up to ${MAX_PROJECT_FORMATS} output formats.`); return; }
-    const width = Math.round(customFormatDraft.width / 2) * 2;
-    const height = Math.round(customFormatDraft.height / 2) * 2;
-    if (width < 160 || height < 160 || width > 3840 || height > 3840) { setError('Custom size must be between 160 and 3840 pixels.'); return; }
-    const format = createCustomFormat(customFormatDraft.name, width, height, customFormatDraft.fps, customFormatDraft.quality, project.formats);
-    if (await run({ type: 'formats', formats: [...project.formats, format] })) {
-      setActiveFormatId(format.id);
-      setCustomFormatDraft({ name: '', width: 1080, height: 1080, fps: 30, quality: 'standard' });
-      setNotice(`${format.name} added.`);
-    }
-  }
-
-  async function updateFormatSettings(format: FormatVariant, patch: Partial<FormatVariant>) {
-    const width = Math.round((patch.width ?? format.width) / 2) * 2;
-    const height = Math.round((patch.height ?? format.height) / 2) * 2;
-    if (width < 160 || height < 160 || width > 3840 || height > 3840) { setError('Format size must be between 160 and 3840 pixels.'); return; }
-    const next = project.formats.map(item => item.id === format.id ? { ...item, ...patch, width, height, name: (patch.name ?? item.name).trim() || item.name } : item);
-    await run({ type: 'formats', formats: next });
-  }
-
-  async function removeFormat(formatId: string) {
-    if (project.formats.length <= 1) { setNotice('Keep at least one output format.'); return; }
-    const formats = project.formats.filter(format => format.id !== formatId);
-    if (await run({ type: 'formats', formats })) {
-      if (activeFormat?.id === formatId) setActiveFormatId(formats[0]?.id ?? null);
-      setNotice('Output format removed.');
-    }
-  }
-
-  async function applyFramingToAllFormats() {
-    const scene = selectedScene;
-    if (!scene || !activeFormat) return;
-    const resolved = resolveSceneForFormat(scene, activeFormat);
-    const override = { imageX: resolved.imageX ?? 0, imageY: resolved.imageY ?? 0, imageZoom: resolved.imageZoom ?? 1, fit: resolved.fit, framingBackground: resolved.framingBackground ?? '#000000' };
-    const formats = project.formats.map(format => ({ ...format, overrides: { ...format.overrides, [scene.id]: { ...format.overrides[scene.id], ...override } } }));
-    if (await run({ type: 'formats', formats })) setNotice('Current framing copied to every output format.');
-  }
+  const { toggleFormatPreset, addNewCustomFormat, addCustomFormat, updateFormatSettings, removeFormat, applyFramingToAllFormats } = useFormats({ project, run, setNotice, setError, activeFormat, setActiveFormatId, selectedScene, newFormatCount: newFormatSelection.length, setNewCustomFormats, customFormatDraft, setCustomFormatDraft });
 
   async function startTemplate(template: TemplateDefinition) {
     // A template is a fresh story: always use its bundled photography, never
@@ -2358,125 +1526,7 @@ export default function App() {
     void startTemplate(template);
   }
 
-  async function openLibraryProject(summary: ProjectSummary) {
-    setProjectMenu(null);
-    if (summary.id === project.id) { setScreen('editor'); return; }
-    if (!canEdit) return;
-    try {
-      const p = await getLibraryProject(summary.id);
-      if (!p) throw new Error('This project could not be found on this device.');
-      if (await launchProject(p)) setNotice(`Opened “${p.name}”.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  async function duplicateProject(summary: ProjectSummary) {
-    setProjectMenu(null);
-    if (!canEdit) return;
-    try {
-      const copy = await duplicateLibraryProject(summary.id);
-      if (!copy) throw new Error('This project could not be duplicated.');
-      await refreshLibrary();
-      setNotice(`“${copy.name}” added to your library.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  function askDeleteProject(summary: ProjectSummary) {
-    setProjectMenu(null);
-    setDeleteTarget(summary);
-    setModal('delete');
-  }
-
-  function askRenameProject(summary: ProjectSummary) {
-    setProjectMenu(null);
-    setRenameTarget(summary);
-    setRenameDraft(summary.name);
-    setModal('rename');
-  }
-
-  function askGroupProject(summary: ProjectSummary) {
-    setProjectMenu(null);
-    setGroupTarget(summary);
-    setGroupDraft(summary.group ?? '');
-    setModal('group');
-  }
-
-  async function confirmGroupProject(group: string | null) {
-    const target = groupTarget;
-    if (!target) return;
-    setModal(null);
-    setGroupTarget(null);
-    try {
-      await setProjectGroup(target.id, group);
-      setProjects(items => items.map(item => item.id === target.id ? { ...item, ...(group?.trim() ? { group: group.trim() } : { group: undefined }) } : item));
-      setNotice(group?.trim() ? `“${target.name}” moved to “${group.trim()}”.` : `“${target.name}” removed from its group.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  function projectGroups() {
-    return [...new Set(projects.map(entry => entry.group).filter((group): group is string => Boolean(group)))].sort((a, b) => a.localeCompare(b));
-  }
-
-  function openGroupManager() {
-    const groups = projectGroups();
-    setGroupDrafts(Object.fromEntries(groups.map(group => [group, group])));
-    setModal('groups');
-  }
-
-  async function saveGroupRename(from: string) {
-    const to = groupDrafts[from]?.trim();
-    if (!to || to === from) return;
-    try {
-      await renameProjectGroup(from, to);
-      await refreshLibrary();
-      setGroupDrafts(current => {
-        const next = { ...current };
-        delete next[from];
-        next[to] = to;
-        return next;
-      });
-      if (groupFilter === from) setGroupFilter(to);
-      setNotice(`Group renamed to “${to}”.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  async function removeGroup(group: string) {
-    try {
-      await deleteProjectGroup(group);
-      await refreshLibrary();
-      setGroupDrafts(current => { const next = { ...current }; delete next[group]; return next; });
-      if (groupFilter === group) setGroupFilter('all');
-      setNotice(`“${group}” removed. Its projects are now ungrouped.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  async function toggleProjectFavorite(summary: ProjectSummary) {
-    try {
-      await setProjectFavorite(summary.id, !summary.favorite);
-      setProjects(items => items.map(item => item.id === summary.id ? { ...item, ...(summary.favorite ? { favorite: undefined } : { favorite: true }) } : item));
-      setNotice(summary.favorite ? `“${summary.name}” removed from favorites.` : `“${summary.name}” added to favorites.`);
-      setProjectMenu(null);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  async function confirmDeleteProject() {
-    const target = deleteTarget;
-    if (!target) return;
-    setModal(null);
-    setDeleteTarget(null);
-    try {
-      await deleteLibraryProject(target.id);
-      setProjects(list => list.filter(item => item.id !== target.id));
-      if (target.id === latestProject.current.id) {
-        await run({ type: 'replace', project: emptyProject() });
-        setSelectedIds([]);
-        setPrimarySelected(null);
-        selectionAnchor.current = null;
-        setPosition(0);
-        setScreen('home');
-      }
-      setNotice(`“${target.name}” deleted from this device.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
+  const { deletedProjects, refreshDeleted, restoreProject, purgeProject, batchMode, setBatchMode, batchIds, toggleBatch, endBatch, batchFavorite, batchMove, batchDelete, projectMenu, setProjectMenu, deleteTarget, setDeleteTarget, setRenameTarget, renameDraft, setRenameDraft, groupTarget, setGroupTarget, groupDraft, setGroupDraft, groupDrafts, setGroupDrafts, groupFilter, setGroupFilter, openLibraryProject, duplicateProject, askDeleteProject, askRenameProject, askGroupProject, confirmGroupProject, projectGroups, openGroupManager, saveGroupRename, removeGroup, toggleProjectFavorite, confirmDeleteProject, renameProject, exportLibraryProject } = useProjectLibrary({ projects, setProjects, project, latestProject, canEdit, launchProject, refreshLibrary, persistCurrent, run, setScreen, setModal, setNotice, setError, setSelectedIds, setPrimarySelected, selectionAnchor, setPosition });
 
   async function stageImportedMedia(added: Scene[]) {
     const items = [...importedMedia, ...added.filter(item => !importedMedia.some(old => old.image === item.image))];
@@ -2484,92 +1534,6 @@ export default function App() {
     setMediaBin({ projectId: project.id, items }); setScreen('editor'); setTab('media');
     setSourcePreview(added[0] ?? null); if (added.length) setModal('source');
   }
-
-  function previewMedia(scene: Scene) {
-    setPlaying(false);
-    setSourcePreview(scene);
-    setPreviewVideoTime(0);
-    setPreviewVideoDuration(0);
-    setPreviewVideoPlaying(false);
-    setModal('source');
-  }
-
-  function switchPreview(delta: number) {
-    if (!sourcePreview || previewList.length < 2) return;
-    const index = previewIndex < 0 ? 0 : previewIndex;
-    const next = previewList[(index + delta + previewList.length) % previewList.length];
-    if (!next || next.id === sourcePreview.id) return;
-    setSourcePreview(next);
-    setPreviewVideoTime(0);
-    setPreviewVideoDuration(0);
-    setPreviewVideoPlaying(false);
-  }
-
-  function togglePreviewPlayback() {
-    const video = previewVideo.current;
-    if (!video) return;
-    if (video.paused) void video.play().catch(() => setPreviewVideoPlaying(false));
-    else video.pause();
-  }
-
-  function seekPreview(seconds: number) {
-    const video = previewVideo.current;
-    if (!video || !Number.isFinite(seconds)) return;
-    video.currentTime = Math.max(0, Math.min(video.duration || previewVideoDuration, seconds));
-    setPreviewVideoTime(video.currentTime);
-  }
-
-  function changePreviewVolume(value: number) {
-    const volume = Math.max(0, Math.min(1, value));
-    setPreviewVolume(volume);
-    setPreviewMuted(volume === 0);
-    const video = previewVideo.current;
-    if (video) { video.volume = volume; video.muted = volume === 0; }
-  }
-
-  function togglePreviewMute() {
-    const muted = !previewMuted;
-    setPreviewMuted(muted);
-    if (previewVideo.current) previewVideo.current.muted = muted;
-  }
-
-  useEffect(() => {
-    setPreviewVideoTime(0);
-    setPreviewVideoDuration(0);
-    setPreviewVideoPlaying(false);
-  }, [sourcePreview?.id]);
-
-  useEffect(() => {
-    const video = previewVideo.current;
-    if (!video) return;
-    video.volume = previewVolume;
-    video.muted = previewMuted;
-  }, [previewVolume, previewMuted, sourcePreview?.id]);
-
-  useEffect(() => {
-    if (modal !== 'source' || !sourcePreview) return;
-    const key = (event: KeyboardEvent) => {
-      if (event.isComposing || event.target instanceof HTMLInputElement || isTextEntryTarget(event.target)) return;
-      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        event.preventDefault();
-        switchPreview(event.key === 'ArrowLeft' ? -1 : 1);
-        return;
-      }
-      if (!sourcePreview.mediaKind || sourcePreview.image.startsWith('pixcut-asset:')) return;
-      if (event.key === ' ') {
-        event.preventDefault();
-        togglePreviewPlayback();
-      } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-        event.preventDefault();
-        changePreviewVolume(previewVolume + (event.key === 'ArrowUp' ? .05 : -.05));
-      } else if (event.key.toLowerCase() === 'm') {
-        event.preventDefault();
-        togglePreviewMute();
-      }
-    };
-    window.addEventListener('keydown', key);
-    return () => window.removeEventListener('keydown', key);
-  }, [modal, sourcePreview, previewList, previewVolume, previewMuted, previewVideoPlaying]);
 
   function beginMediaDrag(event: ReactDragEvent<HTMLElement>, source: Scene) {
     if (!canEdit || !hasMedia(source.image)) { event.preventDefault(); return; }
@@ -2585,130 +1549,7 @@ export default function App() {
     setDropTarget(null); setFileDragActive(false);
     if (source) void appendMedia(source); return true;
   }
-  function stopLibraryPreview() {
-    libraryAudioToken.current++;window.clearTimeout(libraryAudioTimer.current);
-    if(libraryAudio.current){libraryAudio.current.pause();libraryAudio.current.removeAttribute('src');libraryAudio.current.load();libraryAudio.current=null;}
-    setPreviewingAudio(null);
-  }
-  function hoverLibraryAudio(id:string,source:string|(()=>Promise<string>),start=0,length=30,explicit=false) {
-    stopLibraryPreview();if(playing || modal)return;
-    const token=libraryAudioToken.current;
-    const play=(url:string|undefined)=>{
-      if(!url||token!==libraryAudioToken.current)return;
-      const player=new Audio(url);libraryAudio.current=player;player.volume=.5;
-      player.onloadedmetadata=()=>{player.currentTime=Math.min(start,Math.max(0,player.duration-.01));};
-      player.ontimeupdate=()=>{if(player.currentTime>=start+length)stopLibraryPreview();};
-      player.onended=()=>stopLibraryPreview();
-      void player.play().then(()=>{if(token===libraryAudioToken.current)setPreviewingAudio(id);else player.pause();}).catch(()=>{if(token===libraryAudioToken.current){setPreviewingAudio(null);if(explicit)setNotice('Audio preview could not start. Check the app audio permissions and try Listen again.');}});
-    };
-    const resolve=()=>{
-      // Bundled music is read from the app bundle first: the desktop shell
-      // cannot stream audio from its own scheme, so the file becomes a blob URL.
-      if(typeof source==='function'){void source().then(play,error=>{if(token===libraryAudioToken.current&&explicit)setError(messageFor(error));});return;}
-      // Keep direct Listen clicks inside the browser's user-activation event.
-      if(explicit&&!isAssetRef(source)){play(source);return;}
-      void resolveMediaSource(source).then(play);
-    };
-    if(explicit)resolve();else libraryAudioTimer.current=window.setTimeout(resolve,100);
-  }
-
-  useEffect(()=>{stopLibraryPreview();setHoveredMedia(null);setHoveredElement(null);},[tab,audioLibraryTab,playing,modal,project.id]);
-  // Read the bundled tracks as soon as the Music tab opens, so Listen starts
-  // from memory instead of waiting on the file the user just clicked.
-  useEffect(()=>{
-    if(tab!=='audio'||audioLibraryTab!=='music')return;
-    for(const track of MUSIC_TRACKS)void musicTrackPreviewUrl(track).catch(()=>{});
-  },[tab,audioLibraryTab]);
-  useEffect(()=>()=>{libraryAudioToken.current++;window.clearTimeout(libraryAudioTimer.current);libraryAudio.current?.pause();releaseMusicPreviewUrls();},[]);
-  useEffect(()=>{
-    const stop=()=>{stopLibraryPreview();setHoveredMedia(null);setHoveredElement(null);};
-    const visibility=()=>{if(document.hidden)stop();};
-    window.addEventListener('blur',stop);document.addEventListener('visibilitychange',visibility);
-    return()=>{window.removeEventListener('blur',stop);document.removeEventListener('visibilitychange',visibility);};
-  },[]);
-
-  async function copyMusicCredit(track:MusicTrack) {
-    try { await navigator.clipboard.writeText(musicTrackCredit(track)); setNotice(`Credit for ${track.title} copied. Paste it into your video description.`); }
-    catch { setError('Could not copy the credit. It is listed under the music licence in the Music panel.'); }
-  }
-  async function copyMusicCredits() {
-    const credits = MUSIC_TRACKS.map(track => musicTrackCredit(track)).join('\n');
-    try { await navigator.clipboard.writeText(`Music (CC BY 4.0):\n${credits}`); setNotice('All music credits copied.'); }
-    catch { setError('Could not copy the credits. They are listed under the music licence in the Music panel.'); }
-  }
-  async function addMusic(track:MusicTrack) {
-    if(!canEdit||!projectTicks)return;
-    stopLibraryPreview();setBusy(true);
-    try{
-      const data=await musicTrackData(track),snapshot=latestProject.current,total=totalTicks(snapshot);
-      const startTicks=Math.min(total-1,Math.max(0,secondsToTicks(position,project.timebase)));
-      const durationTicks=Math.min(total-startTicks,Math.max(1,secondsToTicks(track.seconds,snapshot.timebase)));
-      const lane=Array.from({length:8},(_,i)=>i).find(i=>!snapshot.audio.some(c=>(c.lane??0)===i&&c.startTicks<startTicks+durationTicks&&c.startTicks+c.durationTicks>startTicks));
-      const clip:AudioClip={id:crypto.randomUUID(),name:musicTrackClipName(track),data,lane:lane??7,startTicks,durationTicks,sourceInSeconds:0,sourceDurationSeconds:track.seconds,volume:.55,fadeIn:.15,fadeOut:Math.min(.6,ticksToSeconds(durationTicks,snapshot.timebase)/3)};
-      if(await run({type:'audio',audio:[...snapshot.audio,clip]}))setNotice(`${track.title} added at the playhead. Credit ${track.author} when you publish — the line is in the Audio panel.`);
-    }catch(error){setError(messageFor(error));}finally{setBusy(false);}
-  }
-
-  const [savedTracks, setSavedTracks] = useState<SavedTrack[]>(() => loadSavedTracks());
-  const savedTracksRef = useRef(savedTracks);
-  function updateSavedTracks(update: (list: SavedTrack[]) => SavedTrack[]) {
-    const next = update(savedTracksRef.current);
-    savedTracksRef.current = next; setSavedTracks(next); storeSavedTracks(next);
-  }
-  function removeSavedTrack(key: string) { updateSavedTracks(list => withoutSavedTrack(list, key)); }
-  /** Adds a track that is already on this device. No network is used. */
-  async function addSavedTrack(saved: SavedTrack) {
-    if (!canEdit || !projectTicks) return;
-    stopLibraryPreview(); setBusy(true);
-    try {
-      const snapshot = latestProject.current, total = totalTicks(snapshot);
-      const startTicks = Math.min(total - 1, Math.max(0, secondsToTicks(position, project.timebase)));
-      const durationTicks = Math.min(total - startTicks, Math.max(1, secondsToTicks(saved.seconds, snapshot.timebase)));
-      const lane = Array.from({ length: 8 }, (_, i) => i).find(i => !snapshot.audio.some(c => (c.lane ?? 0) === i && c.startTicks < startTicks + durationTicks && c.startTicks + c.durationTicks > startTicks));
-      const music = saved.kind === 'music';
-      const clip: AudioClip = { id: crypto.randomUUID(), name: saved.name, data: saved.reference, lane: lane ?? 7, startTicks, durationTicks, sourceInSeconds: 0, sourceDurationSeconds: saved.seconds, volume: music ? .55 : .7, fadeIn: music ? .15 : 0, fadeOut: Math.min(music ? .6 : .03, ticksToSeconds(durationTicks, snapshot.timebase) / 3), ...(saved.credit ? { credit: saved.credit } : {}) };
-      if (await run({ type: 'audio', audio: [...snapshot.audio, clip] })) setNotice(`${saved.title} added at the playhead from your downloads.`);
-    } catch (error) { setError(messageFor(error)); } finally { setBusy(false); }
-  }
-
-  async function addOnlineMusic(track: OnlineTrack, kind: 'music' | 'sound_effect' = 'music') {
-    if (!canEdit || !projectTicks) return;
-    stopLibraryPreview();
-    // The download can take a while; the editor stays usable meanwhile, and the row in the list shows the progress.
-    try {
-      const existing = findSavedTrack(savedTracksRef.current, track);
-      const downloaded = existing ? { reference: existing.reference, name: existing.name, bytes: 0 } : await downloadOnlineTrack(track);
-      if (!existing) updateSavedTracks(list => withSavedTrack(list, track, downloaded, kind, onlineLicenseLabel(track)));
-      const snapshot = latestProject.current, total = totalTicks(snapshot);
-      const startTicks = Math.min(total - 1, Math.max(0, secondsToTicks(position, project.timebase)));
-      const durationTicks = Math.min(total - startTicks, Math.max(1, secondsToTicks(track.seconds, snapshot.timebase)));
-      const lane = Array.from({ length: 8 }, (_, i) => i).find(i => !snapshot.audio.some(c => (c.lane ?? 0) === i && c.startTicks < startTicks + durationTicks && c.startTicks + c.durationTicks > startTicks));
-      const clip: AudioClip = { id: crypto.randomUUID(), name: downloaded.name, data: downloaded.reference, lane: lane ?? 7, startTicks, durationTicks, sourceInSeconds: 0, sourceDurationSeconds: track.seconds, volume: kind === 'music' ? .55 : .7, fadeIn: kind === 'music' ? .15 : 0, fadeOut: Math.min(kind === 'music' ? .6 : .03, ticksToSeconds(durationTicks, snapshot.timebase) / 3), credit: track.credit };
-      if (await run({ type: 'audio', audio: [...snapshot.audio, clip] })) setNotice(`${track.title} added at the playhead. The credit line is saved with the clip and shows in the Audio panel.`);
-    } catch (error) {
-      // Cancelling is the user's own choice, so it gets a quiet notice instead of the error banner.
-      if (messageFor(error) === DOWNLOAD_CANCELLED) setNotice('Download cancelled.');
-      else setError(messageFor(error));
-    }
-  }
-
-  function previewSound(id: SoundEffectId) {
-    soundPreviewRef.current?.pause();
-    const player = new Audio(soundEffectData(id)); soundPreviewRef.current = player;
-    player.volume = .65; void player.play().catch(error => setError(messageFor(error)));
-  }
-  async function addRecordedSound(sound: RecordedSound, startTicks: number) {
-    if (!canEdit) return;
-    try {
-      const clip = createRecordedSoundClip(latestProject.current, sound, await recordedSoundData(sound), startTicks);
-      if (clip && await run({ type: 'audio', audio: [...latestProject.current.audio, clip] })) setNotice(creditForRecordedClip(clip.name, [sound]) ? `${sound.label} added. Credit ${sound.author} when you publish — the line is in the Audio panel.` : `${sound.label} added to the audio timeline. Drag it to adjust timing.`);
-    } catch (error) { setError(messageFor(error)); }
-  }
-  async function addSound(id: SoundId, startTicks: number) {
-    if (!canEdit) return;
-    const clip = createSoundClip(latestProject.current, id, startTicks);
-    if (clip && await run({ type: 'audio', audio: [...latestProject.current.audio, clip] })) setNotice(`${clip.name} added to the audio timeline. Drag it to adjust timing.`);
-  }
+  const { previewingAudio, savedTracks, stopLibraryPreview, hoverLibraryAudio, copyMusicCredit, copyMusicCredits, addMusic, removeSavedTrack, addSavedTrack, addOnlineMusic, previewSound, addRecordedSound, addSound } = useLibraryAudio({ canEdit, projectTicks, position, project, latestProject, run, setBusy, setNotice, setError, tab, audioLibraryTab, playing, modal, setHoveredMedia, setHoveredElement });
 
   async function appendMedia(scene: Scene) {
     const next = { ...structuredClone(scene), id: crypto.randomUUID(), startTicks: 0, elements: [], textLayers: [], title: '', subtitle: '', transition: null };
@@ -2720,8 +1561,8 @@ export default function App() {
   }
 
   async function addMediaOverlay(source: Scene) {
-    if (!selectedScene) { setNotice('Select the background scene first, then add an overlay.'); return; }
-    if (allOverlays.length >= 64) { setNotice('This project already has 64 overlays.'); return; }
+    if (!selectedScene) { setNotice(t('Select the background scene first, then add an overlay.')); return; }
+    if (allOverlays.length >= 64) { setNotice(t('This project already has 64 overlays.')); return; }
     const startTicks = Math.max(0, Math.min(projectTicks - 1, secondsToTicks(position, project.timebase)));
     let width = 1, height = 1, sourceDuration = ticksToSeconds(source.sourceInTicks + source.durationTicks, project.timebase);
     if (source.mediaKind === 'video') { const probe = await probeVideo((await resolveMediaSource(source.image)) ?? source.image); width = probe.width; height = probe.height; sourceDuration = probe.duration; }
@@ -2738,7 +1579,7 @@ export default function App() {
     }
   }
 
-  const { removePip, addMediaPip, stagePip, commitPip, stagePipStyle, selectPip, beginPipTiming } = usePipLayers({ setSelectedPipId, setSelectedIds, setPrimarySelected, selectionAnchor, setSelectedTextLayerId, setSelectedGlobalTextId, setSelectedElementId, setEditTarget, setEditingText, setFramingMode, setPlaying, setPosition, project, selectedPip, pipDraftRef, setPipDraft, activePip, setError, run, setNotice, canEdit, projectTicks, selectedScene, position, activeSize });
+  const { removePip, addMediaPip, stagePip, commitPip, stagePipStyle, selectPip, beginPipTiming } = usePipLayers({ timelineSnapping: snapping, setSelectedPipId, setSelectedIds, setPrimarySelected, selectionAnchor, setSelectedTextLayerId, setSelectedGlobalTextId, setSelectedElementId, setEditTarget, setEditingText, setFramingMode, setPlaying, setPosition, project, selectedPip, pipDraftRef, setPipDraft, activePip, setError, run, setNotice, canEdit, projectTicks, selectedScene, position, activeSize });
 
   const { refreshAssetUsage, chooseImages, commitDucking, importCustomElement, importVideos, importCaptionFile, chooseVideo, chooseCustomElement, cleanStorage } = useMediaImport({ canEdit, setBusy, customElementKind, addMediaOverlay, project, selectedScene, setError, customElementInput, mediaInput, operation, setPlaying, scenes, preferences, stageImportedMedia, videoInput, latestProject, run, setNotice, captionInput, setStorageUsage, storageBusy, storageConfirm, setStorageConfirm, setStorageNote, setStorageBusy, setDuckDraft });
 
@@ -2800,8 +1641,8 @@ export default function App() {
         : [...(project.fonts ?? []), font];
       if (await run({ type: 'fonts', fonts })) {
         setNotice(subsetted
-          ? `“${font.name}” ${target ? 'subset refreshed' : 'is now in the font picker'} · ${formatBytes(subsetted)} of ${formatBytes(file.size)}.`
-          : `“${font.name}” ${target ? 'updated' : 'is now in the font picker'}.`);
+          ? (target ? t('“{name}” subset refreshed · {subset} of {original}.', { name: font.name, subset: formatBytes(subsetted), original: formatBytes(file.size) }) : t('“{name}” is now in the font picker · {subset} of {original}.', { name: font.name, subset: formatBytes(subsetted), original: formatBytes(file.size) }))
+          : (target ? t('“{name}” updated.', { name: font.name }) : t('“{name}” is now in the font picker.', { name: font.name })));
       }
     } catch (error) {
       setError(messageFor(error));
@@ -2813,22 +1654,27 @@ export default function App() {
   function removeFont(id: string) {
     const font = (project.fonts ?? []).find(item => item.id === id);
     void run({ type: 'fonts', fonts: (project.fonts ?? []).filter(item => item.id !== id) }).then(ok => {
-      if (ok) setNotice(`“${font?.name ?? 'Font'}” removed. Text using it falls back to Inter.`);
+      if (ok) setNotice(t('“{name}” removed. Text using it falls back to Inter.', { name: font?.name ?? t('Font') }));
     });
   }
 
   async function exportCaptions() {
     const captions = textLayersAsCaptions(projectScenes(latestProject.current), project.timebase);
-    if (!captions.length) { setError('Add a title or caption layer before exporting captions.'); return; }
+    if (!captions.length) { setError(t('Add a title or caption layer before exporting captions.')); return; }
     try {
       const saved = await bridge.saveTextFile(toSrt(captions), `${project.name} - captions`, 'srt', 'SubRip subtitles');
-      if (saved) setNotice(`${captions.length} caption${captions.length === 1 ? '' : 's'} exported as an SRT file.`);
+      if (saved) setNotice(t('{captions} exported as an SRT file.', { captions: captionCount(captions.length) }));
     } catch (error) {
       setError(messageFor(error));
     }
   }
 
-  const { removeAudio, importFiles, stopVoiceover, startVoiceover, stageAudio, commitAudio, detectAudioBeats, snapCutsToBeat, importAudio, chooseAudio, focusAudio, setVideoAudioLevel, commitMix, stageVideoVolume, commitVideoVolume, toggleLaneMute, setLaneMix, beginAudioMove, beginAudioTrim } = useAudioActions({ canEdit, setError, audioInput, projectTicks, setNotice, position, project, audioLaneRef, run, setEditTarget, setSelectedAudioId, setTab, operation, setPlaying, setBusy, scenes, preferences, stageImportedMedia, mediaInput, recordChunks, recorderRef, setRecording, setRecordSeconds, recordTimer, latestProject, positionRef, audioDraftRef, setAudioDraft, setPreviewAudio, selectedAudio, mixDraftRef, setMixDraft, videoVolumeDraftRef, setVideoVolumeDraft, playing, setPosition, editTargetRef, audioTargetRef, setSelectedIds, setPrimarySelected, setSelectedElementId, setSelectedGlobalTextId, setBeatBusy, setBeatTempo, beatTempo });
+  const { removeAudio, importFiles, stopVoiceover, startVoiceover, stageAudio, commitAudio, detectAudioBeats, snapCutsToBeat, importAudio, chooseAudio, focusAudio, setVideoAudioLevel, commitMix, stageVideoVolume, commitVideoVolume, toggleLaneMute, setLaneMix, beginAudioMove, beginAudioTrim } = useAudioActions({ timelineSnapping: snapping, canEdit, setError, audioInput, projectTicks, setNotice, position, project, audioLaneRef, run, setEditTarget, setSelectedAudioId, setTab, operation, setPlaying, setBusy, scenes, preferences, stageImportedMedia, mediaInput, recordChunks, recorderRef, setRecording, setRecordSeconds, recordTimer, latestProject, positionRef, audioDraftRef, setAudioDraft, setPreviewAudio, selectedAudio, mixDraftRef, setMixDraft, videoVolumeDraftRef, setVideoVolumeDraft, playing, setPosition, editTargetRef, audioTargetRef, setSelectedIds, setPrimarySelected, setSelectedElementId, setSelectedGlobalTextId, setBeatBusy, setBeatTempo, beatTempo });
+
+  const { togglePlayback, playForward, playReverse, stepFrame, scrubTo, selectScene, updateSelection, splitAtPlayhead, duplicateSelected, deleteSelected } = useSceneCommands({ activeFormat, audio, audioTargetRef, commitElement, duration, editTarget, editTargetRef, frameSeconds, hasSceneSelection, latestProject, operation, overlayDraftRef, pending, pipDraftRef, playing, position, positionRef, primarySelected, project, removeAudio, removeElement, removePip, replaceSceneTextLayers, run, scenes, selectedAudio, selectedAudioId, selectedElement, selectedGlobalText, selectedIds, selectedPip, selectedScene, selectedScenes, selectedTextLayerId, selectionAnchor, setEditTarget, setEditingText, setGlobalTextDraft, setNotice, setOverlayDraft, setPipDraft, setPlayDirection, setPlaying, setPosition, setPreviewScene, setPrimarySelected, setSelectedAudioId, setSelectedElementId, setSelectedGlobalTextId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId, snapping });
+  clipEditing.current = useClipEditing({ project, run, position, canEdit, setNotice, editTargetRef, audioTargetRef, selectedAudio, selectedElement, selectedPip, selectedScenes, saveOverlay, removeSelected: deleteSelected, setSelectedIds, setPrimarySelected, selectionAnchor, setSelectedAudioId, setSelectedPipId, setSelectedElementId, setEditTarget });
+
+  const { beginImagePan, beginTextMove, beginTextResize, beginFadeDrag, beginSceneTrim, beginPlayheadDrag } = useStagePointer({ timelineSnapping: snapping, playheadSeconds: position, canEdit, inspectorFlush, previewStage, inspectorScene, selectedScene, selectedIds, selectedTextLayer, textBox, project, latestProject, projectTicks, duration, activeSize, pending, run, updateSelection, optimisticScene, replaceSceneTextLayers, scrubTo, selectionAnchor, setSession, setPreviewScene, setPlaying, setEditingText, setFadeDrag, setSnapGuides, setSelectedIds, setPrimarySelected, setDraggingOverlay });
 
   const { replaceSceneWithAsset, replaceSceneMedia, requestReplaceImage, beginReorder, endReorder, dragOverScene, dropScene } = useSceneReplacement({ canEdit, setReplacingSceneId, inspectorFlush, pending, latestProject, project, optimisticScene, run, setNotice, setSession, setError, selectedCount, selectedScene, replaceTargetId, replaceInput, reorderRef, setReorderId, setDropTarget, setFileDragActive, dragOverTarget, dropLibraryMedia, scenes });
 
@@ -2901,35 +1747,6 @@ export default function App() {
     } catch (error) { setError(messageFor(error)); }
   }
 
-  async function renameProject() {
-    const target = renameTarget;
-    if (!target) return;
-    const name = renameDraft.trim().replace(/\s+/g, ' ').slice(0, 120) || 'Untitled story';
-    try {
-      if (target.id === latestProject.current.id) {
-        if (!(await run({ type: 'rename', name }))) return;
-        await persistCurrent();
-      } else {
-        const stored = await getLibraryProject(target.id);
-        if (!stored) throw new Error('This project could not be found on this device.');
-        await saveLibraryProject({ ...stored, name });
-      }
-      await refreshLibrary();
-      setModal(null);
-      setRenameTarget(null);
-      setNotice(`Project renamed to “${name}”.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
-  async function exportLibraryProject(summary: ProjectSummary) {
-    setProjectMenu(null);
-    try {
-      const stored = await getLibraryProject(summary.id);
-      if (!stored) throw new Error('This project could not be found on this device.');
-      if (await bridge.exportProjectFile(stored)) setNotice(`Project file for “${stored.name}” saved.`);
-    } catch (e) { setError(messageFor(e)); }
-  }
-
   async function open() {
     if (!bridge.native) { projectInput.current?.click(); return; }
     try { const next = await bridge.openProject(); if (next) { await persistCurrent(); latestProject.current = next.project; setSession(next); setScreen('editor'); setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null; setPosition(0); } } catch (e) { setError(messageFor(e)); }
@@ -2938,6 +1755,12 @@ export default function App() {
   async function openBrowserProject(e: ChangeEvent<HTMLInputElement>) {
     try {
       const file = e.target.files?.[0]; if (!file) return;
+      await openProjectFile(file);
+    } catch (e) { setError(messageFor(e)); } finally { e.target.value = ''; }
+  }
+
+  async function openProjectFile(file: File) {
+    try {
       if (file.size > 2 * 1024 * 1024 * 1024) throw new Error('Project file exceeds the 2 GB browser limit.');
       const bytes = new Uint8Array(await file.arrayBuffer());
       const p = bytes[0] === 0x50 && bytes[1] === 0x4b
@@ -2945,13 +1768,13 @@ export default function App() {
         : validateProject(JSON.parse(new TextDecoder().decode(bytes)));
       await persistCurrent();
       if (await run({ type: 'replace', project: p })) { setScreen('editor'); setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null; setPosition(0); }
-    } catch (e) { setError(messageFor(e)); } finally { e.target.value = ''; }
+    } catch (e) { setError(messageFor(e)); }
   }
 
   function togglePreviewFullscreen() { const element = document.querySelector('.preview-panel'); if (!document.fullscreenElement) void element?.requestFullscreen?.(); else void document.exitFullscreen(); }
 
   async function relinkMissing(asset: MissingAsset) {
-    if (!bridge.native) { setError('Relinking is available in the desktop app.'); return; }
+    if (!bridge.native) { setError(t('Relinking is available in the desktop app.')); return; }
     setRelinking(asset.ref);
     try {
       // Stream the replacement into the same local store as the rest of the
@@ -2970,15 +1793,15 @@ export default function App() {
       if (!imported) return;
       const next = replaceAssetRef(latestProject.current, asset.ref, imported.reference);
       if (await run({ type: 'replace', project: next })) {
-        setNotice(`Relinked ${asset.label} with ${imported.name}.`);
-        setError('');
+        setNotice(t('Relinked {label} with {name}.', { label: asset.label, name: imported.name }));
+        setError(t(''));
       }
     } catch (error) { setError(messageFor(error)); }
     finally { setRelinking(null); }
   }
 
   function openExportModal() {
-    if (missing.length) { setError('Relink missing media before exporting this project.'); return; }
+    if (missing.length) { setError(t('Relink missing media before exporting this project.')); return; }
     void bridge.exporterCapabilities().then(setExportCodecs).catch(() => setExportCodecs([]));
     void bridge.exporterHardware().then(available => {
       setHardwareAvailable(available);
@@ -3017,25 +1840,6 @@ export default function App() {
    */
   const { saveStillFrame, exportVideo } = useVideoExport({ saveCredits, musicCredits, exportAudio, exportCancelled, setExportProgress, exportCodec, exportContainer, exportSpeed, useHardware, exportFilename, sceneForPreview, setError, previewTransition, resolvedNextScene, displayAspect, previewLocalSeconds, project, activeSize, renderOverlays, position, videoScene, sceneVideo, renderPipScenes, activeFormat, setNotice, latestProject, presentRefs, exportCodecs, commitElement, inspectorFlush, pending, exportFormatIds, exportResolution, exportQuality, exportFps, setCancellingExport, setExporting, setExportElapsed, setExportJob, setPlaying, setModal });
 
-  function beginPlayheadDrag(event: ReactPointerEvent<HTMLElement>) {
-    if (!duration) return;
-    const track = document.querySelector<HTMLElement>('.scene-track');
-    if (!track) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = track.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    setPlaying(false);
-    const update = (clientX: number) => scrubTo(Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * duration);
-    update(event.clientX);
-    const move = (moveEvent: PointerEvent) => update(moveEvent.clientX);
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
 
   function cancelExport() {
     exportCancelled.current = true;
@@ -3062,10 +1866,12 @@ export default function App() {
   }, [modal, exporting]);
 
   const tabTitles = { media: 'Your media', text: 'Titles', elements: 'Elements', transitions: 'Transitions', effects: 'Effects', audio: 'Audio', templates: 'Templates' } as const;
-  const wideModal = modal === 'shortcuts' || modal === 'palette' || modal === 'templates' || (modal === 'settings' && settingsTab === 'shortcuts');
+  const wideModal = modal === 'shortcuts' || modal === 'palette' || modal === 'templates';
   const mediumModal = modal === 'source' || modal === 'new' || modal === 'formats' || modal === 'missing';
   const modalEyebrow = modal === 'export' ? t('VIDEO EXPORT') : modal === 'shortcuts' ? 'FIND YOUR FLOW' : modal === 'palette' ? 'EVERY ACTION, ONE PLACE' : modal === 'settings' ? 'MAKE PIXCUT YOURS' : modal === 'delete' ? 'REMOVE FROM THIS DEVICE' : modal === 'rename' ? 'PROJECT DETAILS' : modal === 'group' ? 'ORGANIZE YOUR LIBRARY' : modal === 'groups' ? 'ORGANIZE YOUR LIBRARY' : modal === 'formats' ? 'DELIVERABLES' : modal === 'missing' ? 'RESTORE YOUR MEDIA' : 'YOUR NEXT STORY';
   const projectGroupsList = projectGroups();
+  // A filter for a group that no longer exists would show an empty library; fall back to everything.
+  useEffect(() => { if (libraryReady && groupFilter !== 'all' && groupFilter !== 'ungrouped' && !projectGroupsList.includes(groupFilter)) setGroupFilter('all'); }, [libraryReady, groupFilter, projectGroupsList.join('|')]);
   const matchingProjects = projects
     .filter(entry => {
       const query = libraryQuery.trim().toLowerCase();
@@ -3080,7 +1886,7 @@ export default function App() {
   });
 
   function formatFilterChips(onCustom?: () => void) {
-    return <div className="format-filters" role="tablist" aria-label="Format filters">
+    return <div className="format-filters" role="tablist" aria-label={t('Format filters')}>
       {FORMAT_FILTERS.map(filter => <button key={filter.id} role="tab" aria-selected={formatFilter === filter.id} className={formatFilter === filter.id ? 'active' : ''} onClick={() => setFormatFilter(filter.id)}>{t(filter.label)}</button>)}
       {onCustom && <button type="button" className="format-filter-custom" onClick={onCustom}><Plus size={11} /> {t('Custom size')}</button>}
     </div>;
@@ -3091,15 +1897,16 @@ export default function App() {
   function renderProjectCard(entry: ProjectSummary) {
     const active = entry.id === project.id;
     return <div className={`project-card ${active ? 'active' : ''} ${projectMenu === entry.id ? 'menu-open' : ''}`} key={entry.id}>
-      <button className="project-open" onClick={() => void openLibraryProject(entry)} disabled={!libraryReady || !canEdit}>
-        <div className="project-thumb">
+      <button className={`project-open ${batchMode && batchIds.includes(entry.id) ? 'batch-selected' : ''}`} aria-pressed={batchMode ? batchIds.includes(entry.id) : undefined} onClick={() => batchMode ? toggleBatch(entry.id) : void openLibraryProject(entry)} disabled={!libraryReady || (!batchMode && !canEdit)}>
+        <ProjectThumb key={`${entry.id}-${entry.updatedAt}`} entry={entry}>
           <div className="project-frame" style={{ aspectRatio: entry.width && entry.height ? `${entry.width} / ${entry.height}` : entry.aspect.replace(':', ' / ') }}>
             {entry.thumbnail ? <img src={entry.thumbnail} alt="" /> : <span className="project-thumb-fallback"><Clapperboard size={24} /></span>}
           </div>
           <span className="project-aspect">{entry.aspect}</span>
+          {missingCounts[entry.id] > 0 && <span className="project-missing" title={t('Some media for this project is missing from this device.')}><AlertTriangle size={10} />{missingCounts[entry.id]} {t('missing')}</span>}
           {entry.group && <span className="project-group-badge"><FolderOpen size={10} />{entry.group}</span>}
-          <span className="project-play"><Play size={15} fill="currentColor" /></span>
-        </div>
+          {batchMode ? <span className={`project-check ${batchIds.includes(entry.id) ? 'on' : ''}`}><Check size={14} /></span> : <span className="project-play"><Play size={15} fill="currentColor" /></span>}
+        </ProjectThumb>
         <div className="project-meta">
           <strong>{entry.name}</strong>
           <small>{sceneCount(entry.sceneCount)} · {timecode(entry.duration, entry.timebase)}</small>
@@ -3108,11 +1915,17 @@ export default function App() {
             {entry.formats.length > 1 && <span className="project-format-count">{formatCount(entry.formats.length)}</span>}
           </span>}
           <span className="project-status"><span className="status-dot" /> {active ? t('Open now') : t('Edited {time}', { time: relativeTime(entry.updatedAt) })}</span>
+          {(() => { const state = exportState(entry); return <span className={`project-export ${state}`}>{state === 'never' ? t('Not exported yet') : state === 'changed' ? t('Changed since export {time}', { time: relativeTime(entry.exportedAt ?? 0) }) : t('Exported {time}', { time: relativeTime(entry.exportedAt ?? 0) })}</span>; })()}
         </div>
       </button>
-      <button className={`project-favorite ${entry.favorite ? 'active' : ''}`} aria-label={entry.favorite ? `Remove ${entry.name} from favorites` : `Add ${entry.name} to favorites`} aria-pressed={Boolean(entry.favorite)} onClick={() => void toggleProjectFavorite(entry)}><Star size={15} fill={entry.favorite ? 'currentColor' : 'none'} /></button>
-      <button className="project-actions" data-project-actions={entry.id} aria-label={`Actions for ${entry.name}`} aria-haspopup="menu" aria-expanded={projectMenu === entry.id} onClick={() => setProjectMenu(id => id === entry.id ? null : entry.id)}><MoreHorizontal size={16} /></button>
-      {projectMenu === entry.id && <div className="project-menu" data-project-menu={entry.id} role="menu" aria-label={`${entry.name} actions`}>
+      {!batchMode && <div className="project-quick" role="group" aria-label={t('Quick actions for {name}', { name: entry.name })}>
+        <button aria-label={t('Export {name}', { name: entry.name })} title={t('Export project file')} onClick={() => void exportLibraryProject(entry)}><Download size={13} /></button>
+        <button aria-label={t('Duplicate {name}', { name: entry.name })} title={t('Duplicate')} disabled={!canEdit} onClick={() => void duplicateProject(entry)}><Copy size={13} /></button>
+        <button aria-label={t('Rename {name}', { name: entry.name })} title={t('Rename…')} disabled={!canEdit} onClick={() => askRenameProject(entry)}><Pencil size={13} /></button>
+      </div>}
+      {!batchMode && <button className={`project-favorite ${entry.favorite ? 'active' : ''}`} aria-label={entry.favorite ? `Remove ${entry.name} from favorites` : `Add ${entry.name} to favorites`} aria-pressed={Boolean(entry.favorite)} onClick={() => void toggleProjectFavorite(entry)}><Star size={15} fill={entry.favorite ? 'currentColor' : 'none'} /></button>}
+      {!batchMode && <button className="project-actions" data-project-actions={entry.id} aria-label={t('Actions for {name}', { name: entry.name })} aria-haspopup="menu" aria-expanded={projectMenu === entry.id} onClick={() => setProjectMenu(id => id === entry.id ? null : entry.id)}><MoreHorizontal size={16} /></button>}
+      {projectMenu === entry.id && <div className="project-menu" data-project-menu={entry.id} role="menu" aria-label={t('{name} actions', { name: entry.name })}>
         <span className="project-menu-heading">{entry.name}</span>
         <button role="menuitem" onClick={() => void openLibraryProject(entry)}><FolderOpen size={14} /><span>{t('Open project')}</span></button>
         <button role="menuitem" disabled={!canEdit} onClick={() => askRenameProject(entry)}><Pencil size={14} /><span>{t('Rename…')}</span></button>
@@ -3120,7 +1933,7 @@ export default function App() {
         <button role="menuitem" disabled={!canEdit} onClick={() => askGroupProject(entry)}><Layers size={14} /><span>{entry.group ? t('Group: {name}', { name: entry.group }) : t('Move to group…')}</span></button>
         <button role="menuitem" disabled={!canEdit} onClick={() => void duplicateProject(entry)}><Copy size={14} /><span>{t('Duplicate')}</span></button>
         <button role="menuitem" onClick={() => void exportLibraryProject(entry)}><Download size={14} /><span>{t('Export project file')}</span></button>
-        <button role="menuitem" className="danger" onClick={() => askDeleteProject(entry)}><Trash2 size={14} /><span>{t('Delete from device…')}</span></button>
+        <button role="menuitem" className="danger" onClick={() => askDeleteProject(entry)}><Trash2 size={14} /><span>{t('Move to Recently deleted…')}</span></button>
       </div>}
     </div>;
   }
@@ -3128,7 +1941,7 @@ export default function App() {
   const audioInspector = <>
               <details className="inspector-section ducking-panel"><summary>{t('Project music mix')}</summary>
                 <label className="checkbox-field"><input type="checkbox" checked={(project.ducking ?? 0) > 0} disabled={!canEdit || !hasVideoScenes} onChange={event => void run({ type: 'ducking', amount: event.target.checked ? 60 : 0 })} /> {t('Lower music under video sound')}</label>
-                {(project.ducking ?? 0) > 0 && <label className="music-control"><span>{t('Reduce music by')} <b>{duckDraft ?? project.ducking}%</b></span><input type="range" aria-label="Music ducking amount" min="10" max="90" step="5" value={duckDraft ?? project.ducking ?? 60} disabled={!canEdit} onChange={event => setDuckDraft(Number(event.target.value))} onPointerUp={event => commitDucking(Number(event.currentTarget.value))} onKeyUp={event => commitDucking(Number(event.currentTarget.value))} onBlur={event => commitDucking(Number(event.currentTarget.value))} /></label>}
+                {(project.ducking ?? 0) > 0 && <RangeField label={'Reduce music by'} sliderLabel="Music ducking amount" unit="%" min={10} max={90} step={5} value={duckDraft ?? project.ducking ?? 60} disabled={!canEdit} onChange={v => setDuckDraft(v)} onCommit={() => commitDucking(duckDraft ?? project.ducking ?? 60)} />}
                 <p className="note"><AudioLines size={14} /><span>{hasVideoScenes ? t('Lowers all music tracks while video audio is playing.') : t('Add a video clip to duck music under its sound.')}</span></p>
               </details>
               <div className="voiceover-panel">
@@ -3142,18 +1955,18 @@ export default function App() {
               </div>
               {selectedAudio && <div className="audio-editor">
                 <div className="audio-editor-title"><small>{isAssetRef(selectedAudio.data) ? t('Stored locally') : formatBytes(selectedAudio.data.length * .75)} · {t('{duration} s source', { duration: selectedAudio.sourceDurationSeconds.toFixed(1) })}</small></div>
-                {(selectedAudio.credit || creditForClipName(selectedAudio.name)) && <div className="music-credit-note"><Music size={13} /><span>{selectedAudio.credit || creditForClipName(selectedAudio.name)}</span><button className="text-button" onClick={() => void navigator.clipboard.writeText((selectedAudio.credit || creditForClipName(selectedAudio.name))!).then(() => setNotice('Music credit copied.')).catch(() => setError('Could not copy the credit. It is listed in the Music panel.'))}><Copy size={12} /> {t('Copy credit')}</button></div>}
+                {(selectedAudio.credit || creditForClipName(selectedAudio.name)) && <div className="music-credit-note"><Music size={13} /><span>{selectedAudio.credit || creditForClipName(selectedAudio.name)}</span><button className="text-button" onClick={() => void navigator.clipboard.writeText((selectedAudio.credit || creditForClipName(selectedAudio.name))!).then(() => setNotice(t('Music credit copied.'))).catch(() => setError(t('Could not copy the credit. It is listed in the Music panel.')))}><Copy size={12} /> {t('Copy credit')}</button></div>}
                 <label className="field">{t('Audio track')}<select aria-label={t('Audio track')} value={selectedAudio.lane} onChange={event => stageAudio({ lane: Number(event.target.value) })} onBlur={commitAudio}>{audioLanes.map((lane, index) => <option key={lane} value={lane}>{t('Track {number}', { number: index + 1 })}</option>)}{audioLanes.length < 8 && <option value={audioLanes.length}>{t('Track {number}', { number: audioLanes.length + 1 })}</option>}</select></label>
-                <label className="music-control"><span>{t('Start')} <b>{ticksToSeconds(selectedAudio.startTicks, project.timebase).toFixed(1)} s</b></span><input aria-label="Audio start" type="range" min="0" max={ticksToSeconds(Math.max(0, projectTicks - selectedAudio.durationTicks), project.timebase)} step={secondsPerTick(project.timebase)} value={ticksToSeconds(selectedAudio.startTicks, project.timebase)} disabled={!canEdit} onChange={event => stageAudio({ startTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
-                <label className="music-control"><span>{t('Trim in')} <b>{selectedAudio.sourceInSeconds.toFixed(1)} s</b></span><input aria-label="Audio trim in" type="range" min="0" max={Math.max(0, selectedAudio.sourceDurationSeconds - secondsPerTick(project.timebase))} step="0.1" value={selectedAudio.sourceInSeconds} disabled={!canEdit} onChange={event => stageAudio({ sourceInSeconds: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
-                <label className="music-control"><span>{t('Duration')} <b>{ticksToSeconds(selectedAudio.durationTicks, project.timebase).toFixed(1)} s</b></span><input aria-label="Audio duration" type="range" min="0.1" max={Math.max(0.1, Math.min(ticksToSeconds(projectTicks - selectedAudio.startTicks, project.timebase), selectedAudio.sourceDurationSeconds - selectedAudio.sourceInSeconds))} step="0.1" value={ticksToSeconds(selectedAudio.durationTicks, project.timebase)} disabled={!canEdit} onChange={event => stageAudio({ durationTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
-                <label className="music-control"><span>{t('Volume')} <b>{Math.round(selectedAudio.volume * 100)}%</b></span><input aria-label="Audio volume" type="range" min="0" max="100" step="1" value={Math.round(selectedAudio.volume * 100)} disabled={!canEdit} onChange={event => stageAudio({ volume: Number(event.target.value) / 100 })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
-                <label className="music-control"><span>{t('Fade in')} <b>{selectedAudio.fadeIn.toFixed(1)} s</b></span><input aria-label="Audio fade in" type="range" min="0" max={Math.min(30, ticksToSeconds(selectedAudio.durationTicks, project.timebase))} step="0.1" value={selectedAudio.fadeIn} disabled={!canEdit} onChange={event => stageAudio({ fadeIn: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
-                <label className="music-control"><span>{t('Fade out')} <b>{selectedAudio.fadeOut.toFixed(1)} s</b></span><input aria-label="Audio fade out" type="range" min="0" max={Math.min(30, ticksToSeconds(selectedAudio.durationTicks, project.timebase))} step="0.1" value={selectedAudio.fadeOut} disabled={!canEdit} onChange={event => stageAudio({ fadeOut: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                <RangeField label={'Start'} sliderLabel="Audio start" unit="s" min={0} max={ticksToSeconds(Math.max(0, projectTicks - selectedAudio.durationTicks), project.timebase)} step={secondsPerTick(project.timebase)} value={ticksToSeconds(selectedAudio.startTicks, project.timebase)} disabled={!canEdit} onChange={v => stageAudio({ startTicks: secondsToTicks(v, project.timebase) })} onCommit={commitAudio} />
+                <RangeField label={'Trim in'} sliderLabel="Audio trim in" unit="s" min={0} max={Math.max(0, selectedAudio.sourceDurationSeconds - secondsPerTick(project.timebase))} step={0.1} value={selectedAudio.sourceInSeconds} disabled={!canEdit} onChange={v => stageAudio({ sourceInSeconds: v })} onCommit={commitAudio} />
+                <RangeField label={'Duration'} sliderLabel="Audio duration" unit="s" min={0.1} max={Math.max(0.1, Math.min(ticksToSeconds(projectTicks - selectedAudio.startTicks, project.timebase), selectedAudio.sourceDurationSeconds - selectedAudio.sourceInSeconds))} step={0.1} value={ticksToSeconds(selectedAudio.durationTicks, project.timebase)} disabled={!canEdit} onChange={v => stageAudio({ durationTicks: secondsToTicks(v, project.timebase) })} onCommit={commitAudio} />
+                <RangeField label={'Volume'} sliderLabel="Audio volume" unit="%" min={0} max={100} step={1} value={Math.round(selectedAudio.volume * 100)} disabled={!canEdit} onChange={v => stageAudio({ volume: v / 100 })} onCommit={commitAudio} />
+                <RangeField label={'Fade in'} sliderLabel="Audio fade in" unit="s" min={0} max={Math.min(30, ticksToSeconds(selectedAudio.durationTicks, project.timebase))} step={0.1} value={selectedAudio.fadeIn} disabled={!canEdit} onChange={v => stageAudio({ fadeIn: v })} onCommit={commitAudio} />
+                <RangeField label={'Fade out'} sliderLabel="Audio fade out" unit="s" min={0} max={Math.min(30, ticksToSeconds(selectedAudio.durationTicks, project.timebase))} step={0.1} value={selectedAudio.fadeOut} disabled={!canEdit} onChange={v => stageAudio({ fadeOut: v })} onCommit={commitAudio} />
                 <details className="inspector-section" open>
                   <summary>{t('Three-band EQ')}</summary>
                   {([['low', 'Bass · 120 Hz'], ['mid', 'Voice · 1 kHz'], ['high', 'Treble · 6 kHz']] as const).map(([key, label]) => (
-                    <label className="music-control" key={key}><span>{t(label)} <b>{(selectedAudio[key] ?? 0) > 0 ? '+' : ''}{selectedAudio[key] ?? 0} dB</b></span><input aria-label={`Audio ${key} EQ`} type="range" min="-12" max="12" step="1" value={selectedAudio[key] ?? 0} disabled={!canEdit} onChange={event => stageAudio({ [key]: Number(event.target.value) })} onPointerUp={commitAudio} onKeyUp={commitAudio} onBlur={commitAudio} /></label>
+                    <RangeField key={key} label={label} sliderLabel={`Audio ${key} EQ`} unit="dB" min={-12} max={12} step={1} value={selectedAudio[key] ?? 0} disabled={!canEdit} onChange={v => stageAudio({ [key]: v })} onCommit={commitAudio} />
                   ))}
                   <button className="button" disabled={!canEdit || !selectedAudio.low && !selectedAudio.mid && !selectedAudio.high} onClick={() => { stageAudio({ low: 0, mid: 0, high: 0 }); window.setTimeout(commitAudio, 0); }}><RotateCcw size={13} /> {t('Reset EQ')}</button>
                 </details>
@@ -3172,9 +1985,9 @@ export default function App() {
 
   const elementInspector = selectedElement && <div className="element-controls">
                 <div className="element-controls-head"><strong>{elementName(selectedElement)}</strong><button className="text-button danger" onClick={() => removeElement(selectedElement.id)}><Trash2 size={12} /> {t('Delete')}</button></div>
-                {!selectedElement.presetId && !['image','video'].includes(selectedElement.kind) && <label className="field">{t('Replace old decoration')}<select aria-label={t('Replace old decoration')} value="" onChange={event => { const preset = ELEMENT_CATALOG.find(p => p.id === event.target.value); if (preset) updateElement({ kind:preset.kind,presetId:preset.id,label:preset.text,color:preset.color,animation:preset.animation,...presetSize(preset,activeSize) }); }}><option value="">Choose a current element…</option>{ELEMENT_CATALOG.filter(p => ['Social','Titles'].includes(p.category)).map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></label>}
+                {!selectedElement.presetId && !['image','video'].includes(selectedElement.kind) && <label className="field">{t('Replace old decoration')}<select aria-label={t('Replace old decoration')} value="" onChange={event => { const preset = ELEMENT_CATALOG.find(p => p.id === event.target.value); if (preset) updateElement({ kind:preset.kind,presetId:preset.id,label:preset.text,color:preset.color,animation:preset.animation,...presetSize(preset,activeSize) }); }}><option value="">{t('Choose a current element…')}</option>{ELEMENT_CATALOG.filter(p => ['Social','Titles'].includes(p.category)).map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></label>}
                 {(selectedElement.presetId || ELEMENT_LABEL_DEFAULTS[selectedElement.kind] !== undefined) && <ElementTextField key={selectedElement.id} value={selectedElement.label ?? elementPreset(selectedElement)?.text ?? ELEMENT_LABEL_DEFAULTS[selectedElement.kind] ?? ''} stage={label => stageElement({ label })} commit={commitElement} />}
-                {selectedElement.kind !== 'image' && selectedElement.kind !== 'video' && <div className="element-color-row">{ELEMENT_COLORS.map(color => <button key={color} className={`element-color ${selectedElement.color === color ? 'active' : ''}`} style={{ background: color }} aria-label={`Element color ${color}`} onClick={() => updateElement({ color })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} />)}</div>}
+                {selectedElement.kind !== 'image' && selectedElement.kind !== 'video' && <div className="element-color-row">{ELEMENT_COLORS.map(color => <button key={color} className={`element-color ${selectedElement.color === color ? 'active' : ''}`} style={{ background: color }} aria-label={t('Element color {color}', { color })} onClick={() => updateElement({ color })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} />)}</div>}
                 {selectedElement.kind === 'video' && <p className="note">{t('Overlay audio is muted. Add music on an audio track.')}</p>}
                 {sceneLayerStack.length > 1 && <StackOrder position={elementStackPosition(selectedElement)} total={sceneLayerStack.length} disabled={!canEdit} onMove={moveElementLayer} />}
                 <details className="inspector-section" open><summary>{t('Timing')}</summary><div className="overlay-timing">
@@ -3189,7 +2002,7 @@ export default function App() {
                 <label className="checkbox-field element-repeat"><input type="checkbox" checked={selectedElement.loop ?? false} disabled={selectedElement.animation === 'none'} onChange={event => updateElement({ loop: event.target.checked })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /> {isContinuousMotion(selectedElement.animation) ? 'Repeat motion' : 'Repeat entrance'}</label>
                 {selectedElement.animation !== 'none' && <label className="field">{t('Entrance duration')}<input aria-label={t('Element animation duration')} type="number" min="0.1" max="5" step="0.1" value={selectedElement.animationDuration ?? .6} onChange={event => stageElement({ animationDuration: Math.max(.1, Math.min(5, Number(event.target.value) || .6)) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>}
                 </section>
-                <details className="overlay-action"><summary>{t('Timed action')}</summary><label className="field">{t('Later action')}<select aria-label={t('Element action')} value={selectedElement.action?.kind ?? 'none'} onChange={event => updateElement({ action: event.target.value === 'none' ? undefined : { kind: event.target.value as 'ring', startTicks: Math.min(selectedElement.durationTicks - 1, secondsToTicks(1, project.timebase)), durationTicks: Math.min(selectedElement.durationTicks, secondsToTicks(2, project.timebase)), repeat: false, sound: false } })}><option value="none">None</option><option value="ring">Ring / shake</option><option value="pulse">Pulse</option><option value="float">Float</option><option value="spin">Spin</option></select></label>
+                <details className="overlay-action"><summary>{t('Timed action')}</summary><label className="field">{t('Later action')}<select aria-label={t('Element action')} value={selectedElement.action?.kind ?? 'none'} onChange={event => updateElement({ action: event.target.value === 'none' ? undefined : { kind: event.target.value as 'ring', startTicks: Math.min(selectedElement.durationTicks - 1, secondsToTicks(1, project.timebase)), durationTicks: Math.min(selectedElement.durationTicks, secondsToTicks(2, project.timebase)), repeat: false, sound: false } })}><option value="none">{t('None')}</option><option value="ring">{t('Ring / shake')}</option><option value="pulse">{t('Pulse')}</option><option value="float">{t('Float')}</option><option value="spin">{t('Spin')}</option></select></label>
                 {selectedElement.action && <>
                   <label className="field">{t('Action starts after (seconds)')}<input aria-label={t('Action start')} type="number" min="0" max={ticksToSeconds(selectedElement.durationTicks - 1, project.timebase)} step="0.1" value={ticksToSeconds(selectedElement.action.startTicks, project.timebase)} onChange={event => stageElement({ action: { ...selectedElement.action!, startTicks: secondsToTicks(Number(event.target.value), project.timebase) } })} onBlur={commitElement} onKeyDown={event => { if (event.key === 'Enter') commitElement(); }} /></label>
                   <label className="field">{t('Action duration (seconds)')}<input aria-label={t('Action duration')} type="number" min="0.1" max={ticksToSeconds(selectedElement.durationTicks - selectedElement.action.startTicks, project.timebase)} step="0.1" value={ticksToSeconds(selectedElement.action.durationTicks, project.timebase)} onChange={event => stageElement({ action: { ...selectedElement.action!, durationTicks: secondsToTicks(Number(event.target.value), project.timebase) } })} onBlur={commitElement} /></label>
@@ -3203,16 +2016,28 @@ export default function App() {
                 {(selectedElement.kind === 'image' || selectedElement.kind === 'video') && <MaskControls mask={selectedElement.mask} disabled={!canEdit} onStage={mask => stageElement({ mask })} onCommit={commitElement} onApply={mask => updateElement({ mask })} />}
                 {(selectedElement.kind === 'image' || selectedElement.kind === 'video') && <ChromaControls chroma={selectedElement.chroma} disabled={!canEdit} onStage={chroma => stageElement({ chroma })} onCommit={commitElement} onApply={chroma => updateElement({ chroma })} />}
 
-                <label className="music-control"><span>{t('Opacity')} <b>{Math.round(selectedElement.opacity)}%</b></span><input type="range" min="0" max="100" step="1" value={selectedElement.opacity} onChange={event => stageElement({ opacity: Number(event.target.value) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
-                <label className="music-control"><span>{t('Rotation')} <b>{Math.round(selectedElement.rotation)}°</b></span><input type="range" min="-180" max="180" step="1" value={selectedElement.rotation} onChange={event => stageElement({ rotation: Number(event.target.value) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
-                <label className="music-control"><span>Width <b>{Math.round(selectedElement.width * 100)}%</b></span><input type="range" min="2" max="100" step="1" value={Math.round(selectedElement.width * 100)} onChange={event => stageElement({ width: Number(event.target.value) / 100 })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
-                <label className="music-control"><span>Height <b>{Math.round(selectedElement.height * 100)}%</b></span><input type="range" min="2" max="100" step="1" value={Math.round(selectedElement.height * 100)} onChange={event => stageElement({ height: Number(event.target.value) / 100 })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>
+                <RangeField label={'Opacity'} unit="%" min={0} max={100} step={1} value={selectedElement.opacity} onChange={v => stageElement({ opacity: v })} onCommit={commitElement} />
+                <RangeField label={'Rotation'} unit="°" min={-180} max={180} step={1} value={selectedElement.rotation} onChange={v => stageElement({ rotation: v })} onCommit={commitElement} />
+                <RangeField label="Width" unit="%" min={2} max={100} step={1} value={Math.round(selectedElement.width * 100)} onChange={v => stageElement({ width: v / 100 })} onCommit={commitElement} />
+                <RangeField label="Height" unit="%" min={2} max={100} step={1} value={Math.round(selectedElement.height * 100)} onChange={v => stageElement({ height: v / 100 })} onCommit={commitElement} />
                 <p className="note">Drag a corner handle on the preview to resize (hold Shift to keep proportions); use the round handle above it to rotate (Shift snaps to 15°).</p>
                 </details>
               </div>;
 
+  const editorModel = { project, scenes, audio, canEdit, run, duration, projectTicks, frameSeconds, preferences, activeSize, setNotice, setError };
+
+  const editorActions: EditorActions = { chooseImages, chooseVideo, chooseCustomElement, chooseAudio, dragOverTarget, dropIntoMedia, beginMediaDrag, previewMedia, appendMedia, addMediaPip, selectGlobalText, addProjectText, selectTextLayer, exportCaptions, removeFont, addTextLayerAtPlayhead, hoverLibraryAudio, stopLibraryPreview, focusAudio, copyMusicCredit, addMusic, addSavedTrack, removeSavedTrack, addOnlineMusic, copyMusicCredits, addSound, addRecordedSound, chooseTemplate, templateImage, selectOverlay, addElement, tip, runCommandId, saveStillFrame, togglePreviewFullscreen, beginImagePan, beginTextMove, beginTextResize, beginElementMove, beginElementRotate, beginElementResize, previewInlineText, blurInlineText, cancelInlineText, commitInlineText, shortcutText, scrubTo, togglePlayback, removePip, stagePip, commitPip, stagePipStyle, removeAudio, updateSelection, copySceneProperties, notifyPasted, inspectorFlush, requestReplaceImage, applyFramingToAllFormats, reorderLayer, deleteSelected, duplicateSelected, dropLibraryMedia, beginPlayheadDrag, removeBeat, selectScene, beginOverlayTiming, beginReorder, endReorder, dragOverScene, dropScene, beginFadeDrag, beginSceneTrim, setVideoAudioLevel, commitMix, stageVideoVolume, commitVideoVolume, selectPip, beginPipTiming, toggleLaneMute, setLaneMix, beginAudioMove, beginAudioTrim, stageAudio, commitAudio, addBeatAtPlayhead };
+
   return (
-    <div className={`app ${screen} theme-${preferences.theme} ${preferences.compact ? 'compact' : ''} ${preferences.reduceMotion ? 'reduce-motion' : ''} ${fileDragActive ? 'file-drag' : ''}`}>
+    <SelectionProvider store={selectionStore}>
+    <LayoutProvider store={layoutStore}>
+    <LibraryProvider store={libraryStore}>
+    <ExportProvider store={exportStore}>
+    <DraftsProvider store={draftsStore}>
+    <EditorModelProvider value={editorModel}>
+    <EditorViewProvider value={view}>
+    <EditorActionsProvider value={editorActions}>
+    <div className={`app ${screen} theme-${resolveTheme(preferences.theme, systemDark)} ${preferences.compact ? 'compact' : ''} ${preferences.reduceMotion ? 'reduce-motion' : ''} ${fileDragActive ? 'file-drag' : ''}`}>
       <input ref={customElementInput} type="file" hidden onChange={event => void importCustomElement(event.target.files)} />
       <input ref={mediaInput} type="file" hidden multiple accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" onChange={e => void importFiles(e.target.files)} />
       <input ref={videoInput} type="file" hidden multiple accept="video/mp4,video/webm,video/quicktime,video/x-m4v,.mp4,.webm,.mov,.m4v" onChange={e => void importVideos(e.target.files)} />
@@ -3224,14 +2049,14 @@ export default function App() {
       <input ref={fontInput} type="file" hidden accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" onChange={e => void importFontFile(e.target.files)} />
 
       {screen === 'home' ? <>
-        <HomeSidebar setHomeSection={setHomeSection} homeSection={homeSection} setModal={setModal} updateState={updateState} setSettingsTab={setSettingsTab} updateProgress={updateProgress} updateInfo={updateInfo} appVersion={appVersion} />
-<HomeMain homeSection={homeSection} open={open} canEdit={canEdit} ready={ready} setModal={setModal} chooseImages={chooseImages} projects={projects} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} librarySort={librarySort} setLibrarySort={setLibrarySort} favoriteOnly={favoriteOnly} setFavoriteOnly={setFavoriteOnly} groupFilter={groupFilter} setGroupFilter={setGroupFilter} projectGroupsList={projectGroupsList} openGroupManager={openGroupManager} matchingProjects={matchingProjects} renderProjectCard={renderProjectCard} visibleProjects={visibleProjects} chooseTemplate={chooseTemplate} templateImage={templateImage} />
+        <HomeSidebar storageLabel={storageLabel} projects={projects} openProject={openLibraryProject} setHomeSection={setHomeSection} homeSection={homeSection} setModal={setModal} updateState={updateState} setSettingsTab={setSettingsTab} updateProgress={updateProgress} updateInfo={updateInfo} appVersion={appVersion} />
+<HomeMain deleted={{ items: deletedProjects, restore: restoreProject, purge: purgeProject }} goProjects={() => setHomeSection('projects')} batch={{ mode: batchMode, ids: batchIds, begin: () => setBatchMode(true), end: endBatch, favorite: batchFavorite, move: batchMove, remove: batchDelete }} openSettings={() => setModal('settings')} libraryReady={libraryReady} shortcutText={shortcutText} openProject={openLibraryProject} homeSection={homeSection} open={open} canEdit={canEdit} ready={ready} setModal={setModal} chooseImages={chooseImages} projects={projects} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} librarySort={librarySort} setLibrarySort={setLibrarySort} favoriteOnly={favoriteOnly} setFavoriteOnly={setFavoriteOnly} groupFilter={groupFilter} setGroupFilter={setGroupFilter} projectGroupsList={projectGroupsList} openGroupManager={openGroupManager} matchingProjects={matchingProjects} renderProjectCard={renderProjectCard} visibleProjects={visibleProjects} chooseTemplate={chooseTemplate} templateImage={templateImage} />
       </> : <>
         <EditorHeader goHome={goHome} name={name} canEdit={canEdit} setName={setName} project={project} run={run} status={status} tip={tip} runCommandId={runCommandId} session={session} ready={ready} save={save} scenes={scenes} exporting={exporting} openExportModal={openExportModal} />
 
         {missing.length > 0 && <div className="missing-banner" role="alert">
           <span className="missing-badge"><AlertTriangle size={16} /></span>
-          <span className="missing-copy"><strong>{missing.length} media file{missing.length === 1 ? '' : 's'} missing</strong><span>This project still opens, but those clips stay empty until you relink them. Saving and exporting are paused.</span></span>
+          <span className="missing-copy"><strong>{t('{files} missing', { files: mediaFileCount(missing.length) })}</strong><span>{t('This project still opens, but those clips stay empty until you relink them. Saving and exporting are paused.')}</span></span>
           <button className="button" onClick={() => setModal('missing')}><LinkIcon size={14} /> Relink media</button>
         </div>}
 
@@ -3240,14 +2065,18 @@ export default function App() {
           <span className="hint"><kbd>{shortcutText('playback.toggle')}</kbd> Play / pause</span>
           <span className="hint"><kbd>{shortcutText('clip.split')}</kbd> Split at playhead</span>
           <span className="hint"><kbd>{shortcutText('history.undo')}</kbd> Undo</span>
-          <button className="text-button hint-dismiss" onClick={dismissHints}>Got it</button>
+          <button className="text-button hint-dismiss" onClick={dismissHints}>{t('Got it')}</button>
         </div>}
 
-        <EditorBody savedTracks={savedTracks} addSavedTrack={addSavedTrack} removeSavedTrack={removeSavedTrack} libraryWidth={libraryWidth} tab={tab} setTab={setTab} tabTitles={tabTitles} canEdit={canEdit} chooseImages={chooseImages} chooseVideo={chooseVideo} selectedScene={selectedScene} chooseCustomElement={chooseCustomElement} projectTicks={projectTicks} audioLaneRef={audioLaneRef} selectedAudio={selectedAudio} chooseAudio={chooseAudio} setModal={setModal} mediaQuery={mediaQuery} setMediaQuery={setMediaQuery} dragOverTarget={dragOverTarget} dropIntoMedia={dropIntoMedia} filteredScenes={filteredScenes} beginMediaDrag={beginMediaDrag} mediaDragRef={mediaDragRef} setDropTarget={setDropTarget} setHoveredMedia={setHoveredMedia} previewMedia={previewMedia} hoveredMedia={hoveredMedia} playing={playing} modal={modal} project={project} appendMedia={appendMedia} addMediaPip={addMediaPip} setError={setError} sourceMedia={sourceMedia} editTarget={editTarget} selectedGlobalTextId={selectedGlobalTextId} selectGlobalText={selectGlobalText} run={run} setSelectedGlobalTextId={setSelectedGlobalTextId} addProjectText={addProjectText} selectedTextLayerId={selectedTextLayerId} selectTextLayer={selectTextLayer} scenes={scenes} captionInput={captionInput} exportCaptions={exportCaptions} fontTargetId={fontTargetId} fontInput={fontInput} removeFont={removeFont} addTextLayerAtPlayhead={addTextLayerAtPlayhead} audioLibraryTab={audioLibraryTab} setAudioLibraryTab={setAudioLibraryTab} audio={audio} previewingAudio={previewingAudio} hoverLibraryAudio={hoverLibraryAudio} stopLibraryPreview={stopLibraryPreview} focusAudio={focusAudio} musicMood={musicMood} setMusicMood={setMusicMood} copyMusicCredit={copyMusicCredit} addMusic={addMusic} addOnlineMusic={addOnlineMusic} copyMusicCredits={copyMusicCredits} setNotice={setNotice} soundQuery={soundQuery} setSoundQuery={setSoundQuery} soundGroups={soundGroups} openSoundGroup={openSoundGroup} setOpenSoundGroup={setOpenSoundGroup} addSound={addSound} recordedSounds={recordedSounds} addRecordedSound={addRecordedSound} position={position} chooseTemplate={chooseTemplate} templateImage={templateImage} elementSearch={elementSearch} setElementSearch={setElementSearch} setElementLimit={setElementLimit} elementCollection={elementCollection} setElementCollection={setElementCollection} setElementCategory={setElementCategory} elementCategory={elementCategory} allOverlays={allOverlays} selectedElementId={selectedElementId} selectOverlay={selectOverlay} filteredElements={filteredElements} elementLimit={elementLimit} setHoveredElement={setHoveredElement} addElement={addElement} hoveredElement={hoveredElement} preferences={preferences} beginResize={beginResize} tip={tip} safeArea={safeArea} runCommandId={runCommandId} activeFormat={activeFormat} setActiveFormatId={setActiveFormatId} previewTarget={previewTarget} activeSize={activeSize} saveStillFrame={saveStillFrame} togglePreviewFullscreen={togglePreviewFullscreen} previewArea={previewArea} previewStage={previewStage} previewSize={previewSize} preview={preview} sceneVideo={sceneVideo} setVideoTick={setVideoTick} pipVideoScenes={pipVideoScenes} pipVideoElements={pipVideoElements} setPipVideoTick={setPipVideoTick} snapGuides={snapGuides} framingMode={framingMode} beginImagePan={beginImagePan} selectedTextLayer={selectedTextLayer} selectedGlobalText={selectedGlobalText} textBox={textBox} selectedTextVisible={selectedTextVisible} selectedElement={selectedElement} editingText={editingText} beginTextMove={beginTextMove} setTextDraft={setTextDraft} setEditingText={setEditingText} beginTextResize={beginTextResize} overlayDraft={overlayDraft} sceneLayerRank={sceneLayerRank} beginElementMove={beginElementMove} beginElementRotate={beginElementRotate} beginElementResize={beginElementResize} textDraft={textDraft} previewInlineText={previewInlineText} blurInlineText={blurInlineText} cancelInlineText={cancelInlineText} commitInlineText={commitInlineText} fadeAmount={fadeAmount} shortcutText={shortcutText} duration={duration} frameSeconds={frameSeconds} scrubTo={scrubTo} setPosition={setPosition} setPlaying={setPlaying} togglePlayback={togglePlayback} loop={loop} setLoop={setLoop} inspectorWidth={inspectorWidth} selectedPip={selectedPip} propertyKind={propertyKind} selectedCount={selectedCount} setSelectedIds={setSelectedIds} setPrimarySelected={setPrimarySelected} selectionAnchor={selectionAnchor} activePip={activePip} removePip={removePip} pipScenes={pipScenes} stagePip={stagePip} commitPip={commitPip} stagePipStyle={stagePipStyle} removeAudio={removeAudio} audioInspector={audioInspector} elementInspector={elementInspector} selectedTextScene={selectedTextScene} inspectorScene={inspectorScene} updateSelection={updateSelection} setGlobalTextDraft={setGlobalTextDraft} setPreviewScene={setPreviewScene} copySceneProperties={copySceneProperties} propertyClipboard={propertyClipboard} notifyPasted={notifyPasted} inspectorFlush={inspectorFlush} requestReplaceImage={requestReplaceImage} textStartTicks={textStartTicks} textLayerLocal={textLayerLocal} previewLocalSeconds={previewLocalSeconds} textFocus={textFocus} setFramingMode={setFramingMode} applyFramingToAllFormats={applyFramingToAllFormats} renderOverlays={renderOverlays} reorderLayer={reorderLayer} deleteSelected={deleteSelected} hasSceneSelection={hasSceneSelection} duplicateSelected={duplicateSelected} />
+        <div className="editor-body">
+          <LibraryPanel tab={tab} setTab={setTab} tabTitles={tabTitles} audioLaneRef={audioLaneRef} selectedAudio={selectedAudio} setModal={setModal} mediaDragRef={mediaDragRef} setDropTarget={setDropTarget} playing={playing} modal={modal} sourceMedia={sourceMedia} setSelectedGlobalTextId={setSelectedGlobalTextId} captionInput={captionInput} fontTargetId={fontTargetId} fontInput={fontInput} previewingAudio={previewingAudio} savedTracks={savedTracks} recordedSounds={recordedSounds} position={position} allOverlays={allOverlays} />
+          <PreviewPanel setModal={setModal} playing={playing} modal={modal} position={position} allOverlays={allOverlays} safeArea={safeArea} activeFormat={activeFormat} setActiveFormatId={setActiveFormatId} previewArea={previewArea} previewStage={previewStage} previewSize={previewSize} preview={preview} sceneVideo={sceneVideo} setVideoTick={setVideoTick} pipVideoElements={pipVideoElements} setPipVideoTick={setPipVideoTick} snapGuides={snapGuides} framingMode={framingMode} textBox={textBox} selectedTextVisible={selectedTextVisible} selectedElement={selectedElement} editingText={editingText} setTextDraft={setTextDraft} setEditingText={setEditingText} sceneLayerRank={sceneLayerRank} textDraft={textDraft} fadeAmount={fadeAmount} setPosition={setPosition} setPlaying={setPlaying} loop={loop} setLoop={setLoop} />
+          <InspectorPanel selectedAudio={selectedAudio} activeFormat={activeFormat} framingMode={framingMode} setEditingText={setEditingText} propertyKind={propertyKind} setSelectedIds={setSelectedIds} setPrimarySelected={setPrimarySelected} selectionAnchor={selectionAnchor} audioInspector={audioInspector} elementInspector={elementInspector} inspectorScene={inspectorScene} setGlobalTextDraft={setGlobalTextDraft} propertyClipboard={propertyClipboard} textStartTicks={textStartTicks} textLayerLocal={textLayerLocal} previewLocalSeconds={previewLocalSeconds} textFocus={textFocus} setFramingMode={setFramingMode} renderOverlays={renderOverlays} />
+        </div>
 
         <div className="splitter horizontal" onPointerDown={e => beginResize('timeline', timelineHeight, e.clientY)} />
 
-        <TimelinePanel timelineHeight={timelineHeight} scenes={scenes} selectedCount={selectedCount} selectedScene={selectedScene} canEdit={canEdit} run={run} snapping={snapping} tip={tip} runCommandId={runCommandId} addBeatAtPlayhead={addBeatAtPlayhead} timelineZoom={timelineZoom} changeTimelineZoom={changeTimelineZoom} audioDisplay={audioDisplay} setAudioDisplay={setAudioDisplay} duration={duration} fileDragActive={fileDragActive} timelineScroll={timelineScroll} mediaDragRef={mediaDragRef} dropLibraryMedia={dropLibraryMedia} timelineRatio={timelineRatio} beginPlayheadDrag={beginPlayheadDrag} project={project} projectTicks={projectTicks} removeBeat={removeBeat} activeSize={activeSize} frameSeconds={frameSeconds} position={position} scrubTo={scrubTo} hasMediaOverlays={hasMediaOverlays} isSelected={isSelected} selectScene={selectScene} setTab={setTab} setTextFocus={setTextFocus} selectedTextLayer={selectedTextLayer} setEditTarget={setEditTarget} setSelectedElementId={setSelectedElementId} setSelectedTextLayerId={setSelectedTextLayerId} setPosition={setPosition} addTextLayerAtPlayhead={addTextLayerAtPlayhead} orderedLayers={orderedLayers} overlayDraft={overlayDraft} selectedElementId={selectedElementId} selectOverlay={selectOverlay} beginOverlayTiming={beginOverlayTiming} layerNumbers={layerNumbers} previewScene={previewScene} active={active} dropTarget={dropTarget} reorderId={reorderId} replacingSceneId={replacingSceneId} beginReorder={beginReorder} endReorder={endReorder} dragOverScene={dragOverScene} setDropTarget={setDropTarget} dropScene={dropScene} selectedIds={selectedIds} setSelectedIds={setSelectedIds} setPrimarySelected={setPrimarySelected} selectionAnchor={selectionAnchor} setPlaying={setPlaying} setContextMenu={setContextMenu} beginFadeDrag={beginFadeDrag} beginSceneTrim={beginSceneTrim} fadeDrag={fadeDrag} chooseImages={chooseImages} videoScenes={videoScenes} audioMix={audioMix} setVideoAudioLevel={setVideoAudioLevel} commitMix={commitMix} editTarget={editTarget} videoVolumeDraft={videoVolumeDraft} stageVideoVolume={stageVideoVolume} commitVideoVolume={commitVideoVolume} renderPipScenes={renderPipScenes} selectedPipId={selectedPipId} selectPip={selectPip} beginPipTiming={beginPipTiming} audioLanes={audioLanes} toggleLaneMute={toggleLaneMute} setLaneMix={setLaneMix} audio={audio} selectedAudio={selectedAudio} focusAudio={focusAudio} beginAudioMove={beginAudioMove} beginAudioTrim={beginAudioTrim} stageAudio={stageAudio} commitAudio={commitAudio} audioLaneRef={audioLaneRef} chooseAudio={chooseAudio} shortcutText={shortcutText} />
+        <TimelinePanel onLockedEdit={() => setNotice(t('This lane is locked. Unlock it to edit.'))} timelineControls={timelineControls} snapping={snapping} audioDisplay={audioDisplay} setAudioDisplay={setAudioDisplay} fileDragActive={fileDragActive} timelineScroll={timelineScroll} mediaDragRef={mediaDragRef} timelineRatio={timelineRatio} position={position} hasMediaOverlays={hasMediaOverlays} setTab={setTab} setTextFocus={setTextFocus} setPosition={setPosition} orderedLayers={orderedLayers} layerNumbers={layerNumbers} dropTarget={dropTarget} reorderId={reorderId} replacingSceneId={replacingSceneId} setDropTarget={setDropTarget} selectionAnchor={selectionAnchor} setPlaying={setPlaying} setContextMenu={setContextMenu} fadeDrag={fadeDrag} videoScenes={videoScenes} audioMix={audioMix} videoVolumeDraft={videoVolumeDraft} audioLanes={audioLanes} selectedAudio={selectedAudio} audioLaneRef={audioLaneRef} />
       </>}
 
       {contextMenu && <ClipContextMenu
@@ -3261,12 +2090,13 @@ export default function App() {
         onRun={id => { runCommandId(id); setContextMenu(null); }}
       />}
 
-      {notice && <Toast message={notice} onDismiss={() => setNotice('')} />}
-      {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
+      {notice && <Toast message={notice} onDismiss={() => setNotice(t(''))} />}
+      {error && <ErrorBanner message={error} onDismiss={() => setError(t(''))} />}
 
       {exporting && <ExportJobCard name={exportJob.name} phase={exportJob.phase} progress={exportProgress} elapsed={exportElapsed} cancelling={cancellingExport} onCancel={cancelExport} />}
-      {modal && <div className="modal-backdrop"><section className={`modal ${modal === 'export' ? 'export-studio' : modal === 'new' ? 'project-setup' : modal === 'formats' ? 'format-studio' : wideModal ? 'wide' : mediumModal ? 'medium' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      {modal && <div className="modal-backdrop"><section className={`modal ${modal === 'export' ? 'export-studio' : modal === 'new' ? 'project-setup' : modal === 'formats' ? 'format-studio' : modal === 'settings' ? 'settings-modal' : wideModal ? 'wide' : mediumModal ? 'medium' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div className="modal-header"><span className="eyebrow">{modalEyebrow}</span><IconButton label="Close dialog" onClick={requestCloseModal}><X size={20} /></IconButton></div>
+        <Suspense fallback={null}>
         {modal === 'source' && sourcePreview ? <>
           <SourceModal sourcePreview={sourcePreview} previewVideo={previewVideo} sourcePreviewUrl={sourcePreviewUrl} previewMuted={previewMuted} setPreviewVideoDuration={setPreviewVideoDuration} setPreviewVideoTime={setPreviewVideoTime} setPreviewVideoPlaying={setPreviewVideoPlaying} previewList={previewList} switchPreview={switchPreview} previewIndex={previewIndex} previewVideoPlaying={previewVideoPlaying} togglePreviewPlayback={togglePreviewPlayback} previewVideoTime={previewVideoTime} previewVideoDuration={previewVideoDuration} seekPreview={seekPreview} togglePreviewMute={togglePreviewMute} previewVolume={previewVolume} changePreviewVolume={changePreviewVolume} appendMedia={appendMedia} selectedScene={selectedScene} addMediaPip={addMediaPip} setError={setError} />
         </> : modal === 'templates' ? <>
@@ -3288,14 +2118,23 @@ export default function App() {
         </> : modal === 'shortcuts' ? <>
           <ShortcutHelp settings={shortcuts} platform={platform} onOpenSettings={() => { setModal('settings'); setSettingsTab('shortcuts'); }} />
         </> : modal === 'palette' ? <>
-          <h2 id="modal-title">Command palette</h2><p>Every action, searchable. Shortcuts reflect your current settings.</p>
+          <h2 id="modal-title">{t('Command palette')}</h2><p>{t('Every action, searchable. Shortcuts reflect your current settings.')}</p>
           <CommandPalette platform={platform} bindings={shortcuts.bindings} availability={commandAvailability} onRun={runCommandId} onClose={requestCloseModal} />
         </> : modal === 'settings' ? <>
-          <SettingsModal settingsTab={settingsTab} shortcutDirty={shortcutDirty} setNotice={setNotice} setSettingsTab={setSettingsTab} preferences={preferences} updatePreferences={updatePreferences} storageUsage={storageUsage} refreshAssetUsage={refreshAssetUsage} storageBusy={storageBusy} cleanStorage={cleanStorage} storageConfirm={storageConfirm} storageNote={storageNote} language={language} setLanguage={setLanguage} resetPreferences={resetPreferences} showHints={showHints} setShowHints={setShowHints} setSnapping={setSnapping} setLayout={setLayout} shortcuts={shortcuts} platform={platform} applyShortcuts={applyShortcuts} setShortcutDirty={setShortcutDirty} closeShortcutSettings={closeShortcutSettings} appVersion={appVersion} updateState={updateState} updateInfo={updateInfo} updateMessage={updateMessage} checkForUpdates={checkForUpdates} downloadUpdate={downloadUpdate} updateProgress={updateProgress} restartUpdate={restartUpdate} copyDownloadLink={copyDownloadLink} exporter={exporter} diagnostics={diagnostics} copyDiagnostics={copyDiagnostics} recheckExporter={recheckExporter} storageLabel={storageLabel} refreshStorage={refreshStorage} />
+          <SettingsModal settingsTab={settingsTab} shortcutDirty={shortcutDirty} setNotice={setNotice} setSettingsTab={setSettingsTab} preferences={preferences} updatePreferences={updatePreferences} storageUsage={storageUsage} refreshAssetUsage={refreshAssetUsage} storageBusy={storageBusy} cleanStorage={cleanStorage} storageConfirm={storageConfirm} storageNote={storageNote} language={language} setLanguage={setLanguage} resetPreferences={resetPreferences} showHints={showHints} setShowHints={setShowHints} setSnapping={setSnapping} resetLayout={resetLayout} shortcuts={shortcuts} platform={platform} applyShortcuts={applyShortcuts} setShortcutDirty={setShortcutDirty} closeShortcutSettings={closeShortcutSettings} appVersion={appVersion} updateState={updateState} updateInfo={updateInfo} updateMessage={updateMessage} checkForUpdates={checkForUpdates} downloadUpdate={downloadUpdate} updateProgress={updateProgress} restartUpdate={restartUpdate} copyDownloadLink={copyDownloadLink} exporter={exporter} diagnostics={diagnostics} copyDiagnostics={copyDiagnostics} recheckExporter={recheckExporter} storageLabel={storageLabel} refreshStorage={refreshStorage} />
         </> : <>
-          <ExportModal saveCredits={saveCredits} setSaveCredits={setSaveCredits} project={project} duration={duration} scenes={scenes} exportCodec={exportCodec} exportCodecs={exportCodecs} setExportCodec={setExportCodec} setExportContainer={setExportContainer} exportContainer={exportContainer} exportSpeed={exportSpeed} setExportSpeed={setExportSpeed} exportHardware={exportHardware} hardwareAvailable={hardwareAvailable} setExportHardware={setExportHardware} exportQuality={exportQuality} setExportQuality={setExportQuality} exportResolution={exportResolution} setExportResolution={setExportResolution} exportFps={exportFps} setExportFps={setExportFps} exportAudio={exportAudio} setExportAudio={setExportAudio} musicCredits={musicCredits} setNotice={setNotice} setError={setError} hasVideoScenes={hasVideoScenes} exportSettings={exportSettings} setExportSettings={setExportSettings} exportFormatIds={exportFormatIds} exportOutputs={exportOutputs} exportFormats={exportFormats} setExportFormatIds={setExportFormatIds} exportFilename={exportFilename} exporter={exporter} platform={platform} exporting={exporting} busy={busy} exportVideo={exportVideo} />
+          <ExportModal project={project} duration={duration} scenes={scenes} exportCodecs={exportCodecs} hardwareAvailable={hardwareAvailable} musicCredits={musicCredits} setNotice={setNotice} setError={setError} hasVideoScenes={hasVideoScenes} exportSettings={exportSettings} setExportSettings={setExportSettings} exportOutputs={exportOutputs} exportFormats={exportFormats} exportFilename={exportFilename} exporter={exporter} platform={platform} exporting={exporting} busy={busy} exportVideo={exportVideo} />
         </>}
+        </Suspense>
       </section></div>}
     </div>
+    </EditorActionsProvider>
+    </EditorViewProvider>
+    </EditorModelProvider>
+    </DraftsProvider>
+    </ExportProvider>
+    </LibraryProvider>
+    </LayoutProvider>
+    </SelectionProvider>
   );
 }

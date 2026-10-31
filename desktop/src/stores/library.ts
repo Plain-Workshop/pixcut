@@ -1,3 +1,5 @@
+import { isTrashExpired } from './trash';
+import { projectFingerprint } from './fingerprint';
 import { DEFAULT_TIMEBASE, normalizeStarts, overlayScenes, projectScenes, sceneSeconds, ticksToSeconds, totalDuration, validateProject, type Project, type Timebase } from './model';
 import { hydrateProjectAssets, persistProjectAssets } from './assets';
 import { drawPipClips, drawProjectText, drawScene } from '../components/preview/render';
@@ -22,6 +24,15 @@ export type ProjectSummary = {
   favorite?: boolean;
   /** Every deliverable the project holds, so cards can show them. */
   formats?: { name: string; width: number; height: number; aspect: string }[];
+  /** When a video of this project was last exported on this device. */
+  exportedAt?: number;
+  /** Fingerprints of the project as last saved and as last exported; equal means no edits since the export. */
+  /** Set while the project sits in Recently deleted. Its body and media are kept until it expires. */
+  deletedAt?: number;
+  contentHash?: string;
+  exportedHash?: string;
+  /** Small scene previews for hover scrubbing, drawn on first hover and cleared whenever the project is saved. */
+  frames?: string[];
 };
 
 type ProjectRow = { id: string; project: Project };
@@ -64,6 +75,10 @@ function transactionDone(transaction: IDBTransaction) {
 export async function projectThumbnail(project: Project) {
   const scene = projectScenes(project)[0];
   if (!scene) return '';
+  return sceneThumbnail(project, scene);
+}
+
+async function sceneThumbnail(project: Project, scene: ReturnType<typeof projectScenes>[number], maxWidth = 0) {
   const canvas = document.createElement('canvas');
   const format = project.formats?.[0];
   const resolved = resolveSceneForFormat(scene, format);
@@ -71,10 +86,64 @@ export async function projectThumbnail(project: Project) {
   await drawScene(canvas, resolved, project.aspect, 'thumb', thumbSeconds, project.timebase, format ? { width: format.width, height: format.height } : undefined, undefined, project.audio, project.overlays ?? [], ticksToSeconds(scene.startTicks, project.timebase) + thumbSeconds);
   await drawPipClips(canvas, overlayScenes(project), ticksToSeconds(scene.startTicks, project.timebase) + thumbSeconds, project.aspect, 'thumb', project.timebase, project.audio);
   await drawProjectText(canvas, project.globalText ?? [], ticksToSeconds(scene.startTicks, project.timebase) + thumbSeconds, project.timebase);
+  if (maxWidth && canvas.width > maxWidth) {
+    const small = document.createElement('canvas');
+    small.width = maxWidth;
+    small.height = Math.max(1, Math.round(canvas.height * maxWidth / canvas.width));
+    small.getContext('2d')?.drawImage(canvas, 0, 0, small.width, small.height);
+    return small.toDataURL('image/jpeg', .7);
+  }
   return canvas.toDataURL('image/jpeg', .76);
 }
 
-function summaryFrom(project: Project, createdAt: number, thumbnail: string, group?: string, favorite?: boolean): ProjectSummary {
+const FRAME_COUNT = 6;
+const pendingExports = new Map<string, { at: number; hash: string }>();
+
+/** Up to six scenes spread across the project, as small previews. */
+export async function projectFrames(project: Project, count = FRAME_COUNT): Promise<string[]> {
+  const scenes = projectScenes(project);
+  if (!scenes.length) return [];
+  const picked = scenes.length <= count ? scenes : Array.from({ length: count }, (_, index) => scenes[Math.round(index * (scenes.length - 1) / (count - 1))]);
+  const frames: string[] = [];
+  for (const scene of picked) {
+    try { const frame = await sceneThumbnail(project, scene, 240); if (frame) frames.push(frame); } catch { /* skip a scene that cannot be drawn */ }
+  }
+  return frames;
+}
+
+/** Returns the hover previews for a project, drawing and caching them on first use. */
+export async function loadProjectFrames(id: string): Promise<string[]> {
+  const summary = await readSummary(id);
+  if (!summary) return [];
+  if (summary.frames?.length) return summary.frames;
+  const project = await getLibraryProject(id);
+  if (!project) return [];
+  const frames = await projectFrames(project);
+  if (!frames.length) return [];
+  const latest = await readSummary(id);
+  // A save in the meantime cleared the cache for a reason; do not write stale frames over it.
+  if (!latest || latest.updatedAt !== summary.updatedAt) return frames;
+  const db = await openDatabase();
+  const write = db.transaction(META, 'readwrite');
+  write.objectStore(META).put({ ...latest, frames });
+  await transactionDone(write);
+  return frames;
+}
+
+/** Records that a video of the project was exported. Held until the first save if the project is not in the library yet. */
+export async function markProjectExported(id: string, hash: string) {
+  const at = Date.now();
+  const summary = await readSummary(id);
+  if (!summary) { pendingExports.set(id, { at, hash }); return; }
+  const next = { ...summary, exportedAt: at, exportedHash: hash };
+  const db = await openDatabase();
+  const write = db.transaction(META, 'readwrite');
+  write.objectStore(META).put(next);
+  await transactionDone(write);
+  await syncIndex(next);
+}
+
+function summaryFrom(project: Project, createdAt: number, thumbnail: string, group?: string, favorite?: boolean, exportedAt?: number, exportedHash?: string): ProjectSummary {
   return {
     id: project.id,
     name: project.name,
@@ -90,6 +159,9 @@ function summaryFrom(project: Project, createdAt: number, thumbnail: string, gro
     formats: (project.formats ?? []).map(format => ({ name: format.name, width: format.width, height: format.height, aspect: format.aspect })),
     ...(group ? { group } : {}),
     ...(favorite ? { favorite } : {}),
+    contentHash: projectFingerprint(project),
+    ...(exportedAt ? { exportedAt } : {}),
+    ...(exportedHash ? { exportedHash } : {}),
   };
 }
 
@@ -101,7 +173,7 @@ function summaryFrom(project: Project, createdAt: number, thumbnail: string, gro
 async function syncIndex(summary: ProjectSummary): Promise<void> {
   if (!bridge.native) return;
   try {
-    await bridge.libraryIndexUpsert([{ id: summary.id, name: summary.name, updatedAt: summary.updatedAt, summary: JSON.stringify(summary) }]);
+    await bridge.libraryIndexUpsert([{ id: summary.id, name: summary.name, updatedAt: summary.updatedAt, summary: JSON.stringify({ ...summary, frames: undefined }) }]);
   } catch {
     await bridge.libraryIndexClear().catch(() => {});
   }
@@ -110,7 +182,7 @@ async function syncIndex(summary: ProjectSummary): Promise<void> {
 async function syncIndexes(summaries: ProjectSummary[]): Promise<void> {
   if (!bridge.native || !summaries.length) return;
   try {
-    await bridge.libraryIndexUpsert(summaries.map(summary => ({ id: summary.id, name: summary.name, updatedAt: summary.updatedAt, summary: JSON.stringify(summary) })));
+    await bridge.libraryIndexUpsert(summaries.map(summary => ({ id: summary.id, name: summary.name, updatedAt: summary.updatedAt, summary: JSON.stringify({ ...summary, frames: undefined }) })));
   } catch {
     await bridge.libraryIndexClear().catch(() => {});
   }
@@ -197,13 +269,47 @@ async function listLocalProjects(): Promise<ProjectSummary[]> {
   const db = await openDatabase();
   const transaction = db.transaction(META, 'readonly');
   const rows = await requestResult(transaction.objectStore(META).getAll()) as ProjectSummary[];
-  return rows.sort((a, b) => b.updatedAt - a.updatedAt);
+  return rows.filter(row => !row.deletedAt).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 async function countLocalProjects(): Promise<number> {
   const db = await openDatabase();
-  const transaction = db.transaction(PROJECTS, 'readonly');
-  return requestResult(transaction.objectStore(PROJECTS).count());
+  const transaction = db.transaction(META, 'readonly');
+  const rows = await requestResult(transaction.objectStore(META).getAll()) as ProjectSummary[];
+  return rows.filter(row => !row.deletedAt).length;
+}
+
+/** Projects in Recently deleted, newest deletion first. Expired ones are removed for good as they are found. */
+export async function listDeletedProjects(): Promise<ProjectSummary[]> {
+  const db = await openDatabase();
+  const transaction = db.transaction(META, 'readonly');
+  const rows = await requestResult(transaction.objectStore(META).getAll()) as ProjectSummary[];
+  const deleted = rows.filter(row => row.deletedAt);
+  const expired = deleted.filter(row => isTrashExpired(row.deletedAt ?? 0));
+  for (const row of expired) await deleteLibraryProject(row.id).catch(() => {});
+  return deleted.filter(row => !expired.includes(row)).sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0)).map(row => ({ ...row, frames: undefined }));
+}
+
+/** Moves a project to Recently deleted. Nothing is erased, so it can still be restored. */
+export async function trashLibraryProject(id: string) {
+  const summary = await readSummary(id);
+  if (!summary) return;
+  const db = await openDatabase();
+  const write = db.transaction(META, 'readwrite');
+  write.objectStore(META).put({ ...summary, deletedAt: Date.now() });
+  await transactionDone(write);
+  await removeFromIndex(id);
+}
+
+export async function restoreLibraryProject(id: string) {
+  const summary = await readSummary(id);
+  if (!summary) return;
+  const { deletedAt: _deletedAt, ...restored } = summary;
+  const db = await openDatabase();
+  const write = db.transaction(META, 'readwrite');
+  write.objectStore(META).put(restored);
+  await transactionDone(write);
+  await syncIndex(restored);
 }
 
 export async function listProjects(): Promise<ProjectSummary[]> {
@@ -214,13 +320,75 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       // install, a cleared webview or a partially failed write) rebuilds it
       // from IndexedDB, which remains the source of truth.
       if (rows.length && rows.length === localCount) return parseIndexedSummaries(rows);
-      const local = await listLocalProjects();
+      const local = await restoreLabels(await listLocalProjects(), rows);
       await bridge.libraryIndexClear().catch(() => {});
       await syncIndexes(local);
       return local;
     } catch { /* fall back to IndexedDB below */ }
   }
   return listLocalProjects();
+}
+
+/**
+ * When the catalog is rebuilt from the project store, labels that only the old
+ * catalog still held (group, favorite, export time) are carried over instead of
+ * being dropped, and written back so both copies agree.
+ */
+async function restoreLabels(local: ProjectSummary[], indexRows: string[]): Promise<ProjectSummary[]> {
+  const old = new Map(parseIndexedSummaries<ProjectSummary>(indexRows).map(entry => [entry.id, entry]));
+  const changed: ProjectSummary[] = [];
+  const merged = local.map(entry => {
+    const previous = old.get(entry.id);
+    if (!previous) return entry;
+    const next: ProjectSummary = { ...entry };
+    if (!next.group && previous.group) next.group = previous.group;
+    if (!next.favorite && previous.favorite) next.favorite = true;
+    if (!next.exportedAt && previous.exportedAt) { next.exportedAt = previous.exportedAt; if (previous.exportedHash) next.exportedHash = previous.exportedHash; }
+    if (next.group === entry.group && next.favorite === entry.favorite && next.exportedAt === entry.exportedAt) return entry;
+    changed.push(next);
+    return next;
+  });
+  if (changed.length) {
+    try {
+      const db = await openDatabase();
+      const write = db.transaction(META, 'readwrite');
+      for (const entry of changed) write.objectStore(META).put(entry);
+      await transactionDone(write);
+    } catch { /* the catalog still carries the labels */ }
+  }
+  return merged;
+}
+
+const backfillTried = new Set<string>();
+
+/**
+ * Redraws missing card previews for saved projects (for example ones whose
+ * thumbnail was blocked before native images were read as blobs). Only the
+ * summary changes: the project body and its `updatedAt` stay as they were, so
+ * the Recent order does not move. Each project is tried once per session.
+ * Returns the refreshed summaries, or null when nothing changed.
+ */
+export async function backfillThumbnails(summaries: ProjectSummary[], limit = 12): Promise<ProjectSummary[] | null> {
+  const missing = summaries.filter(item => !item.thumbnail && !backfillTried.has(item.id)).slice(0, limit);
+  if (!missing.length) return null;
+  const updated = new Map<string, ProjectSummary>();
+  for (const item of missing) {
+    backfillTried.add(item.id);
+    try {
+      const project = await getLibraryProject(item.id);
+      if (!project) continue;
+      const thumbnail = await projectThumbnail(project);
+      if (!thumbnail) continue;
+      const next = { ...item, thumbnail };
+      const db = await openDatabase();
+      const write = db.transaction(META, 'readwrite');
+      write.objectStore(META).put(next);
+      await transactionDone(write);
+      await syncIndex(next);
+      updated.set(item.id, next);
+    } catch { /* leave the placeholder; it is retried next session */ }
+  }
+  return updated.size ? summaries.map(item => updated.get(item.id) ?? item) : null;
 }
 
 export async function getLibraryProject(id: string): Promise<Project | null> {
@@ -252,7 +420,8 @@ export async function saveLibraryProject(project: Project): Promise<ProjectSumma
   const persisted = await persistProjectAssets(hydrated);
   const previous = await readSummary(project.id);
   const thumbnail = await projectThumbnail(hydrated).catch(() => '');
-  const summary = summaryFrom(hydrated, previous?.createdAt ?? Date.now(), thumbnail, previous?.group, previous?.favorite);
+  const summary = summaryFrom(hydrated, previous?.createdAt ?? Date.now(), thumbnail, previous?.group, previous?.favorite, previous?.exportedAt ?? pendingExports.get(project.id)?.at, previous?.exportedHash ?? pendingExports.get(project.id)?.hash);
+  pendingExports.delete(project.id);
   const db = await openDatabase();
   const transaction = db.transaction([PROJECTS, META], 'readwrite');
   transaction.objectStore(PROJECTS).put({ id: project.id, project: persisted } satisfies ProjectRow);
@@ -298,4 +467,12 @@ export async function libraryAssetRefs(): Promise<string[]> {
     for (const ref of projectAssetRefs(row.project)) refs.add(ref);
   }
   return [...refs];
+}
+
+/** Whether a card should say the project changed after its last export. */
+export function exportState(summary: Pick<ProjectSummary, 'exportedAt' | 'contentHash' | 'exportedHash'>): 'never' | 'current' | 'changed' {
+  if (!summary.exportedAt) return 'never';
+  // Exports recorded before fingerprints existed cannot be compared, so they read as current.
+  if (!summary.exportedHash || !summary.contentHash) return 'current';
+  return summary.exportedHash === summary.contentHash ? 'current' : 'changed';
 }

@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { validateProject, type Scene } from '../src/stores/model';
 import { TEMPLATE_CATEGORIES, TEMPLATES, buildTemplateProject, templatePreview } from '../src/templates/catalog';
+import { MUSIC_TRACKS } from '../src/stores/music-library';
+import { ELEMENT_CATALOG } from '../src/components/elements/catalog';
 import { TEMPLATE_AUDIO, TEMPLATE_VIDEO } from '../src/templates/media';
 import { TEMPLATE_PHOTOS, templatePhotoUrl, type TemplatePhotoId } from '../src/templates/photos';
 
@@ -9,7 +11,8 @@ const loader = async (id: TemplatePhotoId) => stub(id);
 const audioLoader = async () => 'data:audio/mp4;base64,AA==';
 const videoLoader = async () => 'data:video/mp4;base64,AA==';
 const posterLoader = async () => stub('poster');
-const build = (template: (typeof TEMPLATES)[number], sources: Scene[] = []) => buildTemplateProject(template, sources, loader, videoLoader, posterLoader, audioLoader);
+const musicLoader = async () => 'data:audio/mp4;base64,AA==';
+const build = (template: (typeof TEMPLATES)[number], sources: Scene[] = []) => buildTemplateProject(template, sources, loader, videoLoader, posterLoader, audioLoader, musicLoader);
 
 describe('bundled templates', () => {
   it('ships three bundled photos for every story, all from the CC0 catalogue', () => {
@@ -132,6 +135,35 @@ describe('bundled templates', () => {
       expect(template.audio).toBeTruthy();
       expect(TEMPLATE_AUDIO[template.audio!].license).toBe('CC0');
     }
+  });
+
+  it('scores every template and places only real elements', async () => {
+    for (const template of TEMPLATES) {
+      if (template.music) expect(MUSIC_TRACKS.some(item => item.id === template.music), template.id).toBe(true);
+      expect(template.overlays?.length ?? 0, template.id).toBeGreaterThan(0);
+      for (const overlay of template.overlays ?? []) expect(ELEMENT_CATALOG.some(item => item.id === overlay.preset), `${template.id} → ${overlay.preset}`).toBe(true);
+      const project = await build(template);
+      expect(project.audio, template.id).toHaveLength(1);
+      const elements = project.tracks[0].clips.flatMap(scene => scene.elements ?? []);
+      expect(elements.length, template.id).toBeGreaterThan(0);
+      for (const element of elements) { expect(element.x).toBeGreaterThan(0); expect(element.y).toBeLessThan(1); }
+    }
+  });
+
+  it('credits a library track in the clip name and falls back to the bed', async () => {
+    const template = TEMPLATES.find(item => item.music)!;
+    const track = MUSIC_TRACKS.find(item => item.id === template.music)!;
+    const scored = await build(template);
+    expect(scored.audio[0].name).toBe(`${track.title} · ${track.author}`);
+    const failing = async () => { throw new Error('offline'); };
+    const fallback = await buildTemplateProject(template, [], loader, videoLoader, posterLoader, audioLoader, failing);
+    expect(fallback.audio[0].name).toBe(TEMPLATE_AUDIO[template.audio!].title);
+  });
+
+  it('ships current social formats: photo dumps, recaps and day-in-my-life posts', () => {
+    const ids = TEMPLATES.map(item => item.id);
+    for (const id of ['photo-dump', 'day-in-my-life', 'year-wrapped', 'fit-check', 'trip-recap', 'cozy-autumn', 'new-drop', 'soft-launch']) expect(ids).toContain(id);
+    expect(TEMPLATES.filter(item => item.category === 'Social' && item.aspect === '9:16').length).toBeGreaterThanOrEqual(4);
   });
 
   it('keeps every story visually distinct', () => {

@@ -25,7 +25,7 @@ export type OnlineTrack = {
   license: OnlineLicense; licenseVersion: string; licenseUrl: string;
   seconds: number; genres: string[]; source: string; credit: string;
 };
-export type OnlineSearchPage = { tracks: OnlineTrack[]; total: number; pages: number; page: number; provider?: OnlineProvider; /** Commons only: the offset the catalogue says continues this search. Absent means no more results. */ cursor?: number; /** Set when Openverse failed and this page came from another catalogue. */ fellBack?: boolean };
+export type OnlineSearchPage = { tracks: OnlineTrack[]; total: number; pages: number; page: number; provider?: OnlineProvider; /** Commons only: the offset the catalogue says continues this search. Absent means no more results. */ cursor?: number; /** Set when Openverse failed and this page came from another catalogue. */ fellBack?: boolean; /** Set when every catalogue failed and this is the last saved answer; the time it was saved, in ms. */ cachedAt?: number };
 
 /** When a catalogue last failed. The chips show it so a dead catalogue is obvious, and forget it after ten minutes. */
 const failedAt = new Map<OnlineProvider, number>();
@@ -36,6 +36,9 @@ async function tracked<T>(provider: OnlineProvider, task: Promise<T>): Promise<T
   try { const value = await task; failedAt.delete(provider); return value; }
   catch (error) { failedAt.set(provider, Date.now()); throw error; }
 }
+
+/** The catalogue a result came from, as shown on its row. Results without a provider come from Openverse. */
+export const catalogueLabel = (track: Pick<OnlineTrack, 'provider'>) => ({ openverse: 'Openverse', commons: 'Wikimedia', archive: 'Free Music Archive' } as const)[track.provider ?? 'openverse'];
 
 export const ONLINE_GENRES = ['Pop', 'Rock', 'Indie', 'Electronic', 'Hip-hop', 'Funk', 'Lo-fi', 'Jazz', 'Acoustic', 'Cinematic'] as const;
 const ALLOWED = new Set<string>(['cc0', 'by', 'pdm']);
@@ -95,11 +98,13 @@ export function parseOnlineSearch(json: unknown, page: number, kind: OnlineKind 
 }
 
 const PAGE_SIZE = 20;
+/** Commons pages are larger: its licence mix (mostly share-alike) filters out most hits, so fewer round trips matter. */
+const COMMONS_PAGE_SIZE = 50;
 /** How long Auto waits for Openverse before using the fallback; the panel mentions the switch after this. */
 export const FALLBACK_AFTER_MS = 6_000;
 
-export const commonsSearchUrl = (query: string, page: number, offset = (Math.max(1, page) - 1) * PAGE_SIZE) =>
-  `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(`${query.trim()} filetype:audio`)}&gsrnamespace=6&gsrlimit=${PAGE_SIZE}&gsroffset=${Math.max(0, Math.floor(offset))}&prop=imageinfo&iiprop=url|size|extmetadata&format=json&formatversion=2&origin=*`;
+export const commonsSearchUrl = (query: string, page: number, offset = (Math.max(1, page) - 1) * COMMONS_PAGE_SIZE) =>
+  `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(`${query.trim()} filetype:audio`)}&gsrnamespace=6&gsrlimit=${COMMONS_PAGE_SIZE}&gsroffset=${Math.max(0, Math.floor(offset))}&prop=imageinfo&iiprop=url|size|extmetadata&format=json&formatversion=2&origin=*`;
 
 const stripHtml = (value: unknown) => typeof value === 'string' ? value.replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim() : '';
 
@@ -148,9 +153,13 @@ export function commonsPlayableUrl(original: string): { url: string; fallbackUrl
   return IMPORTABLE_ORIGINALS.has(extension) || (converter && CONVERTIBLE_EXTENSIONS.has(extension)) ? { url, fallbackUrl: original } : { url };
 }
 
+/** The parts of a Wikimedia Commons search answer that are read; every field may be missing or the wrong type. */
+type CommonsPage = { title?: unknown; pageid?: unknown; imageinfo?: { url?: unknown; descriptionurl?: unknown; duration?: unknown; extmetadata?: Record<string, { value?: unknown } | undefined> }[] };
+type CommonsResponse = { query?: { pages?: unknown }; continue?: { gsroffset?: unknown } };
+
 export function parseCommonsSearch(json: unknown, page: number, kind: OnlineKind = 'music'): OnlineSearchPage {
-  const root = (json && typeof json === 'object' ? json : {}) as Record<string, any>;
-  const pages: any[] = Array.isArray(root.query?.pages) ? root.query.pages : [];
+  const root = (json && typeof json === 'object' ? json : {}) as CommonsResponse;
+  const pages: CommonsPage[] = Array.isArray(root.query?.pages) ? root.query.pages : [];
   const tracks: OnlineTrack[] = [];
   for (const item of pages) {
     const info = item?.imageinfo?.[0], meta = info?.extmetadata ?? {};
@@ -166,7 +175,7 @@ export function parseCommonsSearch(json: unknown, page: number, kind: OnlineKind
     tracks.push({ id: `commons-${item.pageid}`, ...base, provider: 'commons', ...commonsPlayableUrl(rawUrl), seconds: kind === 'music' ? Math.round(exact) : Math.max(.2, Math.round(exact * 10) / 10), genres: [], source: 'wikimedia commons', credit: onlineCredit(base) });
   }
   const next = root.continue?.gsroffset, cursor = typeof next === 'number' && Number.isFinite(next) && pages.length > 0 ? next : undefined;
-  return { tracks, total: (page - 1) * PAGE_SIZE + pages.length + (cursor !== undefined ? 1 : 0), pages: cursor !== undefined ? page + 1 : page, page, provider: 'commons', ...(cursor !== undefined ? { cursor } : {}) };
+  return { tracks, total: (page - 1) * COMMONS_PAGE_SIZE + pages.length + (cursor !== undefined ? 1 : 0), pages: cursor !== undefined ? page + 1 : page, page, provider: 'commons', ...(cursor !== undefined ? { cursor } : {}) };
 }
 
 const ARCHIVE_LICENSES = ['http://creativecommons.org/licenses/by/4.0/', 'http://creativecommons.org/licenses/by/3.0/', 'http://creativecommons.org/licenses/by/2.5/', 'http://creativecommons.org/licenses/by/2.0/', 'http://creativecommons.org/publicdomain/zero/1.0/'];
@@ -262,27 +271,55 @@ async function commonsSearch(query: string, page: number, kind: OnlineKind, curs
 const withTimeout = <T,>(task: Promise<T>, ms: number) => new Promise<T>((resolve, reject) => { const timer = setTimeout(() => reject(new Error('timeout')), ms); task.then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); }); });
 
 /**
- * Searches one catalogue, or in `auto` mode Openverse with Wikimedia Commons as the
- * fallback. Both start together so a hung Openverse costs a few seconds, not a full timeout.
+ * Backups for `auto` when Openverse fails, best first. Music tries the Free
+ * Music Archive (a deep CC BY catalogue) before Commons, whose music is mostly
+ * share-alike and filtered out; sound effects only exist on Commons.
+ */
+export const fallbackOrder = (kind: OnlineKind): OnlineProvider[] => kind === 'music' ? ['archive', 'commons'] : ['commons'];
+
+function searchProvider(provider: OnlineProvider, query: string, page: number, kind: OnlineKind, cursor?: number): Promise<OnlineSearchPage> {
+  if (provider === 'openverse') return searchOpenverse(query, page, kind);
+  if (provider === 'commons') return searchCommons(query, page, kind, cursor);
+  if (kind !== 'music') return Promise.reject(new Error('The Free Music Archive only has music.'));
+  return searchArchive(query, page);
+}
+
+/**
+ * Searches one catalogue, or in `auto` mode Openverse with backups. The first
+ * backup starts alongside Openverse so a hung Openverse costs a few seconds,
+ * not a full timeout, and while Openverse is marked down it is skipped
+ * entirely. A backup that answers with nothing hands over to the next one.
  */
 export async function searchOnline(query: string, page = 1, kind: OnlineKind = 'music', source: OnlineSource = 'auto', cursor?: number): Promise<OnlineSearchPage> {
   if (!query.trim()) throw new Error(kind === 'music' ? 'Type a word or pick a genre to search.' : 'Type a word or pick a topic to search.');
   await ensureConverterKnown();
-  if (source === 'openverse') return searchOpenverse(query, page, kind);
-  if (source === 'commons') return searchCommons(query, page, kind, cursor);
-  if (source === 'archive') { if (kind !== 'music') throw new Error('The Free Music Archive only has music.'); return searchArchive(query, page); }
-  const openverse = searchOpenverse(query, page, kind), commons = searchCommons(query, page, kind);
-  commons.catch(() => {}); openverse.catch(() => {});
-  try {
-    const first = await withTimeout(openverse, FALLBACK_AFTER_MS);
-    if (first.tracks.length) return first;
-    const other = await commons.catch(() => null);
-    return other?.tracks.length ? { ...other, fellBack: true } : first;
-  } catch (openverseError) {
-    failedAt.set('openverse', Date.now());
-    try { return { ...(await commons), fellBack: true }; }
-    catch { throw openverseError instanceof Error && openverseError.message !== 'timeout' ? openverseError : unreachable('the catalogues'); }
+  if (source !== 'auto') return searchProvider(source, query, page, kind, cursor);
+  const [first, ...rest] = fallbackOrder(kind);
+  const backup = searchProvider(first, query, page, kind);
+  backup.catch(() => {});
+  let openverseError: unknown = null, empty: OnlineSearchPage | null = null;
+  if (!catalogueDown('openverse')) {
+    const openverse = searchOpenverse(query, page, kind);
+    openverse.catch(() => {});
+    try {
+      const found = await withTimeout(openverse, FALLBACK_AFTER_MS);
+      if (found.tracks.length) return found;
+      empty = found;
+    } catch (error) {
+      failedAt.set('openverse', Date.now());
+      openverseError = error;
+    }
   }
+  let lastError: unknown = openverseError;
+  for (const [index, provider] of [first, ...rest].entries()) {
+    try {
+      const found = await (index === 0 ? backup : searchProvider(provider, query, page, kind));
+      if (found.tracks.length) return { ...found, fellBack: true };
+      empty ??= { ...found, fellBack: true };
+    } catch (error) { lastError = error; }
+  }
+  if (empty) return empty;
+  throw lastError instanceof Error && lastError.message !== 'timeout' ? lastError : unreachable('the catalogues');
 }
 
 /** Kept for existing callers: Openverse only. */
@@ -402,22 +439,22 @@ async function downloadFrom(track: OnlineTrack, url: string): Promise<Downloaded
   } finally { if (browserDownload === controller) browserDownload = null; }
 }
 
-export const onlineHasMore = (page: OnlineSearchPage) => page.provider === 'commons' ? page.cursor !== undefined : page.page < page.pages;
+export const onlineHasMore = (page: OnlineSearchPage) => page.cachedAt === undefined && (page.provider === 'commons' ? page.cursor !== undefined : page.page < page.pages);
 
 /**
  * Fetches pages until `want` new tracks are found, the catalogue runs out, or `maxFetches` is reached.
  * Licence and length filters can empty a whole page of hits, so one request often adds nothing.
  * `seen` holds the ids already on screen; the returned page lists only new tracks.
  */
-export async function searchOnlineFill(query: string, kind: OnlineKind, source: OnlineSource, start: { page: number; cursor?: number }, seen: ReadonlySet<string> = new Set(), want = 10, maxFetches = 5): Promise<OnlineSearchPage> {
+export async function searchOnlineFill(query: string, kind: OnlineKind, source: OnlineSource, start: { page: number; cursor?: number }, seen: ReadonlySet<string> = new Set(), want = 10, maxFetches = 5, search: typeof searchOnline = searchOnline): Promise<OnlineSearchPage> {
   const known = new Set(seen), fresh: OnlineTrack[] = [];
   let page = start.page, cursor = start.cursor, pinned = source, last = null as OnlineSearchPage | null;
   for (let fetches = 0; fetches < maxFetches; fetches++) {
-    const found = await searchOnline(query, page, kind, pinned, cursor);
+    const found = await search(query, page, kind, pinned, cursor);
     last = { ...found, fellBack: found.fellBack || last?.fellBack };
     if (found.provider) pinned = found.provider;
     for (const track of found.tracks) if (!known.has(track.id)) { known.add(track.id); fresh.push(track); }
-    if (fresh.length >= want || !onlineHasMore(found)) break;
+    if (found.cachedAt || fresh.length >= want || !onlineHasMore(found)) break;
     page = found.page + 1; cursor = found.cursor;
   }
   return { ...last!, tracks: fresh };

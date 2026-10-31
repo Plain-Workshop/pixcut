@@ -9,7 +9,7 @@ const diff = execFileSync("git", ["diff", "--unified=0", "--no-color", `${base}.
   maxBuffer: 256 * 1024 * 1024,
 });
 
-const isTestFile = (f) => /(^|\/)(tests?|__tests__)(\/|\.rs$)|\.test\.[tj]sx?$/.test(f);
+const isTestFile = (f) => /(^|\/)(tests?|__tests__)(\/|\.rs$)|(^|\/)[\w-]*_tests?\.rs$|\.test\.[tj]sx?$/.test(f);
 const allowedNetwork = [
   "desktop/src-tauri/src/online_music.rs",
   "desktop/src/stores/online-music.ts",

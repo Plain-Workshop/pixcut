@@ -207,20 +207,30 @@ pub(crate) fn encode_plan(
     let hardware = if plan.options.hardware { hardware_encoder(plan.options.codec, &binary) } else { None };
     let mut filters = Vec::new();
     for (index, (input, duration, fit, speed, lut)) in visual.iter().enumerate() {
-        let geometry = if fit == "contain" {
+        let segment = plan.segments.get(index);
+        let framing = segment.filter(|segment| segment.kind == "video").map(video_framing_for).unwrap_or_default();
+        let custom = framing.is_custom(fit);
+        let geometry = if custom {
+            // Zoom, pan and a coloured or blurred backdrop are composed below; here the picture is only scaled.
+            let pick = if fit == "cover" { "max" } else { "min" };
+            let zoom = framing.zoom;
+            format!(
+                "scale=w='max(2,2*round(iw*{zoom:.6}*{pick}({width}/iw\\,{height}/ih)/2))':h='max(2,2*round(ih*{zoom:.6}*{pick}({width}/iw\\,{height}/ih)/2))'"
+            )
+        } else if fit == "contain" {
             format!("scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2")
         } else {
             format!("scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}")
         };
         let mut chain = format!("[{input}:v]{geometry},setsar=1");
-        if let Some(segment) = plan.segments.get(index) {
+        if let Some(segment) = segment {
             if segment.reverse {
                 chain.push_str(",reverse");
             }
         }
         chain.push_str(",setpts=PTS-STARTPTS");
-        let speed_end = plan.segments.get(index).and_then(|segment| segment.speed_end).unwrap_or(*speed);
-        let render_duration = plan.segments.get(index)
+        let speed_end = segment.and_then(|segment| segment.speed_end).unwrap_or(*speed);
+        let render_duration = segment
             .and_then(|segment| segment.audio_duration_ticks)
             .map(|ticks| project.timebase.ticks_to_seconds(ticks))
             .unwrap_or(*duration);
@@ -236,14 +246,43 @@ pub(crate) fn encode_plan(
         if let Some(path) = lut {
             chain.push_str(&format!(",lut3d=file={}", filter_path(path)));
         }
-        chain.push_str(&format!("[v{index}]"));
+        if !custom {
+            chain.push_str(&format!("[v{index}]"));
+            filters.push(chain);
+            continue;
+        }
+        chain.push_str(&format!("[f{index}]"));
         filters.push(chain);
+        let place = format!(
+            "x='(W-w)/2-({:.6})*max(abs(w-W)/2\\,W/4)':y='(H-h)/2-({:.6})*max(abs(h-H)/2\\,H/4)'",
+            framing.x, framing.y
+        );
+        if fit == "blur" {
+            // The preview paints a small blurred cover of the whole picture and dims it.
+            let small_width = ((width as f64 / 6.0).round() as u32).max(32);
+            let small_height = ((height as f64 / 6.0).round() as u32).max(32);
+            let soft = (width.min(height) as f64 * 0.004).clamp(2.0, 10.0);
+            filters.push(format!("[f{index}]split[g{index}][h{index}]"));
+            filters.push(format!(
+                "[h{index}]scale=w='iw/{zoom:.6}':h='ih/{zoom:.6}',scale=w={}:h={}:force_original_aspect_ratio=increase,crop={small_width}:{small_height},scale={width}:{height}:flags=bicubic,gblur=sigma={soft:.3},format=rgb24,drawbox=x=0:y=0:w=iw:h=ih:color=0x080A10@0.42:t=fill[k{index}]",
+                (small_width as f64 * 1.04).ceil(),
+                (small_height as f64 * 1.04).ceil(),
+                zoom = framing.zoom,
+            ));
+            filters.push(format!("[k{index}][g{index}]overlay={place}:eof_action=repeat,setsar=1[v{index}]"));
+        } else {
+            filters.push(format!("color=c=0x{}:s={width}x{height}:r={fps}:d={duration:.6}[b{index}]", framing.background));
+            filters.push(format!("[b{index}][f{index}]overlay={place}:eof_action=repeat,setsar=1[v{index}]"));
+        }
     }
     let mut current = if visual.len() == 1 {
         "v0".to_string()
     } else {
         let labels: String = (0..visual.len()).map(|index| format!("[v{index}]")).collect();
-        filters.push(format!("{labels}concat=n={}:v=1:a=0[base]", visual.len()));
+        // Segments are constant-rate after `fps`, but concat gives runs of one-frame
+        // segments (transition frames) the same timestamp, and the muxer then drops
+        // them as duplicates. Renumbering restores one frame per tick.
+        filters.push(format!("{labels}concat=n={}:v=1:a=0,setpts=N/({fps}*TB)[base]", visual.len()));
         "base".to_string()
     };
     for (index, (input, start, end)) in overlays.iter().enumerate() {
@@ -378,6 +417,49 @@ pub(crate) fn encode_plan(
     run_ffmpeg(&mut command, duration, &cancel, progress)?;
     output.persist(&destination).map_err(|e| e.to_string())?;
     Ok(Some(destination.to_string_lossy().to_string()))
+}
+
+/// Framing for one exported video clip, already clamped to what the preview allows.
+pub(crate) struct ClipFraming {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) zoom: f64,
+    pub(crate) background: String,
+}
+
+impl Default for ClipFraming {
+    fn default() -> Self {
+        ClipFraming { x: 0.0, y: 0.0, zoom: 1.0, background: "000000".into() }
+    }
+}
+
+impl ClipFraming {
+    /// Plain scale-and-crop (or pad) is enough unless the clip is zoomed, panned, blurred or has a coloured backdrop.
+    pub(crate) fn is_custom(&self, fit: &str) -> bool {
+        fit == "blur"
+            || self.zoom > 1.0 + 1e-9
+            || self.x.abs() > 1e-9
+            || self.y.abs() > 1e-9
+            || (fit == "contain" && self.background != "000000")
+    }
+}
+
+pub(crate) fn video_framing_for(segment: &PlanSegment) -> ClipFraming {
+    let Some(framing) = segment.framing.as_ref() else { return ClipFraming::default() };
+    let finite = |value: f64, fallback: f64| if value.is_finite() { value } else { fallback };
+    let background = framing
+        .background
+        .as_deref()
+        .and_then(|color| color.strip_prefix('#'))
+        .filter(|hex| hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit()))
+        .map(|hex| hex.to_ascii_uppercase())
+        .unwrap_or_else(|| "000000".into());
+    ClipFraming {
+        x: finite(framing.x, 0.0).clamp(-1.0, 1.0),
+        y: finite(framing.y, 0.0).clamp(-1.0, 1.0),
+        zoom: finite(framing.zoom, 1.0).clamp(1.0, 4.0),
+        background,
+    }
 }
 
 #[tauri::command]
