@@ -502,18 +502,17 @@ mod tests {
     /// involved, so this runs without a window. Run with `cargo test -- --ignored`.
     #[test]
     #[ignore = "needs network access to commons.wikimedia.org"]
-    fn commons_search_and_download_work_end_to_end() {
+    fn commons_search_and_download_work_end_to_end() -> Result<(), String> {
         let search = "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=applause%20filetype%3Aaudio&gsrnamespace=6&gsrlimit=30&prop=imageinfo&iiprop=url%7Csize%7Cextmetadata&format=json&formatversion=2";
         assert!(search_host_allowed(search), "the app would refuse this search");
         let mut body = String::new();
-        get_plain(search, Duration::from_secs(20))
-            .expect("Commons answers the search")
+        get_plain(search, Duration::from_secs(20))?
             .into_reader()
             .take(MAX_SEARCH_BYTES)
             .read_to_string(&mut body)
-            .expect("the answer is text");
-        let json: serde_json::Value = serde_json::from_str(&body).expect("the answer is JSON");
-        let pages = json["query"]["pages"].as_array().expect("the search found pages");
+            .map_err(|e| format!("the answer is not text: {e}"))?;
+        let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| format!("the answer is not JSON: {e}"))?;
+        let pages = json["query"]["pages"].as_array().ok_or("the search found no pages")?;
         let (url, size) = pages
             .iter()
             .filter_map(|page| page["imageinfo"].get(0))
@@ -523,12 +522,13 @@ mod tests {
             })
             .filter_map(|info| Some((info["url"].as_str()?.to_string(), info["size"].as_u64()?)))
             .find(|(url, size)| url.starts_with("https://") && AUDIO_EXTENSIONS.iter().any(|extension| url.split(['?', '#']).next().unwrap_or("").to_lowercase().ends_with(extension)) && *size > 1_000 && *size < 3_000_000)
-            .expect("at least one small openly licensed sound was found");
-        let response = get_with_retry(&agent(Duration::from_secs(60)), &url, &AtomicBool::new(false), &mut |_| {}).expect("the file downloads");
+            .ok_or("no small openly licensed sound was found")?;
+        let response = get_with_retry(&agent(Duration::from_secs(60)), &url, &AtomicBool::new(false), &mut |_| {})?;
         let mut file = Vec::new();
-        let written = copy_limited(&mut response.into_reader(), &mut file, MAX_DOWNLOAD_BYTES, &AtomicBool::new(false), &mut |_| {}).expect("the copy finishes");
+        let written = copy_limited(&mut response.into_reader(), &mut file, MAX_DOWNLOAD_BYTES, &AtomicBool::new(false), &mut |_| {}).map_err(|_| "the copy did not finish".to_string())?;
         assert_eq!(written as usize, file.len());
         assert!(written > 1_000, "the file is not empty");
         assert!(written <= size + 1_024, "the download is about the size the catalogue promised ({written} vs {size})");
+        Ok(())
     }
 }
