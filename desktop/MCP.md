@@ -47,7 +47,22 @@ claude mcp add --transport http pixcut http://127.0.0.1:47821/mcp \
 
 Any client that speaks Streamable HTTP with custom headers works the same way.
 Clients that only launch stdio servers (such as Claude Desktop's plain
-configuration) cannot connect directly.
+configuration) cannot connect directly. A local bridge such as `mcp-remote`
+can sit between them; it still talks only to `127.0.0.1`:
+
+```json
+{
+  "mcpServers": {
+    "pixcut": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://127.0.0.1:47821/mcp",
+               "--header", "Authorization: Bearer <token>"]
+    }
+  }
+}
+```
+
+This runs a third-party package from npm, so install it only if you trust it.
 
 ## Tools
 

@@ -165,6 +165,29 @@ pub(crate) struct ProjectSummary {
     pub(crate) can_undo: bool,
     pub(crate) can_redo: bool,
     pub(crate) scenes: Vec<SceneSummary>,
+    pub(crate) audio: Vec<AudioSummary>,
+    pub(crate) global_text: Vec<GlobalTextSummary>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AudioSummary {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) lane: u32,
+    pub(crate) start_seconds: f64,
+    pub(crate) duration_seconds: f64,
+    pub(crate) volume: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GlobalTextSummary {
+    pub(crate) id: String,
+    pub(crate) title: String,
+    pub(crate) subtitle: String,
+    pub(crate) start_seconds: f64,
+    pub(crate) duration_seconds: f64,
 }
 
 /// Never hand an agent megabytes of base64. Stored media is already a
@@ -212,6 +235,29 @@ pub(crate) fn project_summary(view: &View) -> ProjectSummary {
         can_undo: view.can_undo,
         can_redo: view.can_redo,
         scenes,
+        audio: project
+            .audio
+            .iter()
+            .map(|clip| AudioSummary {
+                id: clip.id.clone(),
+                name: clip.name.clone(),
+                lane: clip.lane,
+                start_seconds: project.timebase.ticks_to_seconds(clip.start_ticks),
+                duration_seconds: project.timebase.ticks_to_seconds(clip.duration_ticks),
+                volume: clip.volume,
+            })
+            .collect(),
+        global_text: project
+            .global_text
+            .iter()
+            .map(|layer| GlobalTextSummary {
+                id: layer.id.clone(),
+                title: layer.title.clone(),
+                subtitle: layer.subtitle.clone(),
+                start_seconds: project.timebase.ticks_to_seconds(layer.start_ticks),
+                duration_seconds: project.timebase.ticks_to_seconds(layer.duration_ticks),
+            })
+            .collect(),
     }
 }
 
