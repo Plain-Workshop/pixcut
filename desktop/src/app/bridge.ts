@@ -65,6 +65,23 @@ export async function saveStillFrame(data: string, fileName: string): Promise<bo
 export function onProjectOpened(handler: () => void): Promise<UnlistenFn> | null {
   return native ? listen('project-opened', handler) : null;
 }
+/** Fires when an MCP tool changed the project; the editor then asks for the new view. */
+export function onProjectChanged(handler: () => void): Promise<UnlistenFn> | null {
+  return native ? listen('project-changed', handler) : null;
+}
+export async function currentView(): Promise<Session> {
+  return native ? invoke('current_view') : view();
+}
+export type McpStatus = { enabled: boolean; running: boolean; port: number; url: string; token: string; error?: string };
+export async function mcpStatus(): Promise<McpStatus | null> {
+  return native ? invoke('mcp_status') : null;
+}
+export async function setMcpEnabled(enabled: boolean): Promise<McpStatus> {
+  return invoke('mcp_set_enabled', { enabled });
+}
+export async function regenerateMcpToken(): Promise<McpStatus> {
+  return invoke('mcp_regenerate_token');
+}
 export async function takePendingProject(): Promise<Session | null> {
   return native ? invoke('take_pending_project') : null;
 }

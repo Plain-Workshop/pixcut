@@ -143,7 +143,7 @@ import * as bridge from './bridge';
 import type { ModalId } from './modal';
 import { buildDiagnostics, classifyDrop, countMissingAssets } from './home-support';
 import { commandAvailability as resolveAvailability } from './command-availability';
-import { runCommand } from './command-runner';
+import { runCommand, settleBeforeExternalView } from './command-runner';
 import { HINTS_KEY } from './export-options';
 import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, projectScenes, sceneAt, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
@@ -645,6 +645,36 @@ export default function App() {
     })();
     return () => { disposed = true; unlisten?.(); };
   }, [persistCurrent]);
+  // An MCP tool edits the project in Rust. Pull the new view once any local
+  // command in flight has settled, so the two never overwrite each other.
+  useEffect(() => {
+    if (!bridge.native) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    let retry: number | undefined;
+    const refresh = () => {
+      window.clearTimeout(retry);
+      void (async () => {
+        const idle = await settleBeforeExternalView({ operation, queue: sceneQueue, pending });
+        if (disposed) return;
+        // Still busy: try again shortly instead of leaving the window stale,
+        // which a later local edit would write back over the agent's change.
+        if (!idle) { retry = window.setTimeout(refresh, 400); return; }
+        try {
+          const next = await bridge.currentView();
+          if (disposed) return;
+          latestProject.current = next.project;
+          setSession(next);
+          setName(next.project.name);
+          setStatus('Updated by agent');
+        } catch (e) { if (!disposed) setError(messageFor(e)); }
+      })();
+    };
+    void bridge.onProjectChanged(refresh)?.then(fn => {
+      if (disposed) fn(); else unlisten = fn;
+    }).catch(() => { /* the editor still works without the listener */ });
+    return () => { disposed = true; window.clearTimeout(retry); unlisten?.(); };
+  }, []);
   useEffect(() => {
     if (!bridge.native) return;
     let unlisten: (() => void) | undefined, cancelled = false;

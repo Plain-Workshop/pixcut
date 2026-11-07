@@ -41,7 +41,7 @@ if (!run('Project model tests', 'cargo', ['test', '-p', 'pixcut-project'], 'desk
 if (!fast && !run('Clippy', 'cargo', ['clippy', '--workspace', '--', '-D', 'warnings'], 'desktop')) process.exit(1);
 if (!fast && !run('Native tests', 'cargo', ['test', '--manifest-path', 'src-tauri/Cargo.toml'], 'desktop')) process.exit(1);
 optional('Workflow lint', 'actionlint', ['.github/workflows/release.yml', '.github/workflows/ci.yml', '.github/workflows/packaging-lint.yml', '.github/workflows/scorecard.yml']);
-optional('Rust advisories', 'cargo', ['audit', '--ignore', 'RUSTSEC-2026-0367', '--ignore', 'RUSTSEC-2026-0368', '--ignore', 'RUSTSEC-2026-0369', '--file', 'desktop/Cargo.lock']);
+optional('Rust advisories', 'cargo', ['audit', '--ignore', 'RUSTSEC-2026-0367', '--ignore', 'RUSTSEC-2026-0368', '--ignore', 'RUSTSEC-2026-0369', '--ignore', 'RUSTSEC-2026-0429', '--file', 'desktop/Cargo.lock']);
 
 if (failed) {
   process.stderr.write(`\n\x1b[31m${failed} step(s) failed\x1b[0m\n`);

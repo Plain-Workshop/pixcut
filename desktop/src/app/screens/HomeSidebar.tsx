@@ -22,7 +22,7 @@ export function HomeSidebar({ storageLabel, projects, openProject, setHomeSectio
   homeSection: "home" | "projects";
   setModal: Dispatch<SetStateAction<"source" | "templates" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null>>;
   updateState: "idle" | "checking" | "available" | "downloading" | "ready" | "error";
-  setSettingsTab: Dispatch<SetStateAction<"shortcuts" | "general" | "appearance" | "editing" | "updates" | "privacy">>;
+  setSettingsTab: Dispatch<SetStateAction<"shortcuts" | "general" | "appearance" | "editing" | "updates" | "privacy" | "automation">>;
   updateProgress: number;
   updateInfo: bridge.UpdateInfo | null;
   appVersion: string;

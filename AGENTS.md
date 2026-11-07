@@ -43,7 +43,7 @@ The frontend sends validated commands to Rust; Rust returns the new project snap
 ## Rules
 
 1. **Never crash.** A malformed project, odd file, full disk or bad command returns an actionable error. Do not add `unwrap()`/`expect()`/`panic!()` in non-test Rust. Command dispatch and both export paths are wrapped in `guard()`.
-2. **Stay offline.** No accounts, analytics, remote fonts, cloud sync or background network calls. Optional update checks run on launch and daily while Home is open; never check while editing or exporting. Downloads require a user action. The one exception is the Music panel's Online tab (`src-tauri/src/online_music.rs`): it queries the Openverse catalogue and streams or downloads a track only when the user searches, listens or adds, and only CC0, CC BY and public-domain results are kept. Never call it while editing or exporting, and never add other online features without the same user-triggered, license-filtered design.
+2. **Stay offline.** No accounts, analytics, remote fonts, cloud sync or background network calls. Optional update checks run on launch and daily while Home is open; never check while editing or exporting. Downloads require a user action. The one exception is the Music panel's Online tab (`src-tauri/src/online_music.rs`): it queries the Openverse catalogue and streams or downloads a track only when the user searches, listens or adds, and only CC0, CC BY and public-domain results are kept. Never call it while editing or exporting, and never add other online features without the same user-triggered, license-filtered design. The second exception is Agent access (`src-tauri/src/mcp/`): an opt-in MCP server bound to `127.0.0.1`, off by default, gated by a bearer token, with no egress. Keep it loopback-only, token-gated and user-triggered; never let it listen on a public interface.
 3. **No paid features.** Every feature is available to everyone. Do not add license checks, limits, watermarks or upgrade prompts.
 4. **Schema changes are migrations.** Update `desktop/src/stores/model.ts` and `desktop/crates/project/src/lib.rs` together, accept the old version, and add tests for both paths.
 5. **Preview and export must match.** If you change text layout, framing, transitions, timing or color, verify both the canvas preview and the FFmpeg output.
@@ -59,5 +59,6 @@ The frontend sends validated commands to Rust; Rust returns the new project snap
 - Video playback and probing: `desktop/src/components/preview/video.ts`
 - Export plans: `desktop/src/app/App.tsx` → `desktop/src-tauri/src/lib.rs` (`encode_plan`)
 - Updates: `desktop/src/app/bridge.ts`, Settings → Updates
+- Agent access (MCP): `desktop/src-tauri/src/mcp/`, `desktop/MCP.md`, Settings → Agent access
 - Release pipeline: `.github/workflows/release.yml`, `desktop/RELEASING.md`
 - Current verification state: `desktop/VERIFICATION.md`

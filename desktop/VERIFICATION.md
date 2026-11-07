@@ -1717,3 +1717,15 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - Native build: `tauri build --debug --bundles app` produced `target/debug/bundle/macos/PixCut.app` (updater signing then failed for lack of `TAURI_SIGNING_PRIVATE_KEY`, as expected; the key in `.secrets/` was not used). The app was restarted on it and was running with no crash lines in the system log. It was not driven through its window.
 - Browser preview (not the native webview): System theme followed a light to dark change live; ctrl+wheel and gesture pinch zoom both worked and clamp correctly.
 - Not verified: update from a test feed, trackpad pinch, macOS appearance switch, adding an online track in the desktop app, first Listen latency on an unwarmed bundled track, scene 2's left trim handle. Procedures are in `IMPROVEMENT_PLAN.md` Phase 7.
+
+## Phase 8: agent access over MCP (2026-11-04)
+
+- Architecture: `rmcp` 3.8 Streamable HTTP mounted on `axum`, bound to `127.0.0.1`, stateless with JSON responses. The same `Command` path the buttons use is shared through `apply_command`, and mutating tools emit `project-changed`; the editor waits for any local command to settle and then pulls `current_view`.
+- Tools: `get_project`, `get_scene`, `get_history`, `list_media`, `get_app_status`, `import_media`, `add_scene`, `update_scene`, `remove_scene`, `move_scene`, `duplicate_scene`, `split_scene`, `update_project`, `undo`, `redo`, `save_project`, `open_project`.
+- Rust: 75 passed, 0 failed, 25 ignored (FFmpeg/network). New MCP tests cover tool argument mapping, clamping, undo, id generation, inline-media redaction, token comparison, config normalisation, and a real in-process HTTP round trip: unauthorized `401`, `initialize`, and `tools/list`.
+- Clippy: `cargo clippy --workspace -- -D warnings` clean.
+- `cargo audit`: `zip` 4.6.1 now reports RUSTSEC-2026-0429. PixCut never calls `ZipArchive::extract` (it reads entries with `by_name` and writes with `ZipWriter`), so the same rationale as the three earlier ignored zip advisories applies and the ignore is added to `scripts/ci.mjs`.
+- TypeScript: 640 tests pass, including `settleBeforeExternalView` (idle applies, in-flight waits, stuck editor declines).
+- Live native test against the dev app on port 47821 with a 64-character token: unauthorized `401`; `initialize` negotiated `2025-06-18`; `tools/list` returned all 17 tools; `add_scene` imported a 1×1 PNG and appended a 2.5 s clip; `get_project` showed it; `undo` restored the previous four scenes; `save_project` wrote a 20.9 MB `.pixcut`; `get_app_status` and `list_media` returned the expected data. The temporary export file was deleted afterwards.
+- Browser preview: Settings → Agent access renders the new tab, the connection switch, endpoint, masked token, reveal/copy/new-token controls, copy-configuration action, and the limits copy; the non-desktop note is shown instead of the controls. Screenshot reviewed.
+- Not verified natively: the Settings panel inside the Tauri webview (no screen-recording permission for a window capture). The HTTP endpoint, tool calls and editor refresh event were exercised against the running desktop process.

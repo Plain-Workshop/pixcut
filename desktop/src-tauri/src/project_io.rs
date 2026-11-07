@@ -67,22 +67,38 @@ pub(crate) fn take_pending_project(
     *editor.persisted.lock().map_err(|e| e.to_string())? = persisted;
     Ok(Some(session.view()))
 }
+/// Applies one edit to the session and writes it to recovery. Shared by the
+/// editor's own `dispatch` and by the MCP tools, so an agent makes exactly the
+/// same change a button press would.
+pub(crate) fn apply_command(
+    app: &tauri::AppHandle,
+    editor: &Editor,
+    command: Command,
+) -> Result<View, String> {
+    let mut current = editor.session.lock().map_err(|e| e.to_string())?;
+    let mut next = current.clone();
+    next.apply(command)?;
+    let persisted = write_recovery(app, &next.project)?;
+    next.project = persisted.clone();
+    *editor.persisted.lock().map_err(|e| e.to_string())? = persisted;
+    *current = next;
+    Ok(current.view())
+}
+
 #[tauri::command]
 pub(crate) fn dispatch(
     app: tauri::AppHandle,
     editor: State<Editor>,
     command: Command,
 ) -> Result<View, String> {
-    guard("editing the project", || {
-        let mut current = editor.session.lock().map_err(|e| e.to_string())?;
-        let mut next = current.clone();
-        next.apply(command)?;
-        let persisted = write_recovery(&app, &next.project)?;
-        next.project = persisted.clone();
-        *editor.persisted.lock().map_err(|e| e.to_string())? = persisted;
-        *current = next;
-        Ok(current.view())
-    })
+    guard("editing the project", || apply_command(&app, &editor, command))
+}
+/// The editor asks for this when an agent changed the project, so it can show
+/// the new shape without receiving it twice.
+#[tauri::command]
+pub(crate) fn current_view(editor: State<Editor>) -> Result<View, String> {
+    let current = editor.session.lock().map_err(|e| e.to_string())?;
+    Ok(current.view())
 }
 /// Stack-order presses answer with history flags only. Returning the project
 /// would mean shipping every photo in the story back over IPC for a number that
@@ -201,6 +217,34 @@ pub(crate) async fn save_project_file(app: tauri::AppHandle, project: Project) -
     };
     write_project_bundle(file.path(), &project, Some(&asset_store_dir(&app)?))?;
     Ok(true)
+}
+
+/// Saves the open project to a path without a dialog, for an agent that already
+/// knows where the file belongs.
+pub(crate) fn save_project_to(
+    app: &tauri::AppHandle,
+    editor: &Editor,
+    destination: &Path,
+) -> Result<PathBuf, String> {
+    if destination.as_os_str().is_empty() {
+        return Err("Choose a path for the .pixcut file.".into());
+    }
+    let project = editor
+        .session
+        .lock()
+        .map_err(|e| e.to_string())?
+        .project
+        .clone();
+    let path = if is_pixcut_path(destination) {
+        destination.to_path_buf()
+    } else {
+        destination.with_extension("pixcut")
+    };
+    if path.is_dir() {
+        return Err("Choose a file path for the .pixcut package, not a folder.".into());
+    }
+    write_project_bundle(&path, &project, Some(&asset_store_dir(app)?))?;
+    Ok(path)
 }
 
 pub(crate) fn still_frame_extension(mime: &str) -> Option<&'static str> {
