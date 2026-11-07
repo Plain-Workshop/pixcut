@@ -632,13 +632,14 @@ mod credits_tests {
     use super::*;
 
     #[test]
-    fn agent_exports_never_overwrite_a_file() {
-        let dir = tempfile::tempdir().unwrap();
+    fn agent_exports_never_overwrite_a_file() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
         assert_eq!(unique_destination(dir.path(), "Story.mp4"), dir.path().join("Story.mp4"));
-        std::fs::write(dir.path().join("Story.mp4"), b"x").unwrap();
+        std::fs::write(dir.path().join("Story.mp4"), b"x")?;
         assert_eq!(unique_destination(dir.path(), "Story.mp4"), dir.path().join("Story (2).mp4"));
-        std::fs::write(dir.path().join("Story (2).mp4"), b"x").unwrap();
+        std::fs::write(dir.path().join("Story (2).mp4"), b"x")?;
         assert_eq!(unique_destination(dir.path(), "Story.mp4"), dir.path().join("Story (3).mp4"));
+        Ok(())
     }
 
     #[test]

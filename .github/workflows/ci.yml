@@ -87,7 +87,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
-      # The three zip advisories affect ZipArchive::extract() only. PixCut reads
+      # The four zip advisories affect ZipArchive::extract() only. PixCut reads
       # .pixcut entries with by_name and writes them with ZipWriter; it never
       # extracts a ZIP. The updater's archive is signature-verified. Drop these
       # ignores once tauri-plugin-updater ships zip >= 9.
@@ -96,6 +96,7 @@ jobs:
           --ignore RUSTSEC-2026-0367
           --ignore RUSTSEC-2026-0368
           --ignore RUSTSEC-2026-0369
+          --ignore RUSTSEC-2026-0429
 
   # Bundling is the step that breaks independently of tests. Exercise it on
   # main and on demand, without spending macOS/Windows minutes on every PR.
