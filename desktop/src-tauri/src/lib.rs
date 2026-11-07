@@ -197,7 +197,8 @@ pub fn run() {
             export::cancel_export,
             mcp::mcp_status,
             mcp::mcp_set_enabled,
-            mcp::mcp_regenerate_token
+            mcp::mcp_regenerate_token,
+            mcp::mcp_frame_reply
         ])
         .setup(|app| {
             app.manage(library_index::LibraryIndex::default());

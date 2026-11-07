@@ -18,6 +18,7 @@ use tools::PixCutServer;
 #[derive(Default)]
 pub(crate) struct McpState {
     inner: Mutex<McpStateInner>,
+    frames: Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<Result<String, String>>>>,
 }
 #[derive(Default)]
 struct McpStateInner {
@@ -194,6 +195,62 @@ pub(crate) fn start_if_enabled(app: tauri::AppHandle) {
             }
         }
     });
+}
+
+/// Asks the editor window for a PNG and waits for its reply. Called from a
+/// blocking thread, so waiting on a plain channel is fine.
+pub(crate) fn request_frame(
+    app: &tauri::AppHandle,
+    scene_id: Option<String>,
+    at_seconds: Option<f64>,
+    max_width: Option<u32>,
+) -> Result<String, String> {
+    let request_id = config::new_token()[..16].to_string();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let state = app.state::<McpState>();
+    state.frames.lock().map_err(|e| e.to_string())?.insert(request_id.clone(), sender);
+    let emitted = app.emit(
+        "mcp-render-frame",
+        serde_json::json!({
+            "requestId": request_id,
+            "sceneId": scene_id,
+            "atSeconds": at_seconds,
+            "maxWidth": max_width,
+        }),
+    );
+    let outcome = match emitted {
+        Err(error) => Err(error.to_string()),
+        Ok(()) => receiver
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .map_err(|_| "The PixCut window did not answer in time. Make sure it is open and try again.".to_string())
+            .and_then(|reply| reply),
+    };
+    if let Ok(mut frames) = state.frames.lock() {
+        frames.remove(&request_id);
+    }
+    outcome
+}
+
+/// The editor answers a frame request with a PNG (base64) or an error.
+#[tauri::command]
+pub(crate) fn mcp_frame_reply(
+    app: tauri::AppHandle,
+    request_id: String,
+    png: Option<String>,
+    error: Option<String>,
+) -> Result<(), String> {
+    let state = app.state::<McpState>();
+    let sender = state.frames.lock().map_err(|e| e.to_string())?.remove(&request_id);
+    if let Some(sender) = sender {
+        let reply = match (png, error) {
+            (Some(png), _) if png.len() <= 40 * 1024 * 1024 => Ok(png),
+            (Some(_), _) => Err("The preview frame was too large.".to_string()),
+            (None, Some(error)) => Err(error),
+            (None, None) => Err("The editor returned no frame.".to_string()),
+        };
+        let _ = sender.send(reply);
+    }
+    Ok(())
 }
 
 #[tauri::command]

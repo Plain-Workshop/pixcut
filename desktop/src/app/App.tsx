@@ -144,6 +144,7 @@ import type { ModalId } from './modal';
 import { buildDiagnostics, classifyDrop, countMissingAssets } from './home-support';
 import { commandAvailability as resolveAvailability } from './command-availability';
 import { runCommand, settleBeforeExternalView } from './command-runner';
+import { renderAgentFrame, type FrameRequest } from './agent-frame';
 import { HINTS_KEY } from './export-options';
 import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, projectScenes, sceneAt, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
@@ -674,6 +675,27 @@ export default function App() {
       if (disposed) fn(); else unlisten = fn;
     }).catch(() => { /* the editor still works without the listener */ });
     return () => { disposed = true; window.clearTimeout(retry); unlisten?.(); };
+  }, []);
+  // An agent asked to see a frame. Render it from Rust's current project with
+  // the same compositor as the viewer, without touching the playhead.
+  useEffect(() => {
+    if (!bridge.native) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void bridge.onRenderFrame<FrameRequest>(request => {
+      void (async () => {
+        try {
+          const view = await bridge.currentView();
+          const frame = await renderAgentFrame(view.project, request);
+          await bridge.replyFrame(request.requestId, { png: frame.png });
+        } catch (e) {
+          await bridge.replyFrame(request.requestId, { error: messageFor(e) }).catch(() => {});
+        }
+      })();
+    })?.then(fn => {
+      if (disposed) fn(); else unlisten = fn;
+    }).catch(() => { /* the editor still works without the listener */ });
+    return () => { disposed = true; unlisten?.(); };
   }, []);
   useEffect(() => {
     if (!bridge.native) return;

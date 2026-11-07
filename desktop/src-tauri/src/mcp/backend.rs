@@ -11,6 +11,7 @@ pub(crate) trait Backend: Send + Sync {
     fn import_audio(&self, path: &str) -> Result<(ImportedMedia, f64), String>;
     fn save_project(&self, path: &str) -> Result<String, String>;
     fn open_project(&self, path: &str) -> Result<(), String>;
+    fn render_frame(&self, scene_id: Option<String>, at_seconds: Option<f64>, max_width: Option<u32>) -> Result<String, String>;
     fn status(&self) -> AppStatus;
     fn asset_path(&self, reference: &str) -> Option<String>;
     fn asset_kind(&self, reference: &str) -> Option<&'static str>;
@@ -80,6 +81,16 @@ impl Backend for AppBackend {
             .map_err(|error| format!("PixCut could not open “{}”: {error}", path.display()))?;
         queue_open_project(&self.app, path);
         Ok(())
+    }
+
+    fn render_frame(
+        &self,
+        scene_id: Option<String>,
+        at_seconds: Option<f64>,
+        max_width: Option<u32>,
+    ) -> Result<String, String> {
+        self.refuse_while_exporting()?;
+        super::request_frame(&self.app, scene_id, at_seconds, max_width)
     }
 
     fn status(&self) -> AppStatus {
@@ -426,6 +437,12 @@ pub(crate) mod fake {
         fn open_project(&self, path: &str) -> Result<(), String> {
             *self.open.lock().map_err(|e| e.to_string())? = Some(path.into());
             Ok(())
+        }
+        fn render_frame(&self, scene_id: Option<String>, _at: Option<f64>, _width: Option<u32>) -> Result<String, String> {
+            if scene_id.as_deref() == Some("broken") {
+                return Err("The PixCut window did not answer in time.".into());
+            }
+            Ok("iVBORw0KGgo=".into())
         }
         fn status(&self) -> AppStatus {
             AppStatus { exporting: false, ffmpeg: true, version: "test".into() }

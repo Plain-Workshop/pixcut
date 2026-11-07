@@ -1736,3 +1736,10 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - Live against the dev app on port 47821 (token from the app's `mcp.json`): `tools/list` returned 23 tools; `add_scene` imported a 1×1 PNG; `set_transition` zoom applied and `bogus` was rejected with a clear message; `add_audio` read a 12 s MP3's length through `ffmpeg -i` and added it; `set_global_text` added a layer; `get_project` listed both; `update_audio` changed volume; a missing audio path returned an error; five `undo` calls restored the original project (`canUndo` false). Temporary files were deleted.
 - Rust 80 passed / 25 ignored, project crate 54, TypeScript 640, clippy clean.
 - Not verified: the editor window visibly refreshing during these calls, the busy-retry path, and the Settings panel in the native window (no screenshot taken).
+
+## Phase 8: preview_frame (2026-11-07)
+
+- New tool `preview_frame` (24 tools). Rust emits `mcp-render-frame`; the editor renders from `current_view` with `drawScene` and `drawProjectText` and answers through `mcp_frame_reply`; Rust waits 20 s. Not drawn: transitions, picture-in-picture, live video frames (posters only).
+- Live against the dev app: a gradient PNG added by `add_scene` with a title returned a 640×360 PNG; the image was viewed and showed the gradient with the title in the default lower-left position. An unknown scene id returned a clear error. Three undos restored the project.
+- TypeScript 644 passed (4 new for target/size selection); MCP Rust tests 31; clippy clean.
+- Not verified: pixel match against FFmpeg export for this frame, video clips, transitions, and the case where the window is closed (expected timeout error).

@@ -79,6 +79,7 @@ This runs a third-party package from npm, so install it only if you trust it.
 | `set_transition` | Set or clear the transition into a clip (fade, slide, wipe, zoom, blur, circle, slide-up, spin) |
 | `add_audio` / `update_audio` / `remove_audio` | Add a music track from a file path (needs FFmpeg to read its length), change start, length, volume and fades, or remove it |
 | `set_global_text` / `remove_global_text` | Add or change a text layer that spans the story, or remove it |
+| `preview_frame` | A PNG of one moment, drawn by the viewer's renderer (needs the window open; no transitions or picture-in-picture) |
 | `remove_scene` | Delete a clip and close the gap |
 | `move_scene` | Move a clip by an offset or to an index |
 | `duplicate_scene` | Copy a clip after itself, returning the new id |

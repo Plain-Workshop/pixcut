@@ -335,6 +335,20 @@ struct SetGlobalTextArgs {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+struct PreviewFrameArgs {
+    /// Clip to show. With it, `atSeconds` counts from the clip start; without it, from the story start.
+    #[serde(default)]
+    id: Option<String>,
+    /// Moment to show, in seconds. Defaults to the start.
+    #[serde(default)]
+    at_seconds: Option<f64>,
+    /// Image width in pixels, 160-1920. Defaults to 960.
+    #[serde(default)]
+    max_width: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 struct SetTransitionArgs {
     /// The scene the transition leads into from the previous clip.
     id: String,
@@ -872,6 +886,25 @@ impl PixCutServer {
     }
 
     #[tool(
+        name = "preview_frame",
+        description = "Return a PNG of one moment of the story, drawn by the same renderer as the viewer and export. Needs the PixCut window open. Use it to check a clip's framing, text and colour."
+    )]
+    async fn preview_frame(&self, Parameters(args): Parameters<PreviewFrameArgs>) -> CallToolResult {
+        if let Some(seconds) = args.at_seconds {
+            if !seconds.is_finite() {
+                return fail("atSeconds must be a number.");
+            }
+        }
+        match self
+            .blocking(move |backend| backend.render_frame(args.id, args.at_seconds, args.max_width))
+            .await
+        {
+            Ok(png) => CallToolResult::success(vec![ContentBlock::image(png, "image/png")]),
+            Err(error) => fail(error),
+        }
+    }
+
+    #[tool(
         name = "set_transition",
         description = "Set or clear the transition into a clip. kind is none, fade, slide, wipe, zoom, blur, circle, slide-up or spin."
     )]
@@ -1361,6 +1394,18 @@ mod tests {
         assert!(server.backend.view().unwrap().project.global_text.is_empty());
     }
 
+    #[tokio::test]
+    async fn preview_frame_returns_an_image_or_the_window_error() {
+        let server = server(project_with_two_scenes());
+        let ok = server.preview_frame(Parameters(PreviewFrameArgs { id: None, at_seconds: Some(1.0), max_width: None })).await;
+        assert_ne!(ok.is_error, Some(true));
+        assert!(serde_json::to_string(&ok).unwrap().contains("image/png"));
+        let broken = server.preview_frame(Parameters(PreviewFrameArgs { id: Some("broken".into()), at_seconds: None, max_width: None })).await;
+        assert_eq!(broken.is_error, Some(true));
+        let nan = server.preview_frame(Parameters(PreviewFrameArgs { id: None, at_seconds: Some(f64::NAN), max_width: None })).await;
+        assert_eq!(nan.is_error, Some(true));
+    }
+
     #[test]
     fn every_tool_is_registered() {
         let tools = PixCutServer::tool_router().list_all();
@@ -1369,7 +1414,7 @@ mod tests {
             "get_project", "get_scene", "get_history", "list_media", "get_app_status",
             "import_media", "add_scene", "update_scene", "remove_scene", "move_scene",
             "duplicate_scene", "split_scene", "update_project", "undo", "redo",
-            "save_project", "open_project", "set_transition", "add_audio", "update_audio",
+            "save_project", "open_project", "set_transition", "add_audio", "update_audio", "preview_frame",
             "remove_audio", "set_global_text", "remove_global_text",
         ] {
             assert!(names.contains(&expected), "missing tool {expected}");

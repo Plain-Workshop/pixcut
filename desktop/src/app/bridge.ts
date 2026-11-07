@@ -69,6 +69,13 @@ export function onProjectOpened(handler: () => void): Promise<UnlistenFn> | null
 export function onProjectChanged(handler: () => void): Promise<UnlistenFn> | null {
   return native ? listen('project-changed', handler) : null;
 }
+/** An MCP tool asked the editor to render a still; answer with `replyFrame`. */
+export function onRenderFrame<T>(handler: (request: T) => void): Promise<UnlistenFn> | null {
+  return native ? listen<T>('mcp-render-frame', event => handler(event.payload)) : null;
+}
+export async function replyFrame(requestId: string, frame: { png?: string; error?: string }): Promise<void> {
+  if (native) await invoke('mcp_frame_reply', { requestId, png: frame.png ?? null, error: frame.error ?? null });
+}
 export async function currentView(): Promise<Session> {
   return native ? invoke('current_view') : view();
 }
