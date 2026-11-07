@@ -12,6 +12,7 @@ pub(crate) trait Backend: Send + Sync {
     fn save_project(&self, path: &str) -> Result<String, String>;
     fn open_project(&self, path: &str) -> Result<(), String>;
     fn render_frame(&self, scene_id: Option<String>, at_seconds: Option<f64>, max_width: Option<u32>) -> Result<String, String>;
+    fn probe_video(&self, reference: &str) -> Result<VideoInfo, String>;
     fn status(&self) -> AppStatus;
     fn asset_path(&self, reference: &str) -> Option<String>;
     fn asset_kind(&self, reference: &str) -> Option<&'static str>;
@@ -93,6 +94,12 @@ impl Backend for AppBackend {
         super::request_frame(&self.app, scene_id, at_seconds, max_width)
     }
 
+    fn probe_video(&self, reference: &str) -> Result<VideoInfo, String> {
+        self.refuse_while_exporting()?;
+        let reply = super::request_video_probe(&self.app, reference)?;
+        serde_json::from_str(&reply).map_err(|e| format!("The editor returned an unreadable video probe: {e}"))
+    }
+
     fn status(&self) -> AppStatus {
         AppStatus {
             exporting: self.editor().exporting.load(Ordering::SeqCst),
@@ -135,6 +142,14 @@ pub(crate) fn parse_duration(text: &str) -> Option<f64> {
     let seconds: f64 = parts.next()?.parse().ok()?;
     let total = hours * 3600.0 + minutes * 60.0 + seconds;
     (total.is_finite() && total > 0.0).then_some(total)
+}
+
+/// What the window learned by decoding a video: its length and a poster frame.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct VideoInfo {
+    pub(crate) duration: f64,
+    pub(crate) poster: String,
 }
 
 #[derive(Serialize)]
@@ -443,6 +458,12 @@ pub(crate) mod fake {
                 return Err("The PixCut window did not answer in time.".into());
             }
             Ok("iVBORw0KGgo=".into())
+        }
+        fn probe_video(&self, reference: &str) -> Result<VideoInfo, String> {
+            if reference.ends_with("dead") {
+                return Err("That video format could not be decoded.".into());
+            }
+            Ok(VideoInfo { duration: 8.0, poster: "data:image/jpeg;base64,AA==".into() })
         }
         fn status(&self) -> AppStatus {
             AppStatus { exporting: false, ffmpeg: true, version: "test".into() }

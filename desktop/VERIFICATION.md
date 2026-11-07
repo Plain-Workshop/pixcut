@@ -1743,3 +1743,10 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - Live against the dev app: a gradient PNG added by `add_scene` with a title returned a 640×360 PNG; the image was viewed and showed the gradient with the title in the default lower-left position. An unknown scene id returned a clear error. Three undos restored the project.
 - TypeScript 644 passed (4 new for target/size selection); MCP Rust tests 31; clippy clean.
 - Not verified: pixel match against FFmpeg export for this frame, video clips, transitions, and the case where the window is closed (expected timeout error).
+
+## Phase 8: agent video import (2026-11-07)
+
+- `add_scene` accepts a video: Rust asks the window (`mcp-probe-video`) to decode it, then builds the clip with `mediaKind: video`, the poster and the source length. The window reply channel is shared with `preview_frame`.
+- Live against the dev app (after a restart, since hot reload kept the old listener): a 4 s 320×180 H.264 MP4 added a `video` clip of 4.0 s with a poster, `preview_frame` returned an image for it, and `undo` restored the project.
+- Rust 82 passed / 25 ignored; TypeScript 644; clippy clean.
+- Not verified: long or odd-codec videos, an undecodable file in the live app, the window closed, and the frame's pixel match with export.

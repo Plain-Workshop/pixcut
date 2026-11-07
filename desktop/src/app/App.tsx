@@ -16,7 +16,7 @@ import { sourceSecondsAt, sourceSpan, speedAt, speedCurve } from '../components/
 import { textLayersAsCaptions, toSrt } from '../components/text/captions-export';
 import { applyTextMotion } from '../components/animation/keyframes';
 import { KeyframeControls } from '../components/animation/KeyframeControls';
-import { isAssetRef, resolveMediaSource } from '../components/preview/media-url';
+import { isAssetRef, resolveAssetUrl, resolveMediaSource } from '../components/preview/media-url';
 import { assetExists } from '../stores/assets';
 import { readPixcutBundle } from '../stores/pixcut-bundle';
 import { MaskControls } from '../components/inspector/MaskControls';
@@ -695,7 +695,21 @@ export default function App() {
     })?.then(fn => {
       if (disposed) fn(); else unlisten = fn;
     }).catch(() => { /* the editor still works without the listener */ });
-    return () => { disposed = true; unlisten?.(); };
+    // An agent added a video: decode it here for its length and a poster frame.
+    let unlistenProbe: (() => void) | undefined;
+    void bridge.onProbeVideo<{ requestId: string; reference: string }>(request => {
+      void (async () => {
+        try {
+          const probe = await probeVideo(await resolveAssetUrl(request.reference));
+          await bridge.replyFrame(request.requestId, { png: JSON.stringify({ duration: probe.duration, poster: probe.poster }) });
+        } catch (e) {
+          await bridge.replyFrame(request.requestId, { error: messageFor(e) }).catch(() => {});
+        }
+      })();
+    })?.then(fn => {
+      if (disposed) fn(); else unlistenProbe = fn;
+    }).catch(() => { /* the editor still works without the listener */ });
+    return () => { disposed = true; unlisten?.(); unlistenProbe?.(); };
   }, []);
   useEffect(() => {
     if (!bridge.native) return;

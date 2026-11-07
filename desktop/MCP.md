@@ -74,7 +74,7 @@ This runs a third-party package from npm, so install it only if you trust it.
 | `list_media` | Referenced media, its kind, and its path in the local store |
 | `get_app_status` | Export busy flag, FFmpeg availability, version |
 | `import_media` | Copy a picture or video into the local asset store |
-| `add_scene` | Append a picture clip (path or `pixcut-asset:` reference) |
+| `add_scene` | Append a picture or video clip (path or `pixcut-asset:` reference); videos are decoded by the open window |
 | `update_scene` | Change text, length, fit, motion, fades, framing, grade |
 | `set_transition` | Set or clear the transition into a clip (fade, slide, wipe, zoom, blur, circle, slide-up, spin) |
 | `add_audio` / `update_audio` / `remove_audio` | Add a music track from a file path (needs FFmpeg to read its length), change start, length, volume and fades, or remove it |
@@ -94,9 +94,9 @@ base64 media, and inline data URLs are replaced with a size marker.
 
 ### Limits
 
-- **Pictures can be added.** Video import needs the webview to probe duration and
-  build a poster frame, so `add_scene` rejects a video reference with a message
-  pointing at the app.
+- **Pictures and videos can be added.** A video is decoded by the PixCut window to
+  read its length and build a poster frame, so the window must be open; the
+  clip plays the whole file (up to 600 s) unless `seconds` is shorter.
 - **Export is not exposed.** Frames are rendered by the canvas compositor in the
   editor, so exporting stays in the Export dialog.
 - **Tool calls are rejected while an export runs**, with a message to retry when

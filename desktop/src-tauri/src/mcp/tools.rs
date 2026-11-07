@@ -486,7 +486,7 @@ impl PixCutServer {
 
     #[tool(
         name = "add_scene",
-        description = "Append a picture clip to the end of the story. Give a path or a pixcut-asset reference; sets length, text, fit, motion and colour."
+        description = "Append a picture or video clip to the end of the story. Give a path or a pixcut-asset reference; sets length, text, fit, motion and colour. Videos are decoded by the PixCut window, which must be open."
     )]
     async fn add_scene(&self, Parameters(args): Parameters<AddSceneArgs>) -> CallToolResult {
         match self
@@ -527,10 +527,19 @@ impl PixCutServer {
                         (reference.to_string(), None, kind)
                     }
                 };
-                if kind != "image" {
-                    return Err("Agents can add pictures. Import a video in the PixCut window so PixCut can build its poster and length.".into());
+                if kind != "image" && kind != "video" {
+                    return Err("Agents can add pictures and videos.".into());
                 }
-                let seconds = clamp_seconds(args.seconds.unwrap_or(4.0));
+                // A video is decoded by the window, which reports its length
+                // and a poster frame; a picture needs neither.
+                let video = if kind == "video" { Some(backend.probe_video(&reference)?) } else { None };
+                let seconds = match &video {
+                    Some(info) => {
+                        let limit = info.duration.clamp(0.5, 600.0);
+                        args.seconds.filter(|value| value.is_finite()).map_or(limit, |value| value.clamp(0.5, limit))
+                    }
+                    None => clamp_seconds(args.seconds.unwrap_or(4.0)),
+                };
                 let minimum = project.timebase.min_ticks();
                 let maximum = project.timebase.max_ticks();
                 let duration_ticks = seconds_to_ticks(seconds, &project.timebase).clamp(minimum, maximum);
@@ -549,6 +558,11 @@ impl PixCutServer {
                     duration_ticks,
                     args.fit.as_deref().unwrap_or("cover"),
                 );
+                if let Some(info) = video {
+                    scene.media_kind = Some("video".into());
+                    scene.video_poster = Some(info.poster);
+                    scene.source_duration_seconds = Some(info.duration.clamp(0.01, 3600.0));
+                }
                 scene.motion = args.motion.clone();
                 scene.motion_amount = clamped(args.motion_amount, 0.0..=0.6, "motionAmount")?;
                 if let Some(color) = args.color.clone() {
@@ -1167,6 +1181,25 @@ mod tests {
         assert_eq!(project.visual_clips()[0].fit, "contain");
         server.undo(Parameters(EmptyArgs {})).await;
         assert!(backend.project().visual_clips().is_empty());
+    }
+
+    #[tokio::test]
+    async fn add_scene_adds_a_video_with_its_probed_length() {
+        let server = server(project_with_two_scenes());
+        let args = |path: &str, seconds| AddSceneArgs {
+            path: Some(path.into()), reference: None, name: None, seconds, title: None, subtitle: None,
+            fit: None, motion: None, motion_amount: None, color: None,
+        };
+        let added = server.add_scene(Parameters(args("/tmp/clip.mp4", None))).await;
+        assert_ne!(added.is_error, Some(true), "{}", text(&added));
+        let scene = server.backend.view().unwrap().project.visual_clips().last().cloned().unwrap();
+        assert_eq!(scene.media_kind.as_deref(), Some("video"));
+        assert_eq!(scene.source_duration_seconds, Some(8.0));
+        assert!(scene.video_poster.is_some());
+        let shorter = server.add_scene(Parameters(args("/tmp/clip.mp4", Some(2.0)))).await;
+        assert_ne!(shorter.is_error, Some(true));
+        let last = server.backend.view().unwrap().project.visual_clips().last().cloned().unwrap();
+        assert!((server.backend.view().unwrap().project.timebase.ticks_to_seconds(last.duration_ticks) - 2.0).abs() < 0.05);
     }
 
     #[tokio::test]

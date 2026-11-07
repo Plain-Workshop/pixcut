@@ -197,31 +197,24 @@ pub(crate) fn start_if_enabled(app: tauri::AppHandle) {
     });
 }
 
-/// Asks the editor window for a PNG and waits for its reply. Called from a
-/// blocking thread, so waiting on a plain channel is fine.
-pub(crate) fn request_frame(
+/// Asks the editor window to do something only the webview can (render a
+/// frame, decode a video) and waits for its text reply. Called from a blocking
+/// thread, so waiting on a plain channel is fine.
+fn request_window(
     app: &tauri::AppHandle,
-    scene_id: Option<String>,
-    at_seconds: Option<f64>,
-    max_width: Option<u32>,
+    event: &str,
+    mut payload: serde_json::Value,
+    wait: std::time::Duration,
 ) -> Result<String, String> {
     let request_id = config::new_token()[..16].to_string();
+    payload["requestId"] = serde_json::json!(request_id);
     let (sender, receiver) = std::sync::mpsc::channel();
     let state = app.state::<McpState>();
     state.frames.lock().map_err(|e| e.to_string())?.insert(request_id.clone(), sender);
-    let emitted = app.emit(
-        "mcp-render-frame",
-        serde_json::json!({
-            "requestId": request_id,
-            "sceneId": scene_id,
-            "atSeconds": at_seconds,
-            "maxWidth": max_width,
-        }),
-    );
-    let outcome = match emitted {
+    let outcome = match app.emit(event, payload) {
         Err(error) => Err(error.to_string()),
         Ok(()) => receiver
-            .recv_timeout(std::time::Duration::from_secs(20))
+            .recv_timeout(wait)
             .map_err(|_| "The PixCut window did not answer in time. Make sure it is open and try again.".to_string())
             .and_then(|reply| reply),
     };
@@ -231,20 +224,44 @@ pub(crate) fn request_frame(
     outcome
 }
 
-/// The editor answers a frame request with a PNG (base64) or an error.
+pub(crate) fn request_frame(
+    app: &tauri::AppHandle,
+    scene_id: Option<String>,
+    at_seconds: Option<f64>,
+    max_width: Option<u32>,
+) -> Result<String, String> {
+    request_window(
+        app,
+        "mcp-render-frame",
+        serde_json::json!({ "sceneId": scene_id, "atSeconds": at_seconds, "maxWidth": max_width }),
+        std::time::Duration::from_secs(20),
+    )
+}
+
+/// The window decodes the stored video to learn its length and make a poster.
+pub(crate) fn request_video_probe(app: &tauri::AppHandle, reference: &str) -> Result<String, String> {
+    request_window(
+        app,
+        "mcp-probe-video",
+        serde_json::json!({ "reference": reference }),
+        std::time::Duration::from_secs(30),
+    )
+}
+
+/// The editor answers a window request with a payload (a base64 PNG, or JSON for a probe) or an error.
 #[tauri::command]
 pub(crate) fn mcp_frame_reply(
     app: tauri::AppHandle,
     request_id: String,
-    png: Option<String>,
+    payload: Option<String>,
     error: Option<String>,
 ) -> Result<(), String> {
     let state = app.state::<McpState>();
     let sender = state.frames.lock().map_err(|e| e.to_string())?.remove(&request_id);
     if let Some(sender) = sender {
-        let reply = match (png, error) {
-            (Some(png), _) if png.len() <= 40 * 1024 * 1024 => Ok(png),
-            (Some(_), _) => Err("The preview frame was too large.".to_string()),
+        let reply = match (payload, error) {
+            (Some(payload), _) if payload.len() <= 40 * 1024 * 1024 => Ok(payload),
+            (Some(_), _) => Err("The editor's reply was too large.".to_string()),
             (None, Some(error)) => Err(error),
             (None, None) => Err("The editor returned no frame.".to_string()),
         };

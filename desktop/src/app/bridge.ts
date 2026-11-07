@@ -73,8 +73,12 @@ export function onProjectChanged(handler: () => void): Promise<UnlistenFn> | nul
 export function onRenderFrame<T>(handler: (request: T) => void): Promise<UnlistenFn> | null {
   return native ? listen<T>('mcp-render-frame', event => handler(event.payload)) : null;
 }
+export function onProbeVideo<T>(handler: (request: T) => void): Promise<UnlistenFn> | null {
+  return native ? listen<T>('mcp-probe-video', event => handler(event.payload)) : null;
+}
+/** Answers an MCP window request with a payload (base64 PNG or JSON) or an error. */
 export async function replyFrame(requestId: string, frame: { png?: string; error?: string }): Promise<void> {
-  if (native) await invoke('mcp_frame_reply', { requestId, png: frame.png ?? null, error: frame.error ?? null });
+  if (native) await invoke('mcp_frame_reply', { requestId, payload: frame.png ?? null, error: frame.error ?? null });
 }
 export async function currentView(): Promise<Session> {
   return native ? invoke('current_view') : view();
