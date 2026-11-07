@@ -73,6 +73,13 @@ export function onProjectChanged(handler: () => void): Promise<UnlistenFn> | nul
 export function onRenderFrame<T>(handler: (request: T) => void): Promise<UnlistenFn> | null {
   return native ? listen<T>('mcp-render-frame', event => handler(event.payload)) : null;
 }
+/** An MCP tool asked the editor to export with its current settings. */
+export function onAgentExport(handler: () => void): Promise<UnlistenFn> | null {
+  return native ? listen('mcp-export', handler) : null;
+}
+export async function agentExportFinished(reason = ''): Promise<void> {
+  if (native) await invoke('mcp_export_finished', { reason });
+}
 export function onProbeVideo<T>(handler: (request: T) => void): Promise<UnlistenFn> | null {
   return native ? listen<T>('mcp-probe-video', event => handler(event.payload)) : null;
 }

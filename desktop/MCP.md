@@ -80,6 +80,7 @@ This runs a third-party package from npm, so install it only if you trust it.
 | `add_audio` / `update_audio` / `remove_audio` | Add a music track from a file path (needs FFmpeg to read its length), change start, length, volume and fades, or remove it |
 | `set_global_text` / `remove_global_text` | Add or change a text layer that spans the story, or remove it |
 | `preview_frame` | A PNG of one moment, drawn by the viewer's renderer (needs the window open; no transitions or picture-in-picture) |
+| `export_video` / `get_export_status` | Start an export into an existing folder (returns at once) and poll until it is done or failed |
 | `remove_scene` | Delete a clip and close the gap |
 | `move_scene` | Move a clip by an offset or to an index |
 | `duplicate_scene` | Copy a clip after itself, returning the new id |
@@ -97,8 +98,13 @@ base64 media, and inline data URLs are replaced with a size marker.
 - **Pictures and videos can be added.** A video is decoded by the PixCut window to
   read its length and build a poster frame, so the window must be open; the
   clip plays the whole file (up to 600 s) unless `seconds` is shorter.
-- **Export is not exposed.** Frames are rendered by the canvas compositor in the
-  editor, so exporting stays in the Export dialog.
+- **Export is started, not run, by the agent.** Frames are rendered by the canvas
+  compositor in the window, so `export_video` asks the window to run its normal
+  export with the settings the Export dialog currently holds (codec, size,
+  formats) and writes into a folder you name. It returns at once; poll
+  `get_export_status`. An existing file is never overwritten (`Name (2).mp4`).
+  The window must be open and FFmpeg installed; a failure comes back with the
+  reason.
 - **Tool calls are rejected while an export runs**, with a message to retry when
   it finishes.
 - Undo history is the normal 30-step session history. Every tool call is one

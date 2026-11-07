@@ -492,16 +492,25 @@ pub(crate) async fn export_plan_variants(
         "Install FFmpeg with libx264 or libx265 to export videos.",
     )?;
     for plan in &plans { check_encoder(&binary, &plan.options)?; }
-    let Some(folder) = rfd::AsyncFileDialog::new()
-        .set_title("Choose a folder for your exports")
-        .pick_folder()
-        .await
-    else {
-        return Ok(vec![]);
+    // An agent export names its folder up front, so no dialog opens.
+    let agent_directory = mcp::take_export_directory(&app);
+    let agent_export = agent_directory.is_some();
+    let directory = match agent_directory {
+        Some(directory) => directory,
+        None => {
+            let Some(folder) = rfd::AsyncFileDialog::new()
+                .set_title("Choose a folder for your exports")
+                .pick_folder()
+                .await
+            else {
+                return Ok(vec![]);
+            };
+            folder.path().to_path_buf()
+        }
     };
-    let directory = folder.path().to_path_buf();
     let asset_directory = asset_store_dir(&app)?;
-    tauri::async_runtime::spawn_blocking(move || {
+    let finished_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
         let total = plans.len() as f64;
         let mut written = Vec::new();
         for (index, plan) in plans.into_iter().enumerate() {
@@ -510,7 +519,7 @@ pub(crate) async fn export_plan_variants(
             }
             check_encoder(&binary, &plan.options)?;
             let filename = export_output_name(&plan.options);
-            let destination = directory.join(filename);
+            let destination = if agent_export { unique_destination(&directory, &filename) } else { directory.join(filename) };
             let progress_app = app.clone();
             guard("encoding a video", || {
                 encode_plan(&project, plan, binary.clone(), destination.clone(), &asset_directory, Arc::clone(&cancel), move |percent| {
@@ -523,7 +532,11 @@ pub(crate) async fn export_plan_variants(
         Ok(written)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    if agent_export {
+        mcp::record_export(&finished_app, &result);
+    }
+    result
 }
 
 pub(crate) fn write_audio(dir: &Path, clip: &AudioClip, index: usize, asset_dir: &Path) -> Result<PathBuf, String> {

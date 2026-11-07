@@ -349,6 +349,13 @@ struct PreviewFrameArgs {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+struct ExportVideoArgs {
+    /// Absolute path of an existing folder to write the video into.
+    directory: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 struct SetTransitionArgs {
     /// The scene the transition leads into from the previous clip.
     id: String,
@@ -919,6 +926,28 @@ impl PixCutServer {
     }
 
     #[tool(
+        name = "export_video",
+        description = "Start exporting the story to a video in an existing folder, using the export settings shown in the PixCut window (codec, size, formats). Returns at once; poll get_export_status. The window must be open and FFmpeg installed. An existing file is never overwritten."
+    )]
+    async fn export_video(&self, Parameters(args): Parameters<ExportVideoArgs>) -> CallToolResult {
+        match self.blocking(move |backend| backend.start_export(&args.directory)).await {
+            Ok(()) => ok_json(serde_json::json!({ "state": "running" })),
+            Err(error) => fail(error),
+        }
+    }
+
+    #[tool(
+        name = "get_export_status",
+        description = "State of the last agent export: idle, running, done (with the written file paths) or failed (with the reason)."
+    )]
+    async fn get_export_status(&self, Parameters(_): Parameters<EmptyArgs>) -> CallToolResult {
+        match self.blocking(|backend| Ok(backend.export_status())).await {
+            Ok(json) => ok_json(json),
+            Err(error) => fail(error),
+        }
+    }
+
+    #[tool(
         name = "set_transition",
         description = "Set or clear the transition into a clip. kind is none, fade, slide, wipe, zoom, blur, circle, slide-up or spin."
     )]
@@ -1439,6 +1468,17 @@ mod tests {
         assert_eq!(nan.is_error, Some(true));
     }
 
+    #[tokio::test]
+    async fn export_needs_an_absolute_folder_and_reports_status() {
+        let server = server(project_with_two_scenes());
+        let bad = server.export_video(Parameters(ExportVideoArgs { directory: "relative/dir".into() })).await;
+        assert_eq!(bad.is_error, Some(true));
+        let ok = server.export_video(Parameters(ExportVideoArgs { directory: "/tmp".into() })).await;
+        assert_ne!(ok.is_error, Some(true));
+        let status = server.get_export_status(Parameters(EmptyArgs {})).await;
+        assert_eq!(json(&status)["state"], "idle");
+    }
+
     #[test]
     fn every_tool_is_registered() {
         let tools = PixCutServer::tool_router().list_all();
@@ -1447,7 +1487,7 @@ mod tests {
             "get_project", "get_scene", "get_history", "list_media", "get_app_status",
             "import_media", "add_scene", "update_scene", "remove_scene", "move_scene",
             "duplicate_scene", "split_scene", "update_project", "undo", "redo",
-            "save_project", "open_project", "set_transition", "add_audio", "update_audio", "preview_frame",
+            "save_project", "open_project", "set_transition", "add_audio", "update_audio", "preview_frame", "export_video", "get_export_status",
             "remove_audio", "set_global_text", "remove_global_text",
         ] {
             assert!(names.contains(&expected), "missing tool {expected}");

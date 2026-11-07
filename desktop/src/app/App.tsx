@@ -676,6 +676,8 @@ export default function App() {
     }).catch(() => { /* the editor still works without the listener */ });
     return () => { disposed = true; window.clearTimeout(retry); unlisten?.(); };
   }, []);
+  const exportVideoRef = useRef<() => Promise<void>>(async () => {});
+  const shownError = useRef('');
   // An agent asked to see a frame. Render it from Rust's current project with
   // the same compositor as the viewer, without touching the playhead.
   useEffect(() => {
@@ -709,7 +711,33 @@ export default function App() {
     })?.then(fn => {
       if (disposed) fn(); else unlistenProbe = fn;
     }).catch(() => { /* the editor still works without the listener */ });
-    return () => { disposed = true; unlisten?.(); unlistenProbe?.(); };
+    // An agent started an export. Run the same routine as the Export button, on
+    // Rust's current project, then tell Rust the routine returned.
+    let unlistenExport: (() => void) | undefined;
+    void bridge.onAgentExport(() => {
+      void (async () => {
+        try {
+          await settleBeforeExternalView({ operation, queue: sceneQueue, pending });
+          const next = await bridge.currentView();
+          latestProject.current = next.project;
+          setSession(next);
+          // The Export dialog normally picks every format and loads the codec list.
+          setExportFormatIds(next.project.formats.map(format => format.id));
+          setExportCodecs(await bridge.exporterCapabilities().catch(() => []));
+          await new Promise(resolve => window.setTimeout(resolve, 150));
+          await exportVideoRef.current();
+        } catch (e) {
+          setError(messageFor(e));
+        } finally {
+          // Give React a beat to show the reason, then hand it to the agent.
+          await new Promise(resolve => window.setTimeout(resolve, 200));
+          await bridge.agentExportFinished(shownError.current).catch(() => {});
+        }
+      })();
+    })?.then(fn => {
+      if (disposed) fn(); else unlistenExport = fn;
+    }).catch(() => { /* the editor still works without the listener */ });
+    return () => { disposed = true; unlisten?.(); unlistenProbe?.(); unlistenExport?.(); };
   }, []);
   useEffect(() => {
     if (!bridge.native) return;
@@ -1905,6 +1933,8 @@ export default function App() {
    * last few frames here and blits them into the same canvas the preview uses.
    */
   const { saveStillFrame, exportVideo } = useVideoExport({ saveCredits, musicCredits, exportAudio, exportCancelled, setExportProgress, exportCodec, exportContainer, exportSpeed, useHardware, exportFilename, sceneForPreview, setError, previewTransition, resolvedNextScene, displayAspect, previewLocalSeconds, project, activeSize, renderOverlays, position, videoScene, sceneVideo, renderPipScenes, activeFormat, setNotice, latestProject, presentRefs, exportCodecs, commitElement, inspectorFlush, pending, exportFormatIds, exportResolution, exportQuality, exportFps, setCancellingExport, setExporting, setExportElapsed, setExportJob, setPlaying, setModal });
+  exportVideoRef.current = exportVideo;
+  shownError.current = error;
 
 
   function cancelExport() {

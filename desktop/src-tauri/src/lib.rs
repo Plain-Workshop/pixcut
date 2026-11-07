@@ -198,7 +198,8 @@ pub fn run() {
             mcp::mcp_status,
             mcp::mcp_set_enabled,
             mcp::mcp_regenerate_token,
-            mcp::mcp_frame_reply
+            mcp::mcp_frame_reply,
+            mcp::mcp_export_finished
         ])
         .setup(|app| {
             app.manage(library_index::LibraryIndex::default());

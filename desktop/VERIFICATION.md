@@ -1750,3 +1750,11 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - Live against the dev app (after a restart, since hot reload kept the old listener): a 4 s 320×180 H.264 MP4 added a `video` clip of 4.0 s with a poster, `preview_frame` returned an image for it, and `undo` restored the project.
 - Rust 82 passed / 25 ignored; TypeScript 644; clippy clean.
 - Not verified: long or odd-codec videos, an undecodable file in the live app, the window closed, and the frame's pixel match with export.
+
+## Phase 8: agent-started export (2026-11-07)
+
+- `export_video` and `get_export_status` (26 tools). Rust records the folder, the window runs its normal export routine on Rust's current project, the export commands skip the folder dialog and write a non-colliding name, and the outcome is stored for polling.
+- Live against the dev app, each failed attempt returned its real reason and led to a fix: no codec list loaded (it loads when the Export dialog opens), then no format selected (also set by the dialog). Both are now done by the agent handler.
+- Result: the template project "Motion opener" exported to a temporary folder as a 106 MB MP4, H.264 1920×1080 with AAC, 355.37 s, equal to the project's duration of 355.37 s. Status read `done` with the path. The file was deleted afterwards.
+- Rust 84 passed / 25 ignored; TypeScript 644; clippy clean (before the last two window-side edits, which are TypeScript only and type-check).
+- Not verified: a second export producing `(2)` live (covered by a unit test), cancelling from the window, frame-by-frame match against the canvas preview, and export with the window closed.

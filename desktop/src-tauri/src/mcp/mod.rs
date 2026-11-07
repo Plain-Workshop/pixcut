@@ -19,7 +19,71 @@ use tools::PixCutServer;
 pub(crate) struct McpState {
     inner: Mutex<McpStateInner>,
     frames: Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<Result<String, String>>>>,
+    export: Mutex<AgentExport>,
 }
+
+/// An export an agent asked for. The window renders the frames, so the agent
+/// starts it and then polls; this holds where the file goes and how it ended.
+#[derive(Default)]
+struct AgentExport {
+    directory: Option<PathBuf>,
+    running: bool,
+    outcome: Option<Result<Vec<String>, String>>,
+}
+
+/// Remembers the folder for the next export and marks one as running.
+pub(crate) fn begin_agent_export(app: &tauri::AppHandle, directory: PathBuf) -> Result<(), String> {
+    let state = app.state::<McpState>();
+    let mut export = state.export.lock().map_err(|e| e.to_string())?;
+    if export.running {
+        return Err("An agent export is already running. Poll get_export_status.".into());
+    }
+    *export = AgentExport { directory: Some(directory), running: true, outcome: None };
+    Ok(())
+}
+
+/// The export commands call this where they would open a folder dialog.
+pub(crate) fn take_export_directory(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.try_state::<McpState>()?.export.lock().ok()?.directory.take()
+}
+
+pub(crate) fn record_export(app: &tauri::AppHandle, result: &Result<Vec<String>, String>) {
+    if let Some(state) = app.try_state::<McpState>() {
+        if let Ok(mut export) = state.export.lock() {
+            export.running = false;
+            export.outcome = Some(result.clone());
+        }
+    }
+}
+
+/// The window reports that its export routine returned. If the export commands
+/// never took the folder, the export stopped early and the window showed why.
+#[tauri::command]
+pub(crate) fn mcp_export_finished(app: tauri::AppHandle, reason: Option<String>) -> Result<(), String> {
+    let state = app.state::<McpState>();
+    let mut export = state.export.lock().map_err(|e| e.to_string())?;
+    if export.directory.take().is_some() {
+        export.running = false;
+        let detail = reason.as_deref().map(str::trim).filter(|text| !text.is_empty()).map(|text| text.chars().take(400).collect::<String>());
+        export.outcome = Some(Err(match detail {
+            Some(detail) => format!("The export did not start: {detail}"),
+            None => "The export did not start. The PixCut window may show the reason (for example missing media or an unavailable codec).".into(),
+        }));
+    }
+    Ok(())
+}
+
+pub(crate) fn export_status(app: &tauri::AppHandle) -> serde_json::Value {
+    let Some(state) = app.try_state::<McpState>() else { return serde_json::json!({ "state": "idle" }) };
+    let Ok(export) = state.export.lock() else { return serde_json::json!({ "state": "idle" }) };
+    match (&export.outcome, export.running) {
+        (_, true) => serde_json::json!({ "state": "running" }),
+        (Some(Ok(paths)), _) => serde_json::json!({ "state": "done", "paths": paths }),
+        (Some(Err(error)), _) => serde_json::json!({ "state": "failed", "error": error }),
+        (None, _) => serde_json::json!({ "state": "idle" }),
+    }
+}
+
 #[derive(Default)]
 struct McpStateInner {
     starting: bool,

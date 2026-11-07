@@ -13,6 +13,8 @@ pub(crate) trait Backend: Send + Sync {
     fn open_project(&self, path: &str) -> Result<(), String>;
     fn render_frame(&self, scene_id: Option<String>, at_seconds: Option<f64>, max_width: Option<u32>) -> Result<String, String>;
     fn probe_video(&self, reference: &str) -> Result<VideoInfo, String>;
+    fn start_export(&self, directory: &str) -> Result<(), String>;
+    fn export_status(&self) -> serde_json::Value;
     fn status(&self) -> AppStatus;
     fn asset_path(&self, reference: &str) -> Option<String>;
     fn asset_kind(&self, reference: &str) -> Option<&'static str>;
@@ -98,6 +100,30 @@ impl Backend for AppBackend {
         self.refuse_while_exporting()?;
         let reply = super::request_video_probe(&self.app, reference)?;
         serde_json::from_str(&reply).map_err(|e| format!("The editor returned an unreadable video probe: {e}"))
+    }
+
+    fn start_export(&self, directory: &str) -> Result<(), String> {
+        self.refuse_while_exporting()?;
+        let directory = PathBuf::from(directory);
+        if !directory.is_absolute() || !directory.is_dir() {
+            return Err("Give the absolute path of a folder that already exists.".into());
+        }
+        if self.editor().session.lock().map_err(|e| e.to_string())?.project.visual_clips().is_empty() {
+            return Err("Add a clip before exporting.".into());
+        }
+        if ffmpeg().is_none() {
+            return Err("Install FFmpeg to export videos.".into());
+        }
+        super::begin_agent_export(&self.app, directory)?;
+        if let Err(error) = self.app.emit("mcp-export", ()) {
+            super::record_export(&self.app, &Err(error.to_string()));
+            return Err(error.to_string());
+        }
+        Ok(())
+    }
+
+    fn export_status(&self) -> serde_json::Value {
+        super::export_status(&self.app)
     }
 
     fn status(&self) -> AppStatus {
@@ -464,6 +490,15 @@ pub(crate) mod fake {
                 return Err("That video format could not be decoded.".into());
             }
             Ok(VideoInfo { duration: 8.0, poster: "data:image/jpeg;base64,AA==".into() })
+        }
+        fn start_export(&self, directory: &str) -> Result<(), String> {
+            if !directory.starts_with('/') {
+                return Err("Give the absolute path of a folder that already exists.".into());
+            }
+            Ok(())
+        }
+        fn export_status(&self) -> serde_json::Value {
+            serde_json::json!({ "state": "idle" })
         }
         fn status(&self) -> AppStatus {
             AppStatus { exporting: false, ffmpeg: true, version: "test".into() }
