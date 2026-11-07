@@ -228,9 +228,13 @@ pub(crate) async fn import_media(app: tauri::AppHandle) -> Result<Option<Importe
     Ok(Some(ImportedAsset { reference: format!("pixcut-asset:{id}"), name, bytes, mime: mime.into() }))
 }
 
-#[tauri::command]
-pub(crate) async fn import_media_path(app: tauri::AppHandle, path: String) -> Result<ImportedAsset, String> {
-    let source = PathBuf::from(&path);
+/// Imports one file that the caller already chose. The MCP tools use it so an
+/// agent can feed the editor a picture without opening a file dialog.
+pub(crate) fn import_media_from_path(
+    app: &tauri::AppHandle,
+    path: &str,
+) -> Result<ImportedAsset, String> {
+    let source = PathBuf::from(path);
     if !source.is_file() {
         return Err("That drop is not a readable file.".into());
     }
@@ -262,8 +266,25 @@ pub(crate) async fn import_media_path(app: tauri::AppHandle, path: String) -> Re
     if size > if image { 500 * 1024 * 1024 } else { 4 * 1024 * 1024 * 1024 } {
         return Err(format!("“{name}” is too large."));
     }
-    let (id, bytes) = stream_file_into_store(&app, &source, &extension)?;
+    let (id, bytes) = stream_file_into_store(app, &source, &extension)?;
     Ok(ImportedAsset { reference: format!("pixcut-asset:{id}"), name, bytes, mime: mime.into() })
+}
+
+#[tauri::command]
+pub(crate) async fn import_media_path(app: tauri::AppHandle, path: String) -> Result<ImportedAsset, String> {
+    import_media_from_path(&app, &path)
+}
+
+/// The broad kind of a stored asset, from its extension.
+pub(crate) fn stored_asset_kind(app: &tauri::AppHandle, reference: &str) -> Option<&'static str> {
+    let id = reference.strip_prefix("pixcut-asset:")?;
+    let path = asset_file(&asset_store_dir(app).ok()?, id)?;
+    match path.extension().and_then(|value| value.to_str()).map(str::to_ascii_lowercase).as_deref() {
+        Some("mp4" | "m4v" | "mov" | "vwebm") => Some("video"),
+        Some("mp3" | "wav" | "m4a" | "aac" | "ogg" | "oga" | "webm" | "flac") => Some("audio"),
+        Some("png" | "jpg" | "jpeg" | "webp") => Some("image"),
+        _ => Some("other"),
+    }
 }
 
 #[tauri::command]
@@ -275,7 +296,14 @@ pub(crate) async fn import_audio(app: tauri::AppHandle) -> Result<Option<Importe
     else {
         return Ok(None);
     };
-    let source = file.path().to_path_buf();
+    Ok(Some(import_audio_from_path(&app, file.path())?))
+}
+
+/// Imports one audio file the caller already chose (used by the MCP tools).
+pub(crate) fn import_audio_from_path(app: &tauri::AppHandle, source: &Path) -> Result<ImportedMedia, String> {
+    if !source.is_file() {
+        return Err("That audio path is not a readable file.".into());
+    }
     let name = source
         .file_name()
         .and_then(|value| value.to_str())
@@ -289,15 +317,15 @@ pub(crate) async fn import_audio(app: tauri::AppHandle) -> Result<Option<Importe
     if !["mp3", "wav", "m4a", "aac", "ogg", "oga", "webm"].contains(&extension.as_str()) {
         return Err("Choose an MP3, WAV, M4A, AAC, OGG, or WebM audio file.".into());
     }
-    let size = fs::metadata(&source).map_err(|e| e.to_string())?.len();
+    let size = fs::metadata(source).map_err(|e| e.to_string())?.len();
     if size == 0 {
         return Err("That audio file is empty.".into());
     }
     if size > 1024 * 1024 * 1024 {
         return Err("That audio file is larger than 1 GB. Choose a shorter clip.".into());
     }
-    let (id, written) = stream_file_into_store(&app, &source, &extension)?;
-    Ok(Some(ImportedMedia { reference: format!("pixcut-asset:{id}"), name, bytes: written }))
+    let (id, written) = stream_file_into_store(app, source, &extension)?;
+    Ok(ImportedMedia { reference: format!("pixcut-asset:{id}"), name, bytes: written })
 }
 
 pub(crate) fn asset_store_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {

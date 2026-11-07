@@ -267,6 +267,23 @@ pub(crate) fn check_encoder(binary: &Path, options: &ExportOptions) -> Result<()
     }
     Ok(())
 }
+/// A path in `directory` that does not exist yet: `name.mp4`, `name (2).mp4`...
+pub(crate) fn unique_destination(directory: &Path, filename: &str) -> PathBuf {
+    let first = directory.join(filename);
+    if !first.exists() {
+        return first;
+    }
+    let path = Path::new(filename);
+    let stem = path.file_stem().and_then(|value| value.to_str()).unwrap_or("export");
+    let extension = path.extension().and_then(|value| value.to_str()).unwrap_or("mp4");
+    for number in 2..1000 {
+        let candidate = directory.join(format!("{stem} ({number}).{extension}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    first
+}
 pub(crate) fn export_output_name(options: &ExportOptions) -> String {
     let raw = options.filename.trim();
     let stem = [".mp4", ".mov", ".mkv", ".webm"].into_iter().find_map(|suffix| raw.strip_suffix(suffix)).unwrap_or(raw);
@@ -534,12 +551,21 @@ pub(crate) async fn export_variants(
         "Install FFmpeg to export videos.",
     )?;
     for job in &jobs { check_encoder(&binary, &job.options)?; }
-    let Some(folder) = rfd::AsyncFileDialog::new().set_title("Choose a folder for your exports").pick_folder().await else {
-        return Ok(vec![]);
+    // An agent export names its folder up front, so no dialog opens.
+    let agent_directory = mcp::take_export_directory(&app);
+    let agent_export = agent_directory.is_some();
+    let directory = match agent_directory {
+        Some(directory) => directory,
+        None => {
+            let Some(folder) = rfd::AsyncFileDialog::new().set_title("Choose a folder for your exports").pick_folder().await else {
+                return Ok(vec![]);
+            };
+            folder.path().to_path_buf()
+        }
     };
-    let directory = folder.path().to_path_buf();
     let _asset_directory = asset_store_dir(&app)?;
-    tauri::async_runtime::spawn_blocking(move || {
+    let finished_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
         let total = jobs.len() as f64;
         let mut written = Vec::new();
         for (index, job) in jobs.into_iter().enumerate() {
@@ -548,7 +574,7 @@ pub(crate) async fn export_variants(
             }
             check_encoder(&binary, &job.options)?;
             let filename = export_output_name(&job.options);
-            let destination = directory.join(filename);
+            let destination = if agent_export { unique_destination(&directory, &filename) } else { directory.join(filename) };
             let progress_app = app.clone();
             guard("encoding a video", || {
                 encode_movie(project.clone(), job.frames, job.durations, job.options, binary.clone(), destination.clone(), Arc::clone(&cancel), move |percent| {
@@ -561,7 +587,11 @@ pub(crate) async fn export_variants(
         Ok(written)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    if agent_export {
+        mcp::record_export(&finished_app, &result);
+    }
+    result
 }
 
 /// `<video name>-credits.txt`, beside the exported video.
@@ -600,6 +630,17 @@ pub(crate) fn save_credits_file(video_path: String, text: String) -> Result<Stri
 #[cfg(test)]
 mod credits_tests {
     use super::*;
+
+    #[test]
+    fn agent_exports_never_overwrite_a_file() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        assert_eq!(unique_destination(dir.path(), "Story.mp4"), dir.path().join("Story.mp4"));
+        std::fs::write(dir.path().join("Story.mp4"), b"x")?;
+        assert_eq!(unique_destination(dir.path(), "Story.mp4"), dir.path().join("Story (2).mp4"));
+        std::fs::write(dir.path().join("Story (2).mp4"), b"x")?;
+        assert_eq!(unique_destination(dir.path(), "Story.mp4"), dir.path().join("Story (3).mp4"));
+        Ok(())
+    }
 
     #[test]
     fn credits_file_sits_beside_the_video() {

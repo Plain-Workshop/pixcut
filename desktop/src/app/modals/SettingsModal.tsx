@@ -1,22 +1,23 @@
 import { clearOnlineCache } from '../../stores/online-cache';
 import * as bridge from '../bridge';
 import { isLocale, LOCALES, t, type Locale } from '../../i18n';
-import { Ban, Check, Copy, Download, HardDrive, Info, Keyboard, Monitor, Moon, Palette, RefreshCw, Scissors, Settings2, ShieldCheck, Sun, WifiOff } from 'lucide-react';
+import { Ban, Bot, Check, Copy, Download, HardDrive, Info, Keyboard, Monitor, Moon, Palette, RefreshCw, Scissors, Settings2, ShieldCheck, Sun, WifiOff } from 'lucide-react';
 import { ShortcutSettings } from '../../components/shortcuts/ShortcutSettings';
 import { type Project, type Scene } from '../../stores/model';
 import { formatBytes } from '../helpers';
 import { type Preferences } from '../../stores/preferences';
 import { type ShortcutPlatform, type ShortcutSettings as ShortcutSettingsData } from '../../shortcuts/registry';
-import type { Dispatch, ReactNode, SetStateAction } from 'react';
+import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { HINTS_KEY } from '../export-options';
 
-export type SettingsTab = 'general' | 'appearance' | 'editing' | 'shortcuts' | 'privacy' | 'updates';
+export type SettingsTab = 'general' | 'appearance' | 'editing' | 'shortcuts' | 'automation' | 'privacy' | 'updates';
 
 const SECTIONS: { id: SettingsTab; label: string; blurb: string; icon: typeof Settings2 }[] = [
   { id: 'general', label: 'General', blurb: 'Language and the starting point for new projects.', icon: Settings2 },
   { id: 'appearance', label: 'Appearance', blurb: 'Theme, density and motion.', icon: Palette },
   { id: 'editing', label: 'Editing', blurb: 'How the editor saves and snaps while you work.', icon: Scissors },
   { id: 'shortcuts', label: 'Shortcuts', blurb: 'Rebind any action to the keys you prefer.', icon: Keyboard },
+  { id: 'automation', label: 'Agent access', blurb: 'Let an AI agent read and edit this project over MCP.', icon: Bot },
   { id: 'privacy', label: 'Storage & privacy', blurb: 'What PixCut keeps on this device, and how to tidy it.', icon: ShieldCheck },
   { id: 'updates', label: 'Updates & about', blurb: 'Signed updates, version details and diagnostics.', icon: Info },
 ];
@@ -37,6 +38,81 @@ function Row({ title, description, children }: { title: string; description?: Re
 
 function Switch({ checked, onChange }: { checked: boolean; onChange: (next: boolean) => void }) {
   return <input type="checkbox" role="switch" className="settings-switch" checked={checked} onChange={event => onChange(event.target.checked)} />;
+}
+
+/** Agent access reads its own status because only the desktop app can serve it. */
+function AutomationSettings({ setNotice }: { setNotice: Dispatch<SetStateAction<string>> }) {
+  const [status, setStatus] = useState<bridge.McpStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void bridge.mcpStatus()
+      .then(next => { if (!cancelled) setStatus(next); })
+      .catch(error => { if (!cancelled) setProblem(error instanceof Error ? error.message : String(error)); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const explanation = <section className="settings-group">
+    <h4 className="settings-section-title">{t('What an agent can do')}</h4>
+    <p className="note">{t('It can read the project, import pictures, add and edit clips, change text and grades, undo and redo, and save a .pixcut file. Every change is one undo step.')}</p>
+    <p className="note">{t('Video import and export stay in this window. The endpoint accepts connections from this computer only and requires the token.')}</p>
+  </section>;
+  if (!bridge.native) return <>
+    <p className="note">{t('Agent access is available in the desktop app.')}</p>
+    {explanation}
+  </>;
+
+  const configuration = status
+    ? JSON.stringify({ mcp: { pixcut: { type: 'remote', enabled: true, url: status.url, headers: { Authorization: `Bearer ${status.token}` } } } }, null, 2)
+    : '';
+  const toggle = async (enabled: boolean) => {
+    setBusy(true); setProblem(null);
+    try { setStatus(await bridge.setMcpEnabled(enabled)); setNotice(enabled ? t('Agent access is on.') : t('Agent access is off.')); }
+    catch (error) { setProblem(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
+  };
+  const regenerate = async () => {
+    setBusy(true); setProblem(null);
+    try { setStatus(await bridge.regenerateMcpToken()); setNotice(t('New token generated. Update your agent configuration.')); }
+    catch (error) { setProblem(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
+  };
+  const copy = async (value: string, message: string) => {
+    try { await navigator.clipboard.writeText(value); setNotice(message); }
+    catch { setProblem(t('Clipboard access is unavailable in this preview.')); }
+  };
+
+  return <>
+    <Group title={t('Connection')}>
+      <Row title={t('Allow agent access (MCP)')} description={t('A local endpoint an AI agent can use to read and edit this project. Nothing leaves this device.')}>
+        <Switch checked={Boolean(status?.enabled)} onChange={enabled => { if (!busy) void toggle(enabled); }} />
+      </Row>
+      {status?.running && <>
+        <div className="settings-row">
+          <span className="settings-row-text"><strong>{t('Endpoint')}</strong><small>{status.url}</small></span>
+          <span className="settings-row-control"><button className="button subtle" onClick={() => void copy(status.url, t('Endpoint copied.'))}><Copy size={13} /> {t('Copy')}</button></span>
+        </div>
+        <div className="settings-row">
+          <span className="settings-row-text"><strong>{t('Token')}</strong><small><code className="agent-token">{revealed ? status.token : '•'.repeat(Math.min(32, status.token.length))}</code></small></span>
+          <span className="settings-row-control settings-row-actions">
+            <button className="button subtle" onClick={() => setRevealed(value => !value)}>{revealed ? t('Hide') : t('Reveal')}</button>
+            <button className="button subtle" onClick={() => void copy(status.token, t('Token copied.'))}><Copy size={13} /> {t('Copy')}</button>
+            <button className="button subtle" onClick={() => void regenerate()} disabled={busy}><RefreshCw size={13} /> {t('New token')}</button>
+          </span>
+        </div>
+        <div className="settings-row">
+          <span className="settings-row-text"><strong>{t('Agent configuration')}</strong><small>{t('Paste this into your MCP client. It points at the running app on this device.')}</small></span>
+          <span className="settings-row-control"><button className="button subtle" onClick={() => void copy(configuration, t('Configuration copied.'))}><Copy size={13} /> {t('Copy configuration')}</button></span>
+        </div>
+      </>}
+      {status && !status.running && <p className="note">{status.error ?? t('Turn agent access on to start the local endpoint.')}</p>}
+      {problem && <p className="note" role="alert">{problem}</p>}
+    </Group>
+    {explanation}
+  </>;
 }
 
 export function SettingsModal({ settingsTab, shortcutDirty, setNotice, setSettingsTab, preferences, updatePreferences, storageUsage, refreshAssetUsage, storageBusy, cleanStorage, storageConfirm, storageNote, language, setLanguage, resetPreferences, showHints, setShowHints, setSnapping, resetLayout, shortcuts, platform, applyShortcuts, setShortcutDirty, closeShortcutSettings, appVersion, updateState, updateInfo, updateMessage, checkForUpdates, downloadUpdate, updateProgress, restartUpdate, copyDownloadLink, exporter, diagnostics, copyDiagnostics, recheckExporter, storageLabel, refreshStorage }: {
@@ -166,6 +242,8 @@ export function SettingsModal({ settingsTab, shortcutDirty, setNotice, setSettin
           </>}
 
           {settingsTab === 'shortcuts' && <ShortcutSettings settings={shortcuts} platform={platform} onApply={applyShortcuts} onDirtyChange={setShortcutDirty} onClose={closeShortcutSettings} />}
+
+          {settingsTab === 'automation' && <AutomationSettings setNotice={setNotice} />}
 
           {settingsTab === 'privacy' && <>
             <div className="privacy-grid"><div><WifiOff size={16} /><strong>{t('No account')}</strong><span>{t('No sign-in, cloud sync, or profile.')}</span></div><div><Ban size={16} /><strong>{t('No trackers')}</strong><span>{t('No analytics or remote requests while editing.')}</span></div><div><HardDrive size={16} /><strong>{t('Your files')}</strong><span>{t('Original photos and audio are never modified.')}</span></div></div>

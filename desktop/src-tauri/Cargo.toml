@@ -27,6 +27,11 @@ tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
 rusqlite = { version = "0.41.0", features = ["bundled"] }
 ureq = { version = "2", features = ["json"] }
+rmcp = { version = "3.8.0", default-features = false, features = ["server", "macros", "transport-streamable-http-server"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+tokio = { version = "1", features = ["net", "rt", "sync"] }
+getrandom = "0.3"
+tokio-util = "0.7"
 
 [lints]
 workspace = true

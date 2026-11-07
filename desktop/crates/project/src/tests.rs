@@ -87,6 +87,16 @@ fn scene() -> Scene {
     }
 }
 #[test]
+fn a_new_photo_scene_starts_valid() {
+    let mut project = Project::default();
+    let reference = format!("pixcut-asset:{}", "a".repeat(64));
+    project.tracks[0].clips = vec![Scene::photo("agent-1", "Photo", reference, 120, "cover")];
+    project.validate().expect("a fresh photo scene is valid");
+    assert_eq!(project.visual_clips().len(), 1);
+    assert_eq!(project.visual_clips()[0].start_ticks, 0);
+}
+
+#[test]
 fn changes_are_undoable_and_new_edits_clear_redo() {
     let mut s = Session::default();
     s.apply(Command::Add {

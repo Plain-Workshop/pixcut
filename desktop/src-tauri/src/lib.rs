@@ -1,6 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 use base64::{engine::general_purpose::STANDARD, Engine};
-use pixcut_project::{AudioClip, Command, History, Project, Session, View};
+use pixcut_project::{AudioClip, Command, History, Project, Scene, Session, TextLayer, Timebase, View};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -26,6 +26,7 @@ mod export;
 mod plan;
 mod encode;
 mod online_music;
+mod mcp;
 
 #[allow(unused_imports)]
 use {assets::*, bundle::*, encode::*, export::*, menu::*, online_music::*, plan::*, project_io::*};
@@ -152,6 +153,7 @@ pub fn run() {
             cancel_export: Arc::new(AtomicBool::new(false)),
             pending_open: Mutex::new(pending),
         })
+        .manage(mcp::McpState::default())
         .invoke_handler(tauri::generate_handler![
             online_music::online_music_search,
             online_music::online_audio_get,
@@ -162,6 +164,7 @@ pub fn run() {
             open_project_path,
             project_io::apply_order,
             project_io::dispatch,
+            project_io::current_view,
             project_io::save_project,
             project_io::save_project_file,
             project_io::save_still_frame,
@@ -191,7 +194,12 @@ pub fn run() {
             export::save_credits_file,
             export::export_variants,
             encode::export_plan_variants,
-            export::cancel_export
+            export::cancel_export,
+            mcp::mcp_status,
+            mcp::mcp_set_enabled,
+            mcp::mcp_regenerate_token,
+            mcp::mcp_frame_reply,
+            mcp::mcp_export_finished
         ])
         .setup(|app| {
             app.manage(library_index::LibraryIndex::default());
@@ -200,6 +208,7 @@ pub fn run() {
             app.on_menu_event(|app, event| {
                 let _ = app.emit("menu", event.id().0.as_str());
             });
+            mcp::start_if_enabled(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

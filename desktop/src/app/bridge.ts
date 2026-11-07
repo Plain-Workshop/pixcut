@@ -65,6 +65,41 @@ export async function saveStillFrame(data: string, fileName: string): Promise<bo
 export function onProjectOpened(handler: () => void): Promise<UnlistenFn> | null {
   return native ? listen('project-opened', handler) : null;
 }
+/** Fires when an MCP tool changed the project; the editor then asks for the new view. */
+export function onProjectChanged(handler: () => void): Promise<UnlistenFn> | null {
+  return native ? listen('project-changed', handler) : null;
+}
+/** An MCP tool asked the editor to render a still; answer with `replyFrame`. */
+export function onRenderFrame<T>(handler: (request: T) => void): Promise<UnlistenFn> | null {
+  return native ? listen<T>('mcp-render-frame', event => handler(event.payload)) : null;
+}
+/** An MCP tool asked the editor to export with its current settings. */
+export function onAgentExport(handler: () => void): Promise<UnlistenFn> | null {
+  return native ? listen('mcp-export', handler) : null;
+}
+export async function agentExportFinished(reason = ''): Promise<void> {
+  if (native) await invoke('mcp_export_finished', { reason });
+}
+export function onProbeVideo<T>(handler: (request: T) => void): Promise<UnlistenFn> | null {
+  return native ? listen<T>('mcp-probe-video', event => handler(event.payload)) : null;
+}
+/** Answers an MCP window request with a payload (base64 PNG or JSON) or an error. */
+export async function replyFrame(requestId: string, frame: { png?: string; error?: string }): Promise<void> {
+  if (native) await invoke('mcp_frame_reply', { requestId, payload: frame.png ?? null, error: frame.error ?? null });
+}
+export async function currentView(): Promise<Session> {
+  return native ? invoke('current_view') : view();
+}
+export type McpStatus = { enabled: boolean; running: boolean; port: number; url: string; token: string; error?: string };
+export async function mcpStatus(): Promise<McpStatus | null> {
+  return native ? invoke('mcp_status') : null;
+}
+export async function setMcpEnabled(enabled: boolean): Promise<McpStatus> {
+  return invoke('mcp_set_enabled', { enabled });
+}
+export async function regenerateMcpToken(): Promise<McpStatus> {
+  return invoke('mcp_regenerate_token');
+}
 export async function takePendingProject(): Promise<Session | null> {
   return native ? invoke('take_pending_project') : null;
 }

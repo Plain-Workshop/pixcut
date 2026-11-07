@@ -1717,3 +1717,44 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - Native build: `tauri build --debug --bundles app` produced `target/debug/bundle/macos/PixCut.app` (updater signing then failed for lack of `TAURI_SIGNING_PRIVATE_KEY`, as expected; the key in `.secrets/` was not used). The app was restarted on it and was running with no crash lines in the system log. It was not driven through its window.
 - Browser preview (not the native webview): System theme followed a light to dark change live; ctrl+wheel and gesture pinch zoom both worked and clamp correctly.
 - Not verified: update from a test feed, trackpad pinch, macOS appearance switch, adding an online track in the desktop app, first Listen latency on an unwarmed bundled track, scene 2's left trim handle. Procedures are in `IMPROVEMENT_PLAN.md` Phase 7.
+
+## Phase 8: agent access over MCP (2026-11-04)
+
+- Architecture: `rmcp` 3.8 Streamable HTTP mounted on `axum`, bound to `127.0.0.1`, stateless with JSON responses. The same `Command` path the buttons use is shared through `apply_command`, and mutating tools emit `project-changed`; the editor waits for any local command to settle and then pulls `current_view`.
+- Tools: `get_project`, `get_scene`, `get_history`, `list_media`, `get_app_status`, `import_media`, `add_scene`, `update_scene`, `remove_scene`, `move_scene`, `duplicate_scene`, `split_scene`, `update_project`, `undo`, `redo`, `save_project`, `open_project`.
+- Rust: 75 passed, 0 failed, 25 ignored (FFmpeg/network). New MCP tests cover tool argument mapping, clamping, undo, id generation, inline-media redaction, token comparison, config normalisation, and a real in-process HTTP round trip: unauthorized `401`, `initialize`, and `tools/list`.
+- Clippy: `cargo clippy --workspace -- -D warnings` clean.
+- `cargo audit`: `zip` 4.6.1 now reports RUSTSEC-2026-0429. PixCut never calls `ZipArchive::extract` (it reads entries with `by_name` and writes with `ZipWriter`), so the same rationale as the three earlier ignored zip advisories applies and the ignore is added to `scripts/ci.mjs`.
+- TypeScript: 640 tests pass, including `settleBeforeExternalView` (idle applies, in-flight waits, stuck editor declines).
+- Live native test against the dev app on port 47821 with a 64-character token: unauthorized `401`; `initialize` negotiated `2025-06-18`; `tools/list` returned all 17 tools; `add_scene` imported a 1×1 PNG and appended a 2.5 s clip; `get_project` showed it; `undo` restored the previous four scenes; `save_project` wrote a 20.9 MB `.pixcut`; `get_app_status` and `list_media` returned the expected data. The temporary export file was deleted afterwards.
+- Browser preview: Settings → Agent access renders the new tab, the connection switch, endpoint, masked token, reveal/copy/new-token controls, copy-configuration action, and the limits copy; the non-desktop note is shown instead of the controls. Screenshot reviewed.
+- Not verified natively: the Settings panel inside the Tauri webview (no screen-recording permission for a window capture). The HTTP endpoint, tool calls and editor refresh event were exercised against the running desktop process.
+
+## Phase 8 follow-up: new agent tools, live (2026-11-07)
+
+- Tools now total 23. Added `set_transition`, `add_audio`, `update_audio`, `remove_audio`, `set_global_text`, `remove_global_text`; `get_project` lists audio tracks and whole-story text with ids. Also fixed: editor retries a refresh while busy, export lock covers open/save/import, a start guard prevents two servers, and agent edits read "Updated by agent".
+- Live against the dev app on port 47821 (token from the app's `mcp.json`): `tools/list` returned 23 tools; `add_scene` imported a 1×1 PNG; `set_transition` zoom applied and `bogus` was rejected with a clear message; `add_audio` read a 12 s MP3's length through `ffmpeg -i` and added it; `set_global_text` added a layer; `get_project` listed both; `update_audio` changed volume; a missing audio path returned an error; five `undo` calls restored the original project (`canUndo` false). Temporary files were deleted.
+- Rust 80 passed / 25 ignored, project crate 54, TypeScript 640, clippy clean.
+- Not verified: the editor window visibly refreshing during these calls, the busy-retry path, and the Settings panel in the native window (no screenshot taken).
+
+## Phase 8: preview_frame (2026-11-07)
+
+- New tool `preview_frame` (24 tools). Rust emits `mcp-render-frame`; the editor renders from `current_view` with `drawScene` and `drawProjectText` and answers through `mcp_frame_reply`; Rust waits 20 s. Not drawn: transitions, picture-in-picture, live video frames (posters only).
+- Live against the dev app: a gradient PNG added by `add_scene` with a title returned a 640×360 PNG; the image was viewed and showed the gradient with the title in the default lower-left position. An unknown scene id returned a clear error. Three undos restored the project.
+- TypeScript 644 passed (4 new for target/size selection); MCP Rust tests 31; clippy clean.
+- Not verified: pixel match against FFmpeg export for this frame, video clips, transitions, and the case where the window is closed (expected timeout error).
+
+## Phase 8: agent video import (2026-11-07)
+
+- `add_scene` accepts a video: Rust asks the window (`mcp-probe-video`) to decode it, then builds the clip with `mediaKind: video`, the poster and the source length. The window reply channel is shared with `preview_frame`.
+- Live against the dev app (after a restart, since hot reload kept the old listener): a 4 s 320×180 H.264 MP4 added a `video` clip of 4.0 s with a poster, `preview_frame` returned an image for it, and `undo` restored the project.
+- Rust 82 passed / 25 ignored; TypeScript 644; clippy clean.
+- Not verified: long or odd-codec videos, an undecodable file in the live app, the window closed, and the frame's pixel match with export.
+
+## Phase 8: agent-started export (2026-11-07)
+
+- `export_video` and `get_export_status` (26 tools). Rust records the folder, the window runs its normal export routine on Rust's current project, the export commands skip the folder dialog and write a non-colliding name, and the outcome is stored for polling.
+- Live against the dev app, each failed attempt returned its real reason and led to a fix: no codec list loaded (it loads when the Export dialog opens), then no format selected (also set by the dialog). Both are now done by the agent handler.
+- Result: the template project "Motion opener" exported to a temporary folder as a 106 MB MP4, H.264 1920×1080 with AAC, 355.37 s, equal to the project's duration of 355.37 s. Status read `done` with the path. The file was deleted afterwards.
+- Rust 84 passed / 25 ignored; TypeScript 644; clippy clean (before the last two window-side edits, which are TypeScript only and type-check).
+- Not verified: a second export producing `(2)` live (covered by a unit test), cancelling from the window, frame-by-frame match against the canvas preview, and export with the window closed.

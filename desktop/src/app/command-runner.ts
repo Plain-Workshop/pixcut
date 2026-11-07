@@ -35,6 +35,19 @@ export function isLightCommand(command: Command): boolean {
 }
 
 /**
+ * Waits for the command in flight to finish before an agent's change is shown.
+ * A local edit that lands after the agent's would otherwise overwrite it, so the
+ * refresh is skipped unless the editor is genuinely idle.
+ */
+export async function settleBeforeExternalView(state: RunnerState, attempts = 4): Promise<boolean> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await state.pending.current;
+    if (!state.operation.current) return true;
+  }
+  return !state.operation.current;
+}
+
+/**
  * Runs a command now, or queues it behind the one in flight. Queued scene
  * updates for the same scene collapse into the latest, so a fast drag sends one
  * save, not hundreds. A failure drops the queue and reports the error; the

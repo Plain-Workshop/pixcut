@@ -16,7 +16,7 @@ import { sourceSecondsAt, sourceSpan, speedAt, speedCurve } from '../components/
 import { textLayersAsCaptions, toSrt } from '../components/text/captions-export';
 import { applyTextMotion } from '../components/animation/keyframes';
 import { KeyframeControls } from '../components/animation/KeyframeControls';
-import { isAssetRef, resolveMediaSource } from '../components/preview/media-url';
+import { isAssetRef, resolveAssetUrl, resolveMediaSource } from '../components/preview/media-url';
 import { assetExists } from '../stores/assets';
 import { readPixcutBundle } from '../stores/pixcut-bundle';
 import { MaskControls } from '../components/inspector/MaskControls';
@@ -143,7 +143,8 @@ import * as bridge from './bridge';
 import type { ModalId } from './modal';
 import { buildDiagnostics, classifyDrop, countMissingAssets } from './home-support';
 import { commandAvailability as resolveAvailability } from './command-availability';
-import { runCommand } from './command-runner';
+import { runCommand, settleBeforeExternalView } from './command-runner';
+import { renderAgentFrame, type FrameRequest } from './agent-frame';
 import { HINTS_KEY } from './export-options';
 import { MAX_GLOBAL_TEXT, MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, projectScenes, sceneAt, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, validateProject, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementKind, type ElementLayer } from '../stores/model';
 import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, fadeOpacity, loadImage, textBoxLayout } from '../components/preview/render';
@@ -645,6 +646,99 @@ export default function App() {
     })();
     return () => { disposed = true; unlisten?.(); };
   }, [persistCurrent]);
+  // An MCP tool edits the project in Rust. Pull the new view once any local
+  // command in flight has settled, so the two never overwrite each other.
+  useEffect(() => {
+    if (!bridge.native) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    let retry: number | undefined;
+    const refresh = () => {
+      window.clearTimeout(retry);
+      void (async () => {
+        const idle = await settleBeforeExternalView({ operation, queue: sceneQueue, pending });
+        if (disposed) return;
+        // Still busy: try again shortly instead of leaving the window stale,
+        // which a later local edit would write back over the agent's change.
+        if (!idle) { retry = window.setTimeout(refresh, 400); return; }
+        try {
+          const next = await bridge.currentView();
+          if (disposed) return;
+          latestProject.current = next.project;
+          setSession(next);
+          setName(next.project.name);
+          setStatus('Updated by agent');
+        } catch (e) { if (!disposed) setError(messageFor(e)); }
+      })();
+    };
+    void bridge.onProjectChanged(refresh)?.then(fn => {
+      if (disposed) fn(); else unlisten = fn;
+    }).catch(() => { /* the editor still works without the listener */ });
+    return () => { disposed = true; window.clearTimeout(retry); unlisten?.(); };
+  }, []);
+  const exportVideoRef = useRef<() => Promise<void>>(async () => {});
+  const shownError = useRef('');
+  // An agent asked to see a frame. Render it from Rust's current project with
+  // the same compositor as the viewer, without touching the playhead.
+  useEffect(() => {
+    if (!bridge.native) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void bridge.onRenderFrame<FrameRequest>(request => {
+      void (async () => {
+        try {
+          const view = await bridge.currentView();
+          const frame = await renderAgentFrame(view.project, request);
+          await bridge.replyFrame(request.requestId, { png: frame.png });
+        } catch (e) {
+          await bridge.replyFrame(request.requestId, { error: messageFor(e) }).catch(() => {});
+        }
+      })();
+    })?.then(fn => {
+      if (disposed) fn(); else unlisten = fn;
+    }).catch(() => { /* the editor still works without the listener */ });
+    // An agent added a video: decode it here for its length and a poster frame.
+    let unlistenProbe: (() => void) | undefined;
+    void bridge.onProbeVideo<{ requestId: string; reference: string }>(request => {
+      void (async () => {
+        try {
+          const probe = await probeVideo(await resolveAssetUrl(request.reference));
+          await bridge.replyFrame(request.requestId, { png: JSON.stringify({ duration: probe.duration, poster: probe.poster }) });
+        } catch (e) {
+          await bridge.replyFrame(request.requestId, { error: messageFor(e) }).catch(() => {});
+        }
+      })();
+    })?.then(fn => {
+      if (disposed) fn(); else unlistenProbe = fn;
+    }).catch(() => { /* the editor still works without the listener */ });
+    // An agent started an export. Run the same routine as the Export button, on
+    // Rust's current project, then tell Rust the routine returned.
+    let unlistenExport: (() => void) | undefined;
+    void bridge.onAgentExport(() => {
+      void (async () => {
+        try {
+          await settleBeforeExternalView({ operation, queue: sceneQueue, pending });
+          const next = await bridge.currentView();
+          latestProject.current = next.project;
+          setSession(next);
+          // The Export dialog normally picks every format and loads the codec list.
+          setExportFormatIds(next.project.formats.map(format => format.id));
+          setExportCodecs(await bridge.exporterCapabilities().catch(() => []));
+          await new Promise(resolve => window.setTimeout(resolve, 150));
+          await exportVideoRef.current();
+        } catch (e) {
+          setError(messageFor(e));
+        } finally {
+          // Give React a beat to show the reason, then hand it to the agent.
+          await new Promise(resolve => window.setTimeout(resolve, 200));
+          await bridge.agentExportFinished(shownError.current).catch(() => {});
+        }
+      })();
+    })?.then(fn => {
+      if (disposed) fn(); else unlistenExport = fn;
+    }).catch(() => { /* the editor still works without the listener */ });
+    return () => { disposed = true; unlisten?.(); unlistenProbe?.(); unlistenExport?.(); };
+  }, []);
   useEffect(() => {
     if (!bridge.native) return;
     let unlisten: (() => void) | undefined, cancelled = false;
@@ -1839,6 +1933,8 @@ export default function App() {
    * last few frames here and blits them into the same canvas the preview uses.
    */
   const { saveStillFrame, exportVideo } = useVideoExport({ saveCredits, musicCredits, exportAudio, exportCancelled, setExportProgress, exportCodec, exportContainer, exportSpeed, useHardware, exportFilename, sceneForPreview, setError, previewTransition, resolvedNextScene, displayAspect, previewLocalSeconds, project, activeSize, renderOverlays, position, videoScene, sceneVideo, renderPipScenes, activeFormat, setNotice, latestProject, presentRefs, exportCodecs, commitElement, inspectorFlush, pending, exportFormatIds, exportResolution, exportQuality, exportFps, setCancellingExport, setExporting, setExportElapsed, setExportJob, setPlaying, setModal });
+  exportVideoRef.current = exportVideo;
+  shownError.current = error;
 
 
   function cancelExport() {
