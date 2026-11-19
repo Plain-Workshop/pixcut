@@ -1,3 +1,4 @@
+import { useProjectStarts } from './hooks/useProjectStarts';
 import { useFontsAndCaptions } from './hooks/useFontsAndCaptions';
 import { useProjectFiles } from './hooks/useProjectFiles';
 import { useExportFlow } from './hooks/useExportFlow';
@@ -54,7 +55,7 @@ import { RangeField } from '../components/inspector/NumberField';
 import { useClipEditing } from './hooks/useClipEditing';
 import { editPoints, nextEditPoint } from '../components/timeline/ruler';
 import { type TimelineControls } from './screens/TimelinePanel';
-import { useFormats } from './hooks/useFormats';
+
 import { useSceneCommands } from './hooks/useSceneCommands';
 import { useLibraryAudio } from './hooks/useLibraryAudio';
 import { useStagePointer } from './hooks/useStagePointer';
@@ -149,7 +150,7 @@ import { buildDiagnostics, classifyDrop, countMissingAssets } from './home-suppo
 import { commandAvailability as resolveAvailability } from './command-availability';
 import { runCommand } from './command-runner';
 import { HINTS_KEY } from './export-options';
-import { overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, projectScenes, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementLayer } from '../stores/model';
+import { overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, projectScenes, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, type AudioClip, type AudioMix, type Command, type Scene, type Session, type TextLayer, type FormatVariant, type ElementLayer } from '../stores/model';
 import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, loadImage, textBoxLayout } from '../components/preview/render';
 import { probeVideo } from '../components/preview/video';
 import { layerVisibleAt, sceneTextLayers } from '../components/text/layers';
@@ -159,7 +160,7 @@ import { messageFor } from './errors';
 import { formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
 import { backfillThumbnails, exportState, getLibraryProject, listProjects, saveLibraryProject, type ProjectSummary } from '../stores/library';
 import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, resolveTheme, type Preferences } from '../stores/preferences';
-import { TEMPLATES, buildTemplateProject, templatePreview, type TemplateDefinition } from '../templates/catalog';
+import { TEMPLATES, templatePreview, type TemplateDefinition } from '../templates/catalog';
 import {
   COMMANDS,
   bindingMatchesEvent,
@@ -1209,55 +1210,8 @@ export default function App() {
     };
   }, [contextMenu]);
 
-  async function launchProject(p: Project) {
-    if (projectScenes(latestProject.current).length) await persistCurrent();
-    if (!(await run({ type: 'replace', project: p }))) return false;
-    const first = projectScenes(p)[0]?.id ?? null;
-    setSelectedIds(first ? [first] : []);
-    setPrimarySelected(first);
-    selectionAnchor.current = first;
-    setPosition(0);
-    setPreviewScene(null);
-    setEditingText(false);
-    setPlaying(false);
-    setScreen('editor');
-    setModal(null);
-    setPendingTemplate(null);
-    setHomeSection('home');
-    return true;
-  }
+  const { launchProject, startBlank, startWithFormats, toggleFormatPreset, addNewCustomFormat, addCustomFormat, updateFormatSettings, removeFormat, applyFramingToAllFormats, startTemplate, chooseTemplate } = useProjectStarts({ activeFormat, customFormatDraft, latestProject, newCustomFormats, newFormatIds, newFormatSelection, newProjectFps, persistCurrent, preferences, project, run, selectedScene, selectionAnchor, setActiveFormatId, setCustomFormatDraft, setEditingText, setError, setHomeSection, setModal, setNewCustomFormats, setNotice, setPendingTemplate, setPlaying, setPosition, setPreviewScene, setPrimarySelected, setScreen, setSelectedIds });
 
-  async function startBlank() {
-    await launchProject(emptyProject('Untitled story', preferences.defaultAspect));
-  }
-
-  async function startWithFormats() {
-    const selected = FORMAT_PRESETS.filter(preset => newFormatIds.includes(preset.id));
-    try { if (selected.length) localStorage.setItem('pixcut.lastFormats', JSON.stringify(selected.map(preset => preset.id))); } catch { /* remembering the last choice is optional */ }
-    const baseAspect = (['16:9', '9:16', '1:1', '4:5'].includes(selected[0]?.aspect ?? '') ? selected[0].aspect : preferences.defaultAspect) as Project['aspect'];
-    const next = emptyProject('Untitled story', baseAspect, newProjectFps);
-    const presetFormats = selected.map(preset => ({ id: crypto.randomUUID(), name: preset.name, platform: preset.platform, aspect: preset.aspect, width: preset.width, height: preset.height, fps: preset.fps, quality: preset.quality, presetId: preset.id, overrides: {} }));
-    next.formats = presetFormats.length || newCustomFormats.length ? [...presetFormats, ...newCustomFormats] : next.formats;
-    setNewCustomFormats([]);
-    await launchProject(next);
-  }
-
-  const { toggleFormatPreset, addNewCustomFormat, addCustomFormat, updateFormatSettings, removeFormat, applyFramingToAllFormats } = useFormats({ project, run, setNotice, setError, activeFormat, setActiveFormatId, selectedScene, newFormatCount: newFormatSelection.length, setNewCustomFormats, customFormatDraft, setCustomFormatDraft });
-
-  async function startTemplate(template: TemplateDefinition) {
-    // A template is a fresh story: always use its bundled photography, never
-    // the photos from whichever project happened to be open underneath it.
-    await launchProject(await buildTemplateProject(template));
-  }
-
-  function chooseTemplate(template: TemplateDefinition) {
-    if (projectScenes(latestProject.current).length) {
-      setPendingTemplate(template);
-      setModal('new');
-      return;
-    }
-    void startTemplate(template);
-  }
 
   const { deletedProjects, refreshDeleted, restoreProject, purgeProject, batchMode, setBatchMode, batchIds, toggleBatch, endBatch, batchFavorite, batchMove, batchDelete, projectMenu, setProjectMenu, deleteTarget, setDeleteTarget, setRenameTarget, renameDraft, setRenameDraft, groupTarget, setGroupTarget, groupDraft, setGroupDraft, groupDrafts, setGroupDrafts, groupFilter, setGroupFilter, openLibraryProject, duplicateProject, askDeleteProject, askRenameProject, askGroupProject, confirmGroupProject, projectGroups, openGroupManager, saveGroupRename, removeGroup, toggleProjectFavorite, confirmDeleteProject, renameProject, exportLibraryProject } = useProjectLibrary({ projects, setProjects, project, latestProject, canEdit, launchProject, refreshLibrary, persistCurrent, run, setScreen, setModal, setNotice, setError, setSelectedIds, setPrimarySelected, selectionAnchor, setPosition });
 
