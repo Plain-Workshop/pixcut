@@ -1,3 +1,4 @@
+import { useFontsAndCaptions } from './hooks/useFontsAndCaptions';
 import { useProjectFiles } from './hooks/useProjectFiles';
 import { useExportFlow } from './hooks/useExportFlow';
 import { useTextAndElements } from './hooks/useTextAndElements';
@@ -13,10 +14,10 @@ import { BehaviorControls } from '../components/elements/BehaviorControls';
 import { ELEMENT_CATALOG, elementPreset, elementDisplayName } from '../components/elements/catalog';
 import { exportOutputFormat } from './export-progress';
 import { registerCustomFonts } from '../components/text/fonts';
-import { subsetCharacters } from '../components/text/subset-chars';
-import { subsetFontBytes } from '../components/text/subset';
+
+
 import { sourceSecondsAt, sourceSpan, speedAt, speedCurve } from '../components/preview/speed';
-import { textLayersAsCaptions, toSrt } from '../components/text/captions-export';
+
 import { applyTextMotion } from '../components/animation/keyframes';
 import { KeyframeControls } from '../components/animation/KeyframeControls';
 import { isAssetRef, resolveMediaSource } from '../components/preview/media-url';
@@ -36,7 +37,7 @@ import { LatestRenderQueue } from '../components/preview/render-queue';
 import { loadMediaBin, saveMediaBin, uniqueMediaSources } from '../stores/media-bin';
 import { missingAssets, projectAssetRefs } from '../stores/missing-assets';
 import { syncAudioElement } from '../components/preview/audio';
-import { captionCount, formatCount, isLocale, mediaFileCount, sceneCount, setLocale, t, loadLocale, type Locale } from '../i18n';
+import { formatCount, isLocale, mediaFileCount, sceneCount, setLocale, t, loadLocale, type Locale } from '../i18n';
 import { applyClipEq } from '../components/preview/eq';
 import { audibleVideoWindows, duckGain } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
@@ -148,7 +149,7 @@ import { buildDiagnostics, classifyDrop, countMissingAssets } from './home-suppo
 import { commandAvailability as resolveAvailability } from './command-availability';
 import { runCommand } from './command-runner';
 import { HINTS_KEY } from './export-options';
-import { MAX_PROJECT_FONTS, overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, projectScenes, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementLayer } from '../stores/model';
+import { overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, projectScenes, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, type AudioClip, type AudioMix, type Command, type Project, type Scene, type Session, type TextLayer, type FormatVariant, type ElementLayer } from '../stores/model';
 import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTransition, loadImage, textBoxLayout } from '../components/preview/render';
 import { probeVideo } from '../components/preview/video';
 import { layerVisibleAt, sceneTextLayers } from '../components/text/layers';
@@ -1315,91 +1316,8 @@ export default function App() {
 
   const { refreshAssetUsage, chooseImages, commitDucking, importCustomElement, importVideos, importCaptionFile, chooseVideo, chooseCustomElement, cleanStorage } = useMediaImport({ canEdit, setBusy, customElementKind, addMediaOverlay, project, selectedScene, setError, customElementInput, mediaInput, operation, setPlaying, scenes, preferences, stageImportedMedia, videoInput, latestProject, run, setNotice, captionInput, setStorageUsage, storageBusy, storageConfirm, setStorageConfirm, setStorageNote, setStorageBusy, setDuckDraft });
 
-  async function importFontFile(files: FileList | null) {
-    const file = files?.[0];
-    if (!file || !canEdit) return;
-    const targetId = fontTargetId.current;
-    fontTargetId.current = null;
-    const target = targetId ? (project.fonts ?? []).find(font => font.id === targetId) : undefined;
-    try {
-      const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
-      if (!['ttf', 'otf', 'woff', 'woff2'].includes(extension)) throw new Error('Choose a TTF, OTF, WOFF, or WOFF2 font.');
-      if (file.size > 40 * 1024 * 1024) throw new Error('Choose a font smaller than 40 MB.');
-      if (!target && (project.fonts?.length ?? 0) >= MAX_PROJECT_FONTS) throw new Error(`A project supports up to ${MAX_PROJECT_FONTS} imported fonts.`);
-      if ((extension === 'woff' || extension === 'woff2') && file.size > 2 * 1024 * 1024) {
-        throw new Error('WOFF and WOFF2 fonts cannot be subset here. Choose a TTF or OTF under 2 MB, or a large TTF/OTF that PixCut can subset.');
-      }
-      const mime = extension === 'woff2' ? 'font/woff2' : extension === 'woff' ? 'font/woff' : extension === 'otf' ? 'font/otf' : 'font/ttf';
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
-        reader.onerror = () => reject(new Error('That font could not be read.'));
-        reader.readAsDataURL(file);
-      });
-      if (!base64) throw new Error('That font file is empty.');
-      let data = `data:${mime};base64,${base64}`;
-      let subsetted = 0;
-      // A CJK face is often tens of megabytes. Subset it to the project's text
-      // plus everyday alphabets so it fits the same local project budget.
-      if ((extension === 'ttf' || extension === 'otf') && file.size > 300_000) {
-        try {
-          const bytes = Uint8Array.from(atob(base64), character => character.charCodeAt(0));
-          const projectText = [
-            ...projectScenes(project).flatMap(scene => sceneTextLayers(scene).flatMap(layer => [layer.title, layer.subtitle])),
-            ...(project.globalText ?? []).flatMap(layer => [layer.title, layer.subtitle]),
-            'The little moments',
-          ].join(' ');
-          const subset = await subsetFontBytes(bytes, subsetCharacters(projectText));
-          if (subset.length && subset.length < bytes.length) {
-            let binary = '';
-            for (let index = 0; index < subset.length; index += 0x8000) {
-              binary += String.fromCharCode(...subset.subarray(index, index + 0x8000));
-            }
-            data = `data:${mime};base64,${btoa(binary)}`;
-            subsetted = subset.length;
-          }
-        } catch { /* fall back to the original if it fits the project budget */ }
-      }
-      if (data.length > 3_000_000) {
-        throw new Error('This font is still larger than 2 MB after subsetting. Choose a TTF or OTF with fewer glyphs.');
-      }
-      const font = {
-        id: target?.id ?? `custom-${crypto.randomUUID()}`,
-        name: target?.name ?? (file.name.replace(/\.[^.]+$/, '').trim() || 'Imported font').slice(0, 60),
-        data,
-      };
-      const fonts = target
-        ? (project.fonts ?? []).map(item => item.id === target.id ? font : item)
-        : [...(project.fonts ?? []), font];
-      if (await run({ type: 'fonts', fonts })) {
-        setNotice(subsetted
-          ? (target ? t('“{name}” subset refreshed · {subset} of {original}.', { name: font.name, subset: formatBytes(subsetted), original: formatBytes(file.size) }) : t('“{name}” is now in the font picker · {subset} of {original}.', { name: font.name, subset: formatBytes(subsetted), original: formatBytes(file.size) }))
-          : (target ? t('“{name}” updated.', { name: font.name }) : t('“{name}” is now in the font picker.', { name: font.name })));
-      }
-    } catch (error) {
-      setError(messageFor(error));
-    } finally {
-      if (fontInput.current) fontInput.current.value = '';
-    }
-  }
+  const { importFontFile, removeFont, exportCaptions } = useFontsAndCaptions({ canEdit, fontInput, fontTargetId, latestProject, project, run, setError, setNotice });
 
-  function removeFont(id: string) {
-    const font = (project.fonts ?? []).find(item => item.id === id);
-    void run({ type: 'fonts', fonts: (project.fonts ?? []).filter(item => item.id !== id) }).then(ok => {
-      if (ok) setNotice(t('“{name}” removed. Text using it falls back to Inter.', { name: font?.name ?? t('Font') }));
-    });
-  }
-
-  async function exportCaptions() {
-    const captions = textLayersAsCaptions(projectScenes(latestProject.current), project.timebase);
-    if (!captions.length) { setError(t('Add a title or caption layer before exporting captions.')); return; }
-    try {
-      const saved = await bridge.saveTextFile(toSrt(captions), `${project.name} - captions`, 'srt', 'SubRip subtitles');
-      if (saved) setNotice(t('{captions} exported as an SRT file.', { captions: captionCount(captions.length) }));
-    } catch (error) {
-      setError(messageFor(error));
-    }
-  }
 
   const { removeAudio, importFiles, stopVoiceover, startVoiceover, stageAudio, commitAudio, detectAudioBeats, snapCutsToBeat, importAudio, chooseAudio, focusAudio, setVideoAudioLevel, commitMix, stageVideoVolume, commitVideoVolume, toggleLaneMute, setLaneMix, beginAudioMove, beginAudioTrim } = useAudioActions({ timelineSnapping: snapping, canEdit, setError, audioInput, projectTicks, setNotice, position, project, audioLaneRef, run, setEditTarget, setSelectedAudioId, setTab, operation, setPlaying, setBusy, scenes, preferences, stageImportedMedia, mediaInput, recordChunks, recorderRef, setRecording, setRecordSeconds, recordTimer, latestProject, positionRef, audioDraftRef, setAudioDraft, setPreviewAudio, selectedAudio, mixDraftRef, setMixDraft, videoVolumeDraftRef, setVideoVolumeDraft, playing, setPosition, editTargetRef, audioTargetRef, setSelectedIds, setPrimarySelected, setSelectedElementId, setSelectedGlobalTextId, setBeatBusy, setBeatTempo, beatTempo });
 
