@@ -1717,3 +1717,22 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - Native build: `tauri build --debug --bundles app` produced `target/debug/bundle/macos/PixCut.app` (updater signing then failed for lack of `TAURI_SIGNING_PRIVATE_KEY`, as expected; the key in `.secrets/` was not used). The app was restarted on it and was running with no crash lines in the system log. It was not driven through its window.
 - Browser preview (not the native webview): System theme followed a light to dark change live; ctrl+wheel and gesture pinch zoom both worked and clamp correctly.
 - Not verified: update from a test feed, trackpad pinch, macOS appearance switch, adding an online track in the desktop app, first Listen latency on an unwarmed bundled track, scene 2's left trim handle. Procedures are in `IMPROVEMENT_PLAN.md` Phase 7.
+
+## App.tsx restructure (2026-11-18)
+
+- `App.tsx` 2,140 → 780 lines across 13 commits; 12 hooks and 3 components extracted (see `IMPROVEMENT_PLAN.md`, Phase 4 update).
+- Each step: tsc clean, 637 vitest tests, build, eslint 0 errors. Warnings rose from 35 to about 38 as exhaustive-deps notes moved with their effects.
+- Browser preview after the steps: add element and drag it, add text with T, undo; scrub and play/pause with the canvas painting; command palette lists Duplicate, Cmd+D duplicates and Cmd+Z undoes, Settings opens and closes with Escape, the Undo tooltip reads "Undo · ⌘Z — Nothing to undo."; reload restores the autosaved project (4 scenes) and Resume works; project card shows the Copy icon and its menu lists seven actions; the element inspector and the audio inspector render; no uncaught errors from the final code (earlier console errors were hot-reload states from intermediate edits).
+- Not verified: the native app on this branch, export (no export code changed, but `useExportFlow` moved), and long playback in a visible window.
+
+## Props to stores and contexts (2026-11-18)
+
+- `src/app/keyed-store.ts` (`createStoreKit`), `playback-store.ts`, `ui-store.ts`, `value-context.ts`, `updates-context.ts`, `storage-context.ts`; `tests/ui-stores.test.ts` (7). Largest component is 22 props. `App.tsx` 776 lines.
+- Browser preview: Settings opens on Appearance, Storage and Updates and closes with Escape (the Updates tab shows "PixCut 0.2.2" and the Check button); Home sidebar shows the version and storage line; editor opens; Space plays and pauses; library tabs switch; the Export dialog opens; a scene context menu opens; no errors or warnings were logged.
+- Tests: 645, tsc, build and eslint (0 errors).
+
+## Hooks onto stores, effect order (2026-11-19)
+
+- 645 tests, tsc, build, eslint (0 errors).
+- Browser preview, with per-step undo counts logged (an earlier run of mine over-undid past the template creation and looked like a failure; it was my test): scene duplicate and undo; split and undo; element add, drag (65, 50 px) and undo; right-trim 253 → 202 px and undo to 253; multi-select shows "Editing 3 clips"; 15 bundled music rows; Space plays and shows Pause; no errors or warnings logged.
+- Not verified: the native app's first export on this branch.

@@ -1,3 +1,7 @@
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useSelection, type SelectionStore } from '../selection-store';
+import { useDrafts, type DraftsStore } from '../drafts-store';
 import { landedOn, setSnapGuide, snapEdges, snapThreshold, timelineSnapPoints } from '../../components/timeline/timeline-snap';
 import { type Dispatch, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from 'react';
 import { framingTravel } from '../../components/preview/framing';
@@ -8,13 +12,12 @@ import { projectScenes, sceneSeconds, secondsToTicks, ticksToSeconds, trimSceneW
 import { captureDragPointer } from '../helpers';
 
 /** Pointer gestures on the preview stage (pan, text move/resize) and the timeline (fades, trims, playhead). */
-export function useStagePointer({ timelineSnapping, playheadSeconds, canEdit, inspectorFlush, previewStage, inspectorScene, selectedScene, selectedIds, selectedTextLayer, textBox, project, latestProject, projectTicks, duration, activeSize, pending, run, updateSelection, optimisticScene, replaceSceneTextLayers, scrubTo, selectionAnchor, setSession, setPreviewScene, setPlaying, setEditingText, setFadeDrag, setSnapGuides, setSelectedIds, setPrimarySelected, setDraggingOverlay }: {
+export function useStagePointer({timelineSnapping, playheadSeconds, canEdit, inspectorFlush, previewStage, inspectorScene, selectedScene, selectedTextLayer, textBox, project, latestProject, projectTicks, duration, activeSize, pending, run, updateSelection, optimisticScene, replaceSceneTextLayers, scrubTo, selectionAnchor, setSession, setDraggingOverlay, uiStore, playbackStore, selectionStore, draftsStore}: {
   canEdit: boolean;
   inspectorFlush: RefObject<() => void>;
   previewStage: RefObject<HTMLElement | null>;
   inspectorScene: Scene | null;
   selectedScene: Scene | null | undefined;
-  selectedIds: string[];
   selectedTextLayer: TextLayer | null;
   textBox: ReturnType<typeof textBoxLayout> | null;
   project: Project;
@@ -32,15 +35,16 @@ export function useStagePointer({ timelineSnapping, playheadSeconds, canEdit, in
   scrubTo: (value: number) => void;
   selectionAnchor: RefObject<string | null>;
   setSession: Dispatch<SetStateAction<Session>>;
-  setPreviewScene: Dispatch<SetStateAction<Scene | null>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  setEditingText: Dispatch<SetStateAction<boolean>>;
-  setFadeDrag: Dispatch<SetStateAction<{ sceneId: string; side: 'in' | 'out'; value: number } | null>>;
-  setSnapGuides: Dispatch<SetStateAction<{ x: number | null; y: number | null }>>;
-  setSelectedIds: Dispatch<SetStateAction<string[]>>;
-  setPrimarySelected: Dispatch<SetStateAction<string | null>>;
   setDraggingOverlay: Dispatch<SetStateAction<boolean>>;
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
+  selectionStore: SelectionStore;
+  draftsStore: DraftsStore;
 }) {
+  const { setEditingText, setFadeDrag, setSnapGuides } = useUi(uiStore);
+  const { setPlaying } = usePlayback(playbackStore);
+  const { selectedIds, setSelectedIds, setPrimarySelected } = useSelection(selectionStore);
+  const { setPreviewScene } = useDrafts(draftsStore);
   function beginImagePan(event: ReactPointerEvent<HTMLElement>) {
     const scene = inspectorScene;
     if (!scene || !canEdit || event.button !== 0) return;

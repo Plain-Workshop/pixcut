@@ -1,3 +1,5 @@
+import { useUi } from '../ui-store';
+import { usePlayback } from '../playback-store';
 import { elementTransform } from '../../components/elements/transform';
 import { applyElementMotion } from '../../components/animation/keyframes';
 import { type TimelineOverlay } from '../../components/elements/overlays';
@@ -15,13 +17,8 @@ import { SAMPLE_TEMPLATE } from '../../templates/catalog';
 import type { Dispatch, SetStateAction, RefObject } from 'react';
 import { elementDisplayName } from '../../components/elements/catalog';
 
-export function PreviewPanel({ setModal, playing, modal, position, allOverlays, safeArea, activeFormat, setActiveFormatId, previewArea, previewStage, previewSize, preview, sceneVideo, setVideoTick, pipVideoElements, setPipVideoTick, snapGuides, framingMode, textBox, selectedTextVisible, selectedElement, editingText, setTextDraft, setEditingText, sceneLayerRank, textDraft, fadeAmount, setPosition, setPlaying, loop, setLoop }: {
-  setModal: Dispatch<SetStateAction<"templates" | "source" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null>>;
-  playing: boolean;
-  modal: "templates" | "source" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null;
-  position: number;
+export function PreviewPanel({allOverlays, activeFormat, setActiveFormatId, previewArea, previewStage, previewSize, preview, sceneVideo, setVideoTick, pipVideoElements, setPipVideoTick, textBox, selectedTextVisible, selectedElement, sceneLayerRank, fadeAmount}: {
   allOverlays: TimelineOverlay[];
-  safeArea: boolean;
   activeFormat: FormatVariant;
   setActiveFormatId: Dispatch<SetStateAction<string | null>>;
   previewArea: RefObject<HTMLDivElement | null>;
@@ -32,22 +29,14 @@ export function PreviewPanel({ setModal, playing, modal, position, allOverlays, 
   setVideoTick: Dispatch<SetStateAction<number>>;
   pipVideoElements: RefObject<Map<string, HTMLVideoElement>>;
   setPipVideoTick: Dispatch<SetStateAction<number>>;
-  snapGuides: { x: number | null; y: number | null; };
-  framingMode: boolean;
   textBox: { hasText: boolean; leftPct: number; topPct: number; widthPct: number; heightPct: number; rotation: number; } | null;
   selectedTextVisible: boolean;
   selectedElement: TimelineOverlay | null;
-  editingText: boolean;
-  setTextDraft: Dispatch<SetStateAction<{ title: string; subtitle: string; }>>;
-  setEditingText: Dispatch<SetStateAction<boolean>>;
   sceneLayerRank: Map<string, number>;
-  textDraft: { title: string; subtitle: string; };
   fadeAmount: number;
-  setPosition: Dispatch<SetStateAction<number>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  loop: boolean;
-  setLoop: Dispatch<SetStateAction<boolean>>;
 }) {
+  const { setModal, modal, safeArea, snapGuides, framingMode, editingText, setTextDraft, setEditingText, textDraft } = useUi();
+  const { playing, position, setPosition, setPlaying, loop, setLoop } = usePlayback();
   const { overlayDraft } = useDrafts();
   const { canEdit, project, activeSize, duration, frameSeconds } = useEditorModel();
   const { selectedScene, previewTarget, pipVideoScenes, selectedTextLayer, selectedGlobalText } = useEditorView();

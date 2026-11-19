@@ -1,3 +1,4 @@
+import { usePlayback, type PlaybackStore } from '../playback-store';
 import { captionCount, cueCount, fileCount, sceneCount, t } from '../../i18n';
 import { loadSavedTracks } from '../../stores/online-downloads';
 import { parseCaptions, placeCaptions } from '../../components/text/captions';
@@ -12,7 +13,7 @@ import { libraryAssetRefs } from '../../stores/library';
 import { type Preferences } from '../../stores/preferences';
 import { type Dispatch, type SetStateAction, type RefObject } from 'react';
 
-export function useMediaImport({ canEdit, setBusy, customElementKind, addMediaOverlay, project, selectedScene, setError, customElementInput, mediaInput, operation, setPlaying, scenes, preferences, stageImportedMedia, videoInput, latestProject, run, setNotice, captionInput, setStorageUsage, storageBusy, storageConfirm, setStorageConfirm, setStorageNote, setStorageBusy, setDuckDraft }: {
+export function useMediaImport({canEdit, setBusy, customElementKind, addMediaOverlay, project, selectedScene, setError, customElementInput, mediaInput, operation, scenes, preferences, stageImportedMedia, videoInput, latestProject, run, setNotice, captionInput, setStorageUsage, storageBusy, storageConfirm, setStorageConfirm, setStorageNote, setStorageBusy, setDuckDraft, playbackStore}: {
   canEdit: boolean;
   setBusy: Dispatch<SetStateAction<boolean>>;
   customElementKind: RefObject<"image" | "video">;
@@ -23,7 +24,6 @@ export function useMediaImport({ canEdit, setBusy, customElementKind, addMediaOv
   customElementInput: RefObject<HTMLInputElement | null>;
   mediaInput: RefObject<HTMLInputElement | null>;
   operation: RefObject<boolean>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
   scenes: Scene[];
   preferences: Preferences;
   stageImportedMedia: (added: Scene[]) => Promise<void>;
@@ -39,7 +39,9 @@ export function useMediaImport({ canEdit, setBusy, customElementKind, addMediaOv
   setStorageNote: Dispatch<SetStateAction<string | null>>;
   setStorageBusy: Dispatch<SetStateAction<boolean>>;
   setDuckDraft: Dispatch<SetStateAction<number | null>>;
+  playbackStore: PlaybackStore;
 }) {
+  const { setPlaying } = usePlayback(playbackStore);
   async function importCustomElement(files: FileList | File[] | null) {
     if (!files?.length || !canEdit) return;
     setBusy(true);

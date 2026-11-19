@@ -1,3 +1,7 @@
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useSelection, type SelectionStore } from '../selection-store';
+import { useDrafts, type DraftsStore } from '../drafts-store';
 import { beatMarkerCount, cutCount, t } from '../../i18n';
 import { landedOn, setSnapGuide, snapEdges, snapThreshold, timelineSnapPoints } from '../../components/timeline/timeline-snap';
 import { resolveAssetUrl } from '../../components/preview/media-url';
@@ -12,22 +16,17 @@ import { captureDragPointer, audioDuration, audioFileData } from '../helpers';
 import { type Preferences } from '../../stores/preferences';
 import { type Dispatch, type SetStateAction, type RefObject } from 'react';
 
-export function useAudioActions({ timelineSnapping, canEdit, setError, audioInput, projectTicks, setNotice, position, project, audioLaneRef, run, setEditTarget, setSelectedAudioId, setTab, operation, setPlaying, setBusy, scenes, preferences, stageImportedMedia, mediaInput, recordChunks, recorderRef, setRecording, setRecordSeconds, recordTimer, latestProject, positionRef, audioDraftRef, setAudioDraft, setPreviewAudio, selectedAudio, mixDraftRef, setMixDraft, videoVolumeDraftRef, setVideoVolumeDraft, playing, setPosition, editTargetRef, audioTargetRef, setSelectedIds, setPrimarySelected, setSelectedElementId, setSelectedGlobalTextId, setBeatBusy, setBeatTempo, beatTempo }: {
+export function useAudioActions({timelineSnapping, canEdit, setError, audioInput, projectTicks, setNotice, project, audioLaneRef, run, operation, setBusy, scenes, preferences, stageImportedMedia, mediaInput, recordChunks, recorderRef, setRecording, setRecordSeconds, recordTimer, latestProject, positionRef, audioDraftRef, setPreviewAudio, selectedAudio, mixDraftRef, setMixDraft, videoVolumeDraftRef, editTargetRef, audioTargetRef, setBeatBusy, setBeatTempo, beatTempo, uiStore, playbackStore, selectionStore, draftsStore}: {
   canEdit: boolean;
   setError: Dispatch<SetStateAction<string>>;
   audioInput: RefObject<HTMLInputElement | null>;
   projectTicks: number;
   setNotice: Dispatch<SetStateAction<string>>;
-  position: number;
   timelineSnapping: boolean;
   project: Project;
   audioLaneRef: RefObject<number>;
   run: (command: Command) => Promise<boolean>;
-  setEditTarget: Dispatch<SetStateAction<"text" | "audio" | "scene" | "element">>;
-  setSelectedAudioId: Dispatch<SetStateAction<string | null>>;
-  setTab: Dispatch<SetStateAction<"text" | "audio" | "media" | "elements" | "templates">>;
   operation: RefObject<boolean>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
   setBusy: Dispatch<SetStateAction<boolean>>;
   scenes: Scene[];
   preferences: Preferences;
@@ -41,25 +40,25 @@ export function useAudioActions({ timelineSnapping, canEdit, setError, audioInpu
   latestProject: RefObject<Project>;
   positionRef: RefObject<number>;
   audioDraftRef: RefObject<AudioClip | null>;
-  setAudioDraft: Dispatch<SetStateAction<AudioClip | null>>;
   setPreviewAudio: Dispatch<SetStateAction<AudioClip[] | null>>;
   selectedAudio: AudioClip;
   mixDraftRef: RefObject<AudioMix | null>;
   setMixDraft: Dispatch<SetStateAction<AudioMix | null>>;
   videoVolumeDraftRef: RefObject<{ id: string; value: number; } | null>;
-  setVideoVolumeDraft: Dispatch<SetStateAction<{ id: string; value: number; } | null>>;
-  playing: boolean;
-  setPosition: Dispatch<SetStateAction<number>>;
   editTargetRef: RefObject<"text" | "audio" | "scene" | "element">;
   audioTargetRef: RefObject<string | null>;
-  setSelectedIds: Dispatch<SetStateAction<string[]>>;
-  setPrimarySelected: Dispatch<SetStateAction<string | null>>;
-  setSelectedElementId: Dispatch<SetStateAction<string | null>>;
-  setSelectedGlobalTextId: Dispatch<SetStateAction<string | null>>;
   setBeatBusy: Dispatch<SetStateAction<boolean>>;
   setBeatTempo: Dispatch<SetStateAction<number | null>>;
   beatTempo: number | null;
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
+  selectionStore: SelectionStore;
+  draftsStore: DraftsStore;
 }) {
+  const { setTab, setVideoVolumeDraft } = useUi(uiStore);
+  const { position, setPlaying, playing, setPosition } = usePlayback(playbackStore);
+  const { setEditTarget, setSelectedAudioId, setSelectedIds, setPrimarySelected, setSelectedElementId, setSelectedGlobalTextId } = useSelection(selectionStore);
+  const { setAudioDraft } = useDrafts(draftsStore);
   async function chooseAudio() {
     if (!canEdit) return;
     if (bridge.native) {

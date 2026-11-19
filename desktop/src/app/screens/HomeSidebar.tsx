@@ -1,10 +1,12 @@
+import { useUpdatesApi } from '../updates-context';
+import { useStorageApi } from '../storage-context';
+import { useUi } from '../ui-store';
 import { t } from '../../i18n';
 import { showUpdateNotice } from '../updates';
 import { Keyboard, ArrowUpRight, Clapperboard, Download, FolderOpen, HardDrive, Home, Info, LayoutTemplate, Settings2 } from 'lucide-react';
 import type { ProjectSummary } from '../../stores/library';
 import { Brand } from '../../components/BrandLogo';
-import type { Dispatch, SetStateAction } from 'react';
-import * as bridge from "../bridge";
+
 
 const TIPS = [
   'Press ⌘/Ctrl + 1–6 on Home to open a recent project.',
@@ -14,19 +16,13 @@ const TIPS = [
   'Use arrow keys to move through your projects, Enter to open.',
 ];
 
-export function HomeSidebar({ storageLabel, projects, openProject, setHomeSection, homeSection, setModal, updateState, setSettingsTab, updateProgress, updateInfo, appVersion }: {
-  storageLabel: string;
+export function HomeSidebar({projects, openProject}: {
   projects: ProjectSummary[];
   openProject: (entry: ProjectSummary) => Promise<void> | void;
-  setHomeSection: Dispatch<SetStateAction<"home" | "projects">>;
-  homeSection: "home" | "projects";
-  setModal: Dispatch<SetStateAction<"source" | "templates" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null>>;
-  updateState: "idle" | "checking" | "available" | "downloading" | "ready" | "error";
-  setSettingsTab: Dispatch<SetStateAction<"shortcuts" | "general" | "appearance" | "editing" | "updates" | "privacy">>;
-  updateProgress: number;
-  updateInfo: bridge.UpdateInfo | null;
-  appVersion: string;
 }) {
+  const { updateState, updateProgress, updateInfo, appVersion } = useUpdatesApi();
+  const { storageLabel } = useStorageApi();
+  const { setHomeSection, homeSection, setModal, setSettingsTab } = useUi();
   const tip = TIPS[Math.floor(Date.now() / 86_400_000) % TIPS.length];
   const recent = [...projects].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3);
   return (

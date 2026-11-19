@@ -1,17 +1,20 @@
-import type { ModalId } from '../modal';
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { resolveMediaSource } from '../../components/preview/media-url';
 import { isTextEntryTarget } from '../../shortcuts/registry';
 import type { Scene } from '../../stores/model';
 
 /** State and controls for the full-size media viewer opened from the library. */
-export function useSourcePreview({ modal, setModal, setPlaying, filteredScenes, sourceMedia }: {
-  modal: string | null;
-  setModal: Dispatch<SetStateAction<ModalId | null>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
+export function useSourcePreview({filteredScenes, sourceMedia, uiStore, playbackStore}: {
   filteredScenes: Scene[];
   sourceMedia: Scene[];
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
 }) {
+  const { modal, setModal } = useUi(uiStore);
+  const { setPlaying } = usePlayback(playbackStore);
   const [sourcePreview, setSourcePreview] = useState<Scene | null>(null);
   const previewVideo = useRef<HTMLVideoElement | null>(null);
   const [previewVideoTime, setPreviewVideoTime] = useState(0);

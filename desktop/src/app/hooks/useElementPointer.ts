@@ -1,3 +1,6 @@
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useDrafts, type DraftsStore } from '../drafts-store';
 import { type Dispatch, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from 'react';
 import { centreGuides, snapToTargets } from '../../components/preview/snapping';
 import { landedOn, setSnapGuide, snapEdges, snapThreshold, timelineSnapPoints } from '../../components/timeline/timeline-snap';
@@ -6,25 +9,27 @@ import { constrainOverlay, type TimelineOverlay } from '../../components/element
 import { secondsToTicks, ticksToSeconds, type ElementLayer, type Project } from '../../stores/model';
 
 /** Pointer gestures on the preview stage and overlay timeline: move, resize, rotate and retime elements. */
-export function useElementPointer({ canEdit, inspectorFlush, previewStage, selectedElement, selectOverlay, allOverlays, position, project, projectTicks, snapping, setPlaying, setDraggingOverlay, setSnapGuides, setOverlayDraft, overlayDraftRef, stageElement, commitElement }: {
+export function useElementPointer({canEdit, inspectorFlush, previewStage, selectedElement, selectOverlay, allOverlays, project, projectTicks, snapping, setDraggingOverlay, overlayDraftRef, stageElement, commitElement, uiStore, playbackStore, draftsStore}: {
   canEdit: boolean;
   inspectorFlush: RefObject<() => void>;
   previewStage: RefObject<HTMLElement | null>;
   selectedElement: TimelineOverlay | null | undefined;
   selectOverlay: (element: TimelineOverlay, seek?: boolean) => void;
   allOverlays: TimelineOverlay[];
-  position: number;
   project: Project;
   projectTicks: number;
   snapping: boolean;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
   setDraggingOverlay: Dispatch<SetStateAction<boolean>>;
-  setSnapGuides: Dispatch<SetStateAction<{ x: number | null; y: number | null }>>;
-  setOverlayDraft: Dispatch<SetStateAction<TimelineOverlay | null>>;
   overlayDraftRef: RefObject<TimelineOverlay | null>;
   stageElement: (patch: Partial<ElementLayer>, target?: TimelineOverlay | null) => void;
   commitElement: () => void;
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
+  draftsStore: DraftsStore;
 }) {
+  const { setSnapGuides } = useUi(uiStore);
+  const { position, setPlaying } = usePlayback(playbackStore);
+  const { setOverlayDraft } = useDrafts(draftsStore);
   function beginElementMove(event: ReactPointerEvent<HTMLElement>, element = selectedElement) {
     if (!element || !canEdit || event.button !== 0) return;
     event.preventDefault(); event.stopPropagation(); inspectorFlush.current();

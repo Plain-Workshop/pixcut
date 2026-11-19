@@ -1,3 +1,5 @@
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useSelection, type SelectionStore } from '../selection-store';
 import { clipCount, t } from '../../i18n';
 import { useRef, type Dispatch, type SetStateAction } from 'react';
 import { MAX_AUDIO_LANES, minTicks, overlayScenes, projectScenes, secondsToTicks, ticksToSeconds, trimSceneWindow, type AudioClip, type Command, type ElementLayer, type Project, type Scene } from '../../stores/model';
@@ -21,10 +23,9 @@ const isMedia = (element: ElementLayer) => element.kind === 'image' || element.k
  * after raising a notice when the selection cannot take the edit, so a
  * shortcut never silently does nothing.
  */
-export function useClipEditing({ project, run, position, canEdit, setNotice, editTargetRef, audioTargetRef, selectedAudio, selectedElement, selectedPip, selectedScenes, saveOverlay, removeSelected, setSelectedIds, setPrimarySelected, selectionAnchor, setSelectedAudioId, setSelectedPipId, setSelectedElementId, setEditTarget }: {
+export function useClipEditing({project, run, canEdit, setNotice, editTargetRef, audioTargetRef, selectedAudio, selectedElement, selectedPip, selectedScenes, saveOverlay, removeSelected, selectionAnchor, playbackStore, selectionStore}: {
   project: Project;
   run: (command: Command) => Promise<boolean>;
-  position: number;
   canEdit: boolean;
   setNotice: Dispatch<SetStateAction<string>>;
   editTargetRef: { current: 'scene' | 'text' | 'element' | 'audio' };
@@ -36,14 +37,12 @@ export function useClipEditing({ project, run, position, canEdit, setNotice, edi
   saveOverlay: (element: TimelineOverlay, next: TimelineOverlay | null) => Promise<boolean>;
   /** The plain (gap-leaving) delete for whatever is selected. */
   removeSelected: () => void;
-  setSelectedIds: Dispatch<SetStateAction<string[]>>;
-  setPrimarySelected: Dispatch<SetStateAction<string | null>>;
   selectionAnchor: { current: string | null };
-  setSelectedAudioId: Dispatch<SetStateAction<string | null>>;
-  setSelectedPipId: Dispatch<SetStateAction<string | null>>;
-  setSelectedElementId: Dispatch<SetStateAction<string | null>>;
-  setEditTarget: Dispatch<SetStateAction<'scene' | 'text' | 'element' | 'audio'>>;
+  playbackStore: PlaybackStore;
+  selectionStore: SelectionStore;
 }) {
+  const { position } = usePlayback(playbackStore);
+  const { setSelectedIds, setPrimarySelected, setSelectedAudioId, setSelectedPipId, setSelectedElementId, setEditTarget } = useSelection(selectionStore);
   const clipboard = useRef<Clipboard | null>(null);
   const timebase = project.timebase;
   const projectTicks = projectScenes(project).reduce((end, scene) => Math.max(end, scene.startTicks + scene.durationTicks), 0);

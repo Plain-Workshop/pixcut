@@ -1,3 +1,6 @@
+import { useUpdatesApi } from '../updates-context';
+import { useStorageApi } from '../storage-context';
+import { useUi } from '../ui-store';
 import { clearOnlineCache } from '../../stores/online-cache';
 import * as bridge from '../bridge';
 import { isLocale, LOCALES, t, type Locale } from '../../i18n';
@@ -39,19 +42,11 @@ function Switch({ checked, onChange }: { checked: boolean; onChange: (next: bool
   return <input type="checkbox" role="switch" className="settings-switch" checked={checked} onChange={event => onChange(event.target.checked)} />;
 }
 
-export function SettingsModal({ settingsTab, shortcutDirty, setNotice, setSettingsTab, preferences, updatePreferences, storageUsage, refreshAssetUsage, storageBusy, cleanStorage, storageConfirm, storageNote, language, setLanguage, resetPreferences, showHints, setShowHints, setSnapping, resetLayout, shortcuts, platform, applyShortcuts, setShortcutDirty, closeShortcutSettings, appVersion, updateState, updateInfo, updateMessage, checkForUpdates, downloadUpdate, updateProgress, restartUpdate, copyDownloadLink, exporter, diagnostics, copyDiagnostics, recheckExporter, storageLabel, refreshStorage }: {
-  settingsTab: SettingsTab;
+export function SettingsModal({shortcutDirty, setNotice, preferences, updatePreferences, language, setLanguage, resetPreferences, showHints, setShowHints, setSnapping, resetLayout, shortcuts, platform, applyShortcuts, setShortcutDirty, closeShortcutSettings, exporter, diagnostics, copyDiagnostics, recheckExporter}: {
   shortcutDirty: boolean;
   setNotice: Dispatch<SetStateAction<string>>;
-  setSettingsTab: Dispatch<SetStateAction<SettingsTab>>;
   preferences: Preferences;
   updatePreferences: (patch: Partial<Preferences>) => void;
-  storageUsage: bridge.AssetUsage | null;
-  refreshAssetUsage: () => Promise<void>;
-  storageBusy: boolean;
-  cleanStorage: () => Promise<void>;
-  storageConfirm: boolean;
-  storageNote: string | null;
   language: Locale;
   setLanguage: Dispatch<SetStateAction<Locale>>;
   resetPreferences: () => void;
@@ -64,22 +59,14 @@ export function SettingsModal({ settingsTab, shortcutDirty, setNotice, setSettin
   applyShortcuts: (next: ShortcutSettingsData) => boolean;
   setShortcutDirty: Dispatch<SetStateAction<boolean>>;
   closeShortcutSettings: () => void;
-  appVersion: string;
-  updateState: "idle" | "checking" | "available" | "downloading" | "ready" | "error";
-  updateInfo: bridge.UpdateInfo | null;
-  updateMessage: string;
-  checkForUpdates: () => void;
-  downloadUpdate: () => void;
-  updateProgress: number;
-  restartUpdate: () => void;
-  copyDownloadLink: () => void;
   exporter: boolean;
   diagnostics: () => string;
   copyDiagnostics: () => void;
   recheckExporter: () => void;
-  storageLabel: string;
-  refreshStorage: () => void;
 }) {
+  const { appVersion, updateState, updateInfo, updateMessage, checkForUpdates, downloadUpdate, updateProgress, restartUpdate, copyDownloadLink } = useUpdatesApi();
+  const { storageUsage, refreshAssetUsage, storageBusy, cleanStorage, storageConfirm, storageNote, storageLabel, refreshStorage } = useStorageApi();
+  const { settingsTab, setSettingsTab } = useUi();
   const section = SECTIONS.find(item => item.id === settingsTab) ?? SECTIONS[0];
   const select = (next: SettingsTab) => {
     if (shortcutDirty && settingsTab === 'shortcuts' && next !== 'shortcuts') { setNotice(t('Apply or cancel your shortcut changes before leaving Shortcuts.')); return; }

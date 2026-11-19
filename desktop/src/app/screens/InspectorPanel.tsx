@@ -1,3 +1,4 @@
+import { useUi } from '../ui-store';
 import { constrainPipTiming, freePipStart } from '../../components/timeline/pip';
 import { AssetImage } from '../../components/preview/AssetImage';
 import { t } from '../../i18n';
@@ -15,11 +16,9 @@ import { minTicks, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds,
 import type { Dispatch, SetStateAction, ReactElement, RefObject } from 'react';
 import type { InspectorKind } from '../inspector';
 
-export function InspectorPanel({ selectedAudio, activeFormat, framingMode, setEditingText, propertyKind, setSelectedIds, setPrimarySelected, selectionAnchor, audioInspector, elementInspector, inspectorScene, setGlobalTextDraft, propertyClipboard, textStartTicks, textLayerLocal, previewLocalSeconds, textFocus, setFramingMode, renderOverlays }: {
+export function InspectorPanel({selectedAudio, activeFormat, propertyKind, setSelectedIds, setPrimarySelected, selectionAnchor, audioInspector, elementInspector, inspectorScene, setGlobalTextDraft, propertyClipboard, textStartTicks, textLayerLocal, previewLocalSeconds, renderOverlays}: {
   selectedAudio: AudioClip;
   activeFormat: FormatVariant;
-  framingMode: boolean;
-  setEditingText: Dispatch<SetStateAction<boolean>>;
   propertyKind: InspectorKind;
   setSelectedIds: Dispatch<SetStateAction<string[]>>;
   setPrimarySelected: Dispatch<SetStateAction<string | null>>;
@@ -32,10 +31,9 @@ export function InspectorPanel({ selectedAudio, activeFormat, framingMode, setEd
   textStartTicks: number;
   textLayerLocal: number;
   previewLocalSeconds: number;
-  textFocus: number;
-  setFramingMode: Dispatch<SetStateAction<boolean>>;
   renderOverlays: ElementLayer[];
 }) {
+  const { framingMode, setEditingText, textFocus, setFramingMode } = useUi();
   const { setPreviewScene } = useDrafts();
   const { canEdit, projectTicks, project, scenes, preferences } = useEditorModel();
   const { selectedScene, selectedGlobalText, selectedPip, selectedCount, activePip, pipScenes, selectedTextScene, hasSceneSelection } = useEditorView();
