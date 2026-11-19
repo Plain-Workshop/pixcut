@@ -1,3 +1,5 @@
+import { useAppearanceEffects } from './hooks/useAppearanceEffects';
+import { usePreferenceActions } from './hooks/usePreferenceActions';
 import { useSceneDerived } from './hooks/useSceneDerived';
 import { useAppEffects } from './hooks/useAppEffects';
 import { useCommandDispatch } from './hooks/useCommandDispatch';
@@ -58,7 +60,7 @@ import { EditorViewProvider, useEditorViewModel } from './editor-view';
 import { EditorActionsProvider, type EditorActions } from './editor-actions';
 import { RangeField } from '../components/inspector/NumberField';
 import { useClipEditing } from './hooks/useClipEditing';
-import { editPoints, nextEditPoint } from '../components/timeline/ruler';
+
 import { type TimelineControls } from './screens/TimelinePanel';
 
 import { useSceneCommands } from './hooks/useSceneCommands';
@@ -163,7 +165,7 @@ import { FORMAT_FILTERS, FORMAT_PRESETS, filterFormatGroups, formatSize, groupFo
 import { messageFor } from './errors';
 import { formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
 import { backfillThumbnails, exportState, listProjects, saveLibraryProject, type ProjectSummary } from '../stores/library';
-import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, resolveTheme, type Preferences } from '../stores/preferences';
+import { loadPreferences, resolveTheme, type Preferences } from '../stores/preferences';
 import { TEMPLATES, templatePreview, type TemplateDefinition } from '../templates/catalog';
 import {
   COMMANDS,
@@ -486,72 +488,13 @@ export default function App() {
     finally { setLibraryReady(true); }
   }, []);
 
-  function updatePreferences(patch: Partial<Preferences>) {
-    setPreferences(current => ({ ...current, ...patch }));
-  }
+  const { updatePreferences, movePlayhead, jumpToEdit, toggleSnapping, resetPreferences, refreshStorage, recheckExporter } = usePreferenceActions({ duration, frameSeconds, position, project, setError, setExporter, setNotice, setPlaying, setPosition, setPreferences, setShowHints, setSnapping, setStorageLabel });
 
-  /** Playhead moves from the keyboard stop playback and land on a frame inside the story. */
-  function movePlayhead(seconds: number) {
-    setPlaying(false);
-    setPosition(Math.min(Math.max(0, seconds), Math.max(0, duration - frameSeconds)));
-  }
-
-  function jumpToEdit(direction: 1 | -1) {
-    const current = secondsToTicks(position, project.timebase);
-    const target = nextEditPoint(editPoints(project), current, direction);
-    // The story's end tick is past the last frame, so step one frame back from it.
-    movePlayhead(target === current && direction > 0 ? duration : ticksToSeconds(target, project.timebase));
-  }
-
-  function toggleSnapping() {
-    setSnapping(value => {
-      const next = !value;
-      setPreferences(current => ({ ...current, snapping: next }));
-      return next;
-    });
-  }
-
-  function resetPreferences() {
-    setPreferences({ ...DEFAULT_PREFERENCES });
-    setSnapping(DEFAULT_PREFERENCES.snapping);
-    setShowHints(true);
-    try { localStorage.removeItem(HINTS_KEY); } catch { /* optional */ }
-    setNotice(t('Preferences reset to their defaults.'));
-  }
-
-  function refreshStorage() {
-    setStorageLabel('Checking local storage…');
-    navigator.storage?.estimate?.().then(({ usage, quota }) => {
-      setStorageLabel(`${formatBytes(usage ?? 0)} used${quota ? ` of ${formatBytes(quota)} available` : ''}`);
-    }).catch(() => setStorageLabel('Storage usage is unavailable in this preview.'));
-  }
-
-  function recheckExporter() {
-    bridge.exporterAvailable().then(available => { setExporter(available); setNotice(available ? t('FFmpeg is ready for MP4 export.') : t('FFmpeg was not found on this device.')); }).catch(error => setError(messageFor(error)));
-  }
 
   const { appVersion, updateState, updateInfo, updateProgress, updateMessage, checkForUpdates, downloadUpdate, restartUpdate, copyDownloadLink } = useUpdates({ automaticUpdates: preferences.automaticUpdates, home: screen === 'home', exporting, setNotice, saveBeforeUpdate: async () => { if (ready) await persistCurrent(); } });
 
-  useEffect(() => { savePreferences(preferences); }, [preferences]);
-  useEffect(() => {
-    if (preferences.theme !== 'system' || typeof window.matchMedia !== 'function') return;
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const sync = () => setSystemDark(media.matches);
-    sync();
-    media.addEventListener?.('change', sync);
-    return () => media.removeEventListener?.('change', sync);
-  }, [preferences.theme]);
-  useEffect(() => { document.documentElement.lang = language; }, [language]);
+  useAppearanceEffects({ language, modal, preferences, setStorageLabel, setSystemDark, settingsTab });
 
-  useEffect(() => {
-    if (modal !== 'settings' || settingsTab !== 'privacy') return;
-    let cancelled = false;
-    navigator.storage?.estimate?.().then(({ usage, quota }) => {
-      if (cancelled) return;
-      setStorageLabel(`${formatBytes(usage ?? 0)} used${quota ? ` of ${formatBytes(quota)} available` : ''}`);
-    }).catch(() => { if (!cancelled) setStorageLabel('Storage usage is unavailable in this preview.'); });
-    return () => { cancelled = true; };
-  }, [modal, settingsTab]);
 
   function diagnostics() {
     return buildDiagnostics({ appVersion, buildSha: __BUILD_SHA__, buildDate: __BUILD_DATE__, native: bridge.native, platform, project: latestProject.current, exporter, preferences });
