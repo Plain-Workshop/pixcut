@@ -1,3 +1,4 @@
+import { useUi } from '../ui-store';
 import { useEffect, useMemo, useState } from 'react';
 import { projectCount, sceneCount, t } from '../../i18n';
 import { ArrowRight, ArrowUpRight, Ban, Check, Clapperboard, FolderOpen, Images, Layers, LayoutTemplate, Play, Plus, Search, Settings2, Star, Upload, WifiOff, Zap } from 'lucide-react';
@@ -9,7 +10,7 @@ import { type ProjectSummary } from '../../stores/library';
 import { TEMPLATES, type TemplateDefinition } from '../../templates/catalog';
 import type { Dispatch, SetStateAction, ReactElement } from 'react';
 
-export function HomeMain({ deleted, goProjects, batch, openSettings, libraryReady, shortcutText, openProject, homeSection, open, canEdit, ready, setModal, chooseImages, projects, libraryQuery, setLibraryQuery, librarySort, setLibrarySort, favoriteOnly, setFavoriteOnly, groupFilter, setGroupFilter, projectGroupsList, openGroupManager, matchingProjects, renderProjectCard, visibleProjects, chooseTemplate, templateImage }: {
+export function HomeMain({deleted, goProjects, batch, openSettings, libraryReady, shortcutText, openProject, open, canEdit, ready, chooseImages, projects, groupFilter, setGroupFilter, projectGroupsList, openGroupManager, matchingProjects, renderProjectCard, visibleProjects, chooseTemplate, templateImage}: {
   deleted: DeletedControls;
   goProjects: () => void;
   batch: BatchControls;
@@ -17,19 +18,11 @@ export function HomeMain({ deleted, goProjects, batch, openSettings, libraryRead
   libraryReady: boolean;
   shortcutText: (id: string) => string;
   openProject: (entry: ProjectSummary) => Promise<void> | void;
-  homeSection: "home" | "projects";
   open: () => Promise<void>;
   canEdit: boolean;
   ready: boolean;
-  setModal: Dispatch<SetStateAction<"source" | "templates" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null>>;
   chooseImages: () => Promise<void>;
   projects: ProjectSummary[];
-  libraryQuery: string;
-  setLibraryQuery: Dispatch<SetStateAction<string>>;
-  librarySort: "recent" | "name" | "duration";
-  setLibrarySort: Dispatch<SetStateAction<"recent" | "name" | "duration">>;
-  favoriteOnly: boolean;
-  setFavoriteOnly: Dispatch<SetStateAction<boolean>>;
   groupFilter: string;
   setGroupFilter: Dispatch<SetStateAction<string>>;
   projectGroupsList: string[];
@@ -40,6 +33,7 @@ export function HomeMain({ deleted, goProjects, batch, openSettings, libraryRead
   chooseTemplate: (template: TemplateDefinition) => void;
   templateImage: (template: TemplateDefinition) => string;
 }) {
+  const { homeSection, setModal, libraryQuery, setLibraryQuery, librarySort, setLibrarySort, favoriteOnly, setFavoriteOnly } = useUi();
   const returning = homeSection === 'home' && projects.length > 0;
   // With many projects sorted by recency, the Projects page gets Today / This week headings.
   const dated = homeSection === 'projects' && librarySort === 'recent' && groupFilter === 'all' && !projectGroupsList.length && visibleProjects.length >= 6;

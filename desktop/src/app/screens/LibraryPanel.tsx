@@ -1,3 +1,5 @@
+import { useUi } from '../ui-store';
+import { usePlayback } from '../playback-store';
 import { DownloadedMusic } from '../../components/music/DownloadedMusic';
 import { findSavedTrack, type SavedTrack } from '../../stores/online-downloads';
 import { OnlineMusic } from '../../components/music/OnlineMusic';
@@ -30,17 +32,11 @@ import type { Dispatch, SetStateAction, RefObject } from 'react';
 import { TITLE_PRESETS } from '../title-presets';
 import { elementDisplayName } from '../../components/elements/catalog';
 
-export function LibraryPanel({tab, setTab, tabTitles, audioLaneRef, selectedAudio, setModal, mediaDragRef, setDropTarget, playing, modal, sourceMedia, setSelectedGlobalTextId, captionInput, fontTargetId, fontInput, previewingAudio, savedTracks, recordedSounds, position, allOverlays}: {
-  tab: "media" | "text" | "elements" | "audio" | "templates";
-  setTab: Dispatch<SetStateAction<"media" | "text" | "elements" | "audio" | "templates">>;
+export function LibraryPanel({tabTitles, audioLaneRef, selectedAudio, mediaDragRef, sourceMedia, setSelectedGlobalTextId, captionInput, fontTargetId, fontInput, previewingAudio, savedTracks, recordedSounds, allOverlays}: {
   tabTitles: { readonly media: "Your media"; readonly text: "Titles"; readonly elements: "Elements"; readonly transitions: "Transitions"; readonly effects: "Effects"; readonly audio: "Audio"; readonly templates: "Templates"; };
   audioLaneRef: RefObject<number>;
   selectedAudio: AudioClip;
-  setModal: Dispatch<SetStateAction<"templates" | "source" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null>>;
   mediaDragRef: RefObject<Scene | null>;
-  setDropTarget: Dispatch<SetStateAction<string | null>>;
-  playing: boolean;
-  modal: "templates" | "source" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null;
   sourceMedia: Scene[];
   setSelectedGlobalTextId: Dispatch<SetStateAction<string | null>>;
   captionInput: RefObject<HTMLInputElement | null>;
@@ -49,9 +45,10 @@ export function LibraryPanel({tab, setTab, tabTitles, audioLaneRef, selectedAudi
   previewingAudio: string | null;
   savedTracks: SavedTrack[];
   recordedSounds: RecordedSound[];
-  position: number;
   allOverlays: TimelineOverlay[];
 }) {
+  const { tab, setTab, setModal, setDropTarget, modal } = useUi();
+  const { playing, position } = usePlayback();
   const { mediaQuery, hoveredMedia, audioLibraryTab, musicMood, soundQuery, openSoundGroup, elementSearch, elementCategory, elementCollection, elementLimit, hoveredElement, setMediaQuery, setHoveredMedia, setAudioLibraryTab, setMusicMood, setSoundQuery, setOpenSoundGroup, setElementSearch, setElementCategory, setElementCollection, setElementLimit, setHoveredElement } = useLibraryState();
   const soundGroups = useMemo(() => groupedSounds(soundQuery), [soundQuery]);
   const filteredElements = useMemo(() => filterElements(ELEMENT_CATALOG, { elementCategory, elementCollection, elementSearch }), [elementCategory, elementCollection, elementSearch]);

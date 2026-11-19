@@ -1,6 +1,8 @@
 import { ElementInspector } from './parts/ElementInspector';
 import { AudioInspector } from './parts/AudioInspector';
 import { ProjectCard } from './parts/ProjectCard';
+import { PlaybackProvider, useCreatePlaybackStore, usePlayback } from './playback-store';
+import { UiProvider, useCreateUiStore, useUi } from './ui-store';
 import { useAppearanceEffects } from './hooks/useAppearanceEffects';
 import { usePreferenceActions } from './hooks/usePreferenceActions';
 import { useSceneDerived } from './hooks/useSceneDerived';
@@ -68,7 +70,7 @@ import { IconButton } from '../components/IconButton';
 import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import * as bridge from './bridge';
-import type { ModalId } from './modal';
+
 import { buildDiagnostics } from './home-support';
 import { runCommand } from './command-runner';
 import { HINTS_KEY } from './export-options';
@@ -92,7 +94,7 @@ import {
   type ShortcutSettings as ShortcutSettingsData,
 } from '../shortcuts/registry';
 import '../styles/styles.css';
-import type { SettingsTab } from './modals/SettingsModal';
+
 import { ExportModal, FormatsModal, NewProjectModal, SettingsModal, SourceModal, TemplatesModal } from './modals/lazy';
 import { MissingMediaModal } from './modals/MissingMediaModal';
 import { DeleteProjectModal } from './modals/DeleteProjectModal';
@@ -119,13 +121,13 @@ const RANGE_NAVIGATION_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'Ar
 
 export default function App() {
   const [session, setSession] = useState(INITIAL), [screen, setScreen] = useState<'home' | 'editor'>('home');
-  const [homeSection, setHomeSection] = useState<'home' | 'projects'>('home');
-  const [ready, setReady] = useState(false), [busy, setBusy] = useState(false), [playing, setPlaying] = useState(false);
+  const [ready, setReady] = useState(false), [busy, setBusy] = useState(false);
+  const playbackStore = useCreatePlaybackStore();
+  const { playing, position, loop, playDirection, setPlaying, setPosition, setPlayDirection } = usePlayback(playbackStore);
+  const uiStore = useCreateUiStore();
+  const { modal, tab, settingsTab, homeSection, libraryQuery, librarySort, favoriteOnly, textDraft, contextMenu, fileDragActive, setModal, setTab, setSettingsTab, setHomeSection, setSnapGuides, setSafeArea, setFramingMode, setEditingText, setTextDraft, setTextFocus, setContextMenu, setDropTarget, setReorderId, setReplacingSceneId, setFileDragActive, setFadeDrag, setVideoVolumeDraft } = useUi(uiStore);
   const selectionStore = useCreateSelectionStore();
   const { selectedIds, primarySelected, selectedAudioId, selectedElementId, selectedPipId, selectedTextLayerId, selectedGlobalTextId, editTarget, setSelectedIds, setPrimarySelected, setSelectedAudioId, setSelectedElementId, setSelectedPipId, setSelectedTextLayerId, setSelectedGlobalTextId, setEditTarget } = useSelection(selectionStore);
-  const [position, setPosition] = useState(0);
-  const [tab, setTab] = useState<'media' | 'text' | 'elements' | 'audio' | 'templates'>('media'), [modal, setModal] = useState<ModalId | null>(null);
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [systemDark, setSystemDark] = useState(() => typeof window.matchMedia !== 'function' || window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [language, setLanguage] = useState<Locale>(() => {
     try {
@@ -151,21 +153,11 @@ export default function App() {
   const { previewScene, overlayDraft, pipDraft, audioDraft, setPreviewScene, setOverlayDraft, setPipDraft, setAudioDraft } = useDrafts(draftsStore);
   const overlayDraftRef = useRef<TimelineOverlay | null>(null);
   const [draggingOverlay, setDraggingOverlay] = useState(false);
-  const [loop, setLoop] = useState(false);
-  const [snapGuides, setSnapGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
   const [templateQuery, setTemplateQuery] = useState('');
   const [templateCategory, setTemplateCategory] = useState<'All' | TemplateDefinition['category']>('All');
   const [pendingTemplate, setPendingTemplate] = useState<TemplateDefinition | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]), [libraryReady, setLibraryReady] = useState(false);
-  const [libraryQuery, setLibraryQuery] = useState('');
-  const [librarySort, setLibrarySort] = useState<'recent' | 'name' | 'duration'>('recent');
-  const [favoriteOnly, setFavoriteOnly] = useState(false);
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
-  const [reorderId, setReorderId] = useState<string | null>(null);
-  const [replacingSceneId, setReplacingSceneId] = useState<string | null>(null);
-  const [fileDragActive, setFileDragActive] = useState(false);
   const [mixDraft, setMixDraft] = useState<AudioMix | null>(null);
-  const [videoVolumeDraft, setVideoVolumeDraft] = useState<{ id: string; value: number } | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -190,11 +182,8 @@ export default function App() {
   const [videoTick, setVideoTick] = useState(0);
   const [pipVideoTick, setPipVideoTick] = useState(0);
   const [name, setName] = useState('Untitled story');
-  const [editingText, setEditingText] = useState(false), [safeArea, setSafeArea] = useState(false);
-  const [textDraft, setTextDraft] = useState({ title: '', subtitle: '' });
   const pipDraftRef = useRef<Scene | null>(null);
   const [globalTextDraft, setGlobalTextDraft] = useState<TextLayer[] | null>(null);
-  const [textFocus, setTextFocus] = useState(0);
   const [activeFormatId, setActiveFormatId] = useState<string | null>(null);
   const [newFormatIds, setNewFormatIds] = useState<string[]>(() => {
     try {
@@ -210,7 +199,6 @@ export default function App() {
     ...newCustomFormats,
   ];
   const newFormatOutputs = groupFormatsByOutput(newFormatSelection);
-  const [framingMode, setFramingMode] = useState(false);
   const [, setFontTick] = useState(0);
   const [propertyClipboard, setPropertyClipboard] = useState<Partial<Scene> | null>(null);
   const [platform] = useState(detectPlatform);
@@ -219,10 +207,8 @@ export default function App() {
   const [showHints, setShowHints] = useState(() => loadPreferences().showHints && (() => { try { return localStorage.getItem(HINTS_KEY) !== '1'; } catch { return true; } })());
   const [preferences, setPreferences] = useState<Preferences>(loadPreferences);
   const [storageLabel, setStorageLabel] = useState('Checking local storage…');
-  const [snapping, setSnapping] = useState(() => loadPreferences().snapping), [playDirection, setPlayDirection] = useState<1 | -1>(1);
+  const [snapping, setSnapping] = useState(() => loadPreferences().snapping);
   const [duckDraft, setDuckDraft] = useState<number | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [fadeDrag, setFadeDrag] = useState<{ sceneId: string; side: 'in' | 'out'; value: number } | null>(null);
   const layoutStore = useCreateLayoutStore();
   const libraryStore = useCreateLibraryStore();
   const { mediaQuery, audioLibraryTab, setHoveredMedia, setHoveredElement } = useLibraryState(libraryStore);
@@ -258,7 +244,6 @@ export default function App() {
   const [recordedSounds,setRecordedSounds]=useState<RecordedSound[]>([]);
   useEffect(()=>{let live=true;void loadRecordedSounds().then(list=>{if(live)setRecordedSounds(list);});return()=>{live=false;};},[]);
   const [hoverEntrance,setHoverEntrance]=useState<string|null>(null);
-  const [audioDisplay,setAudioDisplay]=useState<'spectrogram'|'waveform'>('spectrogram');
 
   useEffect(() => { if (!exporting) return; const start = performance.now(); const timer = setInterval(() => setExportElapsed((performance.now() - start) / 1000), 500); return () => clearInterval(timer); }, [exporting]);
   const project = session.project, duration = totalDuration(project);
@@ -662,7 +647,7 @@ export default function App() {
 
   const propertyKind = inspectorKind(editTarget, { scene: Boolean(selectedScene), text: Boolean(selectedTextLayer), element: Boolean(selectedElement), audio: Boolean(selectedAudio) });
 
-  const elementInspector = <ElementInspector activeSize={activeSize} addSound={addSound} canEdit={canEdit} commitElement={commitElement} elementStackPosition={elementStackPosition} hoverEntrance={hoverEntrance} moveElementLayer={moveElementLayer} position={position} preferences={preferences} previewSound={previewSound} project={project} projectTicks={projectTicks} removeElement={removeElement} sceneLayerStack={sceneLayerStack} selectedElement={selectedElement} setHoverEntrance={setHoverEntrance} setPlaying={setPlaying} setPosition={setPosition} setSoundEffect={setSoundEffect} soundEffect={soundEffect} stageElement={stageElement} updateElement={updateElement} />;
+  const elementInspector = <ElementInspector activeSize={activeSize} addSound={addSound} canEdit={canEdit} commitElement={commitElement} elementStackPosition={elementStackPosition} hoverEntrance={hoverEntrance} moveElementLayer={moveElementLayer} preferences={preferences} previewSound={previewSound} project={project} projectTicks={projectTicks} removeElement={removeElement} sceneLayerStack={sceneLayerStack} selectedElement={selectedElement} setHoverEntrance={setHoverEntrance} setSoundEffect={setSoundEffect} soundEffect={soundEffect} stageElement={stageElement} updateElement={updateElement} />;
 
   const editorModel = { project, scenes, audio, canEdit, run, duration, projectTicks, frameSeconds, preferences, activeSize, setNotice, setError };
 
@@ -672,6 +657,8 @@ export default function App() {
     <SelectionProvider store={selectionStore}>
     <LayoutProvider store={layoutStore}>
     <LibraryProvider store={libraryStore}>
+    <PlaybackProvider store={playbackStore}>
+    <UiProvider store={uiStore}>
     <ExportProvider store={exportStore}>
     <DraftsProvider store={draftsStore}>
     <EditorModelProvider value={editorModel}>
@@ -689,8 +676,8 @@ export default function App() {
       <input ref={fontInput} type="file" hidden accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" onChange={e => void importFontFile(e.target.files)} />
 
       {screen === 'home' ? <>
-        <HomeSidebar storageLabel={storageLabel} projects={projects} openProject={openLibraryProject} setHomeSection={setHomeSection} homeSection={homeSection} setModal={setModal} updateState={updateState} setSettingsTab={setSettingsTab} updateProgress={updateProgress} updateInfo={updateInfo} appVersion={appVersion} />
-<HomeMain deleted={{ items: deletedProjects, restore: restoreProject, purge: purgeProject }} goProjects={() => setHomeSection('projects')} batch={{ mode: batchMode, ids: batchIds, begin: () => setBatchMode(true), end: endBatch, favorite: batchFavorite, move: batchMove, remove: batchDelete }} openSettings={() => setModal('settings')} libraryReady={libraryReady} shortcutText={shortcutText} openProject={openLibraryProject} homeSection={homeSection} open={open} canEdit={canEdit} ready={ready} setModal={setModal} chooseImages={chooseImages} projects={projects} libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} librarySort={librarySort} setLibrarySort={setLibrarySort} favoriteOnly={favoriteOnly} setFavoriteOnly={setFavoriteOnly} groupFilter={groupFilter} setGroupFilter={setGroupFilter} projectGroupsList={projectGroupsList} openGroupManager={openGroupManager} matchingProjects={matchingProjects} renderProjectCard={renderProjectCard} visibleProjects={visibleProjects} chooseTemplate={chooseTemplate} templateImage={templateImage} />
+        <HomeSidebar storageLabel={storageLabel} projects={projects} openProject={openLibraryProject} updateState={updateState} updateProgress={updateProgress} updateInfo={updateInfo} appVersion={appVersion} />
+<HomeMain deleted={{ items: deletedProjects, restore: restoreProject, purge: purgeProject }} goProjects={() => setHomeSection('projects')} batch={{ mode: batchMode, ids: batchIds, begin: () => setBatchMode(true), end: endBatch, favorite: batchFavorite, move: batchMove, remove: batchDelete }} openSettings={() => setModal('settings')} libraryReady={libraryReady} shortcutText={shortcutText} openProject={openLibraryProject} open={open} canEdit={canEdit} ready={ready} chooseImages={chooseImages} projects={projects} groupFilter={groupFilter} setGroupFilter={setGroupFilter} projectGroupsList={projectGroupsList} openGroupManager={openGroupManager} matchingProjects={matchingProjects} renderProjectCard={renderProjectCard} visibleProjects={visibleProjects} chooseTemplate={chooseTemplate} templateImage={templateImage} />
       </> : <>
         <EditorHeader goHome={goHome} name={name} canEdit={canEdit} setName={setName} project={project} run={run} status={status} tip={tip} runCommandId={runCommandId} session={session} ready={ready} save={save} scenes={scenes} exporting={exporting} openExportModal={openExportModal} />
 
@@ -709,14 +696,14 @@ export default function App() {
         </div>}
 
         <div className="editor-body">
-          <LibraryPanel tab={tab} setTab={setTab} tabTitles={tabTitles} audioLaneRef={audioLaneRef} selectedAudio={selectedAudio} setModal={setModal} mediaDragRef={mediaDragRef} setDropTarget={setDropTarget} playing={playing} modal={modal} sourceMedia={sourceMedia} setSelectedGlobalTextId={setSelectedGlobalTextId} captionInput={captionInput} fontTargetId={fontTargetId} fontInput={fontInput} previewingAudio={previewingAudio} savedTracks={savedTracks} recordedSounds={recordedSounds} position={position} allOverlays={allOverlays} />
-          <PreviewPanel setModal={setModal} playing={playing} modal={modal} position={position} allOverlays={allOverlays} safeArea={safeArea} activeFormat={activeFormat} setActiveFormatId={setActiveFormatId} previewArea={previewArea} previewStage={previewStage} previewSize={previewSize} preview={preview} sceneVideo={sceneVideo} setVideoTick={setVideoTick} pipVideoElements={pipVideoElements} setPipVideoTick={setPipVideoTick} snapGuides={snapGuides} framingMode={framingMode} textBox={textBox} selectedTextVisible={selectedTextVisible} selectedElement={selectedElement} editingText={editingText} setTextDraft={setTextDraft} setEditingText={setEditingText} sceneLayerRank={sceneLayerRank} textDraft={textDraft} fadeAmount={fadeAmount} setPosition={setPosition} setPlaying={setPlaying} loop={loop} setLoop={setLoop} />
-          <InspectorPanel selectedAudio={selectedAudio} activeFormat={activeFormat} framingMode={framingMode} setEditingText={setEditingText} propertyKind={propertyKind} setSelectedIds={setSelectedIds} setPrimarySelected={setPrimarySelected} selectionAnchor={selectionAnchor} audioInspector={audioInspector} elementInspector={elementInspector} inspectorScene={inspectorScene} setGlobalTextDraft={setGlobalTextDraft} propertyClipboard={propertyClipboard} textStartTicks={textStartTicks} textLayerLocal={textLayerLocal} previewLocalSeconds={previewLocalSeconds} textFocus={textFocus} setFramingMode={setFramingMode} renderOverlays={renderOverlays} />
+          <LibraryPanel tabTitles={tabTitles} audioLaneRef={audioLaneRef} selectedAudio={selectedAudio} mediaDragRef={mediaDragRef} sourceMedia={sourceMedia} setSelectedGlobalTextId={setSelectedGlobalTextId} captionInput={captionInput} fontTargetId={fontTargetId} fontInput={fontInput} previewingAudio={previewingAudio} savedTracks={savedTracks} recordedSounds={recordedSounds} allOverlays={allOverlays} />
+          <PreviewPanel allOverlays={allOverlays} activeFormat={activeFormat} setActiveFormatId={setActiveFormatId} previewArea={previewArea} previewStage={previewStage} previewSize={previewSize} preview={preview} sceneVideo={sceneVideo} setVideoTick={setVideoTick} pipVideoElements={pipVideoElements} setPipVideoTick={setPipVideoTick} textBox={textBox} selectedTextVisible={selectedTextVisible} selectedElement={selectedElement} sceneLayerRank={sceneLayerRank} fadeAmount={fadeAmount} />
+          <InspectorPanel selectedAudio={selectedAudio} activeFormat={activeFormat} propertyKind={propertyKind} setSelectedIds={setSelectedIds} setPrimarySelected={setPrimarySelected} selectionAnchor={selectionAnchor} audioInspector={audioInspector} elementInspector={elementInspector} inspectorScene={inspectorScene} setGlobalTextDraft={setGlobalTextDraft} propertyClipboard={propertyClipboard} textStartTicks={textStartTicks} textLayerLocal={textLayerLocal} previewLocalSeconds={previewLocalSeconds} renderOverlays={renderOverlays} />
         </div>
 
         <div className="splitter horizontal" onPointerDown={e => beginResize('timeline', timelineHeight, e.clientY)} />
 
-        <TimelinePanel onLockedEdit={() => setNotice(t('This lane is locked. Unlock it to edit.'))} timelineControls={timelineControls} snapping={snapping} audioDisplay={audioDisplay} setAudioDisplay={setAudioDisplay} fileDragActive={fileDragActive} timelineScroll={timelineScroll} mediaDragRef={mediaDragRef} timelineRatio={timelineRatio} position={position} hasMediaOverlays={hasMediaOverlays} setTab={setTab} setTextFocus={setTextFocus} setPosition={setPosition} orderedLayers={orderedLayers} layerNumbers={layerNumbers} dropTarget={dropTarget} reorderId={reorderId} replacingSceneId={replacingSceneId} setDropTarget={setDropTarget} selectionAnchor={selectionAnchor} setPlaying={setPlaying} setContextMenu={setContextMenu} fadeDrag={fadeDrag} videoScenes={videoScenes} audioMix={audioMix} videoVolumeDraft={videoVolumeDraft} audioLanes={audioLanes} selectedAudio={selectedAudio} audioLaneRef={audioLaneRef} />
+        <TimelinePanel onLockedEdit={() => setNotice(t('This lane is locked. Unlock it to edit.'))} timelineControls={timelineControls} snapping={snapping} timelineScroll={timelineScroll} mediaDragRef={mediaDragRef} timelineRatio={timelineRatio} hasMediaOverlays={hasMediaOverlays} orderedLayers={orderedLayers} layerNumbers={layerNumbers} selectionAnchor={selectionAnchor} videoScenes={videoScenes} audioMix={audioMix} audioLanes={audioLanes} selectedAudio={selectedAudio} audioLaneRef={audioLaneRef} />
       </>}
 
       {contextMenu && <ClipContextMenu
@@ -761,7 +748,7 @@ export default function App() {
           <h2 id="modal-title">{t('Command palette')}</h2><p>{t('Every action, searchable. Shortcuts reflect your current settings.')}</p>
           <CommandPalette platform={platform} bindings={shortcuts.bindings} availability={commandAvailability} onRun={runCommandId} onClose={requestCloseModal} />
         </> : modal === 'settings' ? <>
-          <SettingsModal settingsTab={settingsTab} shortcutDirty={shortcutDirty} setNotice={setNotice} setSettingsTab={setSettingsTab} preferences={preferences} updatePreferences={updatePreferences} storageUsage={storageUsage} refreshAssetUsage={refreshAssetUsage} storageBusy={storageBusy} cleanStorage={cleanStorage} storageConfirm={storageConfirm} storageNote={storageNote} language={language} setLanguage={setLanguage} resetPreferences={resetPreferences} showHints={showHints} setShowHints={setShowHints} setSnapping={setSnapping} resetLayout={resetLayout} shortcuts={shortcuts} platform={platform} applyShortcuts={applyShortcuts} setShortcutDirty={setShortcutDirty} closeShortcutSettings={closeShortcutSettings} appVersion={appVersion} updateState={updateState} updateInfo={updateInfo} updateMessage={updateMessage} checkForUpdates={checkForUpdates} downloadUpdate={downloadUpdate} updateProgress={updateProgress} restartUpdate={restartUpdate} copyDownloadLink={copyDownloadLink} exporter={exporter} diagnostics={diagnostics} copyDiagnostics={copyDiagnostics} recheckExporter={recheckExporter} storageLabel={storageLabel} refreshStorage={refreshStorage} />
+          <SettingsModal shortcutDirty={shortcutDirty} setNotice={setNotice} preferences={preferences} updatePreferences={updatePreferences} storageUsage={storageUsage} refreshAssetUsage={refreshAssetUsage} storageBusy={storageBusy} cleanStorage={cleanStorage} storageConfirm={storageConfirm} storageNote={storageNote} language={language} setLanguage={setLanguage} resetPreferences={resetPreferences} showHints={showHints} setShowHints={setShowHints} setSnapping={setSnapping} resetLayout={resetLayout} shortcuts={shortcuts} platform={platform} applyShortcuts={applyShortcuts} setShortcutDirty={setShortcutDirty} closeShortcutSettings={closeShortcutSettings} appVersion={appVersion} updateState={updateState} updateInfo={updateInfo} updateMessage={updateMessage} checkForUpdates={checkForUpdates} downloadUpdate={downloadUpdate} updateProgress={updateProgress} restartUpdate={restartUpdate} copyDownloadLink={copyDownloadLink} exporter={exporter} diagnostics={diagnostics} copyDiagnostics={copyDiagnostics} recheckExporter={recheckExporter} storageLabel={storageLabel} refreshStorage={refreshStorage} />
         </> : <>
           <ExportModal project={project} duration={duration} scenes={scenes} exportCodecs={exportCodecs} hardwareAvailable={hardwareAvailable} musicCredits={musicCredits} setNotice={setNotice} setError={setError} hasVideoScenes={hasVideoScenes} exportSettings={exportSettings} setExportSettings={setExportSettings} exportOutputs={exportOutputs} exportFormats={exportFormats} exportFilename={exportFilename} exporter={exporter} platform={platform} exporting={exporting} busy={busy} exportVideo={exportVideo} />
         </>}
@@ -773,6 +760,8 @@ export default function App() {
     </EditorModelProvider>
     </DraftsProvider>
     </ExportProvider>
+    </UiProvider>
+    </PlaybackProvider>
     </LibraryProvider>
     </LayoutProvider>
     </SelectionProvider>

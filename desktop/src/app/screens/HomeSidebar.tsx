@@ -1,9 +1,10 @@
+import { useUi } from '../ui-store';
 import { t } from '../../i18n';
 import { showUpdateNotice } from '../updates';
 import { Keyboard, ArrowUpRight, Clapperboard, Download, FolderOpen, HardDrive, Home, Info, LayoutTemplate, Settings2 } from 'lucide-react';
 import type { ProjectSummary } from '../../stores/library';
 import { Brand } from '../../components/BrandLogo';
-import type { Dispatch, SetStateAction } from 'react';
+
 import * as bridge from "../bridge";
 
 const TIPS = [
@@ -14,19 +15,16 @@ const TIPS = [
   'Use arrow keys to move through your projects, Enter to open.',
 ];
 
-export function HomeSidebar({ storageLabel, projects, openProject, setHomeSection, homeSection, setModal, updateState, setSettingsTab, updateProgress, updateInfo, appVersion }: {
+export function HomeSidebar({storageLabel, projects, openProject, updateState, updateProgress, updateInfo, appVersion}: {
   storageLabel: string;
   projects: ProjectSummary[];
   openProject: (entry: ProjectSummary) => Promise<void> | void;
-  setHomeSection: Dispatch<SetStateAction<"home" | "projects">>;
-  homeSection: "home" | "projects";
-  setModal: Dispatch<SetStateAction<"source" | "templates" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null>>;
   updateState: "idle" | "checking" | "available" | "downloading" | "ready" | "error";
-  setSettingsTab: Dispatch<SetStateAction<"shortcuts" | "general" | "appearance" | "editing" | "updates" | "privacy">>;
   updateProgress: number;
   updateInfo: bridge.UpdateInfo | null;
   appVersion: string;
 }) {
+  const { setHomeSection, homeSection, setModal, setSettingsTab } = useUi();
   const tip = TIPS[Math.floor(Date.now() / 86_400_000) % TIPS.length];
   const recent = [...projects].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3);
   return (

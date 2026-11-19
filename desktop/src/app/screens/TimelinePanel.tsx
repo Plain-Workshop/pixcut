@@ -1,3 +1,5 @@
+import { useUi } from '../ui-store';
+import { usePlayback } from '../playback-store';
 import { Spectrogram } from '../../components/timeline/Spectrogram';
 import { ElementGlyph } from '../../components/elements/ElementGlyph';
 import { sourceSpan } from '../../components/preview/speed';
@@ -11,7 +13,7 @@ import { TRANSITION_OPTIONS } from '../../components/inspector/SceneForm';
 import { MAX_AUDIO_LANES, audioLaneMix, frameRate, sceneSeconds, ticksToSeconds, type AudioClip, type AudioMix, type Scene } from '../../stores/model';
 import { NoSoundBadge, Waveform } from '../../components/timeline/Waveform';
 import { sceneTextLayers } from '../../components/text/layers';
-import type { Dispatch, SetStateAction, RefObject } from 'react';
+import type { RefObject } from 'react';
 import { elementDisplayName } from '../../components/elements/catalog';
 import { anchoredScroll, clampZoom, formatRulerTime, MIN_TIMELINE_ZOOM, rulerTicks, secondsAt, timelineMaxZoom, TRACK_CHROME_PX, TRACK_LABEL_PX, TRACK_TAIL_PX } from '../../components/timeline/ruler';
 import { SNAP_LABELS, useSnapGuide } from '../../components/timeline/timeline-snap';
@@ -36,39 +38,26 @@ function LaneToggle({ id, label, collapsed, toggle, locked, toggleLock }: { id: 
   </span>;
 }
 
-export function TimelinePanel({timelineControls, onLockedEdit, snapping, audioDisplay, setAudioDisplay, fileDragActive, timelineScroll, mediaDragRef, timelineRatio, position, hasMediaOverlays, setTab, setTextFocus, setPosition, orderedLayers, layerNumbers, dropTarget, reorderId, replacingSceneId, setDropTarget, selectionAnchor, setPlaying, setContextMenu, fadeDrag, videoScenes, audioMix, videoVolumeDraft, audioLanes, selectedAudio, audioLaneRef}: {
+export function TimelinePanel({timelineControls, onLockedEdit, snapping, timelineScroll, mediaDragRef, timelineRatio, hasMediaOverlays, orderedLayers, layerNumbers, selectionAnchor, videoScenes, audioMix, audioLanes, selectedAudio, audioLaneRef}: {
   timelineControls: RefObject<TimelineControls | null>;
   /** Called when a drag is refused because its lane is locked. */
   onLockedEdit: () => void;
   snapping: boolean;
-  audioDisplay: "spectrogram" | "waveform";
-  setAudioDisplay: Dispatch<SetStateAction<"spectrogram" | "waveform">>;
-  fileDragActive: boolean;
   timelineScroll: RefObject<HTMLDivElement | null>;
   mediaDragRef: RefObject<Scene | null>;
   timelineRatio: number;
-  position: number;
   hasMediaOverlays: boolean;
-  setTab: Dispatch<SetStateAction<"text" | "audio" | "media" | "elements" | "templates">>;
-  setTextFocus: Dispatch<SetStateAction<number>>;
-  setPosition: Dispatch<SetStateAction<number>>;
   orderedLayers: TimelineOverlay[];
   layerNumbers: Map<string, number>;
-  dropTarget: string | null;
-  reorderId: string | null;
-  replacingSceneId: string | null;
-  setDropTarget: Dispatch<SetStateAction<string | null>>;
   selectionAnchor: RefObject<string | null>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  setContextMenu: Dispatch<SetStateAction<{ x: number; y: number; } | null>>;
-  fadeDrag: { sceneId: string; side: "in" | "out"; value: number; } | null;
   videoScenes: Scene[];
   audioMix: AudioMix;
-  videoVolumeDraft: { id: string; value: number; } | null;
   audioLanes: number[];
   selectedAudio: AudioClip;
   audioLaneRef: RefObject<number>;
 }) {
+  const { audioDisplay, setAudioDisplay, fileDragActive, setTab, setTextFocus, dropTarget, reorderId, replacingSceneId, setDropTarget, setContextMenu, fadeDrag, videoVolumeDraft } = useUi();
+  const { position, setPosition, setPlaying } = usePlayback();
   const { dropLibraryMedia, beginPlayheadDrag, removeBeat, selectScene, beginOverlayTiming: rawBeginOverlayTiming, beginReorder: rawBeginReorder, endReorder, dragOverScene, dropScene, beginFadeDrag: rawBeginFadeDrag, beginSceneTrim: rawBeginSceneTrim, setVideoAudioLevel, commitMix, stageVideoVolume, commitVideoVolume, selectPip, beginPipTiming: rawBeginPipTiming, toggleLaneMute, setLaneMix, beginAudioMove: rawBeginAudioMove, beginAudioTrim: rawBeginAudioTrim, stageAudio, commitAudio, addBeatAtPlayhead, tip, runCommandId, scrubTo, addTextLayerAtPlayhead, selectOverlay, chooseImages, focusAudio, chooseAudio, shortcutText } = useEditorActions();
   const { overlayDraft, previewScene } = useDrafts();
   const { scenes, canEdit, run, duration, project, projectTicks, frameSeconds, audio } = useEditorModel();

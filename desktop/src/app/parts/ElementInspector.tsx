@@ -1,3 +1,4 @@
+import { usePlayback } from '../playback-store';
 import { elementDisplayName } from '../../components/elements/catalog';
 import { Play, Plus, Trash2 } from 'lucide-react';
 import { t } from '../../i18n';
@@ -24,7 +25,7 @@ import type { Dispatch, SetStateAction } from 'react';
 
 const ELEMENT_COLORS = ['#9D7CFF', '#FF7A9E', '#FFD166', '#6BE7FF', '#7CF0B4', '#FFFFFF'];
 
-export function ElementInspector({ activeSize, addSound, canEdit, commitElement, elementStackPosition, hoverEntrance, moveElementLayer, position, preferences, previewSound, project, projectTicks, removeElement, sceneLayerStack, selectedElement, setHoverEntrance, setPlaying, setPosition, setSoundEffect, soundEffect, stageElement, updateElement }: {
+export function ElementInspector({activeSize, addSound, canEdit, commitElement, elementStackPosition, hoverEntrance, moveElementLayer, preferences, previewSound, project, projectTicks, removeElement, sceneLayerStack, selectedElement, setHoverEntrance, setSoundEffect, soundEffect, stageElement, updateElement}: {
   activeSize: { width: number; height: number; };
   addSound: (id: SoundId, startTicks: number) => Promise<void>;
   canEdit: boolean;
@@ -32,7 +33,6 @@ export function ElementInspector({ activeSize, addSound, canEdit, commitElement,
   elementStackPosition: (element: ElementLayer | TimelineOverlay) => number;
   hoverEntrance: string | null;
   moveElementLayer: (move: StackMove) => void;
-  position: number;
   preferences: Preferences;
   previewSound: (id: SoundEffectId) => void;
   project: Project;
@@ -41,13 +41,12 @@ export function ElementInspector({ activeSize, addSound, canEdit, commitElement,
   sceneLayerStack: StackEntry[];
   selectedElement: TimelineOverlay | null;
   setHoverEntrance: Dispatch<SetStateAction<string | null>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  setPosition: Dispatch<SetStateAction<number>>;
   setSoundEffect: Dispatch<SetStateAction<SoundEffectId>>;
   soundEffect: SoundEffectId;
   stageElement: (patch: Partial<ElementLayer>, target?: TimelineOverlay | null) => void;
   updateElement: (patch: Partial<ElementLayer>) => void;
 }) {
+  const { position, setPlaying, setPosition } = usePlayback();
   return (selectedElement && <div className="element-controls">
                 <div className="element-controls-head"><strong>{elementDisplayName(selectedElement)}</strong><button className="text-button danger" onClick={() => removeElement(selectedElement.id)}><Trash2 size={12} /> {t('Delete')}</button></div>
                 {!selectedElement.presetId && !['image','video'].includes(selectedElement.kind) && <label className="field">{t('Replace old decoration')}<select aria-label={t('Replace old decoration')} value="" onChange={event => { const preset = ELEMENT_CATALOG.find(p => p.id === event.target.value); if (preset) updateElement({ kind:preset.kind,presetId:preset.id,label:preset.text,color:preset.color,animation:preset.animation,...presetSize(preset,activeSize) }); }}><option value="">{t('Choose a current element…')}</option>{ELEMENT_CATALOG.filter(p => ['Social','Titles'].includes(p.category)).map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></label>}

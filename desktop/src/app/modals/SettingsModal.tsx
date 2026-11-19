@@ -1,3 +1,4 @@
+import { useUi } from '../ui-store';
 import { clearOnlineCache } from '../../stores/online-cache';
 import * as bridge from '../bridge';
 import { isLocale, LOCALES, t, type Locale } from '../../i18n';
@@ -39,11 +40,9 @@ function Switch({ checked, onChange }: { checked: boolean; onChange: (next: bool
   return <input type="checkbox" role="switch" className="settings-switch" checked={checked} onChange={event => onChange(event.target.checked)} />;
 }
 
-export function SettingsModal({ settingsTab, shortcutDirty, setNotice, setSettingsTab, preferences, updatePreferences, storageUsage, refreshAssetUsage, storageBusy, cleanStorage, storageConfirm, storageNote, language, setLanguage, resetPreferences, showHints, setShowHints, setSnapping, resetLayout, shortcuts, platform, applyShortcuts, setShortcutDirty, closeShortcutSettings, appVersion, updateState, updateInfo, updateMessage, checkForUpdates, downloadUpdate, updateProgress, restartUpdate, copyDownloadLink, exporter, diagnostics, copyDiagnostics, recheckExporter, storageLabel, refreshStorage }: {
-  settingsTab: SettingsTab;
+export function SettingsModal({shortcutDirty, setNotice, preferences, updatePreferences, storageUsage, refreshAssetUsage, storageBusy, cleanStorage, storageConfirm, storageNote, language, setLanguage, resetPreferences, showHints, setShowHints, setSnapping, resetLayout, shortcuts, platform, applyShortcuts, setShortcutDirty, closeShortcutSettings, appVersion, updateState, updateInfo, updateMessage, checkForUpdates, downloadUpdate, updateProgress, restartUpdate, copyDownloadLink, exporter, diagnostics, copyDiagnostics, recheckExporter, storageLabel, refreshStorage}: {
   shortcutDirty: boolean;
   setNotice: Dispatch<SetStateAction<string>>;
-  setSettingsTab: Dispatch<SetStateAction<SettingsTab>>;
   preferences: Preferences;
   updatePreferences: (patch: Partial<Preferences>) => void;
   storageUsage: bridge.AssetUsage | null;
@@ -80,6 +79,7 @@ export function SettingsModal({ settingsTab, shortcutDirty, setNotice, setSettin
   storageLabel: string;
   refreshStorage: () => void;
 }) {
+  const { settingsTab, setSettingsTab } = useUi();
   const section = SECTIONS.find(item => item.id === settingsTab) ?? SECTIONS[0];
   const select = (next: SettingsTab) => {
     if (shortcutDirty && settingsTab === 'shortcuts' && next !== 'shortcuts') { setNotice(t('Apply or cancel your shortcut changes before leaving Shortcuts.')); return; }

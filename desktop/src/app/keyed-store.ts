@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from 'react';
+import { createContext, createElement, useContext, useRef, useSyncExternalStore, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 
 /** `{ a, b }` → `{ setA, setB }`, each shaped like useState's setter. */
 export type KeyedSetters<S> = { [K in keyof S & string as `set${Capitalize<K>}`]: Dispatch<SetStateAction<S[K]>> };
@@ -40,4 +40,31 @@ export function createKeyedStore<S extends object>(initial: S): KeyedStore<S> {
       emit();
     },
   };
+}
+
+/**
+ * A keyed store with its context, provider and hooks, so a new group of editor
+ * state needs only its initial values and a name.
+ */
+export function createStoreKit<S extends object>(name: string, initial: S) {
+  const Context = createContext<KeyedStore<S> | null>(null);
+  const create = () => createKeyedStore(initial);
+  function Provider({ store, children }: { store: KeyedStore<S>; children?: ReactNode }) {
+    return createElement(Context.Provider, { value: store }, children);
+  }
+  /** Creates a store that lives as long as the calling component. */
+  function useCreate(): KeyedStore<S> {
+    const ref = useRef<KeyedStore<S> | null>(null);
+    ref.current ??= create();
+    return ref.current;
+  }
+  /** Subscribes to the whole state and returns it with the stable setters. */
+  function useStore(store?: KeyedStore<S>): S & KeyedSetters<S> {
+    const context = useContext(Context);
+    const active = store ?? context;
+    if (!active) throw new Error(`use${name} needs a ${name}Provider or a store.`);
+    const state = useSyncExternalStore(active.subscribe, active.get, active.get);
+    return { ...state, ...active.setters };
+  }
+  return { create, Provider, useCreate, useStore };
 }
