@@ -1,3 +1,4 @@
+import { useExportFlow } from './hooks/useExportFlow';
 import { useTextAndElements } from './hooks/useTextAndElements';
 import { creditForClipName } from '../stores/music-library';
 import { SOUND_EFFECTS, type SoundEffectId } from '../components/elements/sound-effects';
@@ -151,7 +152,7 @@ import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTran
 import { probeVideo } from '../components/preview/video';
 import { layerVisibleAt, sceneTextLayers } from '../components/text/layers';
 import { clampWeight, fontOption } from '../components/text/fonts';
-import { FORMAT_FILTERS, FORMAT_PRESETS, filterFormatGroups, formatSlug, formatSize, groupFormatsByOutput, resolveSceneForFormat } from '../stores/formats';
+import { FORMAT_FILTERS, FORMAT_PRESETS, filterFormatGroups, formatSize, groupFormatsByOutput, resolveSceneForFormat } from '../stores/formats';
 import { messageFor } from './errors';
 import { formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
 import { backfillThumbnails, exportState, getLibraryProject, listProjects, saveLibraryProject, type ProjectSummary } from '../stores/library';
@@ -185,7 +186,7 @@ import { EditorHeader } from './screens/EditorHeader';
 import { HomeMain } from './screens/HomeMain';
 import { ProjectThumb } from '../components/ProjectThumb';
 import { HomeSidebar } from './screens/HomeSidebar';
-import { useVideoExport } from './hooks/useVideoExport';
+
 import { useSceneReplacement } from './hooks/useSceneReplacement';
 import { useAudioActions } from './hooks/useAudioActions';
 import { useMediaImport } from './hooks/useMediaImport';
@@ -1530,52 +1531,8 @@ export default function App() {
     finally { setRelinking(null); }
   }
 
-  function openExportModal() {
-    if (missing.length) { setError(t('Relink missing media before exporting this project.')); return; }
-    void bridge.exporterCapabilities().then(setExportCodecs).catch(() => setExportCodecs([]));
-    void bridge.exporterHardware().then(available => {
-      setHardwareAvailable(available);
-      if (!available) setExportHardware(false);
-    }).catch(() => setHardwareAvailable(false));
-    setPlaying(false);
-    setExportFormatIds(project.formats.map(format => format.id));
-    setModal('export');
-  }
+  const { openExportModal, exportFilename, saveStillFrame, exportVideo, cancelExport } = useExportFlow({ activeFormat, activeSize, commitElement, displayAspect, exportAudio, exportCancelled, exportCodec, exportCodecs, exportContainer, exportFormatIds, exportFps, exportQuality, exportResolution, exportSettings, exportSpeed, inspectorFlush, latestProject, missing, musicCredits, pending, position, presentRefs, previewLocalSeconds, previewTransition, project, renderOverlays, renderPipScenes, resolvedNextScene, saveCredits, sceneForPreview, sceneVideo, setCancellingExport, setError, setExportCodecs, setExportElapsed, setExportFormatIds, setExportHardware, setExportJob, setExportProgress, setExporting, setHardwareAvailable, setModal, setNotice, setPlaying, useHardware, videoScene });
 
-  /**
-   * One file can serve several social formats. When that happens the name lists
-   * every platform it covers, e.g. `Story - insta-story+tiktok+fb-reels - 1080x1920.mp4`.
-   */
-  function exportFilename(delivery: { formats: { name: string; presetId?: string | null; quality: string; width: number; height: number }[]; slug?: string }, includeFormat = false) {
-    const formats = delivery.formats;
-    const first = formats[0];
-    const combined = formats.length > 1;
-    const name = exportSettings.name.trim() || project.name || 'PixCut project';
-    if (combined && first) {
-      // Compact delivery: Story-v1-yt-ig-tt-fb-sc-1080x1920.mp4
-      const tokens: [string, number][] = [[name, 48], [exportSettings.version.trim(), 16], [delivery.slug ?? formats.map(format => formatSlug(format)).join('-'), 40], [`${first.width}x${first.height}`, 12]];
-      return `${tokens.filter(([token]) => token).map(([token, limit]) => token.replace(/\s+/g, '-').slice(0, limit)).join('-')}.${exportContainer}`;
-    }
-    const parts = [name];
-    if (exportSettings.version.trim()) parts.push(exportSettings.version.trim());
-    if (first && (includeFormat || exportSettings.includePreset)) parts.push(first.name);
-    if (first && exportSettings.includeQuality) parts.push(first.quality === 'draft' ? 'Draft' : first.quality === 'high' ? 'High quality' : 'Standard');
-    return `${parts.join(' - ')}.${exportContainer}`;
-  }
-
-  /**
-   * A hidden video element that can be seeked frame by frame. Transitions need
-   * the outgoing clip's real frames, not its poster, so the planner decodes the
-   * last few frames here and blits them into the same canvas the preview uses.
-   */
-  const { saveStillFrame, exportVideo } = useVideoExport({ saveCredits, musicCredits, exportAudio, exportCancelled, setExportProgress, exportCodec, exportContainer, exportSpeed, useHardware, exportFilename, sceneForPreview, setError, previewTransition, resolvedNextScene, displayAspect, previewLocalSeconds, project, activeSize, renderOverlays, position, videoScene, sceneVideo, renderPipScenes, activeFormat, setNotice, latestProject, presentRefs, exportCodecs, commitElement, inspectorFlush, pending, exportFormatIds, exportResolution, exportQuality, exportFps, setCancellingExport, setExporting, setExportElapsed, setExportJob, setPlaying, setModal });
-
-
-  function cancelExport() {
-    exportCancelled.current = true;
-    setCancellingExport(true);
-    bridge.cancelExport().catch(() => { /* the export promise reports the outcome */ });
-  }
 
   useEffect(() => {
     if (!modal) return;
