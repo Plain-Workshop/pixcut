@@ -1,3 +1,4 @@
+import { useShortcutHelpers } from './hooks/useShortcutHelpers';
 import { usePreviewPlayback } from './hooks/usePreviewPlayback';
 import { useProjectStarts } from './hooks/useProjectStarts';
 import { useFontsAndCaptions } from './hooks/useFontsAndCaptions';
@@ -148,7 +149,6 @@ import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
 import * as bridge from './bridge';
 import type { ModalId } from './modal';
 import { buildDiagnostics, classifyDrop, countMissingAssets } from './home-support';
-import { commandAvailability as resolveAvailability } from './command-availability';
 import { runCommand } from './command-runner';
 import { HINTS_KEY } from './export-options';
 import { overlayScenes, audioMixOf, audioLaneGain, videoAudioGain, edit, emptyProject, projectScenes, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, type AudioClip, type AudioMix, type Command, type Scene, type Session, type TextLayer, type FormatVariant, type ElementLayer } from '../stores/model';
@@ -166,10 +166,10 @@ import {
   COMMANDS,
   bindingMatchesEvent,
   detectPlatform,
-  formatBinding,
+  
   isTextEntryTarget,
   loadShortcutSettings,
-  saveShortcutSettings,
+  
   type CommandAvailability,
   
   type ShortcutSettings as ShortcutSettingsData,
@@ -816,36 +816,8 @@ export default function App() {
     setNotice(message);
   }
 
-  function shortcutText(id: string) {
-    const binding = shortcuts.bindings[id] ?? '';
-    return binding ? formatBinding(binding, platform) : 'Unassigned';
-  }
+  const { shortcutText, availabilityFor, tip, applyShortcuts, dismissHints } = useShortcutHelpers({ audio, audioTargetRef, busy, canEdit, clipEditing, duration, editTargetRef, exporting, lockedLanes, platform, position, project, projectTicks, ready, scenes, screen, selectedAudio, selectedScene, selectedScenes, session, setError, setNotice, setShortcuts, setShowHints, shortcuts, updatePreferences });
 
-  function availabilityFor(id: string): CommandAvailability {
-    return resolveAvailability(id, {
-      screen, ready, busy, canEdit, exporting, canUndo: session.canUndo, canRedo: session.canRedo, scenes, selectedScenes, selectedScene,
-      position, timebase: project.timebase, duration, projectTicks, editTarget: editTargetRef.current, audioTargetId: audioTargetRef.current,
-      audio, selectedAudio, lockedLanes, selectionLane: () => clipEditing.current?.selectionLane() ?? '',
-    });
-  }
-
-  function tip(id: string, label: string) {
-    const state = availabilityFor(id);
-    return `${t(label)} · ${shortcutText(id)}${state.disabled && state.reason ? ` — ${state.reason}` : ''}`;
-  }
-
-  function applyShortcuts(next: ShortcutSettingsData) {
-    try { saveShortcutSettings(next); } catch (e) { setError(t('Shortcuts could not be saved. {e}', { e: messageFor(e) })); return false; }
-    setShortcuts(next);
-    setNotice(t('Shortcuts applied everywhere: tooltips, help, and the command palette.'));
-    return true;
-  }
-
-  function dismissHints() {
-    setShowHints(false);
-    updatePreferences({ showHints: false });
-    try { localStorage.setItem(HINTS_KEY, '1'); } catch { /* local preferences are optional */ }
-  }
 
   const { copySceneProperties, notifyPasted, selectTextLayer, selectGlobalText, addProjectText, replaceSceneTextLayers, addElement, selectOverlay, saveOverlay, stageElement, commitElement, updateElement, elementStackPosition, moveElementLayer, reorderLayer, removeElement, beginElementMove, beginElementResize, beginElementRotate, beginOverlayTiming, addBeatAtPlayhead, removeBeat, addTextLayerAtPlayhead, previewInlineText, commitInlineText, cancelInlineText, blurInlineText, fadeAmount } = useTextAndElements({ active, activeSize, activeStart, allOverlays, canEdit, inspectorFlush, latestProject, overlayDraftRef, position, positionRef, previewScene, previewStage, project, projectTicks, run, sceneLayerStack, selectedElement, selectedGlobalText, selectedScene, selectedTextLayer, selectionAnchor, setDraggingOverlay, setEditTarget, setEditingText, setFramingMode, setGlobalTextDraft, setNotice, setOverlayDraft, setPlaying, setPosition, setPreviewScene, setPrimarySelected, setPropertyClipboard, setSelectedElementId, setSelectedGlobalTextId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId, setSnapGuides, setTab, setTextDraft, setTextFocus, snapping, textDraft, textStartTicks });
 
