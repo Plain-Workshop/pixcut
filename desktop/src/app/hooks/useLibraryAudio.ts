@@ -1,3 +1,6 @@
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useLibraryState, type LibraryStore } from '../library-store';
 import { t } from '../../i18n';
 import { findSavedTrack, loadSavedTracks, storeSavedTracks, withSavedTrack, withoutSavedTrack, type SavedTrack } from '../../stores/online-downloads';
 import { onlineLicenseLabel, DOWNLOAD_CANCELLED, downloadOnlineTrack, type OnlineTrack } from '../../stores/online-music';
@@ -11,23 +14,22 @@ import { secondsToTicks, ticksToSeconds, totalTicks, type AudioClip, type Comman
 import { messageFor } from '../errors';
 
 /** Library audio: hover/Listen previews, adding bundled, saved and online music, and sound effects to the timeline. */
-export function useLibraryAudio({ canEdit, projectTicks, position, project, latestProject, run, setBusy, setNotice, setError, tab, audioLibraryTab, playing, modal, setHoveredMedia, setHoveredElement }: {
+export function useLibraryAudio({canEdit, projectTicks, project, latestProject, run, setBusy, setNotice, setError, uiStore, playbackStore, libraryStore}: {
   canEdit: boolean;
   projectTicks: number;
-  position: number;
   project: Project;
   latestProject: { current: Project };
   run: (command: Command) => Promise<boolean>;
   setBusy: Dispatch<SetStateAction<boolean>>;
   setNotice: Dispatch<SetStateAction<string>>;
   setError: Dispatch<SetStateAction<string>>;
-  tab: string;
-  audioLibraryTab: string;
-  playing: boolean;
-  modal: string | null;
-  setHoveredMedia: Dispatch<SetStateAction<string | null>>;
-  setHoveredElement: Dispatch<SetStateAction<string | null>>;
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
+  libraryStore: LibraryStore;
 }) {
+  const { tab, modal } = useUi(uiStore);
+  const { position, playing } = usePlayback(playbackStore);
+  const { audioLibraryTab, setHoveredMedia, setHoveredElement } = useLibraryState(libraryStore);
   const soundPreviewRef = useRef<HTMLAudioElement | null>(null);
   const [previewingAudio, setPreviewingAudio] = useState<string | null>(null);
   const libraryAudio = useRef<HTMLAudioElement | null>(null), libraryAudioToken = useRef(0), libraryAudioTimer = useRef<number | undefined>(undefined);

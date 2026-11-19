@@ -1,19 +1,20 @@
+import { useUi, type UiStore } from '../ui-store';
 import { useEffect } from 'react';
 import { savePreferences, type Preferences } from '../../stores/preferences';
 import { formatBytes } from '../helpers';
 import { type Locale } from '../../i18n';
-import type { ModalId } from '../modal';
-import type { SettingsTab } from '../modals/SettingsModal';
+
+
 import type { Dispatch, SetStateAction } from 'react';
 
-export function useAppearanceEffects({ language, modal, preferences, setStorageLabel, setSystemDark, settingsTab }: {
+export function useAppearanceEffects({language, preferences, setStorageLabel, setSystemDark, uiStore}: {
   language: Locale;
-  modal: ModalId | null;
   preferences: Preferences;
   setStorageLabel: Dispatch<SetStateAction<string>>;
   setSystemDark: Dispatch<SetStateAction<boolean>>;
-  settingsTab: SettingsTab;
+  uiStore: UiStore;
 }) {
+  const { modal, settingsTab } = useUi(uiStore);
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   useEffect(() => {
     if (preferences.theme !== 'system' || typeof window.matchMedia !== 'function') return;

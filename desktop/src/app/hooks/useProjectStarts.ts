@@ -1,13 +1,17 @@
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useSelection, type SelectionStore } from '../selection-store';
+import { useDrafts, type DraftsStore } from '../drafts-store';
 import { emptyProject, projectScenes, type Command, type Project, type Scene, type FormatVariant } from '../../stores/model';
 import { FORMAT_PRESETS } from '../../stores/formats';
 import { useFormats } from './useFormats';
 import { buildTemplateProject, type TemplateDefinition } from '../../templates/catalog';
-import type { ModalId } from '../modal';
+
 import { type Preferences } from '../../stores/preferences';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import type { FormatQuality } from '../../stores/model';
 
-export function useProjectStarts({ activeFormat, customFormatDraft, latestProject, newCustomFormats, newFormatIds, newFormatSelection, newProjectFps, persistCurrent, preferences, project, run, selectedScene, selectionAnchor, setActiveFormatId, setCustomFormatDraft, setEditingText, setError, setHomeSection, setModal, setNewCustomFormats, setNotice, setPendingTemplate, setPlaying, setPosition, setPreviewScene, setPrimarySelected, setScreen, setSelectedIds }: {
+export function useProjectStarts({activeFormat, customFormatDraft, latestProject, newCustomFormats, newFormatIds, newFormatSelection, newProjectFps, persistCurrent, preferences, project, run, selectedScene, selectionAnchor, setActiveFormatId, setCustomFormatDraft, setError, setNewCustomFormats, setNotice, setPendingTemplate, setScreen, uiStore, playbackStore, selectionStore, draftsStore}: {
   activeFormat: FormatVariant;
   customFormatDraft: { name: string; width: number; height: number; fps: number; quality: "draft" | "standard" | "high"; };
   latestProject: RefObject<Project>;
@@ -23,20 +27,20 @@ export function useProjectStarts({ activeFormat, customFormatDraft, latestProjec
   selectionAnchor: RefObject<string | null>;
   setActiveFormatId: Dispatch<SetStateAction<string | null>>;
   setCustomFormatDraft: Dispatch<SetStateAction<{ name: string; width: number; height: number; fps: number; quality: "draft" | "standard" | "high"; }>>;
-  setEditingText: Dispatch<SetStateAction<boolean>>;
   setError: Dispatch<SetStateAction<string>>;
-  setHomeSection: Dispatch<SetStateAction<"home" | "projects">>;
-  setModal: Dispatch<SetStateAction<ModalId | null>>;
   setNewCustomFormats: Dispatch<SetStateAction<FormatVariant[]>>;
   setNotice: Dispatch<SetStateAction<string>>;
   setPendingTemplate: Dispatch<SetStateAction<TemplateDefinition | null>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  setPosition: Dispatch<SetStateAction<number>>;
-  setPreviewScene: Dispatch<SetStateAction<Scene | null>>;
-  setPrimarySelected: Dispatch<SetStateAction<string | null>>;
   setScreen: Dispatch<SetStateAction<"home" | "editor">>;
-  setSelectedIds: Dispatch<SetStateAction<string[]>>;
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
+  selectionStore: SelectionStore;
+  draftsStore: DraftsStore;
 }) {
+  const { setEditingText, setHomeSection, setModal } = useUi(uiStore);
+  const { setPlaying, setPosition } = usePlayback(playbackStore);
+  const { setPrimarySelected, setSelectedIds } = useSelection(selectionStore);
+  const { setPreviewScene } = useDrafts(draftsStore);
   async function launchProject(p: Project) {
     if (projectScenes(latestProject.current).length) await persistCurrent();
     if (!(await run({ type: 'replace', project: p }))) return false;

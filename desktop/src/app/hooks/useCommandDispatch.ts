@@ -1,16 +1,20 @@
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useSelection, type SelectionStore } from '../selection-store';
+import { useDrafts, type DraftsStore } from '../drafts-store';
 import { t } from '../../i18n';
 import { COMMANDS, type CommandAvailability } from '../../shortcuts/registry';
 import { type TimelineOverlay } from '../../components/elements/overlays';
 import { type TimelineControls } from '../screens/TimelinePanel';
-import type { ModalId } from '../modal';
+
 import { type Command, type Scene, type TextLayer } from '../../stores/model';
 import { type ProjectSummary } from '../../stores/library';
 import { type TemplateDefinition } from '../../templates/catalog';
-import type { SettingsTab } from '../modals/SettingsModal';
+
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import type { LaneId } from './useClipEditing';
 
-export function useCommandDispatch({ addBeatAtPlayhead, addTextLayerAtPlayhead, availabilityFor, chooseImages, clipEditing, closeModalRef, commandRef, deleteSelected, duplicateSelected, duration, fullscreenRef, jumpToEdit, modal, movePlayhead, open, openExportModal, overlayDraftRef, pipDraftRef, playForward, playReverse, position, run, save, scenes, selectionAnchor, setContextMenu, setDeleteTarget, setEditingText, setFramingMode, setGroupDrafts, setGroupTarget, setModal, setNotice, setOverlayDraft, setPendingTemplate, setPipDraft, setPlaying, setPrimarySelected, setRenameTarget, setSafeArea, setSelectedElementId, setSelectedGlobalTextId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId, setShortcutDirty, settingsTab, shortcutDirty, splitAtPlayhead, startBlank, stepFrame, timelineControls, togglePlayback, toggleSnapping }: {
+export function useCommandDispatch({addBeatAtPlayhead, addTextLayerAtPlayhead, availabilityFor, chooseImages, clipEditing, closeModalRef, commandRef, deleteSelected, duplicateSelected, duration, fullscreenRef, jumpToEdit, movePlayhead, open, openExportModal, overlayDraftRef, pipDraftRef, playForward, playReverse, run, save, scenes, selectionAnchor, setDeleteTarget, setGroupDrafts, setGroupTarget, setNotice, setPendingTemplate, setRenameTarget, setShortcutDirty, shortcutDirty, splitAtPlayhead, startBlank, stepFrame, timelineControls, togglePlayback, toggleSnapping, uiStore, playbackStore, selectionStore, draftsStore}: {
   addBeatAtPlayhead: () => void;
   addTextLayerAtPlayhead: (preset?: Partial<TextLayer>) => void;
   availabilityFor: (id: string) => CommandAvailability;
@@ -23,7 +27,6 @@ export function useCommandDispatch({ addBeatAtPlayhead, addTextLayerAtPlayhead, 
   duration: number;
   fullscreenRef: RefObject<() => void>;
   jumpToEdit: (direction: 1 | -1) => void;
-  modal: ModalId | null;
   movePlayhead: (seconds: number) => void;
   open: () => Promise<void>;
   openExportModal: () => void;
@@ -31,33 +34,17 @@ export function useCommandDispatch({ addBeatAtPlayhead, addTextLayerAtPlayhead, 
   pipDraftRef: RefObject<Scene | null>;
   playForward: () => void;
   playReverse: () => void;
-  position: number;
   run: (command: Command) => Promise<boolean>;
   save: () => Promise<void>;
   scenes: Scene[];
   selectionAnchor: RefObject<string | null>;
-  setContextMenu: Dispatch<SetStateAction<{ x: number; y: number; } | null>>;
   setDeleteTarget: Dispatch<SetStateAction<ProjectSummary | null>>;
-  setEditingText: Dispatch<SetStateAction<boolean>>;
-  setFramingMode: Dispatch<SetStateAction<boolean>>;
   setGroupDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   setGroupTarget: Dispatch<SetStateAction<ProjectSummary | null>>;
-  setModal: Dispatch<SetStateAction<ModalId | null>>;
   setNotice: Dispatch<SetStateAction<string>>;
-  setOverlayDraft: Dispatch<SetStateAction<TimelineOverlay | null>>;
   setPendingTemplate: Dispatch<SetStateAction<TemplateDefinition | null>>;
-  setPipDraft: Dispatch<SetStateAction<Scene | null>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  setPrimarySelected: Dispatch<SetStateAction<string | null>>;
   setRenameTarget: Dispatch<SetStateAction<ProjectSummary | null>>;
-  setSafeArea: Dispatch<SetStateAction<boolean>>;
-  setSelectedElementId: Dispatch<SetStateAction<string | null>>;
-  setSelectedGlobalTextId: Dispatch<SetStateAction<string | null>>;
-  setSelectedIds: Dispatch<SetStateAction<string[]>>;
-  setSelectedPipId: Dispatch<SetStateAction<string | null>>;
-  setSelectedTextLayerId: Dispatch<SetStateAction<string | null>>;
   setShortcutDirty: Dispatch<SetStateAction<boolean>>;
-  settingsTab: SettingsTab;
   shortcutDirty: boolean;
   splitAtPlayhead: () => void;
   startBlank: () => Promise<void>;
@@ -65,7 +52,15 @@ export function useCommandDispatch({ addBeatAtPlayhead, addTextLayerAtPlayhead, 
   timelineControls: RefObject<TimelineControls | null>;
   togglePlayback: () => void;
   toggleSnapping: () => void;
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
+  selectionStore: SelectionStore;
+  draftsStore: DraftsStore;
 }) {
+  const { modal, setContextMenu, setEditingText, setFramingMode, setModal, setSafeArea, settingsTab } = useUi(uiStore);
+  const { position, setPlaying } = usePlayback(playbackStore);
+  const { setPrimarySelected, setSelectedElementId, setSelectedGlobalTextId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId } = useSelection(selectionStore);
+  const { setOverlayDraft, setPipDraft } = useDrafts(draftsStore);
   function requestCloseModal() {
     if (modal === 'settings' && settingsTab === 'shortcuts' && shortcutDirty) {
       setNotice(t('Apply or cancel your shortcut changes before closing Settings.'));

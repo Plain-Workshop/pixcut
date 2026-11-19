@@ -1,3 +1,7 @@
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useSelection, type SelectionStore } from '../selection-store';
+import { useDrafts, type DraftsStore } from '../drafts-store';
 import { MAX_GLOBAL_TEXT, sceneAt, secondsToTicks, ticksToSeconds, type Command, type Project, type Scene, type TextLayer, type ElementLayer } from '../../stores/model';
 import { t } from '../../i18n';
 import { createTextLayer, layerStartSeconds, sceneTextLayers } from '../../components/text/layers';
@@ -10,7 +14,7 @@ import { fadeOpacity } from '../../components/preview/render';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import type { ElementKind } from '../../stores/model';
 import type { StackEntry } from '../../components/elements/stack';
-import type { EditTarget } from '../selection-store';
+
 
 const ELEMENT_COLOR_DEFAULTS: Partial<Record<ElementKind, string>> = {
   subscribe: '#FF0033', like: '#0A66C2', bell: '#FFD166', comment: '#FFFFFF',
@@ -19,7 +23,7 @@ const ELEMENT_COLOR_DEFAULTS: Partial<Record<ElementKind, string>> = {
   cursor: '#FFFFFF', underline: '#9D7CFF',
 };
 
-export function useTextAndElements({ active, activeSize, activeStart, allOverlays, canEdit, inspectorFlush, latestProject, overlayDraftRef, position, positionRef, previewScene, previewStage, project, projectTicks, run, sceneLayerStack, selectedElement, selectedGlobalText, selectedScene, selectedTextLayer, selectionAnchor, setDraggingOverlay, setEditTarget, setEditingText, setFramingMode, setGlobalTextDraft, setNotice, setOverlayDraft, setPlaying, setPosition, setPreviewScene, setPrimarySelected, setPropertyClipboard, setSelectedElementId, setSelectedGlobalTextId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId, setSnapGuides, setTab, setTextDraft, setTextFocus, snapping, textDraft, textStartTicks }: {
+export function useTextAndElements({active, activeSize, activeStart, allOverlays, canEdit, inspectorFlush, latestProject, overlayDraftRef, positionRef, previewStage, project, projectTicks, run, sceneLayerStack, selectedElement, selectedGlobalText, selectedScene, selectedTextLayer, selectionAnchor, setDraggingOverlay, setGlobalTextDraft, setNotice, setPropertyClipboard, snapping, textStartTicks, uiStore, playbackStore, selectionStore, draftsStore}: {
   active: Scene | undefined;
   activeSize: { width: number; height: number; };
   activeStart: number;
@@ -28,9 +32,7 @@ export function useTextAndElements({ active, activeSize, activeStart, allOverlay
   inspectorFlush: RefObject<() => void>;
   latestProject: RefObject<Project>;
   overlayDraftRef: RefObject<TimelineOverlay | null>;
-  position: number;
   positionRef: RefObject<number>;
-  previewScene: Scene | null;
   previewStage: RefObject<HTMLDivElement | null>;
   project: Project;
   projectTicks: number;
@@ -42,30 +44,20 @@ export function useTextAndElements({ active, activeSize, activeStart, allOverlay
   selectedTextLayer: TextLayer;
   selectionAnchor: RefObject<string | null>;
   setDraggingOverlay: Dispatch<SetStateAction<boolean>>;
-  setEditTarget: Dispatch<SetStateAction<EditTarget>>;
-  setEditingText: Dispatch<SetStateAction<boolean>>;
-  setFramingMode: Dispatch<SetStateAction<boolean>>;
   setGlobalTextDraft: Dispatch<SetStateAction<TextLayer[] | null>>;
   setNotice: Dispatch<SetStateAction<string>>;
-  setOverlayDraft: Dispatch<SetStateAction<TimelineOverlay | null>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  setPosition: Dispatch<SetStateAction<number>>;
-  setPreviewScene: Dispatch<SetStateAction<Scene | null>>;
-  setPrimarySelected: Dispatch<SetStateAction<string | null>>;
   setPropertyClipboard: Dispatch<SetStateAction<Partial<Scene> | null>>;
-  setSelectedElementId: Dispatch<SetStateAction<string | null>>;
-  setSelectedGlobalTextId: Dispatch<SetStateAction<string | null>>;
-  setSelectedIds: Dispatch<SetStateAction<string[]>>;
-  setSelectedPipId: Dispatch<SetStateAction<string | null>>;
-  setSelectedTextLayerId: Dispatch<SetStateAction<string | null>>;
-  setSnapGuides: Dispatch<SetStateAction<{ x: number | null; y: number | null; }>>;
-  setTab: Dispatch<SetStateAction<"media" | "text" | "elements" | "audio" | "templates">>;
-  setTextDraft: Dispatch<SetStateAction<{ title: string; subtitle: string; }>>;
-  setTextFocus: Dispatch<SetStateAction<number>>;
   snapping: boolean;
-  textDraft: { title: string; subtitle: string; };
   textStartTicks: number;
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
+  selectionStore: SelectionStore;
+  draftsStore: DraftsStore;
 }) {
+  const { setEditingText, setFramingMode, setTab, setTextDraft, setTextFocus, textDraft } = useUi(uiStore);
+  const { position, setPlaying, setPosition } = usePlayback(playbackStore);
+  const { setEditTarget, setPrimarySelected, setSelectedElementId, setSelectedGlobalTextId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId } = useSelection(selectionStore);
+  const { previewScene, setOverlayDraft, setPreviewScene } = useDrafts(draftsStore);
   function copySceneProperties(source: Scene) {
     setPropertyClipboard({
       textLayers: structuredClone(source.textLayers ?? []),
@@ -253,7 +245,7 @@ export function useTextAndElements({ active, activeSize, activeStart, allOverlay
     void saveOverlay(element, null); setSelectedElementId(null); overlayDraftRef.current = null; setOverlayDraft(null);
   }
 
-  const { beginElementMove, beginElementResize, beginElementRotate, beginOverlayTiming } = useElementPointer({ canEdit, inspectorFlush, previewStage, selectedElement, selectOverlay, allOverlays, position, project, projectTicks, snapping, setPlaying, setDraggingOverlay, setSnapGuides, setOverlayDraft, overlayDraftRef, stageElement, commitElement });
+  const { beginElementMove, beginElementResize, beginElementRotate, beginOverlayTiming } = useElementPointer({ canEdit, inspectorFlush, previewStage, selectedElement, selectOverlay, allOverlays, project, projectTicks, snapping, setDraggingOverlay, overlayDraftRef, stageElement, commitElement, uiStore, playbackStore, draftsStore });
 
   function addBeatAtPlayhead() {
     if (!canEdit || !projectTicks) return;

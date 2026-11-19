@@ -1,3 +1,7 @@
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useSelection, type SelectionStore } from '../selection-store';
+import { useDrafts, type DraftsStore } from '../drafts-store';
 import { clipCount, t } from '../../i18n';
 import { splitAudioClip } from '../../components/timeline/audio-split';
 import { type TimelineOverlay } from '../../components/elements/overlays';
@@ -6,13 +10,12 @@ import { minTicks, projectScenes, scenePatch, sceneSeconds, secondsToTicks, setS
 import { sceneTextLayers } from '../../components/text/layers';
 
 /** Playback, selection and scene editing commands (split, duplicate, delete, scrub, select). */
-export function useSceneCommands({ activeFormat, audio, audioTargetRef, commitElement, duration, editTarget, editTargetRef, frameSeconds, hasSceneSelection, latestProject, operation, overlayDraftRef, pending, pipDraftRef, playing, position, positionRef, primarySelected, project, removeAudio, removeElement, removePip, replaceSceneTextLayers, run, scenes, selectedAudio, selectedAudioId, selectedElement, selectedGlobalText, selectedIds, selectedPip, selectedScene, selectedScenes, selectedTextLayerId, selectionAnchor, setEditTarget, setEditingText, setGlobalTextDraft, setNotice, setOverlayDraft, setPipDraft, setPlayDirection, setPlaying, setPosition, setPreviewScene, setPrimarySelected, setSelectedAudioId, setSelectedElementId, setSelectedGlobalTextId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId, snapping }: {
+export function useSceneCommands({activeFormat, audio, audioTargetRef, commitElement, duration, editTargetRef, frameSeconds, hasSceneSelection, latestProject, operation, overlayDraftRef, pending, pipDraftRef, positionRef, project, removeAudio, removeElement, removePip, replaceSceneTextLayers, run, scenes, selectedAudio, selectedElement, selectedGlobalText, selectedPip, selectedScene, selectedScenes, selectionAnchor, setGlobalTextDraft, setNotice, snapping, uiStore, playbackStore, selectionStore, draftsStore}: {
   activeFormat: FormatVariant;
   audio: AudioClip[];
   audioTargetRef: RefObject<string | null>;
   commitElement: () => void;
   duration: number;
-  editTarget: "scene" | "text" | "element" | "audio";
   editTargetRef: RefObject<"scene" | "text" | "element" | "audio">;
   frameSeconds: number;
   hasSceneSelection: boolean;
@@ -21,10 +24,7 @@ export function useSceneCommands({ activeFormat, audio, audioTargetRef, commitEl
   overlayDraftRef: RefObject<TimelineOverlay | null>;
   pending: RefObject<Promise<boolean>>;
   pipDraftRef: RefObject<Scene | null>;
-  playing: boolean;
-  position: number;
   positionRef: RefObject<number>;
-  primarySelected: string | null;
   project: Project;
   removeAudio: (id: string) => void;
   removeElement: (id: string) => void;
@@ -33,34 +33,24 @@ export function useSceneCommands({ activeFormat, audio, audioTargetRef, commitEl
   run: (command: Command) => Promise<boolean>;
   scenes: Scene[];
   selectedAudio: AudioClip;
-  selectedAudioId: string | null;
   selectedElement: TimelineOverlay | null;
   selectedGlobalText: TextLayer | null;
-  selectedIds: string[];
   selectedPip: Scene | null;
   selectedScene: Scene | undefined;
   selectedScenes: Scene[];
-  selectedTextLayerId: string | null;
   selectionAnchor: RefObject<string | null>;
-  setEditTarget: Dispatch<SetStateAction<"scene" | "text" | "element" | "audio">>;
-  setEditingText: Dispatch<SetStateAction<boolean>>;
   setGlobalTextDraft: Dispatch<SetStateAction<TextLayer[] | null>>;
   setNotice: Dispatch<SetStateAction<string>>;
-  setOverlayDraft: Dispatch<SetStateAction<TimelineOverlay | null>>;
-  setPipDraft: Dispatch<SetStateAction<Scene | null>>;
-  setPlayDirection: Dispatch<SetStateAction<1 | -1>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  setPosition: Dispatch<SetStateAction<number>>;
-  setPreviewScene: Dispatch<SetStateAction<Scene | null>>;
-  setPrimarySelected: Dispatch<SetStateAction<string | null>>;
-  setSelectedAudioId: Dispatch<SetStateAction<string | null>>;
-  setSelectedElementId: Dispatch<SetStateAction<string | null>>;
-  setSelectedGlobalTextId: Dispatch<SetStateAction<string | null>>;
-  setSelectedIds: Dispatch<SetStateAction<string[]>>;
-  setSelectedPipId: Dispatch<SetStateAction<string | null>>;
-  setSelectedTextLayerId: Dispatch<SetStateAction<string | null>>;
   snapping: boolean;
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
+  selectionStore: SelectionStore;
+  draftsStore: DraftsStore;
 }) {
+  const { setEditingText } = useUi(uiStore);
+  const { playing, position, setPlayDirection, setPlaying, setPosition } = usePlayback(playbackStore);
+  const { editTarget, primarySelected, selectedAudioId, selectedIds, selectedTextLayerId, setEditTarget, setPrimarySelected, setSelectedAudioId, setSelectedElementId, setSelectedGlobalTextId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId } = useSelection(selectionStore);
+  const { setOverlayDraft, setPipDraft, setPreviewScene } = useDrafts(draftsStore);
   function togglePlayback() {
     if (!duration) return;
     if (playing) { setPlaying(false); return; }

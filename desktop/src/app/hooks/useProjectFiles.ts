@@ -1,3 +1,5 @@
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useSelection, type SelectionStore } from '../selection-store';
 import { secondsToTicks, validateProject, type Command, type Project, type Scene, type Session } from '../../stores/model';
 import * as bridge from '../bridge';
 import { probeVideo } from '../../components/preview/video';
@@ -10,7 +12,7 @@ import { t } from '../../i18n';
 import { type Preferences } from '../../stores/preferences';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 
-export function useProjectFiles({ latestProject, operation, persistCurrent, preferences, project, projectInput, replaceSceneWithAsset, run, scenes, selectionAnchor, setBusy, setError, setNotice, setPlaying, setPosition, setPrimarySelected, setRelinking, setScreen, setSelectedIds, setSession, stageImportedMedia }: {
+export function useProjectFiles({latestProject, operation, persistCurrent, preferences, project, projectInput, replaceSceneWithAsset, run, scenes, selectionAnchor, setBusy, setError, setNotice, setRelinking, setScreen, setSession, stageImportedMedia, playbackStore, selectionStore}: {
   latestProject: RefObject<Project>;
   operation: RefObject<boolean>;
   persistCurrent: () => Promise<void>;
@@ -24,15 +26,15 @@ export function useProjectFiles({ latestProject, operation, persistCurrent, pref
   setBusy: Dispatch<SetStateAction<boolean>>;
   setError: Dispatch<SetStateAction<string>>;
   setNotice: Dispatch<SetStateAction<string>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  setPosition: Dispatch<SetStateAction<number>>;
-  setPrimarySelected: Dispatch<SetStateAction<string | null>>;
   setRelinking: Dispatch<SetStateAction<string | null>>;
   setScreen: Dispatch<SetStateAction<"home" | "editor">>;
-  setSelectedIds: Dispatch<SetStateAction<string[]>>;
   setSession: Dispatch<SetStateAction<Session>>;
   stageImportedMedia: (added: Scene[]) => Promise<void>;
+  playbackStore: PlaybackStore;
+  selectionStore: SelectionStore;
 }) {
+  const { setPlaying, setPosition } = usePlayback(playbackStore);
+  const { setPrimarySelected, setSelectedIds } = useSelection(selectionStore);
   function nativeTimelineAt(position: { x: number; y: number }) {
     const ratio = window.devicePixelRatio || 1;
     return [[position.x / ratio, position.y / ratio], [position.x / ratio, position.y / ratio - 28], [position.x, position.y]].some(([x,y]) => Boolean(document.elementFromPoint(x,y)?.closest('.timeline')));

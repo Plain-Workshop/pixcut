@@ -1,3 +1,6 @@
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useSelection, type SelectionStore } from '../selection-store';
+import { useDrafts, type DraftsStore } from '../drafts-store';
 import { useMemo } from 'react';
 import { timelineOverlays, type TimelineOverlay } from '../../components/elements/overlays';
 import { projectScenes, sceneSeconds, secondsToTicks, ticksToSeconds, type Scene, type TextLayer, type FormatVariant } from '../../stores/model';
@@ -8,23 +11,25 @@ import { applyTextMotion } from '../../components/animation/keyframes';
 import { layerVisibleAt } from '../../components/text/layers';
 import type { Project } from '../../stores/model';
 
-export function useSceneDerived({ active, activeFormat, activeSize, activeStart, displayAspect, overlayDraft, position, previewScene, previewTarget, project, scenes, selectedElementId, selectedGlobalText, selectedScene, selectedTextLayer }: {
+export function useSceneDerived({active, activeFormat, activeSize, activeStart, displayAspect, previewTarget, project, scenes, selectedGlobalText, selectedScene, selectedTextLayer, playbackStore, selectionStore, draftsStore}: {
   active: Scene | undefined;
   activeFormat: FormatVariant;
   activeSize: { width: number; height: number; };
   activeStart: number;
   displayAspect: "16:9" | "9:16" | "1:1" | "4:5";
-  overlayDraft: TimelineOverlay | null;
-  position: number;
-  previewScene: Scene | null;
   previewTarget: Scene | undefined;
   project: Project;
   scenes: Scene[];
-  selectedElementId: string | null;
   selectedGlobalText: TextLayer | null;
   selectedScene: Scene | undefined;
   selectedTextLayer: TextLayer;
+  playbackStore: PlaybackStore;
+  selectionStore: SelectionStore;
+  draftsStore: DraftsStore;
 }) {
+  const { position } = usePlayback(playbackStore);
+  const { selectedElementId } = useSelection(selectionStore);
+  const { overlayDraft, previewScene } = useDrafts(draftsStore);
   const allOverlays = useMemo(() => timelineOverlays(project), [project]);
   const layerWeight = (element: TimelineOverlay) => {
     if (typeof element.z === 'number') return element.z;

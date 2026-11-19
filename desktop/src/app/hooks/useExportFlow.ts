@@ -1,14 +1,16 @@
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
 import { t } from '../../i18n';
 import * as bridge from '../bridge';
 import { formatSlug } from '../../stores/formats';
 import { useVideoExport } from './useVideoExport';
 import { type MissingAsset } from '../../stores/missing-assets';
-import type { ModalId } from '../modal';
+
 import { type Project, type Scene, type FormatVariant, type ElementLayer } from '../../stores/model';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import type { TransitionType } from '../../stores/model';
 
-export function useExportFlow({ activeFormat, activeSize, commitElement, displayAspect, exportAudio, exportCancelled, exportCodec, exportCodecs, exportContainer, exportFormatIds, exportFps, exportQuality, exportResolution, exportSettings, exportSpeed, inspectorFlush, latestProject, missing, musicCredits, pending, position, presentRefs, previewLocalSeconds, previewTransition, project, renderOverlays, renderPipScenes, resolvedNextScene, saveCredits, sceneForPreview, sceneVideo, setCancellingExport, setError, setExportCodecs, setExportElapsed, setExportFormatIds, setExportHardware, setExportJob, setExportProgress, setExporting, setHardwareAvailable, setModal, setNotice, setPlaying, useHardware, videoScene }: {
+export function useExportFlow({activeFormat, activeSize, commitElement, displayAspect, exportAudio, exportCancelled, exportCodec, exportCodecs, exportContainer, exportFormatIds, exportFps, exportQuality, exportResolution, exportSettings, exportSpeed, inspectorFlush, latestProject, missing, musicCredits, pending, presentRefs, previewLocalSeconds, previewTransition, project, renderOverlays, renderPipScenes, resolvedNextScene, saveCredits, sceneForPreview, sceneVideo, setCancellingExport, setError, setExportCodecs, setExportElapsed, setExportFormatIds, setExportHardware, setExportJob, setExportProgress, setExporting, setHardwareAvailable, setNotice, useHardware, videoScene, uiStore, playbackStore}: {
   activeFormat: FormatVariant;
   activeSize: { width: number; height: number; };
   commitElement: () => void;
@@ -29,7 +31,6 @@ export function useExportFlow({ activeFormat, activeSize, commitElement, display
   missing: MissingAsset[];
   musicCredits: string[];
   pending: RefObject<Promise<boolean>>;
-  position: number;
   presentRefs: Set<string>;
   previewLocalSeconds: number;
   previewTransition: { type: TransitionType; progress: number; next: Scene; } | null;
@@ -50,12 +51,14 @@ export function useExportFlow({ activeFormat, activeSize, commitElement, display
   setExportProgress: Dispatch<SetStateAction<number>>;
   setExporting: Dispatch<SetStateAction<boolean>>;
   setHardwareAvailable: Dispatch<SetStateAction<boolean>>;
-  setModal: Dispatch<SetStateAction<ModalId | null>>;
   setNotice: Dispatch<SetStateAction<string>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
   useHardware: boolean;
   videoScene: Scene | null;
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
 }) {
+  const { setModal } = useUi(uiStore);
+  const { setPlaying } = usePlayback(playbackStore);
   function openExportModal() {
     if (missing.length) { setError(t('Relink missing media before exporting this project.')); return; }
     void bridge.exporterCapabilities().then(setExportCodecs).catch(() => setExportCodecs([]));
@@ -94,7 +97,7 @@ export function useExportFlow({ activeFormat, activeSize, commitElement, display
    * the outgoing clip's real frames, not its poster, so the planner decodes the
    * last few frames here and blits them into the same canvas the preview uses.
    */
-  const { saveStillFrame, exportVideo } = useVideoExport({ saveCredits, musicCredits, exportAudio, exportCancelled, setExportProgress, exportCodec, exportContainer, exportSpeed, useHardware, exportFilename, sceneForPreview, setError, previewTransition, resolvedNextScene, displayAspect, previewLocalSeconds, project, activeSize, renderOverlays, position, videoScene, sceneVideo, renderPipScenes, activeFormat, setNotice, latestProject, presentRefs, exportCodecs, commitElement, inspectorFlush, pending, exportFormatIds, exportResolution, exportQuality, exportFps, setCancellingExport, setExporting, setExportElapsed, setExportJob, setPlaying, setModal });
+  const { saveStillFrame, exportVideo } = useVideoExport({ saveCredits, musicCredits, exportAudio, exportCancelled, setExportProgress, exportCodec, exportContainer, exportSpeed, useHardware, exportFilename, sceneForPreview, setError, previewTransition, resolvedNextScene, displayAspect, previewLocalSeconds, project, activeSize, renderOverlays, videoScene, sceneVideo, renderPipScenes, activeFormat, setNotice, latestProject, presentRefs, exportCodecs, commitElement, inspectorFlush, pending, exportFormatIds, exportResolution, exportQuality, exportFps, setCancellingExport, setExporting, setExportElapsed, setExportJob, uiStore, playbackStore });
 
 
   function cancelExport() {

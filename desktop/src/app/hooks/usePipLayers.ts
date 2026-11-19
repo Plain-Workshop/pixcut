@@ -1,3 +1,7 @@
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useSelection, type SelectionStore } from '../selection-store';
+import { useDrafts, type DraftsStore } from '../drafts-store';
 import { t } from '../../i18n';
 import { landedOn, setSnapGuide, snapEdges, snapThreshold, timelineSnapPoints } from '../../components/timeline/timeline-snap';
 import { constrainPipTiming, freePipStart, pipSourceRoom } from '../../components/timeline/pip';
@@ -10,23 +14,11 @@ import { messageFor } from '../errors';
 import { captureDragPointer } from '../helpers';
 import { type Dispatch, type SetStateAction, type RefObject } from 'react';
 
-export function usePipLayers({ timelineSnapping, setSelectedPipId, setSelectedIds, setPrimarySelected, selectionAnchor, setSelectedTextLayerId, setSelectedGlobalTextId, setSelectedElementId, setEditTarget, setEditingText, setFramingMode, setPlaying, setPosition, project, selectedPip, pipDraftRef, setPipDraft, activePip, setError, run, setNotice, canEdit, projectTicks, selectedScene, position, activeSize }: {
-  setSelectedPipId: Dispatch<SetStateAction<string | null>>;
-  setSelectedIds: Dispatch<SetStateAction<string[]>>;
-  setPrimarySelected: Dispatch<SetStateAction<string | null>>;
+export function usePipLayers({timelineSnapping, selectionAnchor, project, selectedPip, pipDraftRef, activePip, setError, run, setNotice, canEdit, projectTicks, selectedScene, activeSize, uiStore, playbackStore, selectionStore, draftsStore}: {
   selectionAnchor: RefObject<string | null>;
-  setSelectedTextLayerId: Dispatch<SetStateAction<string | null>>;
-  setSelectedGlobalTextId: Dispatch<SetStateAction<string | null>>;
-  setSelectedElementId: Dispatch<SetStateAction<string | null>>;
-  setEditTarget: Dispatch<SetStateAction<"scene" | "text" | "element" | "audio">>;
-  setEditingText: Dispatch<SetStateAction<boolean>>;
-  setFramingMode: Dispatch<SetStateAction<boolean>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  setPosition: Dispatch<SetStateAction<number>>;
   project: Project;
   selectedPip: Scene | null;
   pipDraftRef: RefObject<Scene | null>;
-  setPipDraft: Dispatch<SetStateAction<Scene | null>>;
   activePip: Scene | null;
   setError: Dispatch<SetStateAction<string>>;
   run: (command: Command) => Promise<boolean>;
@@ -34,10 +26,17 @@ export function usePipLayers({ timelineSnapping, setSelectedPipId, setSelectedId
   canEdit: boolean;
   projectTicks: number;
   selectedScene: Scene | undefined;
-  position: number;
   timelineSnapping: boolean;
   activeSize: { width: number; height: number; };
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
+  selectionStore: SelectionStore;
+  draftsStore: DraftsStore;
 }) {
+  const { setEditingText, setFramingMode } = useUi(uiStore);
+  const { setPlaying, setPosition, position } = usePlayback(playbackStore);
+  const { setSelectedPipId, setSelectedIds, setPrimarySelected, setSelectedTextLayerId, setSelectedGlobalTextId, setSelectedElementId, setEditTarget } = useSelection(selectionStore);
+  const { setPipDraft } = useDrafts(draftsStore);
   function selectPip(clip: Scene) {
     setSelectedPipId(clip.id);
     setSelectedIds([]); setPrimarySelected(null); selectionAnchor.current = null;

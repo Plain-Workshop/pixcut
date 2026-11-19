@@ -1,3 +1,7 @@
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useSelection, type SelectionStore } from '../selection-store';
+import { useDrafts, type DraftsStore } from '../drafts-store';
 import { useEffect, useState } from 'react';
 import * as bridge from '../bridge';
 import { t, type Locale } from '../../i18n';
@@ -13,14 +17,14 @@ import { syncAudioElement } from '../../components/preview/audio';
 import { applyClipEq } from '../../components/preview/eq';
 import { sceneTextLayers } from '../../components/text/layers';
 import { clampWeight, fontOption } from '../../components/text/fonts';
-import type { ModalId } from '../modal';
+
 import { type Preferences } from '../../stores/preferences';
-import type { SettingsTab } from '../modals/SettingsModal';
+
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import type { Project } from '../../stores/model';
 import type { DuckWindow } from '../../components/preview/ducking';
 
-export function useAppEffects({ adoptProject, audio, audioDraftRef, audioElements, audioMix, canEdit, commandRef, cueAudio, duration, endBatch, frameSeconds, fullscreenRef, homeSection, importFiles, importVideos, language, latestProject, libraryReady, mixDraftRef, modal, openProjectFile, persistCurrent, pipDraftRef, playDirection, playing, position, preferences, project, projects, ready, recordTimer, recorderRef, refreshAssetUsage, refreshDeleted, refreshLibrary, refreshStorage, scenes, screen, selectedAudioId, selectedPipId, selectedScene, selectedTextLayer, selectionAnchor, setAudioDraft, setBeatTempo, setError, setExportJob, setExportProgress, setExportSettings, setExporter, setFontTick, setMixDraft, setName, setPipDraft, setPosition, setPreviewScene, setPrimarySelected, setReady, setScreen, setSelectedAudioId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId, setSession, setTextDraft, settingsTab, videoDuckWindows }: {
+export function useAppEffects({adoptProject, audio, audioDraftRef, audioElements, audioMix, canEdit, commandRef, cueAudio, duration, endBatch, frameSeconds, fullscreenRef, importFiles, importVideos, language, latestProject, libraryReady, mixDraftRef, openProjectFile, persistCurrent, pipDraftRef, preferences, project, projects, ready, recordTimer, recorderRef, refreshAssetUsage, refreshDeleted, refreshLibrary, refreshStorage, scenes, screen, selectedScene, selectedTextLayer, selectionAnchor, setBeatTempo, setError, setExportJob, setExportProgress, setExportSettings, setExporter, setFontTick, setMixDraft, setName, setReady, setScreen, setSession, videoDuckWindows, uiStore, playbackStore, selectionStore, draftsStore}: {
   adoptProject: (next: Session, message: string) => void;
   audio: AudioClip[];
   audioDraftRef: RefObject<AudioClip | null>;
@@ -33,20 +37,15 @@ export function useAppEffects({ adoptProject, audio, audioDraftRef, audioElement
   endBatch: () => void;
   frameSeconds: number;
   fullscreenRef: RefObject<() => void>;
-  homeSection: "home" | "projects";
   importFiles: (files: FileList | File[] | null) => Promise<void>;
   importVideos: (files: FileList | File[] | null) => Promise<void>;
   language: Locale;
   latestProject: RefObject<Project>;
   libraryReady: boolean;
   mixDraftRef: RefObject<AudioMix | null>;
-  modal: ModalId | null;
   openProjectFile: (file: File) => Promise<void>;
   persistCurrent: () => Promise<void>;
   pipDraftRef: RefObject<Scene | null>;
-  playDirection: 1 | -1;
-  playing: boolean;
-  position: number;
   preferences: Preferences;
   project: Project;
   projects: ProjectSummary[];
@@ -59,12 +58,9 @@ export function useAppEffects({ adoptProject, audio, audioDraftRef, audioElement
   refreshStorage: () => void;
   scenes: Scene[];
   screen: "home" | "editor";
-  selectedAudioId: string | null;
-  selectedPipId: string | null;
   selectedScene: Scene | undefined;
   selectedTextLayer: TextLayer;
   selectionAnchor: RefObject<string | null>;
-  setAudioDraft: Dispatch<SetStateAction<AudioClip | null>>;
   setBeatTempo: Dispatch<SetStateAction<number | null>>;
   setError: Dispatch<SetStateAction<string>>;
   setExportJob: Dispatch<SetStateAction<{ name: string; phase: string; }>>;
@@ -74,21 +70,19 @@ export function useAppEffects({ adoptProject, audio, audioDraftRef, audioElement
   setFontTick: Dispatch<SetStateAction<number>>;
   setMixDraft: Dispatch<SetStateAction<AudioMix | null>>;
   setName: Dispatch<SetStateAction<string>>;
-  setPipDraft: Dispatch<SetStateAction<Scene | null>>;
-  setPosition: Dispatch<SetStateAction<number>>;
-  setPreviewScene: Dispatch<SetStateAction<Scene | null>>;
-  setPrimarySelected: Dispatch<SetStateAction<string | null>>;
   setReady: Dispatch<SetStateAction<boolean>>;
   setScreen: Dispatch<SetStateAction<"home" | "editor">>;
-  setSelectedAudioId: Dispatch<SetStateAction<string | null>>;
-  setSelectedIds: Dispatch<SetStateAction<string[]>>;
-  setSelectedPipId: Dispatch<SetStateAction<string | null>>;
-  setSelectedTextLayerId: Dispatch<SetStateAction<string | null>>;
   setSession: Dispatch<SetStateAction<Session>>;
-  setTextDraft: Dispatch<SetStateAction<{ title: string; subtitle: string; }>>;
-  settingsTab: SettingsTab;
   videoDuckWindows: DuckWindow[];
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
+  selectionStore: SelectionStore;
+  draftsStore: DraftsStore;
 }) {
+  const { homeSection, modal, setTextDraft, settingsTab } = useUi(uiStore);
+  const { playDirection, playing, position, setPosition } = usePlayback(playbackStore);
+  const { selectedAudioId, selectedPipId, setPrimarySelected, setSelectedAudioId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId } = useSelection(selectionStore);
+  const { setAudioDraft, setPipDraft, setPreviewScene } = useDrafts(draftsStore);
   useEffect(() => { bridge.initialize().then(s => { setSession(s); latestProject.current = s.project; setName(s.project.name); }).catch(e => setError(t('Recovery could not be loaded. {e}', { e: messageFor(e) }))).finally(() => setReady(true)); bridge.exporterAvailable().then(setExporter).catch(() => setExporter(false)); }, []);
   useEffect(() => { const listener = bridge.onExportProgress(percent => { setExportJob(job => ({ ...job, phase: 'Encoding video' })); setExportProgress(current => Math.max(current, 72 + Math.round(Math.min(99, percent) * .27))); }); return () => { void listener?.then(unlisten => unlisten()); }; }, []);
   useEffect(() => {

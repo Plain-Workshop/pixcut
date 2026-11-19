@@ -1,4 +1,7 @@
-import type { ModalId } from '../modal';
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useSelection, type SelectionStore } from '../selection-store';
+
 import { projectCount, t } from '../../i18n';
 import { useEffect, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import * as bridge from '../bridge';
@@ -6,7 +9,7 @@ import { messageFor } from '../errors';
 import { emptyProject, type Command, type Project } from '../../stores/model';
 import { deleteLibraryProject, deleteProjectGroup, duplicateLibraryProject, getLibraryProject, listDeletedProjects, renameProjectGroup, restoreLibraryProject, saveLibraryProject, setProjectFavorite, setProjectGroup, trashLibraryProject, type ProjectSummary } from '../../stores/library';
 
-export function useProjectLibrary({ projects, setProjects, project, latestProject, canEdit, launchProject, refreshLibrary, persistCurrent, run, setScreen, setModal, setNotice, setError, setSelectedIds, setPrimarySelected, selectionAnchor, setPosition }: {
+export function useProjectLibrary({projects, setProjects, project, latestProject, canEdit, launchProject, refreshLibrary, persistCurrent, run, setScreen, setNotice, setError, selectionAnchor, uiStore, playbackStore, selectionStore}: {
   projects: ProjectSummary[];
   setProjects: Dispatch<SetStateAction<ProjectSummary[]>>;
   project: Project;
@@ -17,14 +20,16 @@ export function useProjectLibrary({ projects, setProjects, project, latestProjec
   persistCurrent: () => Promise<unknown>;
   run: (command: Command) => Promise<boolean>;
   setScreen: Dispatch<SetStateAction<'home' | 'editor'>>;
-  setModal: Dispatch<SetStateAction<ModalId | null>>;
   setNotice: Dispatch<SetStateAction<string>>;
   setError: Dispatch<SetStateAction<string>>;
-  setSelectedIds: Dispatch<SetStateAction<string[]>>;
-  setPrimarySelected: Dispatch<SetStateAction<string | null>>;
   selectionAnchor: RefObject<string | null>;
-  setPosition: Dispatch<SetStateAction<number>>;
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
+  selectionStore: SelectionStore;
 }) {
+  const { setModal } = useUi(uiStore);
+  const { setPosition } = usePlayback(playbackStore);
+  const { setSelectedIds, setPrimarySelected } = useSelection(selectionStore);
   const [projectMenu, setProjectMenu] = useState<string | null>(null), [deleteTarget, setDeleteTarget] = useState<ProjectSummary | null>(null);
   const [renameTarget, setRenameTarget] = useState<ProjectSummary | null>(null), [renameDraft, setRenameDraft] = useState('');
   const [groupTarget, setGroupTarget] = useState<ProjectSummary | null>(null), [groupDraft, setGroupDraft] = useState('');

@@ -1,3 +1,4 @@
+import { useUi, type UiStore } from '../ui-store';
 import { t } from '../../i18n';
 import { assetRef, storeAssetBlob } from '../../stores/assets';
 import { type DragEvent as ReactDragEvent } from 'react';
@@ -9,9 +10,8 @@ import { messageFor } from '../errors';
 import { imageFileData } from '../helpers';
 import { type Dispatch, type SetStateAction, type RefObject } from 'react';
 
-export function useSceneReplacement({ canEdit, setReplacingSceneId, inspectorFlush, pending, latestProject, project, optimisticScene, run, setNotice, setSession, setError, selectedCount, selectedScene, replaceTargetId, replaceInput, reorderRef, setReorderId, setDropTarget, setFileDragActive, dragOverTarget, dropLibraryMedia, scenes }: {
+export function useSceneReplacement({canEdit, inspectorFlush, pending, latestProject, project, optimisticScene, run, setNotice, setSession, setError, selectedCount, selectedScene, replaceTargetId, replaceInput, reorderRef, dragOverTarget, dropLibraryMedia, scenes, uiStore}: {
   canEdit: boolean;
-  setReplacingSceneId: Dispatch<SetStateAction<string | null>>;
   inspectorFlush: RefObject<() => void>;
   pending: RefObject<Promise<boolean>>;
   latestProject: RefObject<Project>;
@@ -26,13 +26,12 @@ export function useSceneReplacement({ canEdit, setReplacingSceneId, inspectorFlu
   replaceTargetId: RefObject<string | null>;
   replaceInput: RefObject<HTMLInputElement | null>;
   reorderRef: RefObject<string | null>;
-  setReorderId: Dispatch<SetStateAction<string | null>>;
-  setDropTarget: Dispatch<SetStateAction<string | null>>;
-  setFileDragActive: Dispatch<SetStateAction<boolean>>;
   dragOverTarget: (event: ReactDragEvent<HTMLElement>, id: string) => void;
   dropLibraryMedia: (event: ReactDragEvent<HTMLElement>) => boolean;
   scenes: Scene[];
+  uiStore: UiStore;
 }) {
+  const { setReplacingSceneId, setReorderId, setDropTarget, setFileDragActive } = useUi(uiStore);
   async function replaceSceneWithAsset(sceneId: string, asset: bridge.ImportedAsset) {
     if (!canEdit) return;
     setReplacingSceneId(sceneId);

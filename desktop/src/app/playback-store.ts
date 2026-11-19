@@ -17,3 +17,4 @@ export const createPlaybackStore = kit.create;
 export const PlaybackProvider = kit.Provider;
 export const useCreatePlaybackStore = kit.useCreate;
 export const usePlayback = kit.useStore;
+export type PlaybackStore = ReturnType<typeof createPlaybackStore>;

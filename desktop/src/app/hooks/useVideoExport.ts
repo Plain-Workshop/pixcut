@@ -1,3 +1,5 @@
+import { useUi, type UiStore } from '../ui-store';
+import { usePlayback, type PlaybackStore } from '../playback-store';
 import { t, videoCount } from '../../i18n';
 import { markProjectExported } from '../../stores/library';
 import { projectFingerprint } from '../../stores/fingerprint';
@@ -17,7 +19,7 @@ import { messageFor } from '../errors';
 import type { TransitionType } from '../../stores/model';
 import { type Dispatch, type SetStateAction, type RefObject } from 'react';
 
-export function useVideoExport({ saveCredits, musicCredits, exportAudio, exportCancelled, setExportProgress, exportCodec, exportContainer, exportSpeed, useHardware, exportFilename, sceneForPreview, setError, previewTransition, resolvedNextScene, displayAspect, previewLocalSeconds, project, activeSize, renderOverlays, position, videoScene, sceneVideo, renderPipScenes, activeFormat, setNotice, latestProject, presentRefs, exportCodecs, commitElement, inspectorFlush, pending, exportFormatIds, exportResolution, exportQuality, exportFps, setCancellingExport, setExporting, setExportElapsed, setExportJob, setPlaying, setModal }: {
+export function useVideoExport({saveCredits, musicCredits, exportAudio, exportCancelled, setExportProgress, exportCodec, exportContainer, exportSpeed, useHardware, exportFilename, sceneForPreview, setError, previewTransition, resolvedNextScene, displayAspect, previewLocalSeconds, project, activeSize, renderOverlays, videoScene, sceneVideo, renderPipScenes, activeFormat, setNotice, latestProject, presentRefs, exportCodecs, commitElement, inspectorFlush, pending, exportFormatIds, exportResolution, exportQuality, exportFps, setCancellingExport, setExporting, setExportElapsed, setExportJob, uiStore, playbackStore}: {
   exportAudio: boolean;
   exportCancelled: RefObject<boolean>;
   setExportProgress: Dispatch<SetStateAction<number>>;
@@ -35,7 +37,6 @@ export function useVideoExport({ saveCredits, musicCredits, exportAudio, exportC
   project: Project;
   activeSize: { width: number; height: number; };
   renderOverlays: ElementLayer[];
-  position: number;
   videoScene: Scene | null;
   sceneVideo: RefObject<HTMLVideoElement | null>;
   renderPipScenes: Scene[];
@@ -57,9 +58,11 @@ export function useVideoExport({ saveCredits, musicCredits, exportAudio, exportC
   setExporting: Dispatch<SetStateAction<boolean>>;
   setExportElapsed: Dispatch<SetStateAction<number>>;
   setExportJob: Dispatch<SetStateAction<{ name: string; phase: string; }>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  setModal: Dispatch<SetStateAction<"source" | "templates" | "export" | "new" | "shortcuts" | "palette" | "settings" | "delete" | "rename" | "group" | "groups" | "formats" | "missing" | null>>;
+  uiStore: UiStore;
+  playbackStore: PlaybackStore;
 }) {
+  const { setModal } = useUi(uiStore);
+  const { position, setPlaying } = usePlayback(playbackStore);
   /** Writes `<video>-credits.txt` beside each exported video when the project uses music that needs a credit. */
   async function writeCredits(paths: string[], name: string) {
     if (!saveCredits || !exportAudio || !musicCredits.length) return;

@@ -1,3 +1,5 @@
+import { usePlayback, type PlaybackStore } from '../playback-store';
+import { useDrafts, type DraftsStore } from '../drafts-store';
 import { useEffect } from 'react';
 import { playbackPosition } from '../../components/preview/playback-clock';
 import { mediaClockPosition, videoSeekTarget } from '../../components/preview/video-sync';
@@ -13,7 +15,7 @@ import { drawPipClips, drawScene, drawProjectOverlays, drawProjectText, drawTran
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import type { Project, TransitionType } from '../../stores/model';
 
-export function usePreviewPlayback({ activeFormat, activeSize, audioMix, displayAspect, draggingOverlay, duration, frameSeconds, framingStaged, globalTextDraft, latestProject, loop, pipDraft, pipVideoElements, pipVideoScenes, pipVideoSignature, pipVideoSources, pipVideoTick, playDirection, playing, position, positionRef, preview, previewArea, previewLocalSeconds, previewQueue, previewTarget, previewTransition, project, renderOverlays, renderPipScenes, resolvedNextScene, sceneForPreview, sceneVideo, screen, setError, setPlaying, setPosition, setPreviewSize, videoClock, videoScene, videoSync, videoTick }: {
+export function usePreviewPlayback({activeFormat, activeSize, audioMix, displayAspect, draggingOverlay, duration, frameSeconds, framingStaged, globalTextDraft, latestProject, pipVideoElements, pipVideoScenes, pipVideoSignature, pipVideoSources, pipVideoTick, positionRef, preview, previewArea, previewLocalSeconds, previewQueue, previewTarget, previewTransition, project, renderOverlays, renderPipScenes, resolvedNextScene, sceneForPreview, sceneVideo, screen, setError, setPreviewSize, videoClock, videoScene, videoSync, videoTick, playbackStore, draftsStore}: {
   activeFormat: FormatVariant;
   activeSize: { width: number; height: number; };
   audioMix: AudioMix;
@@ -24,16 +26,11 @@ export function usePreviewPlayback({ activeFormat, activeSize, audioMix, display
   framingStaged: boolean;
   globalTextDraft: TextLayer[] | null;
   latestProject: RefObject<Project>;
-  loop: boolean;
-  pipDraft: Scene | null;
   pipVideoElements: RefObject<Map<string, HTMLVideoElement>>;
   pipVideoScenes: Scene[];
   pipVideoSignature: string;
   pipVideoSources: RefObject<Map<string, string>>;
   pipVideoTick: number;
-  playDirection: 1 | -1;
-  playing: boolean;
-  position: number;
   positionRef: RefObject<number>;
   preview: RefObject<HTMLCanvasElement | null>;
   previewArea: RefObject<HTMLDivElement | null>;
@@ -49,15 +46,16 @@ export function usePreviewPlayback({ activeFormat, activeSize, audioMix, display
   sceneVideo: RefObject<HTMLVideoElement | null>;
   screen: "home" | "editor";
   setError: Dispatch<SetStateAction<string>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  setPosition: Dispatch<SetStateAction<number>>;
   setPreviewSize: Dispatch<SetStateAction<{ width: number; height: number; } | null>>;
   videoClock: RefObject<{ activeStart: number; sourceIn: number; speed: number; constant: boolean; duration: number; reverse: boolean; element: HTMLVideoElement; } | null>;
   videoScene: Scene | null;
   videoSync: RefObject<{ sceneId: string | null; needsSync: boolean; }>;
   videoTick: number;
+  playbackStore: PlaybackStore;
+  draftsStore: DraftsStore;
 }) {
-  useEffect(() => { positionRef.current = position; }, [position]);
+  const { loop, playDirection, playing, position, setPlaying, setPosition } = usePlayback(playbackStore);
+  const { pipDraft } = useDrafts(draftsStore);
   useEffect(() => {
     if (!playing) return;
     let frame = 0;

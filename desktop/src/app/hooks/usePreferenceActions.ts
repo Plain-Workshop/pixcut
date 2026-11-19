@@ -1,3 +1,4 @@
+import { usePlayback, type PlaybackStore } from '../playback-store';
 import { DEFAULT_PREFERENCES, type Preferences } from '../../stores/preferences';
 import { secondsToTicks, ticksToSeconds } from '../../stores/model';
 import { editPoints, nextEditPoint } from '../../components/timeline/ruler';
@@ -9,21 +10,20 @@ import { messageFor } from '../errors';
 import type { Project } from '../../stores/model';
 import type { Dispatch, SetStateAction } from 'react';
 
-export function usePreferenceActions({ duration, frameSeconds, position, project, setError, setExporter, setNotice, setPlaying, setPosition, setPreferences, setShowHints, setSnapping, setStorageLabel }: {
+export function usePreferenceActions({duration, frameSeconds, project, setError, setExporter, setNotice, setPreferences, setShowHints, setSnapping, setStorageLabel, playbackStore}: {
   duration: number;
   frameSeconds: number;
-  position: number;
   project: Project;
   setError: Dispatch<SetStateAction<string>>;
   setExporter: Dispatch<SetStateAction<boolean>>;
   setNotice: Dispatch<SetStateAction<string>>;
-  setPlaying: Dispatch<SetStateAction<boolean>>;
-  setPosition: Dispatch<SetStateAction<number>>;
   setPreferences: Dispatch<SetStateAction<Preferences>>;
   setShowHints: Dispatch<SetStateAction<boolean>>;
   setSnapping: Dispatch<SetStateAction<boolean>>;
   setStorageLabel: Dispatch<SetStateAction<string>>;
+  playbackStore: PlaybackStore;
 }) {
+  const { position, setPlaying, setPosition } = usePlayback(playbackStore);
   function updatePreferences(patch: Partial<Preferences>) {
     setPreferences(current => ({ ...current, ...patch }));
   }

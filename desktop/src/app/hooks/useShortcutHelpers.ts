@@ -1,3 +1,4 @@
+import { usePlayback, type PlaybackStore } from '../playback-store';
 import { formatBinding, saveShortcutSettings, type CommandAvailability, type ShortcutSettings as ShortcutSettingsData } from '../../shortcuts/registry';
 import { commandAvailability as resolveAvailability } from '../command-availability';
 import { t } from '../../i18n';
@@ -10,7 +11,7 @@ import type { LaneId } from './useClipEditing';
 import type { ShortcutPlatform } from '../../shortcuts/registry';
 import type { Project } from '../../stores/model';
 
-export function useShortcutHelpers({ audio, audioTargetRef, busy, canEdit, clipEditing, duration, editTargetRef, exporting, lockedLanes, platform, position, project, projectTicks, ready, scenes, screen, selectedAudio, selectedScene, selectedScenes, session, setError, setNotice, setShortcuts, setShowHints, shortcuts, updatePreferences }: {
+export function useShortcutHelpers({audio, audioTargetRef, busy, canEdit, clipEditing, duration, editTargetRef, exporting, lockedLanes, platform, project, projectTicks, ready, scenes, screen, selectedAudio, selectedScene, selectedScenes, session, setError, setNotice, setShortcuts, setShowHints, shortcuts, updatePreferences, playbackStore}: {
   audio: AudioClip[];
   audioTargetRef: RefObject<string | null>;
   busy: boolean;
@@ -21,7 +22,6 @@ export function useShortcutHelpers({ audio, audioTargetRef, busy, canEdit, clipE
   exporting: boolean;
   lockedLanes: string[];
   platform: ShortcutPlatform;
-  position: number;
   project: Project;
   projectTicks: number;
   ready: boolean;
@@ -37,7 +37,9 @@ export function useShortcutHelpers({ audio, audioTargetRef, busy, canEdit, clipE
   setShowHints: Dispatch<SetStateAction<boolean>>;
   shortcuts: ShortcutSettingsData;
   updatePreferences: (patch: Partial<Preferences>) => void;
+  playbackStore: PlaybackStore;
 }) {
+  const { position } = usePlayback(playbackStore);
   function shortcutText(id: string) {
     const binding = shortcuts.bindings[id] ?? '';
     return binding ? formatBinding(binding, platform) : 'Unassigned';

@@ -41,3 +41,4 @@ export const createUiStore = kit.create;
 export const UiProvider = kit.Provider;
 export const useCreateUiStore = kit.useCreate;
 export const useUi = kit.useStore;
+export type UiStore = ReturnType<typeof createUiStore>;
