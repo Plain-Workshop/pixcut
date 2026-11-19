@@ -1,3 +1,4 @@
+import { useSceneDerived } from './hooks/useSceneDerived';
 import { useAppEffects } from './hooks/useAppEffects';
 import { useCommandDispatch } from './hooks/useCommandDispatch';
 import { useShortcutHelpers } from './hooks/useShortcutHelpers';
@@ -23,7 +24,7 @@ import { exportOutputFormat } from './export-progress';
 
 
 
-import { applyTextMotion } from '../components/animation/keyframes';
+
 import { KeyframeControls } from '../components/animation/KeyframeControls';
 import { isAssetRef, resolveMediaSource } from '../components/preview/media-url';
 import { assetExists } from '../stores/assets';
@@ -33,8 +34,8 @@ import { ChromaControls } from '../components/inspector/ChromaControls';
 
 
 
-import { timelineOverlays, type TimelineOverlay } from '../components/elements/overlays';
-import { sceneStack, layerZ, newOverlayZ, overlaysForScene } from '../components/elements/stack';
+import { type TimelineOverlay } from '../components/elements/overlays';
+import { newOverlayZ } from '../components/elements/stack';
 import { StackOrder } from '../components/inspector/StackOrder';
 import { actionAudio } from '../components/elements/sound';
 
@@ -153,12 +154,12 @@ import type { ModalId } from './modal';
 import { buildDiagnostics } from './home-support';
 import { runCommand } from './command-runner';
 import { HINTS_KEY } from './export-options';
-import { audioMixOf, videoAudioGain, edit, emptyProject, projectScenes, sceneSeconds, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, type AudioClip, type AudioMix, type Command, type Scene, type Session, type TextLayer, type FormatVariant, type ElementLayer } from '../stores/model';
-import { loadImage, textBoxLayout } from '../components/preview/render';
+import { audioMixOf, videoAudioGain, edit, emptyProject, projectScenes, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, type AudioClip, type AudioMix, type Command, type Scene, type Session, type TextLayer, type FormatVariant, type ElementLayer } from '../stores/model';
+import { loadImage } from '../components/preview/render';
 import { probeVideo } from '../components/preview/video';
-import { layerVisibleAt } from '../components/text/layers';
 
-import { FORMAT_FILTERS, FORMAT_PRESETS, filterFormatGroups, formatSize, groupFormatsByOutput, resolveSceneForFormat } from '../stores/formats';
+
+import { FORMAT_FILTERS, FORMAT_PRESETS, filterFormatGroups, formatSize, groupFormatsByOutput } from '../stores/formats';
 import { messageFor } from './errors';
 import { formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
 import { backfillThumbnails, exportState, listProjects, saveLibraryProject, type ProjectSummary } from '../stores/library';
@@ -467,55 +468,9 @@ export default function App() {
   const view = useEditorViewModel({ project, position, playing, selectedIds, primarySelected, selectedGlobalTextId, selectedPipId, selectedTextLayerId, previewScene, pipDraft });
   const { active, activeStart, selectedScenes, selectedScene, selectedCount, hasSceneSelection, previewTarget, selectedGlobalText, selectedPip, renderPipScenes, pipVideoScenes, activePip, selectedTextLayer } = view;
   const pipVideoSignature = pipVideoScenes.map(clip => `${clip.id}:${clip.image.length}:${clip.videoPoster?.length ?? 0}:${clip.startTicks}:${clip.durationTicks}:${clip.sourceInTicks ?? 0}`).join('|');
-  const allOverlays = useMemo(() => timelineOverlays(project), [project]);
-  const layerWeight = (element: TimelineOverlay) => {
-    if (typeof element.z === 'number') return element.z;
-    if (element.legacySceneId) {
-      const owner = projectScenes(project).find(scene => scene.id === element.legacySceneId);
-      const index = owner?.elements?.findIndex(item => item.id === element.legacyId) ?? 0;
-      return layerZ(element, 'element', Math.max(0, index));
-    }
-    const index = (project.overlays ?? []).findIndex(item => item.id === element.id);
-    return layerZ(element, 'overlay', Math.max(0, index));
-  };
-  const orderedLayers = useMemo(() => [...allOverlays].sort((a, b) => layerWeight(b) - layerWeight(a) || a.startTicks - b.startTicks || a.id.localeCompare(b.id)), [allOverlays]);
-  const layerNumbers = useMemo(() => new Map([...orderedLayers].reverse().map((element, index) => [element.id, index + 1])), [orderedLayers]);
-  const hasMediaOverlays = allOverlays.some(element => element.kind === 'image' || element.kind === 'video');
-  const selectedElement = overlayDraft?.id === selectedElementId ? overlayDraft : allOverlays.find(element => element.id === selectedElementId) ?? null;
-  const renderOverlays = useMemo(() => (project.overlays ?? []).filter(e => e.id !== overlayDraft?.id).concat(overlayDraft ? [overlayDraft] : []), [project.overlays, overlayDraft]);
-  // One stack for everything drawn over the selected scene, so text, elements
-  // and video overlays can be raised or lowered across each other.
-  const sceneLayerStack = useMemo(() => {
-    const owner = overlayDraft?.legacySceneId && overlayDraft.legacyId && selectedScene?.id === overlayDraft.legacySceneId
-      ? { ...selectedScene, elements: (selectedScene.elements ?? []).filter(element => element.id !== overlayDraft.legacyId) }
-      : selectedScene;
-    return sceneStack(owner, overlaysForScene(owner, renderOverlays));
-  }, [selectedScene, renderOverlays, overlayDraft]);
-  const sceneLayerRank = useMemo(() => new Map(sceneLayerStack.map((entry, index) => [`${entry.kind}:${entry.id}`, index])), [sceneLayerStack]);
-  const inspectorScene = useMemo(() => selectedScene ? resolveSceneForFormat(selectedScene, activeFormat) : null, [selectedScene, activeFormat]);
-  const previewLocalSeconds = previewTarget && active && previewTarget.id === active.id ? Math.max(0, position - activeStart) : 0;
-  const videoScene = previewTarget?.mediaKind === 'video' ? previewTarget : null;
-  const textLayerLocal = selectedTextLayer ? (selectedGlobalText ? position : previewLocalSeconds) - ticksToSeconds(selectedTextLayer.startTicks, project.timebase) : 0;
-  const textBox = selectedTextLayer ? textBoxLayout(applyTextMotion(selectedTextLayer, textLayerLocal), displayAspect, activeSize) : null;
-  const selectedTextVisible = selectedTextLayer ? layerVisibleAt(selectedTextLayer, selectedGlobalText ? position : previewLocalSeconds, project.timebase) : false;
-  const textStartTicks = selectedGlobalText
-    ? Math.min(Math.max(0, secondsToTicks(position, project.timebase) - selectedGlobalText.startTicks), Math.max(0, selectedGlobalText.durationTicks - 1))
-    : selectedScene ? Math.min(Math.max(0, secondsToTicks(position - ticksToSeconds(selectedScene.startTicks, project.timebase), project.timebase)), Math.max(0, selectedScene.durationTicks - 1)) : 0;
-  const activeIndex = active ? scenes.findIndex(scene => scene.id === active.id) : -1;
-  const nextScene = activeIndex >= 0 ? scenes[activeIndex + 1] : undefined;
-  const previewTransition = active?.transition && nextScene && previewTarget?.id === active.id
-    ? (() => {
-      const sceneDuration = sceneSeconds(active, project.timebase);
-      const start = Math.max(0, sceneDuration - active.transition!.duration);
-      if (previewLocalSeconds < start) return null;
-      return { type: active.transition!.type, progress: Math.min(1, (previewLocalSeconds - start) / active.transition!.duration), next: nextScene };
-    })()
-    : null;
-  const rawPreviewScene = previewScene ? scenes.find(scene => scene.id === previewScene.id) : undefined;
-  const framingStaged = Boolean(previewScene && rawPreviewScene && (previewScene.imageX !== rawPreviewScene.imageX || previewScene.imageY !== rawPreviewScene.imageY || previewScene.imageZoom !== rawPreviewScene.imageZoom || previewScene.fit !== rawPreviewScene.fit || previewScene.framingBackground !== rawPreviewScene.framingBackground));
-  const resolvedPreviewTarget = previewTarget ? resolveSceneForFormat(overlayDraft?.legacySceneId === previewTarget.id ? { ...previewTarget, elements: previewTarget.elements?.filter(e => e.id !== overlayDraft.legacyId) } : previewTarget, activeFormat) : null;
-  const sceneForPreview = resolvedPreviewTarget && framingStaged && previewScene ? { ...resolvedPreviewTarget, imageX: previewScene.imageX, imageY: previewScene.imageY, imageZoom: previewScene.imageZoom, fit: previewScene.fit, framingBackground: previewScene.framingBackground } : resolvedPreviewTarget;
-  const resolvedNextScene = previewTransition?.next ? resolveSceneForFormat(previewTransition.next, activeFormat) : undefined;
+
+  const { allOverlays, orderedLayers, layerNumbers, hasMediaOverlays, selectedElement, renderOverlays, sceneLayerStack, sceneLayerRank, inspectorScene, previewLocalSeconds, videoScene, textLayerLocal, textBox, selectedTextVisible, textStartTicks, previewTransition, framingStaged, sceneForPreview, resolvedNextScene } = useSceneDerived({ active, activeFormat, activeSize, activeStart, displayAspect, overlayDraft, position, previewScene, previewTarget, project, scenes, selectedElementId, selectedGlobalText, selectedScene, selectedTextLayer });
+
   const filteredScenes = sourceMedia.filter(s => s.name.toLowerCase().includes(mediaQuery.trim().toLowerCase()));
 
   const { sourcePreview, setSourcePreview, previewVideo, sourcePreviewUrl, previewMuted, setPreviewVideoDuration, setPreviewVideoTime, setPreviewVideoPlaying, previewList, previewIndex, previewVideoPlaying, previewVideoTime, previewVideoDuration, previewVolume, previewMedia, switchPreview, togglePreviewPlayback, seekPreview, changePreviewVolume, togglePreviewMute } = useSourcePreview({ modal, setModal, setPlaying, filteredScenes, sourceMedia });
