@@ -1730,3 +1730,9 @@ Not verified: the card animation as a user sees it. The preview pane reports `pr
 - `src/app/keyed-store.ts` (`createStoreKit`), `playback-store.ts`, `ui-store.ts`, `value-context.ts`, `updates-context.ts`, `storage-context.ts`; `tests/ui-stores.test.ts` (7). Largest component is 22 props. `App.tsx` 776 lines.
 - Browser preview: Settings opens on Appearance, Storage and Updates and closes with Escape (the Updates tab shows "PixCut 0.2.2" and the Check button); Home sidebar shows the version and storage line; editor opens; Space plays and pauses; library tabs switch; the Export dialog opens; a scene context menu opens; no errors or warnings were logged.
 - Tests: 645, tsc, build and eslint (0 errors).
+
+## Hooks onto stores, effect order (2026-11-19)
+
+- 645 tests, tsc, build, eslint (0 errors).
+- Browser preview, with per-step undo counts logged (an earlier run of mine over-undid past the template creation and looked like a failure; it was my test): scene duplicate and undo; split and undo; element add, drag (65, 50 px) and undo; right-trim 253 → 202 px and undo to 253; multi-select shows "Editing 3 clips"; 15 bundled music rows; Space plays and shows Pause; no errors or warnings logged.
+- Not verified: the native app's first export on this branch.
