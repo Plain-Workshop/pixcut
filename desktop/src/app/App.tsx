@@ -22,22 +22,10 @@ import { inspectorKind } from './inspector';
 import { ClipContextMenu } from './parts/ClipContextMenu';
 import { Toast, ErrorBanner, ExportJobCard } from './parts/Notices';
 
-
 import { exportOutputFormat } from './export-progress';
-
-
-
-
-
-
 
 import { resolveMediaSource } from '../components/preview/media-url';
 import { assetExists } from '../stores/assets';
-
-
-
-
-
 
 import { type TimelineOverlay } from '../components/elements/overlays';
 import { newOverlayZ } from '../components/elements/stack';
@@ -76,7 +64,6 @@ import { useProjectLibrary } from './hooks/useProjectLibrary';
 import { Suspense, useCallback, useMemo, useEffect, useRef, useState, type DragEvent as ReactDragEvent } from 'react';
 import { AlertTriangle, Link as LinkIcon, Plus, Sparkles, X } from 'lucide-react';
 
-
 import { IconButton } from '../components/IconButton';
 import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
@@ -89,7 +76,6 @@ import { audioMixOf, videoAudioGain, edit, emptyProject, projectScenes, secondsP
 import { loadImage } from '../components/preview/render';
 import { probeVideo } from '../components/preview/video';
 
-
 import { FORMAT_FILTERS, FORMAT_PRESETS, filterFormatGroups, formatSize, groupFormatsByOutput } from '../stores/formats';
 import { messageFor } from './errors';
 import { hasMedia, sortProjects } from './helpers';
@@ -100,7 +86,7 @@ import {
   COMMANDS,
   bindingMatchesEvent,
   detectPlatform,
-  
+
   isTextEntryTarget,
   loadShortcutSettings,
   type ShortcutSettings as ShortcutSettingsData,
@@ -130,7 +116,6 @@ import { usePipLayers } from './hooks/usePipLayers';
 const INITIAL: Session = { project: emptyProject(), canUndo: false, canRedo: false };
 
 const RANGE_NAVIGATION_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
-
 
 export default function App() {
   const [session, setSession] = useState(INITIAL), [screen, setScreen] = useState<'home' | 'editor'>('home');
@@ -416,11 +401,9 @@ export default function App() {
 
   const { updatePreferences, movePlayhead, jumpToEdit, toggleSnapping, resetPreferences, refreshStorage, recheckExporter } = usePreferenceActions({ duration, frameSeconds, position, project, setError, setExporter, setNotice, setPlaying, setPosition, setPreferences, setShowHints, setSnapping, setStorageLabel });
 
-
   const { appVersion, updateState, updateInfo, updateProgress, updateMessage, checkForUpdates, downloadUpdate, restartUpdate, copyDownloadLink } = useUpdates({ automaticUpdates: preferences.automaticUpdates, home: screen === 'home', exporting, setNotice, saveBeforeUpdate: async () => { if (ready) await persistCurrent(); } });
 
   useAppearanceEffects({ language, modal, preferences, setStorageLabel, setSystemDark, settingsTab });
-
 
   function diagnostics() {
     return buildDiagnostics({ appVersion, buildSha: __BUILD_SHA__, buildDate: __BUILD_DATE__, native: bridge.native, platform, project: latestProject.current, exporter, preferences });
@@ -441,7 +424,6 @@ export default function App() {
         : list.filter(item => item.id !== current.id));
     } catch { /* recovery remains the source of truth if a thumbnail cannot be drawn */ }
   }, []);
-
 
   useEffect(() => {
     if (!modal) return;
@@ -466,7 +448,6 @@ export default function App() {
   }), []);
 
   usePreviewPlayback({ activeFormat, activeSize, audioMix, displayAspect, draggingOverlay, duration, frameSeconds, framingStaged, globalTextDraft, latestProject, loop, pipDraft, pipVideoElements, pipVideoScenes, pipVideoSignature, pipVideoSources, pipVideoTick, playDirection, playing, position, positionRef, preview, previewArea, previewLocalSeconds, previewQueue, previewTarget, previewTransition, project, renderOverlays, renderPipScenes, resolvedNextScene, sceneForPreview, sceneVideo, screen, setError, setPlaying, setPosition, setPreviewSize, videoClock, videoScene, videoSync, videoTick });
-
 
   const save = useCallback(async () => {
     if (missingAssets(latestProject.current, presentRefs).length) { setError(t('Relink missing media before saving this project.')); return; }
@@ -499,10 +480,7 @@ export default function App() {
 
   const { shortcutText, availabilityFor, tip, applyShortcuts, dismissHints } = useShortcutHelpers({ audio, audioTargetRef, busy, canEdit, clipEditing, duration, editTargetRef, exporting, lockedLanes, platform, position, project, projectTicks, ready, scenes, screen, selectedAudio, selectedScene, selectedScenes, session, setError, setNotice, setShortcuts, setShowHints, shortcuts, updatePreferences });
 
-
   const { copySceneProperties, notifyPasted, selectTextLayer, selectGlobalText, addProjectText, replaceSceneTextLayers, addElement, selectOverlay, saveOverlay, stageElement, commitElement, updateElement, elementStackPosition, moveElementLayer, reorderLayer, removeElement, beginElementMove, beginElementResize, beginElementRotate, beginOverlayTiming, addBeatAtPlayhead, removeBeat, addTextLayerAtPlayhead, previewInlineText, commitInlineText, cancelInlineText, blurInlineText, fadeAmount } = useTextAndElements({ active, activeSize, activeStart, allOverlays, canEdit, inspectorFlush, latestProject, overlayDraftRef, position, positionRef, previewScene, previewStage, project, projectTicks, run, sceneLayerStack, selectedElement, selectedGlobalText, selectedScene, selectedTextLayer, selectionAnchor, setDraggingOverlay, setEditTarget, setEditingText, setFramingMode, setGlobalTextDraft, setNotice, setOverlayDraft, setPlaying, setPosition, setPreviewScene, setPrimarySelected, setPropertyClipboard, setSelectedElementId, setSelectedGlobalTextId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId, setSnapGuides, setTab, setTextDraft, setTextFocus, snapping, textDraft, textStartTicks });
-
-
 
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -541,7 +519,6 @@ export default function App() {
   }, [contextMenu]);
 
   const { launchProject, startBlank, startWithFormats, toggleFormatPreset, addNewCustomFormat, addCustomFormat, updateFormatSettings, removeFormat, applyFramingToAllFormats, startTemplate, chooseTemplate } = useProjectStarts({ activeFormat, customFormatDraft, latestProject, newCustomFormats, newFormatIds, newFormatSelection, newProjectFps, persistCurrent, preferences, project, run, selectedScene, selectionAnchor, setActiveFormatId, setCustomFormatDraft, setEditingText, setError, setHomeSection, setModal, setNewCustomFormats, setNotice, setPendingTemplate, setPlaying, setPosition, setPreviewScene, setPrimarySelected, setScreen, setSelectedIds });
-
 
   const { deletedProjects, refreshDeleted, restoreProject, purgeProject, batchMode, setBatchMode, batchIds, toggleBatch, endBatch, batchFavorite, batchMove, batchDelete, projectMenu, setProjectMenu, deleteTarget, setDeleteTarget, setRenameTarget, renameDraft, setRenameDraft, groupTarget, setGroupTarget, groupDraft, setGroupDraft, groupDrafts, setGroupDrafts, groupFilter, setGroupFilter, openLibraryProject, duplicateProject, askDeleteProject, askRenameProject, askGroupProject, confirmGroupProject, projectGroups, openGroupManager, saveGroupRename, removeGroup, toggleProjectFavorite, confirmDeleteProject, renameProject, exportLibraryProject } = useProjectLibrary({ projects, setProjects, project, latestProject, canEdit, launchProject, refreshLibrary, persistCurrent, run, setScreen, setModal, setNotice, setError, setSelectedIds, setPrimarySelected, selectionAnchor, setPosition });
 
@@ -602,7 +579,6 @@ export default function App() {
 
   const { importFontFile, removeFont, exportCaptions } = useFontsAndCaptions({ canEdit, fontInput, fontTargetId, latestProject, project, run, setError, setNotice });
 
-
   const { removeAudio, importFiles, stopVoiceover, startVoiceover, stageAudio, commitAudio, detectAudioBeats, snapCutsToBeat, importAudio, chooseAudio, focusAudio, setVideoAudioLevel, commitMix, stageVideoVolume, commitVideoVolume, toggleLaneMute, setLaneMix, beginAudioMove, beginAudioTrim } = useAudioActions({ timelineSnapping: snapping, canEdit, setError, audioInput, projectTicks, setNotice, position, project, audioLaneRef, run, setEditTarget, setSelectedAudioId, setTab, operation, setPlaying, setBusy, scenes, preferences, stageImportedMedia, mediaInput, recordChunks, recorderRef, setRecording, setRecordSeconds, recordTimer, latestProject, positionRef, audioDraftRef, setAudioDraft, setPreviewAudio, selectedAudio, mixDraftRef, setMixDraft, videoVolumeDraftRef, setVideoVolumeDraft, playing, setPosition, editTargetRef, audioTargetRef, setSelectedIds, setPrimarySelected, setSelectedElementId, setSelectedGlobalTextId, setBeatBusy, setBeatTempo, beatTempo });
 
   const { togglePlayback, playForward, playReverse, stepFrame, scrubTo, selectScene, updateSelection, splitAtPlayhead, duplicateSelected, deleteSelected } = useSceneCommands({ activeFormat, audio, audioTargetRef, commitElement, duration, editTarget, editTargetRef, frameSeconds, hasSceneSelection, latestProject, operation, overlayDraftRef, pending, pipDraftRef, playing, position, positionRef, primarySelected, project, removeAudio, removeElement, removePip, replaceSceneTextLayers, run, scenes, selectedAudio, selectedAudioId, selectedElement, selectedGlobalText, selectedIds, selectedPip, selectedScene, selectedScenes, selectedTextLayerId, selectionAnchor, setEditTarget, setEditingText, setGlobalTextDraft, setNotice, setOverlayDraft, setPipDraft, setPlayDirection, setPlaying, setPosition, setPreviewScene, setPrimarySelected, setSelectedAudioId, setSelectedElementId, setSelectedGlobalTextId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId, snapping });
@@ -629,10 +605,8 @@ export default function App() {
 
   const { nativeTimelineAt, nativeSceneAt, importNativePaths, dropNativeOnScene, open, openBrowserProject, openProjectFile, togglePreviewFullscreen, relinkMissing } = useProjectFiles({ latestProject, operation, persistCurrent, preferences, project, projectInput, replaceSceneWithAsset, run, scenes, selectionAnchor, setBusy, setError, setNotice, setPlaying, setPosition, setPrimarySelected, setRelinking, setScreen, setSelectedIds, setSession, stageImportedMedia });
 
-
   const { missingCounts } = useAppEffects({ adoptProject, audio, audioDraftRef, audioElements, audioMix, canEdit, commandRef, cueAudio, duration, endBatch, frameSeconds, fullscreenRef, homeSection, importFiles, importVideos, language, latestProject, libraryReady, mixDraftRef, modal, openProjectFile, persistCurrent, pipDraftRef, playDirection, playing, position, preferences, project, projects, ready, recordTimer, recorderRef, refreshAssetUsage, refreshDeleted, refreshLibrary, refreshStorage, scenes, screen, selectedAudioId, selectedPipId, selectedScene, selectedTextLayer, selectionAnchor, setAudioDraft, setBeatTempo, setError, setExportJob, setExportProgress, setExportSettings, setExporter, setFontTick, setMixDraft, setName, setPipDraft, setPosition, setPreviewScene, setPrimarySelected, setReady, setScreen, setSelectedAudioId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId, setSession, setTextDraft, settingsTab, videoDuckWindows });
   const { openExportModal, exportFilename, saveStillFrame, exportVideo, cancelExport } = useExportFlow({ activeFormat, activeSize, commitElement, displayAspect, exportAudio, exportCancelled, exportCodec, exportCodecs, exportContainer, exportFormatIds, exportFps, exportQuality, exportResolution, exportSettings, exportSpeed, inspectorFlush, latestProject, missing, musicCredits, pending, position, presentRefs, previewLocalSeconds, previewTransition, project, renderOverlays, renderPipScenes, resolvedNextScene, saveCredits, sceneForPreview, sceneVideo, setCancellingExport, setError, setExportCodecs, setExportElapsed, setExportFormatIds, setExportHardware, setExportJob, setExportProgress, setExporting, setHardwareAvailable, setModal, setNotice, setPlaying, useHardware, videoScene });
-
 
   const { requestCloseModal, closeShortcutSettings, runCommandId, commandAvailability } = useCommandDispatch({ addBeatAtPlayhead, addTextLayerAtPlayhead, availabilityFor, chooseImages, clipEditing, closeModalRef, commandRef, deleteSelected, duplicateSelected, duration, fullscreenRef, jumpToEdit, modal, movePlayhead, open, openExportModal, overlayDraftRef, pipDraftRef, playForward, playReverse, position, run, save, scenes, selectionAnchor, setContextMenu, setDeleteTarget, setEditingText, setFramingMode, setGroupDrafts, setGroupTarget, setModal, setNotice, setOverlayDraft, setPendingTemplate, setPipDraft, setPlaying, setPrimarySelected, setRenameTarget, setSafeArea, setSelectedElementId, setSelectedGlobalTextId, setSelectedIds, setSelectedPipId, setSelectedTextLayerId, setShortcutDirty, settingsTab, shortcutDirty, splitAtPlayhead, startBlank, stepFrame, timelineControls, togglePlayback, toggleSnapping });
   useEffect(() => {
@@ -682,14 +656,13 @@ export default function App() {
 
   function templateImage(template: TemplateDefinition) { return templatePreview(template); }
 
-  const renderProjectCard = (entry: ProjectSummary) => <ProjectCard entry={entry} askDeleteProject={askDeleteProject} askGroupProject={askGroupProject} askRenameProject={askRenameProject} batchIds={batchIds} batchMode={batchMode} canEdit={canEdit} duplicateProject={duplicateProject} exportLibraryProject={exportLibraryProject} libraryReady={libraryReady} missingCounts={missingCounts} openLibraryProject={openLibraryProject} project={project} projectMenu={projectMenu} setProjectMenu={setProjectMenu} toggleBatch={toggleBatch} toggleProjectFavorite={toggleProjectFavorite} />;
+  const renderProjectCard = (entry: ProjectSummary) => <ProjectCard key={entry.id} entry={entry} askDeleteProject={askDeleteProject} askGroupProject={askGroupProject} askRenameProject={askRenameProject} batchIds={batchIds} batchMode={batchMode} canEdit={canEdit} duplicateProject={duplicateProject} exportLibraryProject={exportLibraryProject} libraryReady={libraryReady} missingCounts={missingCounts} openLibraryProject={openLibraryProject} project={project} projectMenu={projectMenu} setProjectMenu={setProjectMenu} toggleBatch={toggleBatch} toggleProjectFavorite={toggleProjectFavorite} />;
 
   const audioInspector = <AudioInspector audioLanes={audioLanes} beatBusy={beatBusy} beatTempo={beatTempo} canEdit={canEdit} commitAudio={commitAudio} commitDucking={commitDucking} detectAudioBeats={detectAudioBeats} duckDraft={duckDraft} hasVideoScenes={hasVideoScenes} project={project} projectTicks={projectTicks} recordSeconds={recordSeconds} recording={recording} run={run} selectedAudio={selectedAudio} setDuckDraft={setDuckDraft} setError={setError} setNotice={setNotice} snapCutsToBeat={snapCutsToBeat} stageAudio={stageAudio} startVoiceover={startVoiceover} stopVoiceover={stopVoiceover} />;
 
   const propertyKind = inspectorKind(editTarget, { scene: Boolean(selectedScene), text: Boolean(selectedTextLayer), element: Boolean(selectedElement), audio: Boolean(selectedAudio) });
 
   const elementInspector = <ElementInspector activeSize={activeSize} addSound={addSound} canEdit={canEdit} commitElement={commitElement} elementStackPosition={elementStackPosition} hoverEntrance={hoverEntrance} moveElementLayer={moveElementLayer} position={position} preferences={preferences} previewSound={previewSound} project={project} projectTicks={projectTicks} removeElement={removeElement} sceneLayerStack={sceneLayerStack} selectedElement={selectedElement} setHoverEntrance={setHoverEntrance} setPlaying={setPlaying} setPosition={setPosition} setSoundEffect={setSoundEffect} soundEffect={soundEffect} stageElement={stageElement} updateElement={updateElement} />;
-
 
   const editorModel = { project, scenes, audio, canEdit, run, duration, projectTicks, frameSeconds, preferences, activeSize, setNotice, setError };
 
