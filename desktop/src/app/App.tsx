@@ -1,6 +1,8 @@
 import { ElementInspector } from './parts/ElementInspector';
 import { AudioInspector } from './parts/AudioInspector';
 import { ProjectCard } from './parts/ProjectCard';
+import { UpdatesProvider } from './updates-context';
+import { StorageProvider, type StorageApi } from './storage-context';
 import { PlaybackProvider, useCreatePlaybackStore, usePlayback } from './playback-store';
 import { UiProvider, useCreateUiStore, useUi } from './ui-store';
 import { useAppearanceEffects } from './hooks/useAppearanceEffects';
@@ -386,12 +388,12 @@ export default function App() {
 
   const { updatePreferences, movePlayhead, jumpToEdit, toggleSnapping, resetPreferences, refreshStorage, recheckExporter } = usePreferenceActions({ duration, frameSeconds, position, project, setError, setExporter, setNotice, setPlaying, setPosition, setPreferences, setShowHints, setSnapping, setStorageLabel });
 
-  const { appVersion, updateState, updateInfo, updateProgress, updateMessage, checkForUpdates, downloadUpdate, restartUpdate, copyDownloadLink } = useUpdates({ automaticUpdates: preferences.automaticUpdates, home: screen === 'home', exporting, setNotice, saveBeforeUpdate: async () => { if (ready) await persistCurrent(); } });
+  const updates = useUpdates({ automaticUpdates: preferences.automaticUpdates, home: screen === 'home', exporting, setNotice, saveBeforeUpdate: async () => { if (ready) await persistCurrent(); } });
 
   useAppearanceEffects({ language, modal, preferences, setStorageLabel, setSystemDark, settingsTab });
 
   function diagnostics() {
-    return buildDiagnostics({ appVersion, buildSha: __BUILD_SHA__, buildDate: __BUILD_DATE__, native: bridge.native, platform, project: latestProject.current, exporter, preferences });
+    return buildDiagnostics({ appVersion: updates.appVersion, buildSha: __BUILD_SHA__, buildDate: __BUILD_DATE__, native: bridge.native, platform, project: latestProject.current, exporter, preferences });
   }
 
   function copyDiagnostics() {
@@ -649,6 +651,7 @@ export default function App() {
 
   const elementInspector = <ElementInspector activeSize={activeSize} addSound={addSound} canEdit={canEdit} commitElement={commitElement} elementStackPosition={elementStackPosition} hoverEntrance={hoverEntrance} moveElementLayer={moveElementLayer} preferences={preferences} previewSound={previewSound} project={project} projectTicks={projectTicks} removeElement={removeElement} sceneLayerStack={sceneLayerStack} selectedElement={selectedElement} setHoverEntrance={setHoverEntrance} setSoundEffect={setSoundEffect} soundEffect={soundEffect} stageElement={stageElement} updateElement={updateElement} />;
 
+  const storageApi: StorageApi = { storageUsage, refreshAssetUsage, storageBusy, cleanStorage, storageConfirm, storageNote, storageLabel, refreshStorage };
   const editorModel = { project, scenes, audio, canEdit, run, duration, projectTicks, frameSeconds, preferences, activeSize, setNotice, setError };
 
   const editorActions: EditorActions = { chooseImages, chooseVideo, chooseCustomElement, chooseAudio, dragOverTarget, dropIntoMedia, beginMediaDrag, previewMedia, appendMedia, addMediaPip, selectGlobalText, addProjectText, selectTextLayer, exportCaptions, removeFont, addTextLayerAtPlayhead, hoverLibraryAudio, stopLibraryPreview, focusAudio, copyMusicCredit, addMusic, addSavedTrack, removeSavedTrack, addOnlineMusic, copyMusicCredits, addSound, addRecordedSound, chooseTemplate, templateImage, selectOverlay, addElement, tip, runCommandId, saveStillFrame, togglePreviewFullscreen, beginImagePan, beginTextMove, beginTextResize, beginElementMove, beginElementRotate, beginElementResize, previewInlineText, blurInlineText, cancelInlineText, commitInlineText, shortcutText, scrubTo, togglePlayback, removePip, stagePip, commitPip, stagePipStyle, removeAudio, updateSelection, copySceneProperties, notifyPasted, inspectorFlush, requestReplaceImage, applyFramingToAllFormats, reorderLayer, deleteSelected, duplicateSelected, dropLibraryMedia, beginPlayheadDrag, removeBeat, selectScene, beginOverlayTiming, beginReorder, endReorder, dragOverScene, dropScene, beginFadeDrag, beginSceneTrim, setVideoAudioLevel, commitMix, stageVideoVolume, commitVideoVolume, selectPip, beginPipTiming, toggleLaneMute, setLaneMix, beginAudioMove, beginAudioTrim, stageAudio, commitAudio, addBeatAtPlayhead };
@@ -657,6 +660,8 @@ export default function App() {
     <SelectionProvider store={selectionStore}>
     <LayoutProvider store={layoutStore}>
     <LibraryProvider store={libraryStore}>
+    <UpdatesProvider value={updates}>
+    <StorageProvider value={storageApi}>
     <PlaybackProvider store={playbackStore}>
     <UiProvider store={uiStore}>
     <ExportProvider store={exportStore}>
@@ -676,7 +681,7 @@ export default function App() {
       <input ref={fontInput} type="file" hidden accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" onChange={e => void importFontFile(e.target.files)} />
 
       {screen === 'home' ? <>
-        <HomeSidebar storageLabel={storageLabel} projects={projects} openProject={openLibraryProject} updateState={updateState} updateProgress={updateProgress} updateInfo={updateInfo} appVersion={appVersion} />
+        <HomeSidebar projects={projects} openProject={openLibraryProject} />
 <HomeMain deleted={{ items: deletedProjects, restore: restoreProject, purge: purgeProject }} goProjects={() => setHomeSection('projects')} batch={{ mode: batchMode, ids: batchIds, begin: () => setBatchMode(true), end: endBatch, favorite: batchFavorite, move: batchMove, remove: batchDelete }} openSettings={() => setModal('settings')} libraryReady={libraryReady} shortcutText={shortcutText} openProject={openLibraryProject} open={open} canEdit={canEdit} ready={ready} chooseImages={chooseImages} projects={projects} groupFilter={groupFilter} setGroupFilter={setGroupFilter} projectGroupsList={projectGroupsList} openGroupManager={openGroupManager} matchingProjects={matchingProjects} renderProjectCard={renderProjectCard} visibleProjects={visibleProjects} chooseTemplate={chooseTemplate} templateImage={templateImage} />
       </> : <>
         <EditorHeader goHome={goHome} name={name} canEdit={canEdit} setName={setName} project={project} run={run} status={status} tip={tip} runCommandId={runCommandId} session={session} ready={ready} save={save} scenes={scenes} exporting={exporting} openExportModal={openExportModal} />
@@ -748,7 +753,7 @@ export default function App() {
           <h2 id="modal-title">{t('Command palette')}</h2><p>{t('Every action, searchable. Shortcuts reflect your current settings.')}</p>
           <CommandPalette platform={platform} bindings={shortcuts.bindings} availability={commandAvailability} onRun={runCommandId} onClose={requestCloseModal} />
         </> : modal === 'settings' ? <>
-          <SettingsModal shortcutDirty={shortcutDirty} setNotice={setNotice} preferences={preferences} updatePreferences={updatePreferences} storageUsage={storageUsage} refreshAssetUsage={refreshAssetUsage} storageBusy={storageBusy} cleanStorage={cleanStorage} storageConfirm={storageConfirm} storageNote={storageNote} language={language} setLanguage={setLanguage} resetPreferences={resetPreferences} showHints={showHints} setShowHints={setShowHints} setSnapping={setSnapping} resetLayout={resetLayout} shortcuts={shortcuts} platform={platform} applyShortcuts={applyShortcuts} setShortcutDirty={setShortcutDirty} closeShortcutSettings={closeShortcutSettings} appVersion={appVersion} updateState={updateState} updateInfo={updateInfo} updateMessage={updateMessage} checkForUpdates={checkForUpdates} downloadUpdate={downloadUpdate} updateProgress={updateProgress} restartUpdate={restartUpdate} copyDownloadLink={copyDownloadLink} exporter={exporter} diagnostics={diagnostics} copyDiagnostics={copyDiagnostics} recheckExporter={recheckExporter} storageLabel={storageLabel} refreshStorage={refreshStorage} />
+          <SettingsModal shortcutDirty={shortcutDirty} setNotice={setNotice} preferences={preferences} updatePreferences={updatePreferences} language={language} setLanguage={setLanguage} resetPreferences={resetPreferences} showHints={showHints} setShowHints={setShowHints} setSnapping={setSnapping} resetLayout={resetLayout} shortcuts={shortcuts} platform={platform} applyShortcuts={applyShortcuts} setShortcutDirty={setShortcutDirty} closeShortcutSettings={closeShortcutSettings} exporter={exporter} diagnostics={diagnostics} copyDiagnostics={copyDiagnostics} recheckExporter={recheckExporter} />
         </> : <>
           <ExportModal project={project} duration={duration} scenes={scenes} exportCodecs={exportCodecs} hardwareAvailable={hardwareAvailable} musicCredits={musicCredits} setNotice={setNotice} setError={setError} hasVideoScenes={hasVideoScenes} exportSettings={exportSettings} setExportSettings={setExportSettings} exportOutputs={exportOutputs} exportFormats={exportFormats} exportFilename={exportFilename} exporter={exporter} platform={platform} exporting={exporting} busy={busy} exportVideo={exportVideo} />
         </>}
@@ -762,6 +767,8 @@ export default function App() {
     </ExportProvider>
     </UiProvider>
     </PlaybackProvider>
+    </StorageProvider>
+    </UpdatesProvider>
     </LibraryProvider>
     </LayoutProvider>
     </SelectionProvider>

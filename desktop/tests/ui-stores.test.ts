@@ -60,3 +60,13 @@ describe('store kit', () => {
     expect(b.get().n).toBe(0);
   });
 });
+
+describe('value context', () => {
+  it('hands a value to deep components and refuses to run without a provider', async () => {
+    const { createValueContext } = await import('../src/app/value-context');
+    const { Provider, useValue } = createValueContext<{ name: string }>('Thing');
+    const Show = () => createElement('i', null, useValue().name);
+    expect(renderToStaticMarkup(createElement(Provider, { value: { name: 'ok' } }, createElement(Show)))).toContain('ok');
+    expect(() => renderToStaticMarkup(createElement(Show))).toThrow(/ThingProvider/);
+  });
+});

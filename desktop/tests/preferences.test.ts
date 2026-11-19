@@ -5,6 +5,8 @@ import { DEFAULT_PREFERENCES, loadPreferences, resolveTheme } from '../src/store
 import { SettingsModal } from '../src/app/modals/SettingsModal';
 import { setLocale } from '../src/i18n';
 import { UiProvider, createUiStore } from '../src/app/ui-store';
+import { UpdatesProvider } from '../src/app/updates-context';
+import { StorageProvider } from '../src/app/storage-context';
 import './all-locales';
 
 let store: Record<string, string> = {};
@@ -51,17 +53,18 @@ describe('theme preference', () => {
 
 describe('settings dialog', () => {
   const noop = () => {};
+  const updates = { appVersion: '0.0.0', updateState: 'idle', updateInfo: null, updateMessage: '', checkForUpdates: noop, downloadUpdate: noop, updateProgress: 0, restartUpdate: noop, copyDownloadLink: noop } as never;
+  const storage = { storageUsage: null, refreshAssetUsage: async () => {}, storageBusy: false, cleanStorage: async () => {}, storageConfirm: false, storageNote: null, storageLabel: '', refreshStorage: noop };
   const render = (settingsTab: 'general' | 'appearance' = 'general') => {
     const store = createUiStore();
     store.setters.setSettingsTab(settingsTab);
-    return renderToStaticMarkup(createElement(UiProvider, { store }, createElement(SettingsModal, {
-    shortcutDirty: false, setNotice: noop, preferences: { ...DEFAULT_PREFERENCES, theme: 'system' }, updatePreferences: noop,
-    storageUsage: null, refreshAssetUsage: async () => {}, storageBusy: false, cleanStorage: async () => {}, storageConfirm: false, storageNote: null,
-    language: 'en', setLanguage: noop, resetPreferences: noop, showHints: true, setShowHints: noop, setSnapping: noop, resetLayout: noop,
-    shortcuts: { version: 1, preset: 'pixcut', overrides: {} } as never, platform: 'macos', applyShortcuts: () => true, setShortcutDirty: noop, closeShortcutSettings: noop,
-    appVersion: '0.0.0', updateState: 'idle', updateInfo: null, updateMessage: '', checkForUpdates: noop, downloadUpdate: noop, updateProgress: 0, restartUpdate: noop, copyDownloadLink: noop,
-    exporter: false, diagnostics: () => '', copyDiagnostics: noop, recheckExporter: noop, storageLabel: '', refreshStorage: noop,
-  })));
+    const dialog = createElement(SettingsModal, {
+      shortcutDirty: false, setNotice: noop, preferences: { ...DEFAULT_PREFERENCES, theme: 'system' }, updatePreferences: noop,
+      language: 'en', setLanguage: noop, resetPreferences: noop, showHints: true, setShowHints: noop, setSnapping: noop, resetLayout: noop,
+      shortcuts: { version: 1, preset: 'pixcut', overrides: {} } as never, platform: 'macos', applyShortcuts: () => true, setShortcutDirty: noop, closeShortcutSettings: noop,
+      exporter: false, diagnostics: () => '', copyDiagnostics: noop, recheckExporter: noop,
+    });
+    return renderToStaticMarkup(createElement(UiProvider, { store }, createElement(UpdatesProvider, { value: updates }, createElement(StorageProvider, { value: storage }, dialog))));
   };
 
   it('translates the section navigation', () => {
