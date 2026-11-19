@@ -1,3 +1,6 @@
+import { ElementInspector } from './parts/ElementInspector';
+import { AudioInspector } from './parts/AudioInspector';
+import { ProjectCard } from './parts/ProjectCard';
 import { useAppearanceEffects } from './hooks/useAppearanceEffects';
 import { usePreferenceActions } from './hooks/usePreferenceActions';
 import { useSceneDerived } from './hooks/useSceneDerived';
@@ -11,15 +14,15 @@ import { useProjectFiles } from './hooks/useProjectFiles';
 import { useExportFlow } from './hooks/useExportFlow';
 import { useTextAndElements } from './hooks/useTextAndElements';
 import { creditForClipName } from '../stores/music-library';
-import { SOUND_EFFECTS, type SoundEffectId } from '../components/elements/sound-effects';
+import { type SoundEffectId } from '../components/elements/sound-effects';
 import { creditForRecordedClip, loadRecordedSounds, type RecordedSound } from '../stores/sound-library';
-import { ElementTextField } from '../components/elements/ElementTextField';
+
 import { inspectorKind } from './inspector';
-import { presetSize } from '../components/elements/designer';
+
 import { ClipContextMenu } from './parts/ClipContextMenu';
 import { Toast, ErrorBanner, ExportJobCard } from './parts/Notices';
-import { BehaviorControls } from '../components/elements/BehaviorControls';
-import { ELEMENT_CATALOG, elementPreset, elementDisplayName } from '../components/elements/catalog';
+
+
 import { exportOutputFormat } from './export-progress';
 
 
@@ -27,25 +30,25 @@ import { exportOutputFormat } from './export-progress';
 
 
 
-import { KeyframeControls } from '../components/animation/KeyframeControls';
-import { isAssetRef, resolveMediaSource } from '../components/preview/media-url';
+
+import { resolveMediaSource } from '../components/preview/media-url';
 import { assetExists } from '../stores/assets';
 
-import { MaskControls } from '../components/inspector/MaskControls';
-import { ChromaControls } from '../components/inspector/ChromaControls';
+
+
 
 
 
 import { type TimelineOverlay } from '../components/elements/overlays';
 import { newOverlayZ } from '../components/elements/stack';
-import { StackOrder } from '../components/inspector/StackOrder';
+
 import { actionAudio } from '../components/elements/sound';
 
 import { LatestRenderQueue } from '../components/preview/render-queue';
 import { loadMediaBin, saveMediaBin, uniqueMediaSources } from '../stores/media-bin';
 import { missingAssets, projectAssetRefs } from '../stores/missing-assets';
 
-import { formatCount, isLocale, mediaFileCount, sceneCount, setLocale, t, loadLocale, type Locale } from '../i18n';
+import { isLocale, mediaFileCount, setLocale, t, loadLocale, type Locale } from '../i18n';
 
 import { audibleVideoWindows } from '../components/preview/ducking';
 import { AudioSource } from '../components/preview/AudioSource';
@@ -58,7 +61,7 @@ import { LayoutProvider, useCreateLayoutStore, useLayout } from './layout-store'
 import { EditorModelProvider } from './editor-model';
 import { EditorViewProvider, useEditorViewModel } from './editor-view';
 import { EditorActionsProvider, type EditorActions } from './editor-actions';
-import { RangeField } from '../components/inspector/NumberField';
+
 import { useClipEditing } from './hooks/useClipEditing';
 
 import { type TimelineControls } from './screens/TimelinePanel';
@@ -69,85 +72,11 @@ import { useStagePointer } from './hooks/useStagePointer';
 
 import { useSourcePreview } from './hooks/useSourcePreview';
 import { useProjectLibrary } from './hooks/useProjectLibrary';
-import { ELEMENT_LABEL_DEFAULTS } from '../components/elements/symbols';
+
 import { Suspense, useCallback, useMemo, useEffect, useRef, useState, type DragEvent as ReactDragEvent } from 'react';
-import {
-  AudioLines, 
-  AlertTriangle,
-  Check,
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  Clapperboard,
-  
-  Command as 
-  Copy,
-  Download,
-  
-  FolderOpen,
-  
-  
-  
-  
-  
-  Layers,
-  Link as LinkIcon,
-  
-  
-  
-  
-  
-  
-  
-  Magnet,
-  
-  MoreHorizontal,
-  Music,
-  Mic,
-  
-  Pencil,
-  Play,
-  
-  Plus,
-  
-  
-  RotateCcw,
-  
-  
-  
-  
-  
-  
-  
-  Sparkles,
-  Square,
-  
-  Star,
-  
-  Trash2,
-  
-  
-  
-  
-  
-  
-  
-  
-  X,
-  
-  
-  
-} from 'lucide-react';
-import { ElementPreview } from '../components/elements/ElementPreview';
-import { animationSelection, isContinuousMotion, ELEMENT_ANIMATIONS } from '../components/elements/motion';
+import { AlertTriangle, Link as LinkIcon, Plus, Sparkles, X } from 'lucide-react';
+
+
 import { IconButton } from '../components/IconButton';
 import { CommandPalette } from '../components/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../components/shortcuts/ShortcutHelp';
@@ -156,15 +85,15 @@ import type { ModalId } from './modal';
 import { buildDiagnostics } from './home-support';
 import { runCommand } from './command-runner';
 import { HINTS_KEY } from './export-options';
-import { audioMixOf, videoAudioGain, edit, emptyProject, projectScenes, secondsPerTick, secondsToTicks, ticksToSeconds, timecode, totalDuration, totalTicks, type AudioClip, type AudioMix, type Command, type Scene, type Session, type TextLayer, type FormatVariant, type ElementLayer } from '../stores/model';
+import { audioMixOf, videoAudioGain, edit, emptyProject, projectScenes, secondsPerTick, secondsToTicks, ticksToSeconds, totalDuration, totalTicks, type AudioClip, type AudioMix, type Command, type Scene, type Session, type TextLayer, type FormatVariant, type ElementLayer } from '../stores/model';
 import { loadImage } from '../components/preview/render';
 import { probeVideo } from '../components/preview/video';
 
 
 import { FORMAT_FILTERS, FORMAT_PRESETS, filterFormatGroups, formatSize, groupFormatsByOutput } from '../stores/formats';
 import { messageFor } from './errors';
-import { formatBytes, hasMedia, relativeTime, sortProjects } from './helpers';
-import { backfillThumbnails, exportState, listProjects, saveLibraryProject, type ProjectSummary } from '../stores/library';
+import { hasMedia, sortProjects } from './helpers';
+import { backfillThumbnails, listProjects, saveLibraryProject, type ProjectSummary } from '../stores/library';
 import { loadPreferences, resolveTheme, type Preferences } from '../stores/preferences';
 import { TEMPLATES, templatePreview, type TemplateDefinition } from '../templates/catalog';
 import {
@@ -190,7 +119,7 @@ import { PreviewPanel } from './screens/PreviewPanel';
 import { InspectorPanel } from './screens/InspectorPanel';
 import { EditorHeader } from './screens/EditorHeader';
 import { HomeMain } from './screens/HomeMain';
-import { ProjectThumb } from '../components/ProjectThumb';
+
 import { HomeSidebar } from './screens/HomeSidebar';
 
 import { useSceneReplacement } from './hooks/useSceneReplacement';
@@ -201,9 +130,6 @@ import { usePipLayers } from './hooks/usePipLayers';
 const INITIAL: Session = { project: emptyProject(), canUndo: false, canRedo: false };
 
 const RANGE_NAVIGATION_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
-// Codecs use different CRF scales; ProRes maps the value to a 422 profile.
-const ELEMENT_COLORS = ['#9D7CFF', '#FF7A9E', '#FFD166', '#6BE7FF', '#7CF0B4', '#FFFFFF'];
-const elementName = elementDisplayName;
 
 
 export default function App() {
@@ -756,135 +682,14 @@ export default function App() {
 
   function templateImage(template: TemplateDefinition) { return templatePreview(template); }
 
-  function renderProjectCard(entry: ProjectSummary) {
-    const active = entry.id === project.id;
-    return <div className={`project-card ${active ? 'active' : ''} ${projectMenu === entry.id ? 'menu-open' : ''}`} key={entry.id}>
-      <button className={`project-open ${batchMode && batchIds.includes(entry.id) ? 'batch-selected' : ''}`} aria-pressed={batchMode ? batchIds.includes(entry.id) : undefined} onClick={() => batchMode ? toggleBatch(entry.id) : void openLibraryProject(entry)} disabled={!libraryReady || (!batchMode && !canEdit)}>
-        <ProjectThumb key={`${entry.id}-${entry.updatedAt}`} entry={entry}>
-          <div className="project-frame" style={{ aspectRatio: entry.width && entry.height ? `${entry.width} / ${entry.height}` : entry.aspect.replace(':', ' / ') }}>
-            {entry.thumbnail ? <img src={entry.thumbnail} alt="" /> : <span className="project-thumb-fallback"><Clapperboard size={24} /></span>}
-          </div>
-          <span className="project-aspect">{entry.aspect}</span>
-          {missingCounts[entry.id] > 0 && <span className="project-missing" title={t('Some media for this project is missing from this device.')}><AlertTriangle size={10} />{missingCounts[entry.id]} {t('missing')}</span>}
-          {entry.group && <span className="project-group-badge"><FolderOpen size={10} />{entry.group}</span>}
-          {batchMode ? <span className={`project-check ${batchIds.includes(entry.id) ? 'on' : ''}`}><Check size={14} /></span> : <span className="project-play"><Play size={15} fill="currentColor" /></span>}
-        </ProjectThumb>
-        <div className="project-meta">
-          <strong>{entry.name}</strong>
-          <small>{sceneCount(entry.sceneCount)} · {timecode(entry.duration, entry.timebase)}</small>
-          {entry.formats && entry.formats.length > 0 && <span className="project-formats" title={entry.formats.map(format => `${format.name} · ${format.width}×${format.height}`).join('\n')}>
-            {[...new Set(entry.formats.map(format => format.aspect))].slice(0, 4).map(aspect => <span className="project-format-chip" key={aspect}>{aspect}</span>)}
-            {entry.formats.length > 1 && <span className="project-format-count">{formatCount(entry.formats.length)}</span>}
-          </span>}
-          <span className="project-status"><span className="status-dot" /> {active ? t('Open now') : t('Edited {time}', { time: relativeTime(entry.updatedAt) })}</span>
-          {(() => { const state = exportState(entry); return <span className={`project-export ${state}`}>{state === 'never' ? t('Not exported yet') : state === 'changed' ? t('Changed since export {time}', { time: relativeTime(entry.exportedAt ?? 0) }) : t('Exported {time}', { time: relativeTime(entry.exportedAt ?? 0) })}</span>; })()}
-        </div>
-      </button>
-      {!batchMode && <div className="project-quick" role="group" aria-label={t('Quick actions for {name}', { name: entry.name })}>
-        <button aria-label={t('Export {name}', { name: entry.name })} title={t('Export project file')} onClick={() => void exportLibraryProject(entry)}><Download size={13} /></button>
-        <button aria-label={t('Duplicate {name}', { name: entry.name })} title={t('Duplicate')} disabled={!canEdit} onClick={() => void duplicateProject(entry)}><Copy size={13} /></button>
-        <button aria-label={t('Rename {name}', { name: entry.name })} title={t('Rename…')} disabled={!canEdit} onClick={() => askRenameProject(entry)}><Pencil size={13} /></button>
-      </div>}
-      {!batchMode && <button className={`project-favorite ${entry.favorite ? 'active' : ''}`} aria-label={entry.favorite ? `Remove ${entry.name} from favorites` : `Add ${entry.name} to favorites`} aria-pressed={Boolean(entry.favorite)} onClick={() => void toggleProjectFavorite(entry)}><Star size={15} fill={entry.favorite ? 'currentColor' : 'none'} /></button>}
-      {!batchMode && <button className="project-actions" data-project-actions={entry.id} aria-label={t('Actions for {name}', { name: entry.name })} aria-haspopup="menu" aria-expanded={projectMenu === entry.id} onClick={() => setProjectMenu(id => id === entry.id ? null : entry.id)}><MoreHorizontal size={16} /></button>}
-      {projectMenu === entry.id && <div className="project-menu" data-project-menu={entry.id} role="menu" aria-label={t('{name} actions', { name: entry.name })}>
-        <span className="project-menu-heading">{entry.name}</span>
-        <button role="menuitem" onClick={() => void openLibraryProject(entry)}><FolderOpen size={14} /><span>{t('Open project')}</span></button>
-        <button role="menuitem" disabled={!canEdit} onClick={() => askRenameProject(entry)}><Pencil size={14} /><span>{t('Rename…')}</span></button>
-        <button role="menuitem" onClick={() => void toggleProjectFavorite(entry)}><Star size={14} /><span>{entry.favorite ? t('Remove from favorites') : t('Add to favorites')}</span></button>
-        <button role="menuitem" disabled={!canEdit} onClick={() => askGroupProject(entry)}><Layers size={14} /><span>{entry.group ? t('Group: {name}', { name: entry.group }) : t('Move to group…')}</span></button>
-        <button role="menuitem" disabled={!canEdit} onClick={() => void duplicateProject(entry)}><Copy size={14} /><span>{t('Duplicate')}</span></button>
-        <button role="menuitem" onClick={() => void exportLibraryProject(entry)}><Download size={14} /><span>{t('Export project file')}</span></button>
-        <button role="menuitem" className="danger" onClick={() => askDeleteProject(entry)}><Trash2 size={14} /><span>{t('Move to Recently deleted…')}</span></button>
-      </div>}
-    </div>;
-  }
+  const renderProjectCard = (entry: ProjectSummary) => <ProjectCard entry={entry} askDeleteProject={askDeleteProject} askGroupProject={askGroupProject} askRenameProject={askRenameProject} batchIds={batchIds} batchMode={batchMode} canEdit={canEdit} duplicateProject={duplicateProject} exportLibraryProject={exportLibraryProject} libraryReady={libraryReady} missingCounts={missingCounts} openLibraryProject={openLibraryProject} project={project} projectMenu={projectMenu} setProjectMenu={setProjectMenu} toggleBatch={toggleBatch} toggleProjectFavorite={toggleProjectFavorite} />;
 
-  const audioInspector = <>
-              <details className="inspector-section ducking-panel"><summary>{t('Project music mix')}</summary>
-                <label className="checkbox-field"><input type="checkbox" checked={(project.ducking ?? 0) > 0} disabled={!canEdit || !hasVideoScenes} onChange={event => void run({ type: 'ducking', amount: event.target.checked ? 60 : 0 })} /> {t('Lower music under video sound')}</label>
-                {(project.ducking ?? 0) > 0 && <RangeField label={'Reduce music by'} sliderLabel="Music ducking amount" unit="%" min={10} max={90} step={5} value={duckDraft ?? project.ducking ?? 60} disabled={!canEdit} onChange={v => setDuckDraft(v)} onCommit={() => commitDucking(duckDraft ?? project.ducking ?? 60)} />}
-                <p className="note"><AudioLines size={14} /><span>{hasVideoScenes ? t('Lowers all music tracks while video audio is playing.') : t('Add a video clip to duck music under its sound.')}</span></p>
-              </details>
-              <div className="voiceover-panel">
-                <div className="beat-sync-head"><strong>{t('Voiceover')}</strong>{recording ? <span>{recordSeconds.toFixed(1)} s</span> : null}</div>
-                <div className="beat-sync-actions">
-                  {recording
-                    ? <button className="button danger" onClick={stopVoiceover}><Square size={13} /> {t('Stop and add')}</button>
-                    : <button className="button" disabled={!canEdit || !projectTicks} onClick={() => void startVoiceover()}><Mic size={14} /> {t('Record voiceover')}</button>}
-                </div>
-                <small>{recording ? t('Speak now. The take is added at the playhead when you stop.') : t('Records from your microphone at the playhead. Nothing is uploaded.')}</small>
-              </div>
-              {selectedAudio && <div className="audio-editor">
-                <div className="audio-editor-title"><small>{isAssetRef(selectedAudio.data) ? t('Stored locally') : formatBytes(selectedAudio.data.length * .75)} · {t('{duration} s source', { duration: selectedAudio.sourceDurationSeconds.toFixed(1) })}</small></div>
-                {(selectedAudio.credit || creditForClipName(selectedAudio.name)) && <div className="music-credit-note"><Music size={13} /><span>{selectedAudio.credit || creditForClipName(selectedAudio.name)}</span><button className="text-button" onClick={() => void navigator.clipboard.writeText((selectedAudio.credit || creditForClipName(selectedAudio.name))!).then(() => setNotice(t('Music credit copied.'))).catch(() => setError(t('Could not copy the credit. It is listed in the Music panel.')))}><Copy size={12} /> {t('Copy credit')}</button></div>}
-                <label className="field">{t('Audio track')}<select aria-label={t('Audio track')} value={selectedAudio.lane} onChange={event => stageAudio({ lane: Number(event.target.value) })} onBlur={commitAudio}>{audioLanes.map((lane, index) => <option key={lane} value={lane}>{t('Track {number}', { number: index + 1 })}</option>)}{audioLanes.length < 8 && <option value={audioLanes.length}>{t('Track {number}', { number: audioLanes.length + 1 })}</option>}</select></label>
-                <RangeField label={'Start'} sliderLabel="Audio start" unit="s" min={0} max={ticksToSeconds(Math.max(0, projectTicks - selectedAudio.durationTicks), project.timebase)} step={secondsPerTick(project.timebase)} value={ticksToSeconds(selectedAudio.startTicks, project.timebase)} disabled={!canEdit} onChange={v => stageAudio({ startTicks: secondsToTicks(v, project.timebase) })} onCommit={commitAudio} />
-                <RangeField label={'Trim in'} sliderLabel="Audio trim in" unit="s" min={0} max={Math.max(0, selectedAudio.sourceDurationSeconds - secondsPerTick(project.timebase))} step={0.1} value={selectedAudio.sourceInSeconds} disabled={!canEdit} onChange={v => stageAudio({ sourceInSeconds: v })} onCommit={commitAudio} />
-                <RangeField label={'Duration'} sliderLabel="Audio duration" unit="s" min={0.1} max={Math.max(0.1, Math.min(ticksToSeconds(projectTicks - selectedAudio.startTicks, project.timebase), selectedAudio.sourceDurationSeconds - selectedAudio.sourceInSeconds))} step={0.1} value={ticksToSeconds(selectedAudio.durationTicks, project.timebase)} disabled={!canEdit} onChange={v => stageAudio({ durationTicks: secondsToTicks(v, project.timebase) })} onCommit={commitAudio} />
-                <RangeField label={'Volume'} sliderLabel="Audio volume" unit="%" min={0} max={100} step={1} value={Math.round(selectedAudio.volume * 100)} disabled={!canEdit} onChange={v => stageAudio({ volume: v / 100 })} onCommit={commitAudio} />
-                <RangeField label={'Fade in'} sliderLabel="Audio fade in" unit="s" min={0} max={Math.min(30, ticksToSeconds(selectedAudio.durationTicks, project.timebase))} step={0.1} value={selectedAudio.fadeIn} disabled={!canEdit} onChange={v => stageAudio({ fadeIn: v })} onCommit={commitAudio} />
-                <RangeField label={'Fade out'} sliderLabel="Audio fade out" unit="s" min={0} max={Math.min(30, ticksToSeconds(selectedAudio.durationTicks, project.timebase))} step={0.1} value={selectedAudio.fadeOut} disabled={!canEdit} onChange={v => stageAudio({ fadeOut: v })} onCommit={commitAudio} />
-                <details className="inspector-section" open>
-                  <summary>{t('Three-band EQ')}</summary>
-                  {([['low', 'Bass · 120 Hz'], ['mid', 'Voice · 1 kHz'], ['high', 'Treble · 6 kHz']] as const).map(([key, label]) => (
-                    <RangeField key={key} label={label} sliderLabel={`Audio ${key} EQ`} unit="dB" min={-12} max={12} step={1} value={selectedAudio[key] ?? 0} disabled={!canEdit} onChange={v => stageAudio({ [key]: v })} onCommit={commitAudio} />
-                  ))}
-                  <button className="button" disabled={!canEdit || !selectedAudio.low && !selectedAudio.mid && !selectedAudio.high} onClick={() => { stageAudio({ low: 0, mid: 0, high: 0 }); window.setTimeout(commitAudio, 0); }}><RotateCcw size={13} /> {t('Reset EQ')}</button>
-                </details>
-                <div className="beat-sync">
-                  <div className="beat-sync-head"><strong>{t('Beat tools')}</strong>{beatTempo ? <span>{beatTempo} BPM</span> : null}</div>
-                  <div className="beat-sync-actions">
-                    <button className="button" disabled={!canEdit || beatBusy} onClick={() => void detectAudioBeats()}><AudioLines size={14} />{beatBusy ? t('Listening…') : t('Detect beats')}</button>
-                    <button className="button" disabled={!canEdit || beatBusy} onClick={() => void snapCutsToBeat()}><Magnet size={14} />{t('Snap cuts')}</button>
-                  </div>
-                  <small>{t('Detect beat markers, then align cuts to the rhythm.')}</small>
-                </div>
+  const audioInspector = <AudioInspector audioLanes={audioLanes} beatBusy={beatBusy} beatTempo={beatTempo} canEdit={canEdit} commitAudio={commitAudio} commitDucking={commitDucking} detectAudioBeats={detectAudioBeats} duckDraft={duckDraft} hasVideoScenes={hasVideoScenes} project={project} projectTicks={projectTicks} recordSeconds={recordSeconds} recording={recording} run={run} selectedAudio={selectedAudio} setDuckDraft={setDuckDraft} setError={setError} setNotice={setNotice} snapCutsToBeat={snapCutsToBeat} stageAudio={stageAudio} startVoiceover={startVoiceover} stopVoiceover={stopVoiceover} />;
 
-              </div>}
-  </>;
   const propertyKind = inspectorKind(editTarget, { scene: Boolean(selectedScene), text: Boolean(selectedTextLayer), element: Boolean(selectedElement), audio: Boolean(selectedAudio) });
 
-  const elementInspector = selectedElement && <div className="element-controls">
-                <div className="element-controls-head"><strong>{elementName(selectedElement)}</strong><button className="text-button danger" onClick={() => removeElement(selectedElement.id)}><Trash2 size={12} /> {t('Delete')}</button></div>
-                {!selectedElement.presetId && !['image','video'].includes(selectedElement.kind) && <label className="field">{t('Replace old decoration')}<select aria-label={t('Replace old decoration')} value="" onChange={event => { const preset = ELEMENT_CATALOG.find(p => p.id === event.target.value); if (preset) updateElement({ kind:preset.kind,presetId:preset.id,label:preset.text,color:preset.color,animation:preset.animation,...presetSize(preset,activeSize) }); }}><option value="">{t('Choose a current element…')}</option>{ELEMENT_CATALOG.filter(p => ['Social','Titles'].includes(p.category)).map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></label>}
-                {(selectedElement.presetId || ELEMENT_LABEL_DEFAULTS[selectedElement.kind] !== undefined) && <ElementTextField key={selectedElement.id} value={selectedElement.label ?? elementPreset(selectedElement)?.text ?? ELEMENT_LABEL_DEFAULTS[selectedElement.kind] ?? ''} stage={label => stageElement({ label })} commit={commitElement} />}
-                {selectedElement.kind !== 'image' && selectedElement.kind !== 'video' && <div className="element-color-row">{ELEMENT_COLORS.map(color => <button key={color} className={`element-color ${selectedElement.color === color ? 'active' : ''}`} style={{ background: color }} aria-label={t('Element color {color}', { color })} onClick={() => updateElement({ color })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} />)}</div>}
-                {selectedElement.kind === 'video' && <p className="note">{t('Overlay audio is muted. Add music on an audio track.')}</p>}
-                {sceneLayerStack.length > 1 && <StackOrder position={elementStackPosition(selectedElement)} total={sceneLayerStack.length} disabled={!canEdit} onMove={moveElementLayer} />}
-                <details className="inspector-section" open><summary>{t('Timing')}</summary><div className="overlay-timing">
-                  <label className="field">{t('Start (project seconds)')}<input aria-label={t('Overlay start')} type="number" min="0" max={ticksToSeconds(projectTicks - 1, project.timebase)} step={secondsPerTick(project.timebase)} value={Number(ticksToSeconds(selectedElement.startTicks, project.timebase).toFixed(3))} onChange={event => stageElement({ startTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onBlur={commitElement} onKeyDown={event => { if (event.key === 'Enter') commitElement(); }} /></label>
-                  <label className="field">{t('Duration (seconds)')}<input aria-label={t('Overlay duration')} type="number" min={secondsPerTick(project.timebase)} max={ticksToSeconds(projectTicks - selectedElement.startTicks, project.timebase)} step={secondsPerTick(project.timebase)} value={Number(ticksToSeconds(selectedElement.durationTicks, project.timebase).toFixed(3))} onChange={event => stageElement({ durationTicks: secondsToTicks(Number(event.target.value), project.timebase) })} onBlur={commitElement} onKeyDown={event => { if (event.key === 'Enter') commitElement(); }} /></label>
-                </div></details>
-<details className="inspector-section element-sounds"><summary>{t('Sound')}</summary><label className="field">{t('Sound effect')}<select aria-label={t('Element sound effect')} value={soundEffect} onChange={event => setSoundEffect(event.target.value as SoundEffectId)}>{SOUND_EFFECTS.map(effect => <option key={effect.id} value={effect.id}>{effect.label}</option>)}</select></label><div className="sound-effect-actions"><button className="button" onClick={() => previewSound(soundEffect)}><Play size={13} /> Listen</button><button className="button" onClick={() => void addSound(soundEffect, selectedElement.startTicks)}><Plus size={13} /> At entrance</button>{selectedElement.action && <button className="button" onClick={() => void addSound(soundEffect, selectedElement.startTicks + selectedElement.action!.startTicks)}><Plus size={13} /> At action</button>}</div></details>
-<details className="inspector-section motion-properties" open><summary>{t('Motion')}</summary>
-                <BehaviorControls canvas={activeSize} element={selectedElement} audio={project.audio} update={updateElement} stage={stageElement} commit={commitElement} preview={seconds => { commitElement(); setPosition(Math.min(ticksToSeconds(projectTicks - 1, project.timebase), ticksToSeconds(selectedElement.startTicks, project.timebase) + seconds)); setPlaying(true); }} />
-                <section className="element-motion"><h3>{t('Entrance')}</h3>                <div className="library-label">{t('ENTRANCE')} <span>{ELEMENT_ANIMATIONS.length - 1} motions</span></div>
-                <div className="animation-choices">{ELEMENT_ANIMATIONS.map(([id, label]) => <button key={id} onPointerEnter={()=>setHoverEntrance(id)} onPointerLeave={()=>setHoverEntrance(null)} onFocus={()=>setHoverEntrance(id)} onBlur={()=>setHoverEntrance(null)} aria-pressed={selectedElement.animation === id} className={selectedElement.animation === id ? 'active' : ''} onClick={() => updateElement(animationSelection(id))}><span className="motion-preview"><ElementPreview motionSample kind="name-tag" color={selectedElement.color} animation={id} active={hoverEntrance===id} label={'Aa\nMotion'} reduceMotion={preferences.reduceMotion} /></span><span>{label}</span></button>)}</div>
-                <label className="checkbox-field element-repeat"><input type="checkbox" checked={selectedElement.loop ?? false} disabled={selectedElement.animation === 'none'} onChange={event => updateElement({ loop: event.target.checked })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /> {isContinuousMotion(selectedElement.animation) ? 'Repeat motion' : 'Repeat entrance'}</label>
-                {selectedElement.animation !== 'none' && <label className="field">{t('Entrance duration')}<input aria-label={t('Element animation duration')} type="number" min="0.1" max="5" step="0.1" value={selectedElement.animationDuration ?? .6} onChange={event => stageElement({ animationDuration: Math.max(.1, Math.min(5, Number(event.target.value) || .6)) })} onPointerUp={commitElement} onKeyUp={commitElement} onBlur={commitElement} /></label>}
-                </section>
-                <details className="overlay-action"><summary>{t('Timed action')}</summary><label className="field">{t('Later action')}<select aria-label={t('Element action')} value={selectedElement.action?.kind ?? 'none'} onChange={event => updateElement({ action: event.target.value === 'none' ? undefined : { kind: event.target.value as 'ring', startTicks: Math.min(selectedElement.durationTicks - 1, secondsToTicks(1, project.timebase)), durationTicks: Math.min(selectedElement.durationTicks, secondsToTicks(2, project.timebase)), repeat: false, sound: false } })}><option value="none">{t('None')}</option><option value="ring">{t('Ring / shake')}</option><option value="pulse">{t('Pulse')}</option><option value="float">{t('Float')}</option><option value="spin">{t('Spin')}</option></select></label>
-                {selectedElement.action && <>
-                  <label className="field">{t('Action starts after (seconds)')}<input aria-label={t('Action start')} type="number" min="0" max={ticksToSeconds(selectedElement.durationTicks - 1, project.timebase)} step="0.1" value={ticksToSeconds(selectedElement.action.startTicks, project.timebase)} onChange={event => stageElement({ action: { ...selectedElement.action!, startTicks: secondsToTicks(Number(event.target.value), project.timebase) } })} onBlur={commitElement} onKeyDown={event => { if (event.key === 'Enter') commitElement(); }} /></label>
-                  <label className="field">{t('Action duration (seconds)')}<input aria-label={t('Action duration')} type="number" min="0.1" max={ticksToSeconds(selectedElement.durationTicks - selectedElement.action.startTicks, project.timebase)} step="0.1" value={ticksToSeconds(selectedElement.action.durationTicks, project.timebase)} onChange={event => stageElement({ action: { ...selectedElement.action!, durationTicks: secondsToTicks(Number(event.target.value), project.timebase) } })} onBlur={commitElement} /></label>
-                  <label className="checkbox-field"><input type="checkbox" checked={selectedElement.action.repeat} onChange={event => updateElement({ action: { ...selectedElement.action!, repeat: event.target.checked } })} /> {t('Repeat action')}</label>
-                  {selectedElement.action.kind === 'ring' && <label className="checkbox-field"><input type="checkbox" checked={selectedElement.action.sound} onChange={event => updateElement({ action: { ...selectedElement.action!, sound: event.target.checked } })} /> {t('Bell sound')}</label>}
-                </>}
-                </details>
-</details>
-                <details className="element-adjustments"><summary>{t('Size & position')}</summary>
-                <KeyframeControls layer={selectedElement} playheadSeconds={Math.max(0, position - ticksToSeconds(selectedElement.startTicks, project.timebase))} durationSeconds={ticksToSeconds(selectedElement.durationTicks, project.timebase)} disabled={!canEdit} onChange={keyframes => updateElement({ keyframes })} />
-                {(selectedElement.kind === 'image' || selectedElement.kind === 'video') && <MaskControls mask={selectedElement.mask} disabled={!canEdit} onStage={mask => stageElement({ mask })} onCommit={commitElement} onApply={mask => updateElement({ mask })} />}
-                {(selectedElement.kind === 'image' || selectedElement.kind === 'video') && <ChromaControls chroma={selectedElement.chroma} disabled={!canEdit} onStage={chroma => stageElement({ chroma })} onCommit={commitElement} onApply={chroma => updateElement({ chroma })} />}
+  const elementInspector = <ElementInspector activeSize={activeSize} addSound={addSound} canEdit={canEdit} commitElement={commitElement} elementStackPosition={elementStackPosition} hoverEntrance={hoverEntrance} moveElementLayer={moveElementLayer} position={position} preferences={preferences} previewSound={previewSound} project={project} projectTicks={projectTicks} removeElement={removeElement} sceneLayerStack={sceneLayerStack} selectedElement={selectedElement} setHoverEntrance={setHoverEntrance} setPlaying={setPlaying} setPosition={setPosition} setSoundEffect={setSoundEffect} soundEffect={soundEffect} stageElement={stageElement} updateElement={updateElement} />;
 
-                <RangeField label={'Opacity'} unit="%" min={0} max={100} step={1} value={selectedElement.opacity} onChange={v => stageElement({ opacity: v })} onCommit={commitElement} />
-                <RangeField label={'Rotation'} unit="°" min={-180} max={180} step={1} value={selectedElement.rotation} onChange={v => stageElement({ rotation: v })} onCommit={commitElement} />
-                <RangeField label="Width" unit="%" min={2} max={100} step={1} value={Math.round(selectedElement.width * 100)} onChange={v => stageElement({ width: v / 100 })} onCommit={commitElement} />
-                <RangeField label="Height" unit="%" min={2} max={100} step={1} value={Math.round(selectedElement.height * 100)} onChange={v => stageElement({ height: v / 100 })} onCommit={commitElement} />
-                <p className="note">Drag a corner handle on the preview to resize (hold Shift to keep proportions); use the round handle above it to rotate (Shift snaps to 15°).</p>
-                </details>
-              </div>;
 
   const editorModel = { project, scenes, audio, canEdit, run, duration, projectTicks, frameSeconds, preferences, activeSize, setNotice, setError };
 
