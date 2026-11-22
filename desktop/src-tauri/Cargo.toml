@@ -25,7 +25,7 @@ pixcut-project = { path = "../crates/project" }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
-rusqlite = { version = "0.41.0", features = ["bundled"] }
+rusqlite = { version = "0.43.0", features = ["bundled"] }
 ureq = { version = "2", features = ["json"] }
 
 [lints]
